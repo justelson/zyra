@@ -72,7 +72,8 @@ export const TimelineToolCallList = memo(({
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
     onOpenFilePath,
-    onViewDiff
+    onViewDiff,
+    onRevealActivity
 }: {
     activities: AssistantActivity[]
     runningCommandCount?: number
@@ -80,6 +81,7 @@ export const TimelineToolCallList = memo(({
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onViewDiff?: (target: AssistantDiffTarget) => void
+    onRevealActivity?: (activityId: string) => void
 }) => {
     const [expanded, setExpanded] = useState(false)
     const [olderMounted, setOlderMounted] = useState(false)
@@ -134,6 +136,7 @@ export const TimelineToolCallList = memo(({
                     toolOutputDefaultMode={toolOutputDefaultMode}
                     onOpenFilePath={onOpenFilePath}
                     onViewDiff={onViewDiff}
+                    onRevealActivity={onRevealActivity}
                 />
             )}
         </div>
@@ -174,5 +177,6 @@ export const TimelineToolCallList = memo(({
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onViewDiff === next.onViewDiff
+        && prev.onRevealActivity === next.onRevealActivity
         && areActivityListsEqual(prev.activities, next.activities)
 })

@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import type { AssistantActivity } from '../src/shared/assistant/contracts'
-import { TimelineThoughtGroup } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
+import { getTimelineEntries } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 
 const activities: AssistantActivity[] = Array.from({ length: 200 }, (_, index) => ({
     id: `bounded-thought-${index}`,
@@ -21,15 +19,11 @@ const activities: AssistantActivity[] = Array.from({ length: 200 }, (_, index) =
 }))
 
 const startedAt = performance.now()
-const markup = renderToStaticMarkup(createElement(TimelineThoughtGroup, { activities }))
+const entries = getTimelineEntries([], activities)
 const elapsedMs = performance.now() - startedAt
 
-assert.equal(markup.includes('Thoughts (200)'), true, 'the collapsed row preserves its useful summary')
-assert.equal(markup.includes('data-state="closed"'), true)
-assert.equal(markup.includes('hidden-markdown-body-0'), false, 'collapsed work cannot mount its first hidden Markdown body')
-assert.equal(markup.includes('hidden-markdown-body-199'), false, 'collapsed work cannot mount its remaining hidden Markdown bodies')
-assert.ok(markup.length < 8_000, `collapsed markup stays bounded; received ${markup.length} characters`)
-assert.ok(elapsedMs < 150, `collapsed work renders within 150ms; received ${elapsedMs.toFixed(2)}ms`)
+assert.deepEqual(entries, [], 'internal model thoughts never create visible chat timeline entries')
+assert.ok(elapsedMs < 150, `hidden internal work is filtered within 150ms; received ${elapsedMs.toFixed(2)}ms`)
 
-console.log(JSON.stringify({ activities: activities.length, markupCharacters: markup.length, renderMs: Number(elapsedMs.toFixed(2)) }, null, 2))
-console.log('Assistant collapsed work bounds: ok')
+console.log(JSON.stringify({ activities: activities.length, visibleEntries: entries.length, filterMs: Number(elapsedMs.toFixed(2)) }, null, 2))
+console.log('Assistant hidden internal work bounds: ok')

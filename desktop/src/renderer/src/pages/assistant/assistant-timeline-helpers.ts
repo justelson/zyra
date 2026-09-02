@@ -69,8 +69,8 @@ export type ParsedUserAttachment = {
 }
 
 export function shouldRenderActivity(activity: AssistantActivity): boolean {
-    return isInternalAssistantActivity(activity)
-        || activity.tone === 'tool'
+    if (isInternalAssistantActivity(activity)) return false
+    return activity.tone === 'tool'
         || activity.tone === 'warning'
         || activity.tone === 'error'
 }
@@ -141,8 +141,14 @@ function isToolLikeActivity(activity: AssistantActivity): boolean {
         || Boolean(readActivityCommandFromPayload(payload, activity.detail))
 }
 
+export function isAssistantConnectionRecoveryActivity(activity: AssistantActivity): boolean {
+    return activity.kind === 'connection.recovery'
+        || activity.kind === 'provider.recovery'
+        || readActivityString(activity.payload?.category) === 'connection-recovery'
+}
+
 export function isIssueActivity(activity: AssistantActivity): boolean {
-    if (isModelNoticeActivity(activity)) return false
+    if (isModelNoticeActivity(activity) || isAssistantConnectionRecoveryActivity(activity)) return false
     if (activity.kind === 'process.stderr' || activity.kind === 'runtime.error') return true
     if (isToolLikeActivity(activity)) return false
     return activity.tone === 'warning' || activity.tone === 'error'
@@ -154,6 +160,7 @@ function getActivityRenderGroupKind(activity: AssistantActivity): 'issue' | 'sub
     if (isModelNoticeActivity(activity)) return null
     if (isContextCompactionActivity(activity)) return null
     if (isCommandCheckpointActivity(activity)) return null
+    if (isAssistantConnectionRecoveryActivity(activity)) return null
     if (isIssueActivity(activity)) return 'issue'
     if (isSubagentActivity(activity)) return 'subagent'
     if (isToolLikeActivity(activity)) return 'tool'
@@ -245,6 +252,26 @@ export function findRelatedCommandActivityId(
         }
     }
     return latestSameTurnCandidate?.id || latestCandidate?.id || null
+}
+
+export function buildCommandCheckpointDisplayActivity(
+    checkpoint: AssistantActivity,
+    activities: AssistantActivity[]
+): AssistantActivity {
+    const relatedCommandActivityId = findRelatedCommandActivityId(checkpoint, activities)
+    const relatedCommand = relatedCommandActivityId
+        ? activities.find((activity) => activity.id === relatedCommandActivityId)
+        : null
+    const command = relatedCommand ? getActivityCommand(relatedCommand) : ''
+
+    return {
+        ...checkpoint,
+        payload: {
+            ...(checkpoint.payload || {}),
+            command: command || checkpoint.summary || 'Command follow-up',
+            relatedCommandActivityId: relatedCommandActivityId || undefined
+        }
+    }
 }
 
 function readActivityText(value: unknown, seen = new WeakSet<object>(), depth = 0): string {
@@ -597,6 +624,7 @@ export function areActivitiesEquivalent(left: AssistantActivity, right: Assistan
         && getActivityPatch(left) === getActivityPatch(right)
         && getActivityStatus(left) === getActivityStatus(right)
         && getActivityElapsed(left) === getActivityElapsed(right)
+        && left.payload?.relatedCommandActivityId === right.payload?.relatedCommandActivityId
 }
 
 export function areActivityListsEqual(left: AssistantActivity[], right: AssistantActivity[]): boolean {

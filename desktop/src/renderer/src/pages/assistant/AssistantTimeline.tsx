@@ -10,8 +10,6 @@ import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
 import {
     TimelineContextCompactionMarker,
-    TimelineCommandCheckpoint,
-    TimelineCommandCheckpointGroup,
     TimelineChatLoadingState,
     TimelineEmptyState,
     TimelineIssueList,
@@ -26,15 +24,18 @@ import {
 } from './AssistantTimelineRows'
 import { TimelineTurnWorkSummary } from './AssistantTimelineWorkSummary'
 import { TimelineVoiceTaskStatus } from './AssistantTimelineVoiceTask'
+import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
 import { AssistantVirtualTimeline } from './AssistantVirtualTimeline'
 import { computeStableAssistantTimelineRows, type StableTimelineRowsState } from './assistant-virtual-timeline-rows'
 import {
+    buildCommandCheckpointDisplayActivity,
     buildTimelineRows,
     countRunningCommandActivities,
     findRelatedCommandActivityId,
     getTimelineActivityDomId,
     getTimelineMessageDomId,
     isCommandCheckpointActivity,
+    isAssistantConnectionRecoveryActivity,
     isContextCompactionActivity,
     isInternalAssistantActivity,
     isIssueActivity,
@@ -227,6 +228,11 @@ function AssistantTimelineImpl({
             .filter(isCommandCheckpointActivity)
             .map((activity) => [activity.id, findRelatedCommandActivityId(activity, activities)] as const)
     ), [activities])
+    const commandCheckpointDisplayById = useMemo(() => new Map(
+        activities
+            .filter(isCommandCheckpointActivity)
+            .map((activity) => [activity.id, buildCommandCheckpointDisplayActivity(activity, activities)] as const)
+    ), [activities])
     const runningCommandCount = useMemo(() => countRunningCommandActivities(activities), [activities])
     const stableRowsStateRef = useRef<StableTimelineRowsState | null>(null)
     const stableRows = useMemo(() => {
@@ -357,11 +363,15 @@ function AssistantTimelineImpl({
         }
         if (row.kind === 'command-checkpoint-group') {
             return (
-                <TimelineCommandCheckpointGroup
+                <TimelineToolCallList
                     key={row.id}
-                    activities={row.activities}
-                    targetActivityIdByCheckpointId={commandCheckpointTargetById}
-                    onRevealCommand={revealActivity}
+                    activities={row.activities.map((activity) => commandCheckpointDisplayById.get(activity.id) || activity)}
+                    runningCommandCount={runningCommandCount}
+                    projectRootPath={projectRootPath}
+                    toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                    onOpenFilePath={onOpenFilePath}
+                    onViewDiff={onViewDiff}
+                    onRevealActivity={revealActivity}
                 />
             )
         }
@@ -387,6 +397,9 @@ function AssistantTimelineImpl({
             )
         }
         if (row.kind === 'activity') {
+            if (isAssistantConnectionRecoveryActivity(row.activity)) {
+                return <AssistantTimelineNetworkRecovery key={row.id} activity={row.activity} />
+            }
             if (isVoiceStrongTaskActivity(row.activity)) {
                 return <TimelineVoiceTaskStatus key={row.id} activity={row.activity} />
             }
@@ -398,13 +411,15 @@ function AssistantTimelineImpl({
             }
             if (isCommandCheckpointActivity(row.activity)) {
                 return (
-                    <TimelineCommandCheckpoint
+                    <TimelineToolCallList
                         key={row.id}
-                        activity={row.activity}
-                        targetActivityId={commandCheckpointTargetById.get(row.activity.id) || null}
-                        onRevealCommand={commandCheckpointTargetById.get(row.activity.id)
-                            ? () => revealActivity(commandCheckpointTargetById.get(row.activity.id)!)
-                            : undefined}
+                        activities={[commandCheckpointDisplayById.get(row.activity.id) || row.activity]}
+                        runningCommandCount={runningCommandCount}
+                        projectRootPath={projectRootPath}
+                        toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                        onOpenFilePath={onOpenFilePath}
+                        onViewDiff={onViewDiff}
+                        onRevealActivity={revealActivity}
                     />
                 )
             }

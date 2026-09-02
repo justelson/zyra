@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, FilePenLine, FileText, MessageSquareQuote, Search, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronRight, FilePenLine, FileText, MessageSquareQuote, Search, Wrench } from 'lucide-react'
 import { parseAssistantHistoryBodyRef, type AssistantActivity, type AssistantHistoryBody, type AssistantUserInputQuestion, type FileChangeKind } from '@shared/assistant/contracts'
 import {
     analyzeAssistantReadResult,
@@ -36,7 +36,8 @@ import {
     getActivityTitle,
     getCreatedFilePaths,
     getTimelineActivityDomId,
-    isCommandActivity
+    isCommandActivity,
+    isCommandCheckpointActivity
 } from './assistant-timeline-helpers'
 import {
     isAbsoluteFilesystemPathLine,
@@ -232,7 +233,8 @@ export const TimelineToolCallCard = memo(({
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
     onOpenFilePath,
-    onViewDiff
+    onViewDiff,
+    onRevealActivity
 }: {
     activity: AssistantActivity
     runningCommandCount?: number
@@ -240,6 +242,7 @@ export const TimelineToolCallCard = memo(({
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onViewDiff?: (target: AssistantDiffTarget) => void
+    onRevealActivity?: (activityId: string) => void
 }) => {
     const historyBodyRef = useMemo(() => parseAssistantHistoryBodyRef(sourceActivity.payload?.historyBodyRef), [sourceActivity])
     const [hydratedBody, setHydratedBody] = useState<AssistantHistoryBody | null>(null)
@@ -269,6 +272,12 @@ export const TimelineToolCallCard = memo(({
     const primaryValue = useMemo(() => getActivityCommand(activity), [activity])
     const title = useMemo(() => getActivityTitle(activity), [activity])
     const status = useMemo(() => getActivityStatus(activity), [activity])
+    const isCommandFollowUp = isCommandCheckpointActivity(activity)
+    const relatedCommandActivityId = typeof activity.payload?.relatedCommandActivityId === 'string'
+        ? activity.payload.relatedCommandActivityId.trim()
+        : ''
+    const opensRelatedCommand = Boolean(isCommandFollowUp && relatedCommandActivityId && onRevealActivity)
+    const followUpStatusLabel = status === 'running' ? 'Running' : status === 'failed' ? 'Failed' : 'Done'
     const elapsed = useMemo(
         () => getActivityElapsed(activity, status === 'running' ? nowIso : null),
         [activity, nowIso, status]
@@ -453,7 +462,7 @@ export const TimelineToolCallCard = memo(({
         : ''
     const commandCompletedWithoutOutput = isCommand && status !== 'running' && !commandHasStoredOutput && !historyBodyRef
     const rawToolCompletedWithoutOutput = isRawTool && status !== 'running' && !rawToolHasStoredOutput && !historyBodyRef
-    const completedWithoutOutput = commandCompletedWithoutOutput || rawToolCompletedWithoutOutput
+    const completedWithoutOutput = !isCommandFollowUp && (commandCompletedWithoutOutput || rawToolCompletedWithoutOutput)
     const terminalOutputText = isCommand ? commandOutputText : rawToolOutputText
     const terminalOutputHeightClass = getTerminalOutputHeightClass(status, runningCommandCount)
     const terminalHasRealOutput = isCommand ? Boolean(filteredOutput) : Boolean(rawToolBodyText)
@@ -463,6 +472,7 @@ export const TimelineToolCallCard = memo(({
         : isRawTool
             ? status === 'running' || rawToolHasStoredOutput
             : true)
+    const canExpandBody = hasExpandableBody && !opensRelatedCommand
     const copyValue = useMemo(() => {
         if (!expanded) return ''
         if (activity.kind === 'user-input.resolved') {
@@ -542,12 +552,19 @@ export const TimelineToolCallCard = memo(({
         }
     }, [historyBodyLoading, historyBodyRef, hydratedBody, sourceActivity.id])
     const handleToggleExpanded = useCallback(() => {
-        if (!hasExpandableBody) return
+        if (!canExpandBody) return
         userChangedExpansionRef.current = true
         const nextExpanded = !expanded
         setExpanded(nextExpanded)
         if (nextExpanded) void hydrateHistoryBody()
-    }, [expanded, hasExpandableBody, hydrateHistoryBody])
+    }, [canExpandBody, expanded, hydrateHistoryBody])
+    const handlePrimaryAction = useCallback(() => {
+        if (opensRelatedCommand) {
+            onRevealActivity?.(relatedCommandActivityId)
+            return
+        }
+        handleToggleExpanded()
+    }, [handleToggleExpanded, onRevealActivity, opensRelatedCommand, relatedCommandActivityId])
 
     useEffect(() => {
         if (status !== 'running' || isRead) return
@@ -557,16 +574,16 @@ export const TimelineToolCallCard = memo(({
     }, [isRead, status])
 
     useLayoutEffect(() => {
-        if (!isTerminalLikeTool || !expanded || !terminalOutputText) return
+        if (!isTerminalLikeTool || !canExpandBody || !expanded || !terminalOutputText) return
         const element = commandOutputViewportRef.current
         if (!element) return
         element.scrollTop = element.scrollHeight
-    }, [expanded, isTerminalLikeTool, terminalOutputHeightClass, terminalOutputText])
+    }, [canExpandBody, expanded, isTerminalLikeTool, terminalOutputHeightClass, terminalOutputText])
 
     useEffect(() => {
-        if (!isTerminalLikeTool || status !== 'running' || userChangedExpansionRef.current) return
+        if (!isTerminalLikeTool || !canExpandBody || status !== 'running' || userChangedExpansionRef.current) return
         setExpanded(toolOutputDefaultMode === 'expanded')
-    }, [isTerminalLikeTool, status, toolOutputDefaultMode])
+    }, [canExpandBody, isTerminalLikeTool, status, toolOutputDefaultMode])
 
     useEffect(() => {
         if (!isTerminalLikeTool) {
@@ -608,10 +625,11 @@ export const TimelineToolCallCard = memo(({
         >
             <button
                 type="button"
-                onClick={handleToggleExpanded}
+                onClick={handlePrimaryAction}
+                title={opensRelatedCommand ? 'Go to original command' : undefined}
                 className={cn(
                     'group relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg text-left transition-colors',
-                    hasExpandableBody ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'
+                    canExpandBody || opensRelatedCommand ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'
                 )}
             >
                 <span className={cn('relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border', getStatusIconClassName(status))}>
@@ -628,6 +646,23 @@ export const TimelineToolCallCard = memo(({
                                     </span>
                                 ) : null}
                                 {activity.kind === 'file-change' ? <AssistantFileChangeStatusPill status={primaryPathChangeStatus} /> : null}
+                                {isCommandFollowUp ? (
+                                    <>
+                                        <span className="shrink-0 rounded-full border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1.5 py-0.5 font-sans text-[8px] font-semibold uppercase tracking-[0.12em] text-sparkle-text-muted">
+                                            Follow-up
+                                        </span>
+                                        <span className={cn(
+                                            'shrink-0 rounded-full border px-1.5 py-0.5 font-sans text-[8px] font-semibold uppercase tracking-[0.12em]',
+                                            status === 'running'
+                                                ? 'border-[color-mix(in_srgb,var(--status-warning)_22%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_8%,transparent)] text-[color-mix(in_srgb,var(--status-warning)_62%,var(--color-text))]'
+                                                : status === 'failed'
+                                                    ? 'border-[color-mix(in_srgb,var(--status-danger)_22%,transparent)] bg-[color-mix(in_srgb,var(--status-danger)_8%,transparent)] text-[color-mix(in_srgb,var(--status-danger)_62%,var(--color-text))]'
+                                                    : 'border-[color-mix(in_srgb,var(--status-success)_22%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_8%,transparent)] text-[color-mix(in_srgb,var(--status-success)_62%,var(--color-text))]'
+                                        )}>
+                                            {followUpStatusLabel}
+                                        </span>
+                                    </>
+                                ) : null}
                             </span>
                         </p>
                         {diffStats && status !== 'failed' ? <InlineDiffStats additions={diffStats.additions} deletions={diffStats.deletions} className="shrink-0 gap-1.5" /> : null}
@@ -671,13 +706,15 @@ export const TimelineToolCallCard = memo(({
                     ) : null}
                 </div>
                 <span className="inline-flex w-4 shrink-0 items-center justify-center" aria-hidden="true">
-                    {hasExpandableBody ? (
+                    {opensRelatedCommand ? (
+                        <ChevronRight size={11} className="relative text-sparkle-text-muted transition-transform group-hover:translate-x-0.5" />
+                    ) : canExpandBody ? (
                         <ChevronDown size={11} className={cn('relative text-sparkle-text-muted transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform', expanded && 'rotate-180')} />
                     ) : null}
                 </span>
             </button>
             <AnimatedHeight
-                isOpen={expanded && hasExpandableBody && (!isTerminalLikeTool || hasTerminalOutput || canonicalImagePaths.length > 0 || historyBodyLoading || Boolean(historyBodyError))}
+                isOpen={expanded && canExpandBody && (!isTerminalLikeTool || hasTerminalOutput || canonicalImagePaths.length > 0 || historyBodyLoading || Boolean(historyBodyError))}
                 duration={activity.kind === 'file-change' ? 220 : 240}
                 crispContent={activity.kind === 'file-change'}
             >
@@ -867,5 +904,6 @@ export const TimelineToolCallCard = memo(({
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onViewDiff === next.onViewDiff
+        && prev.onRevealActivity === next.onRevealActivity
         && areActivitiesEquivalent(prev.activity, next.activity)
 })

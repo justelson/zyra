@@ -19,17 +19,20 @@ import {
 } from '../src/renderer/src/pages/assistant/AssistantTimelineCheckpointRail'
 import { TimelineTurnWorkSummary } from '../src/renderer/src/pages/assistant/AssistantTimelineWorkSummary'
 import { TimelineVoiceTaskStatus } from '../src/renderer/src/pages/assistant/AssistantTimelineVoiceTask'
+import { AssistantTimelineNetworkRecovery } from '../src/renderer/src/pages/assistant/AssistantTimelineNetworkRecovery'
 import { IssueLogRow } from '../src/renderer/src/pages/assistant/AssistantPageHelpers'
-import { sanitizeThoughtContent, TimelineCommandCheckpointGroup, TimelineContextCompactionMarker, TimelineMessage, TimelineThought, TimelineThoughtGroup, TimelineWorkingIndicator, TimelineWorkTraceGroup } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
+import { TimelineContextCompactionMarker, TimelineMessage, TimelineWorkingIndicator } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
 import { COLLAPSED_TOOL_CALL_COUNT, TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
 import { stripProposedPlanBlocks } from '../src/renderer/src/pages/assistant/assistant-proposed-plan'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
 import { groupTimelineRowsIntoWorkSummaries } from '../src/renderer/src/pages/assistant/assistant-turn-work'
+import { isAssistantQueuedComposerSessionBusy } from '../src/renderer/src/pages/assistant/useAssistantQueuedComposer'
 import {
     didAssistantTimelineWorkComplete,
     resolveAssistantTimelineDisclosureAnchorMode
 } from '../src/renderer/src/pages/assistant/assistant-timeline-scroll-events'
 import {
+    buildCommandCheckpointDisplayActivity,
     buildTimelineRows,
     countRunningCommandActivities,
     findRelatedCommandActivityId,
@@ -41,7 +44,6 @@ import {
     getContextCompactionStatus,
     getTimelineEntries,
     isCommandCheckpointActivity,
-    isInternalAssistantActivity,
     isModelNoticeActivity
 } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 
@@ -162,7 +164,6 @@ assert.deepEqual(
         'user',
         'progress-one',
         ['tool-location', 'tool-files'],
-        'thought-hidden',
         'progress-two',
         ['tool-tests', 'tool-build'],
         'final'
@@ -171,11 +172,9 @@ assert.deepEqual(
 )
 assert.equal(
     entries.some((entry) => entry.type === 'activity' && entry.activity.id === 'thought-hidden'),
-    true,
-    'model thought must remain a distinct collapsible row instead of merging into narration'
+    false,
+    'internal model thoughts stay out of the visible chat timeline'
 )
-const thoughtEntry = entries.find((entry) => entry.type === 'activity' && entry.activity.id === 'thought-hidden')
-assert.equal(thoughtEntry?.type === 'activity' && isInternalAssistantActivity(thoughtEntry.activity), true)
 assert.deepEqual(
     entries.filter((entry) => entry.type === 'message' && entry.message.role === 'assistant').map((entry) => entry.type === 'message' ? entry.message.id : ''),
     ['progress-one', 'progress-two', 'final'],
@@ -304,7 +303,7 @@ assert.deepEqual(
     'the request and final response remain visible while the entire working phase collapses between them'
 )
 const workSummary = collapsedTurnRows[1]
-assert.equal(workSummary?.kind === 'turn-work-summary' ? workSummary.rows.length : 0, 5)
+assert.equal(workSummary?.kind === 'turn-work-summary' ? workSummary.rows.length : 0, 4)
 
 const persistedTurnId = 'persisted-local-turn-id'
 const persistedProviderNarrationId = 'pi-message:assistant:100'
@@ -437,6 +436,89 @@ assert.equal(
     'authoritative completed usage wins over an earlier transient error activity'
 )
 
+const unresolvedTransientTurnId = 'turn-with-recoverable-error'
+const unresolvedTransientUser = message({
+    id: 'recoverable-error-user',
+    role: 'user',
+    turnId: unresolvedTransientTurnId,
+    millisecond: 910,
+    text: 'Keep going after a recoverable error.'
+})
+const unresolvedTransientError: AssistantActivity = {
+    id: 'recoverable-error-activity',
+    kind: 'error',
+    tone: 'error',
+    summary: 'Provider request error',
+    detail: 'fetch failed',
+    turnId: unresolvedTransientTurnId,
+    createdAt: iso(920),
+    payload: { status: 'failed' }
+}
+const unresolvedTransientNextUser = message({
+    id: 'recoverable-error-next-user',
+    role: 'user',
+    turnId: 'turn-after-recoverable-error',
+    millisecond: 940,
+    text: 'What happened?'
+})
+const unresolvedTransientRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries(
+        [unresolvedTransientUser, unresolvedTransientNextUser],
+        [unresolvedTransientError]
+    ), false, null),
+    messages: [unresolvedTransientUser, unresolvedTransientNextUser],
+    latestAssistantMessageId: null,
+    latestTurnStartedAt: null,
+    isWorking: false
+})
+assert.equal(
+    unresolvedTransientRows[1]?.kind === 'turn-work-summary' ? unresolvedTransientRows[1].outcome : null,
+    'no-response',
+    'an error activity without an explicit terminal turn marker cannot label the whole turn failed'
+)
+
+const explicitFailedActivity: AssistantActivity = {
+    ...unresolvedTransientError,
+    id: 'explicit-terminal-failure',
+    turnTerminalOutcome: 'failed'
+}
+const explicitFailedRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries(
+        [unresolvedTransientUser, unresolvedTransientNextUser],
+        [explicitFailedActivity]
+    ), false, null),
+    messages: [unresolvedTransientUser, unresolvedTransientNextUser],
+    latestAssistantMessageId: null,
+    latestTurnStartedAt: null,
+    isWorking: false
+})
+assert.equal(
+    explicitFailedRows[1]?.kind === 'turn-work-summary' ? explicitFailedRows[1].outcome : null,
+    'failed',
+    'an explicit terminal turn marker can label the whole turn failed'
+)
+
+const networkRecoveryActivity: AssistantActivity = {
+    id: 'network-recovery-turn-1',
+    kind: 'connection.recovery',
+    tone: 'warning',
+    summary: 'Reconnecting 6 of 10',
+    turnId: 'turn-network-recovery',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    payload: { category: 'connection-recovery', status: 'retrying', attempt: 6, maxAttempts: 10 }
+}
+const networkRecoveryMarkup = renderToStaticMarkup(createElement(AssistantTimelineNetworkRecovery, { activity: networkRecoveryActivity }))
+assert.match(networkRecoveryMarkup, /Reconnecting 6 of 10/, 'Desktop renders network recovery as a compact live status')
+assert.doesNotMatch(networkRecoveryMarkup, /fetch failed/i)
+const pausedNetworkMarkup = renderToStaticMarkup(createElement(AssistantTimelineNetworkRecovery, {
+    activity: {
+        ...networkRecoveryActivity,
+        summary: 'Paused · Network issue',
+        payload: { ...networkRecoveryActivity.payload, status: 'paused', attempt: 10 }
+    }
+}))
+assert.match(pausedNetworkMarkup, /Paused · Network issue/)
+
 const providerAliasedMessages = messages.map((entry) => entry.role === 'user'
     ? { ...entry, turnId: 'local-optimistic-turn-id' }
     : entry)
@@ -470,8 +552,8 @@ assert.deepEqual(
     providerAliasedActiveSummary?.kind === 'turn-work-summary'
         ? providerAliasedActiveSummary.rows.map((row) => row.id)
         : [],
-    ['progress-one', 'tool-group-tool-location', 'thought-hidden', 'progress-two', 'tool-group-tool-tests', 'final'],
-    'expanded active work accumulates narration, thoughts, tools, and response in chronological order'
+    ['progress-one', 'tool-group-tool-location', 'progress-two', 'tool-group-tool-tests', 'final'],
+    'expanded active work accumulates narration, tools, and response without internal model thoughts'
 )
 
 const aliasedCompletedCompaction: AssistantActivity = {
@@ -705,6 +787,7 @@ const projectedInterruptedTerminal: AssistantActivity = {
     kind: 'error',
     tone: 'warning',
     summary: 'Assistant interrupted',
+    turnTerminalOutcome: 'interrupted',
     detail: 'Request was aborted',
     turnId: projectedInterruptedTurnId,
     timelineSequence: 6,
@@ -780,6 +863,22 @@ assert.equal(timelineSource.includes('<AssistantVirtualTimeline'), true, 'the ti
 assert.match(conversationWorkingSource, /timelineIsWorking = \(isThreadWorking \|\| optimisticPromptSending\)/u, 'prompt submission enters working state immediately instead of waiting for the runtime turn event')
 assert.match(conversationWorkingSource, /timelinePresentationIsWorking = timelineIsWorking && !optimisticPromptAwaitingUserMessage/u, 'the temporary working row waits for the newly sent user message instead of attaching to the previous prompt')
 assert.match(queuedComposerTimelineSource, /onSendingChange\?\.\(true\)[\s\S]{0,120}await dispatchPrompt/u, 'the optimistic working state starts before the prompt IPC')
+assert.match(conversationWorkingSource, /latestTurnState: activeThread\?\.latestTurn\?\.state \|\| null/u, 'background queue state includes the explicit turn ledger')
+assert.match(queuedComposerTimelineSource, /sessionState\.latestTurnState === 'running'/u, 'queued prompts cannot drain during a running turn just because its connection state changed')
+assert.equal(isAssistantQueuedComposerSessionBusy({
+    sessionId: 'recovering-session',
+    threadState: 'error',
+    latestTurnState: 'running',
+    pendingApprovalCount: 0,
+    pendingUserInputCount: 0
+}), true, 'queue draining obeys the running turn ledger during a connection error')
+assert.equal(isAssistantQueuedComposerSessionBusy({
+    sessionId: 'failed-session',
+    threadState: 'ready',
+    latestTurnState: 'error',
+    pendingApprovalCount: 0,
+    pendingUserInputCount: 0
+}), false, 'an explicitly terminal turn releases its queued follow-up')
 assert.equal(virtualTimelineSource.includes('<LegendList'), true, 'long histories render through LegendList rather than renderer-only slicing')
 assert.match(virtualTimelineSource, /const maintainVisibleContentPosition = useMemo\(\(\) => \(\{[\s\S]{0,180}data: true,[\s\S]{0,180}size: startupSettled && scrollMode === 'free-scrolling'/u, 'database-page prepends and settled measured row sizes preserve the visible anchor')
 assert.match(virtualTimelineSource, /maintainVisibleContentPosition=\{maintainVisibleContentPosition\}/u, 'LegendList receives the bounded anchor policy')
@@ -1011,7 +1110,7 @@ const checkpointEntries = getTimelineEntries([], [commandCheckpoint, managedComm
 assert.deepEqual(
     checkpointEntries.map((entry) => entry.type === 'activity' ? entry.activity.id : entry.id),
     ['managed-command', 'managed-checkpoint'],
-    'a command check must render as its own quiet timeline divider instead of joining a tool-card batch'
+    'a command follow-up keeps its current chronological position instead of merging into the original tool-call batch'
 )
 assert.equal(isCommandCheckpointActivity(commandCheckpoint), true)
 assert.equal(getCommandCheckpointAction(commandCheckpoint), 'status')
@@ -1020,6 +1119,19 @@ assert.equal(
     managedCommand.id,
     'the checkpoint link must resolve to the originating managed command'
 )
+const commandCheckpointDisplay = buildCommandCheckpointDisplayActivity(commandCheckpoint, [commandCheckpoint, managedCommand])
+assert.equal(commandCheckpointDisplay.payload?.command, 'npm run check', 'the follow-up card repeats the original command label')
+assert.equal(commandCheckpointDisplay.payload?.relatedCommandActivityId, managedCommand.id)
+const commandCheckpointMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, {
+    activities: [commandCheckpointDisplay],
+    onRevealActivity: () => undefined
+}))
+assert.equal(commandCheckpointMarkup.includes('Tool Calls'), true, 'command follow-ups use the existing tool-call card container')
+assert.equal(commandCheckpointMarkup.includes('npm run check'), true)
+assert.equal(commandCheckpointMarkup.includes('Follow-up'), true)
+assert.equal(commandCheckpointMarkup.includes('Done'), true)
+assert.equal(commandCheckpointMarkup.includes('Go to original command'), true, 'the follow-up card exposes its jump back to the referenced command')
+assert.equal(commandCheckpointMarkup.includes('Checked on command'), false, 'the old divider copy is gone')
 
 const legacyCheckpoint: AssistantActivity = {
     ...commandCheckpoint,
@@ -1053,13 +1165,17 @@ assert.equal(
     2,
     'adjacent completed and running command checks collapse into one expandable row'
 )
-const checkpointGroupMarkup = renderToStaticMarkup(createElement(TimelineCommandCheckpointGroup, {
-    activities: [commandCheckpoint, secondCommandCheckpoint],
-    targetActivityIdByCheckpointId: new Map<string, string | null>(),
-    onRevealCommand: () => undefined
+const checkpointGroupMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, {
+    activities: [
+        buildCommandCheckpointDisplayActivity(commandCheckpoint, [commandCheckpoint, managedCommand]),
+        buildCommandCheckpointDisplayActivity(secondCommandCheckpoint, [secondCommandCheckpoint, managedCommand])
+    ],
+    onRevealActivity: () => undefined
 }))
-assert.equal(checkpointGroupMarkup.includes('Checked 1 command'), true)
-assert.equal(checkpointGroupMarkup.includes('Checking on 1 more'), true, 'completed and running checks share one collapsed status summary')
+assert.equal(checkpointGroupMarkup.includes('Tool Calls (2)'), true, 'adjacent follow-ups use the existing multi-tool card')
+assert.equal(checkpointGroupMarkup.includes('Follow-up'), true)
+assert.equal(checkpointGroupMarkup.includes('Done'), true)
+assert.equal(checkpointGroupMarkup.includes('Running'), true, 'each reused tool card carries its own follow-up state')
 
 const unrelatedOutput = activity({ id: 'unrelated-output', turnId: 'managed-turn', millisecond: 1700 })
 unrelatedOutput.payload = { command: 'echo cmd-7', output: 'cmd-7', status: 'completed' }
@@ -1357,40 +1473,11 @@ assert.equal(assistantPageHelpersSource.includes('return createPortal('), true, 
 assert.equal(assistantPageHelpersSource.includes('fixed inset-0 z-[2147482000]'), true, 'error details use an app-level modal backdrop')
 assert.equal(assistantPageHelpersSource.includes('aria-modal="true"'), true, 'error details expose modal semantics')
 
-const thoughtActivity = activity({ id: 'thought-motion', turnId: 'thought-turn', millisecond: 1760, internal: true })
-thoughtActivity.detail = '**Planning quietly**\n\nA secondary thought body.'
-thoughtActivity.payload = { ...thoughtActivity.payload, output: thoughtActivity.detail }
-const thoughtMarkup = renderToStaticMarkup(createElement(TimelineThought, { activity: thoughtActivity }))
-assert.equal(thoughtMarkup.includes('data-state="closed"'), true, 'thought disclosure remains represented while closed')
-assert.equal(thoughtMarkup.includes('A secondary thought body.'), false, 'collapsed thoughts do not mount hidden Markdown bodies')
-
-const titleOnlyThought = activity({ id: 'thought-title-only', turnId: 'thought-title-only-turn', millisecond: 1770, internal: true })
-titleOnlyThought.detail = '**Verifying git status for changes**\n\n<!-- -->\n'
-titleOnlyThought.payload = { ...titleOnlyThought.payload, output: titleOnlyThought.detail }
-assert.equal(sanitizeThoughtContent(titleOnlyThought.detail), '**Verifying git status for changes**')
-const titleOnlyThoughtMarkup = renderToStaticMarkup(createElement(TimelineThought, { activity: titleOnlyThought }))
-assert.equal(titleOnlyThoughtMarkup.includes('Verifying git status for changes'), true)
-assert.equal(titleOnlyThoughtMarkup.includes('aria-expanded'), false, 'title-only thoughts render as a quiet line without an empty disclosure')
-assert.equal(titleOnlyThoughtMarkup.includes('Thoughts'), false)
-
-const secondThoughtActivity = activity({ id: 'thought-motion-two', turnId: 'thought-turn', millisecond: 1775, internal: true })
-secondThoughtActivity.detail = '**Checking the result**\n\nOne more secondary detail.'
-secondThoughtActivity.payload = { ...secondThoughtActivity.payload, output: secondThoughtActivity.detail }
-const thoughtGroupRows = buildTimelineRows(
-    getTimelineEntries([], [secondThoughtActivity, thoughtActivity]),
-    false,
-    null
-)
-assert.equal(thoughtGroupRows.length, 1)
-assert.equal(thoughtGroupRows[0]?.kind, 'thought-group', 'adjacent thoughts collapse into one chronological disclosure')
-const thoughtGroupMarkup = renderToStaticMarkup(createElement(TimelineThoughtGroup, {
-    activities: [thoughtActivity, secondThoughtActivity]
-}))
-assert.equal(thoughtGroupMarkup.includes('Thoughts (2)'), true)
-assert.equal(thoughtGroupMarkup.includes('data-state="closed"'), true)
-assert.equal(thoughtGroupMarkup.includes('One more secondary detail.'), false, 'collapsed thought groups do not render every nested Markdown body')
-
-const mixedTraceCheckpoint: AssistantActivity = {
+const hiddenThoughtActivity = activity({ id: 'thought-motion', turnId: 'thought-turn', millisecond: 1760, internal: true })
+hiddenThoughtActivity.detail = '**Planning quietly**\n\nA secondary thought body.'
+hiddenThoughtActivity.payload = { ...hiddenThoughtActivity.payload, output: hiddenThoughtActivity.detail }
+const secondHiddenThoughtActivity = activity({ id: 'thought-motion-two', turnId: 'thought-turn', millisecond: 1775, internal: true })
+const visibleCheckpoint: AssistantActivity = {
     ...commandCheckpoint,
     id: 'thought-checkpoint',
     turnId: 'thought-turn',
@@ -1402,39 +1489,18 @@ const mixedTraceCheckpoint: AssistantActivity = {
         status: 'completed'
     }
 }
-const mixedTraceRows = buildTimelineRows(
-    getTimelineEntries([], [secondThoughtActivity, mixedTraceCheckpoint, thoughtActivity]),
-    false,
-    null
-)
-assert.equal(mixedTraceRows.length, 1)
-assert.equal(mixedTraceRows[0]?.kind, 'work-trace-group', 'an uninterrupted thought and command-checkpoint run collapses together')
+const entriesWithoutThoughts = getTimelineEntries([], [secondHiddenThoughtActivity, visibleCheckpoint, hiddenThoughtActivity])
 assert.deepEqual(
-    mixedTraceRows[0]?.kind === 'work-trace-group' ? mixedTraceRows[0].activities.map((item) => item.id) : [],
-    ['thought-motion', 'thought-checkpoint', 'thought-motion-two'],
-    'expanded work traces preserve the original chronology'
+    entriesWithoutThoughts.map((entry) => entry.type === 'activity' ? entry.activity.id : entry.id),
+    ['thought-checkpoint'],
+    'internal thoughts never create chat rows or absorb an adjacent command checkpoint'
 )
-const mixedTraceMarkup = renderToStaticMarkup(createElement(TimelineWorkTraceGroup, {
-    activities: [thoughtActivity, mixedTraceCheckpoint, secondThoughtActivity],
-    targetActivityIdByCheckpointId: new Map<string, string | null>(),
-    onRevealCommand: () => undefined
-}))
-assert.equal(mixedTraceMarkup.includes('2 thoughts · 1 check'), true)
-assert.equal(mixedTraceMarkup.includes('data-state="closed"'), true, 'mixed work traces stay collapsed by default')
-assert.equal(mixedTraceMarkup.includes('One more secondary detail.'), false, 'collapsed mixed traces retain summaries without mounting hidden work details')
-
-const traceBoundaryRows = buildTimelineRows(
-    getTimelineEntries(
-        [message({ id: 'trace-narration', role: 'assistant', turnId: 'thought-turn', millisecond: 1765, text: 'A visible narration boundary.' })],
-        [mixedTraceCheckpoint, thoughtActivity]
-    ),
-    false,
-    null
-)
+const rowsWithoutThoughts = buildTimelineRows(entriesWithoutThoughts, false, null)
+assert.equal(rowsWithoutThoughts.length, 1)
 assert.equal(
-    traceBoundaryRows.some((row) => row.kind === 'work-trace-group'),
-    false,
-    'visible narration breaks mixed trace grouping'
+    rowsWithoutThoughts[0]?.kind === 'activity' ? rowsWithoutThoughts[0].activity.id : null,
+    'thought-checkpoint',
+    'the visible command checkpoint remains available after thought rows are removed'
 )
 
 const crossTypeSameTimeEntries = getTimelineEntries(

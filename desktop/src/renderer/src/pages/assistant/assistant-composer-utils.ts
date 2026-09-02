@@ -11,11 +11,12 @@ export const SLASH_COMMANDS = [
     { command: '/auto', description: 'Switch this thread to automatic review.' },
     { command: '/edits', description: 'Allow project edits and ask before other actions.' },
     { command: '/safe', description: 'Switch this thread back to supervised access.' },
-    { command: '/include', description: 'Add a file path to the composer context shelf.' }
+    { command: '/include', description: 'Add a file path to the composer context shelf.' },
+    { command: '/usage', description: 'Show or hide context usage in the Desktop composer.' }
 ] as const
 
 export type AssistantDesktopSlashCommand = {
-    name: 'yolo' | 'auto' | 'edits' | 'safe' | 'include'
+    name: 'yolo' | 'auto' | 'edits' | 'safe' | 'include' | 'usage'
     argument: string
 }
 
@@ -28,7 +29,7 @@ export function listAssistantDesktopSlashCommandResources() {
 }
 
 export function parseAssistantDesktopSlashCommand(value: string): AssistantDesktopSlashCommand | null {
-    const match = String(value || '').trim().match(/^\/(yolo|auto|edits|safe|include)(?:\s+([\s\S]*))?$/i)
+    const match = String(value || '').trim().match(/^\/(yolo|auto|edits|safe|include|usage)(?:\s+([\s\S]*))?$/i)
     if (!match) return null
     return {
         name: match[1].toLowerCase() as AssistantDesktopSlashCommand['name'],
@@ -39,6 +40,7 @@ export function parseAssistantDesktopSlashCommand(value: string): AssistantDeskt
 export type AssistantDesktopSlashCommandAction =
     | { type: 'runtime-mode'; mode: AssistantRuntimeMode }
     | { type: 'include'; path: string; name: string; kind: 'image' | 'code' | 'file' }
+    | { type: 'usage-visibility'; visible: boolean | null }
     | { type: 'error'; message: string }
 
 export function resolveAssistantDesktopSlashCommandAction(
@@ -48,6 +50,13 @@ export function resolveAssistantDesktopSlashCommandAction(
     if (command.name === 'auto') return { type: 'runtime-mode', mode: 'auto-review' }
     if (command.name === 'edits') return { type: 'runtime-mode', mode: 'edits-only' }
     if (command.name === 'safe') return { type: 'runtime-mode', mode: 'approval-required' }
+    if (command.name === 'usage') {
+        const argument = command.argument.toLowerCase()
+        if (!argument) return { type: 'usage-visibility', visible: null }
+        if (argument === 'on' || argument === 'show') return { type: 'usage-visibility', visible: true }
+        if (argument === 'off' || argument === 'hide') return { type: 'usage-visibility', visible: false }
+        return { type: 'error', message: 'Use /usage on or /usage off.' }
+    }
     if (!command.argument) return { type: 'error', message: 'Type a file path after /include.' }
     const name = command.argument.split(/[\\/]/).filter(Boolean).at(-1) || command.argument
     const meta = getContextFileMeta({ path: command.argument, name })

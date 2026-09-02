@@ -36,14 +36,14 @@ export function resolveAssistantComposerCommandMenuIndex(
 export function findAssistantComposerSlashToken(text: string, cursor: number): AssistantComposerSlashToken | null {
     const safeCursor = Math.max(0, Math.min(cursor, text.length))
     const beforeCursor = text.slice(0, safeCursor)
-    const leadingWhitespace = beforeCursor.match(/^\s*/)?.[0].length ?? 0
-    const token = beforeCursor.slice(leadingWhitespace)
-    if (!/^\/[^\s]*$/.test(token)) return null
+    const match = beforeCursor.match(/(?:^|\s)(\/[^\s]*)$/)
+    const token = match?.[1] || ''
+    if (!token) return null
 
     let end = safeCursor
     while (end < text.length && !/\s/.test(text[end])) end += 1
     return {
-        start: leadingWhitespace,
+        start: safeCursor - token.length,
         end,
         query: token.slice(1).toLowerCase()
     }

@@ -1,9 +1,13 @@
-import { memo } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { AssistantTurnUsage } from '@shared/assistant/contracts'
 import { resolveAssistantContextCompactionLimitTokens } from '@shared/assistant/runtime-policy'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { formatCompactMetric } from './AssistantPageHelpers'
+import {
+    readAssistantComposerUsageVisibility,
+    subscribeAssistantComposerUsageVisibility
+} from './assistant-composer-usage-visibility'
 
 function getContextTone(percent: number | null): {
     ringColor: string
@@ -46,6 +50,8 @@ export const AssistantComposerContextIndicator = memo(function AssistantComposer
     modelContextWindow?: number | null
 }) {
     const { settings } = useSettings()
+    const [visible, setVisible] = useState(readAssistantComposerUsageVisibility)
+    useEffect(() => subscribeAssistantComposerUsageVisibility(setVisible), [])
     const usedTokens = usage?.totalTokens ?? null
     const contextWindowTokens = modelContextWindow ?? usage?.modelContextWindow ?? null
     const hasContextWindow = contextWindowTokens != null && Number.isFinite(contextWindowTokens) && contextWindowTokens > 0
@@ -68,9 +74,14 @@ export const AssistantComposerContextIndicator = memo(function AssistantComposer
         : 'Model window not reported'
 
     return (
-        <div className="group/context assistant-composer-footer-context relative w-[32px] shrink-0">
+        <div
+            className="group/context assistant-composer-footer-context relative w-[32px] shrink-0"
+            data-visible={visible}
+            aria-hidden={!visible}
+        >
             <button
                 type="button"
+                tabIndex={visible ? 0 : -1}
                 className="inline-flex size-[32px] items-center justify-center rounded-full bg-transparent p-0 text-sparkle-text-secondary transition-[filter,transform] hover:brightness-110 focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/25 active:scale-95"
                 title={displayPercent != null ? `Context before compaction ${displayPercent}% full` : 'Context usage unavailable'}
                 aria-label={displayPercent != null ? `Context before compaction ${displayPercent}% full` : 'Context usage unavailable'}

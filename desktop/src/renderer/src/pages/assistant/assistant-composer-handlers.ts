@@ -21,6 +21,7 @@ import {
     summarizeTextPreview
 } from './assistant-composer-utils'
 import type { MentionCandidate } from './assistant-composer-mentions'
+import { setAssistantComposerUsageVisibility } from './assistant-composer-usage-visibility'
 import type { AssistantComposerHandlersArgs } from './assistant-composer-handlers.types'
 import type { ComposerContextFile } from './assistant-composer-types'
 
@@ -277,6 +278,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
                 return
             }
             if (action.type === 'runtime-mode') setSelectedRuntimeMode(action.mode)
+            if (action.type === 'usage-visibility') setAssistantComposerUsageVisibility(action.visible)
             if (action.type === 'include') {
                 upsertAttachment({
                     id: createAttachmentId(),

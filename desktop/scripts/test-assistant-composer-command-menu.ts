@@ -16,6 +16,10 @@ import {
     parseAssistantDesktopSlashCommand,
     resolveAssistantDesktopSlashCommandAction
 } from '../src/renderer/src/pages/assistant/assistant-composer-utils'
+import {
+    readAssistantComposerUsageVisibility,
+    setAssistantComposerUsageVisibility
+} from '../src/renderer/src/pages/assistant/assistant-composer-usage-visibility'
 
 const resources = {
     commands: [
@@ -33,13 +37,17 @@ const resources = {
 
 assert.deepEqual(
     listAssistantDesktopSlashCommandResources().map((command) => command.name),
-    ['yolo', 'auto', 'edits', 'safe', 'include'],
+    ['yolo', 'auto', 'edits', 'safe', 'include', 'usage'],
     'the Desktop command manifest retains every intentionally supported local command'
 )
 
 const token = findAssistantComposerSlashToken('/rev', 4)
 assert.deepEqual(token, { start: 0, end: 4, query: 'rev' })
-assert.equal(findAssistantComposerSlashToken('Please /rev', 11), null)
+const embeddedToken = findAssistantComposerSlashToken('Please /rev', 11)
+assert.deepEqual(embeddedToken, { start: 7, end: 11, query: 'rev' }, 'slash suggestions follow the active token anywhere in the draft')
+assert.equal(findAssistantComposerSlashToken('Open https://zyra.dev', 21), null, 'URLs cannot open the command menu')
+const filesystemPathDraft = 'Use C:/workspace/app'
+assert.equal(findAssistantComposerSlashToken(filesystemPathDraft, filesystemPathDraft.length), null, 'filesystem slashes cannot open the command menu')
 assert.equal(resolveAssistantComposerCommandMenuIndex(0, 'ArrowDown', 5), 1)
 assert.equal(resolveAssistantComposerCommandMenuIndex(4, 'ArrowDown', 5), 0, 'ArrowDown wraps to the first command')
 assert.equal(resolveAssistantComposerCommandMenuIndex(0, 'ArrowUp', 5), 4, 'ArrowUp wraps to the last command')
@@ -57,7 +65,7 @@ assert.equal(
 )
 assert.deepEqual(
     buildAssistantComposerCommandItems(null, '').map((item) => item.label),
-    ['/auto', '/edits', '/include', '/safe', '/yolo'],
+    ['/auto', '/edits', '/include', '/safe', '/usage', '/yolo'],
     'built-in commands remain available while resource discovery is loading or unavailable'
 )
 
@@ -66,6 +74,11 @@ assert.equal(command.value, '/review')
 assert.deepEqual(
     applyAssistantComposerCommandItem('/rev', token!, command),
     { text: '/review ', cursor: 8 }
+)
+assert.deepEqual(
+    applyAssistantComposerCommandItem('Please /rev', embeddedToken!, command),
+    { text: 'Please /review ', cursor: 15 },
+    'selecting a suggestion replaces only the active slash token'
 )
 
 const skill = buildAssistantComposerCommandItems(resources, 'skill:release')[0]
@@ -95,7 +108,34 @@ assert.deepEqual(
     resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/include')!),
     { type: 'error', message: 'Type a file path after /include.' }
 )
+assert.deepEqual(
+    resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/usage on')!),
+    { type: 'usage-visibility', visible: true }
+)
+assert.deepEqual(
+    resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/usage off')!),
+    { type: 'usage-visibility', visible: false }
+)
+assert.deepEqual(
+    resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/usage')!),
+    { type: 'usage-visibility', visible: null },
+    '/usage toggles the current Desktop preference when no argument is supplied'
+)
+assert.deepEqual(
+    resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/usage sideways')!),
+    { type: 'error', message: 'Use /usage on or /usage off.' }
+)
 assert.equal(parseAssistantDesktopSlashCommand('/review this'), null, 'custom commands continue through the model-backed prompt route')
+
+const usagePreferenceValues = new Map<string, string>()
+const usagePreferenceStorage = {
+    getItem: (key: string) => usagePreferenceValues.get(key) ?? null,
+    setItem: (key: string, value: string) => { usagePreferenceValues.set(key, value) }
+}
+assert.equal(readAssistantComposerUsageVisibility(usagePreferenceStorage), false, 'composer usage starts hidden for users')
+assert.equal(setAssistantComposerUsageVisibility(true, usagePreferenceStorage), true)
+assert.equal(readAssistantComposerUsageVisibility(usagePreferenceStorage), true)
+assert.equal(setAssistantComposerUsageVisibility(null, usagePreferenceStorage), false, '/usage toggles the persisted preference')
 
 const menuId = 'assistant-command-menu-test'
 const markup = renderToStaticMarkup(createElement(AssistantComposerCommandMenu, {
@@ -116,6 +156,7 @@ assert.match(markup, /role="option"/)
 
 const composerSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerView.tsx', import.meta.url), 'utf8')
 const composerSectionsSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerSections.tsx', import.meta.url), 'utf8')
+const contextIndicatorSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerContextIndicator.tsx', import.meta.url), 'utf8')
 const rendererStylesSource = readFileSync(new URL('../src/renderer/src/index.css', import.meta.url), 'utf8')
 const commandMenuSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerCommandMenu.tsx', import.meta.url), 'utf8')
 const handlersSource = readFileSync(new URL('../src/renderer/src/pages/assistant/assistant-composer-handlers.ts', import.meta.url), 'utf8')
@@ -130,6 +171,11 @@ assert.match(commandMenuSource, /lookaheadItem/, 'down-arrow navigation scrolls 
 assert.match(commandMenuSource, /scroll-pb-10[\s\S]*pb-10/, 'the slash menu reserves a full row below its last option')
 assert.match(commandMenuSource, /onMouseMove=\{\(\) => onActiveIndexChange\(index\)\}/, 'a stationary pointer cannot override keyboard selection while commands scroll')
 assert.match(handlersSource, /resolveAssistantDesktopSlashCommandAction\(desktopCommand\)/, 'typed built-ins execute before model dispatch')
+assert.match(handlersSource, /setAssistantComposerUsageVisibility\(action\.visible\)/, 'the usage command changes only the Desktop composer preference')
+assert.match(contextIndicatorSource, /subscribeAssistantComposerUsageVisibility/, 'the mounted usage indicator follows slash-command preference changes')
+assert.match(contextIndicatorSource, /data-visible=\{visible\}/, 'the usage ring stays mounted so its exit animation can complete')
+assert.match(rendererStylesSource, /\.assistant-composer-footer-context\[data-visible='false'\][^}]*width:\s*0/s, 'hidden usage collapses its footer width')
+assert.match(rendererStylesSource, /\.assistant-composer-footer-context\[data-visible='false'\][^}]*opacity:\s*0/s, 'hidden usage animates out instead of disappearing abruptly')
 assert.equal(isBrowserAssistantBridgeMethod('listPromptResources'), false, 'remote Browser clients cannot enumerate private prompt resources')
 assert.equal(isBrowserAssistantBridgeMethod('getSkillSourceOverview'), false, 'remote Browser clients cannot inspect private skill folders')
 assert.equal(isBrowserAssistantBridgeMethod('updateSkillSourceSettings'), false, 'remote Browser clients cannot change local skill sources')

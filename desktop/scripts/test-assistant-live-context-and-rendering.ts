@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { AssistantSessionTurnUsageEntry, AssistantTurnUsage } from '../src/shared/assistant/contracts'
 import { resolveAssistantComposerContextUsage } from '../src/renderer/src/pages/assistant/assistant-composer-context-usage'
+import { buildAssistantTurnUsageIndex } from '../src/renderer/src/pages/assistant/assistant-turn-usage-index'
 
 const usage = (totalTokens: number): AssistantTurnUsage => ({
     inputTokens: Math.max(0, totalTokens - 200),
@@ -34,6 +35,28 @@ assert.equal(resolveAssistantComposerContextUsage({ sessionTurns, threadId: 'thr
 assert.equal(resolveAssistantComposerContextUsage({ liveUsage: activeUsage, sessionTurns, threadId: 'thread-main' }), activeUsage, 'live usage updates replace the retained completed-turn value as soon as they arrive')
 assert.equal(resolveAssistantComposerContextUsage({ sessionTurns, threadId: 'thread-missing' }), null, 'usage never leaks across threads')
 
+const staleFailedTurn = {
+    ...turn('4', 'thread-main', null),
+    state: 'error' as const,
+    completedAt: '2026-01-01T00:00:04.250Z'
+}
+const liveCompletedTurn = {
+    id: staleFailedTurn.id,
+    state: 'completed' as const,
+    requestedAt: staleFailedTurn.requestedAt,
+    startedAt: staleFailedTurn.startedAt,
+    completedAt: '2026-01-01T00:00:04.500Z',
+    assistantMessageId: 'message-4',
+    usage: activeUsage
+}
+const liveTurnIndex = buildAssistantTurnUsageIndex([], [staleFailedTurn], {
+    sessionId: 'session-1',
+    threadId: 'thread-main',
+    model: 'gpt-test',
+    latestTurn: liveCompletedTurn
+})
+assert.equal(liveTurnIndex.get(staleFailedTurn.id)?.state, 'completed', 'the live explicit turn completion overrides a stale asynchronous usage row')
+
 const conversationSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantConversationPane.tsx', import.meta.url), 'utf8')
 const reviewSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTurnReview.tsx', import.meta.url), 'utf8')
 const settingsSource = readFileSync(new URL('../src/renderer/src/lib/settings.tsx', import.meta.url), 'utf8')
@@ -56,6 +79,7 @@ const connectedDropdownButtonSource = readFileSync(new URL('../src/renderer/src/
 const rendererCssSource = readFileSync(new URL('../src/renderer/src/index.css', import.meta.url), 'utf8')
 
 assert.match(conversationSource, /latestTurnUsage=\{composerContextUsage\}/, 'the composer receives live-or-retained usage rather than the empty running-turn field')
+assert.match(conversationSource, /buildAssistantTurnUsageIndex\([^]*latestTurn: controller\.activeThread\.latestTurn/, 'the timeline status index receives the live explicit turn ledger instead of waiting for a history refresh')
 assert.match(reviewSource, /label="You"[^\n]+primary renderMarkdown collapsible/, 'turn review renders sent user prompts as Markdown while retaining Show more')
 assert.match(reviewSource, /\[&_p\]:whitespace-pre-wrap/, 'turn review preserves ordinary prompt line breaks')
 assert.match(reviewSource, /preparedSelectedDiff\.patch\.trim\(\)/, 'Review never sends a missing patch into an empty raw-diff surface')
@@ -81,7 +105,7 @@ assert.match(composerControlsSource, /assistant-composer-footer-access-control[^
 assert.match(rendererCssSource, /@container \(max-width: 620px\)[^]*assistant-composer-footer-model-label[^]*max-width: 0[^]*opacity: 0/, 'tight footers smoothly collapse the model name before shrinking live controls')
 assert.match(rendererCssSource, /@container \(max-width: 520px\)[^]*assistant-composer-footer-access-control[^]*width: 36px[^]*height: 36px[^]*assistant-composer-footer-access-label[^]*max-width: 0/, 'tighter footers turn access state into a voice-sized icon control')
 assert.match(contextIndicatorSource, /assistant-composer-footer-context/, 'context usage exposes a footer-responsive transition wrapper')
-assert.match(rendererCssSource, /assistant-composer-footer-context[^]*width: 0[^]*opacity: 0[^]*visibility: hidden/, 'the context indicator leaves the tight footer without retaining invisible spacing')
+assert.match(rendererCssSource, /assistant-composer-footer-context\[data-visible='false'\][^]*width: 0[^]*opacity: 0[^]*visibility: hidden/, 'the hidden context indicator leaves the footer without retaining invisible spacing')
 assert.match(rendererCssSource, /prefers-reduced-motion: reduce[^]*assistant-composer-footer-context[^]*transition-duration: 0\.01ms/, 'adaptive footer transitions respect reduced-motion preferences')
 assert.match(composerViewSource, /<AssistantBusySendSplitButton[^]*onQueue=\{controller\.handleQueueSend\}[^]*onForce=\{controller\.handleForceSend\}/, 'busy Queue and Force paths share one connected action control')
 assert.doesNotMatch(composerViewSource, /secondaryBusyActionLabel/, 'the footer no longer renders a second standalone busy-send pill')

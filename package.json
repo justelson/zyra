@@ -62,7 +62,6 @@
     "zyra": "bin/zyra.mjs"
   },
   "files": [
-    "AGENTS.md",
     "README.md",
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
@@ -75,7 +74,6 @@
     "install.cmd",
     "install.ps1",
     "install.sh",
-    "scripts",
     "prompts",
     "src",
     "zyra.cmd",

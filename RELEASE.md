@@ -254,6 +254,20 @@ git diff --check
 
 Run only the native package command available on the current OS. Cross-platform package evidence comes from the native CI/release matrix.
 
+## Local artifact cleanup
+
+Every local packaging run must end with cleanup after its artifacts have been tested or uploaded. This includes failed and cancelled package attempts, which can leave the same large staged runtime and package directories behind.
+
+Remove these generated paths when they are no longer needed:
+
+- `.release/manual/v<version>/`, after the downloaded bundle has been validated;
+- `desktop/dist/`, after Desktop packages have been uploaded or discarded;
+- `desktop/.release/`, after packaged-runtime validation and packaging finish;
+- `dist/tui/v<version>/`, after standalone TUI files have been uploaded or discarded;
+- matching generated directories inside temporary release worktrees.
+
+Keep `.zyra/release-logs/` when its evidence is useful. Do not delete `desktop/out/` while the development app is running. Do not remove dependencies, source, user data, credentials, or an entire worktree as release cleanup.
+
 ## Licensing
 
 Zyra is licensed under Apache License 2.0. Keep the canonical `LICENSE` text unchanged. `NOTICE` records `Copyright 2026 justelson`, and `THIRD_PARTY_NOTICES.md` explains asset and platform-runtime notices.

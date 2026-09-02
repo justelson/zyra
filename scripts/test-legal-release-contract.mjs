@@ -65,6 +65,10 @@ for (const fileName of ["NOTICE", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_LICENSE
   assert(packagedValidator.includes(`path.join(resources, '${fileName}')`), `packaged app validator must require ${fileName}`);
 }
 
+for (const sourceOnlyPath of ["AGENTS.md", "scripts"]) {
+  assert.equal(rootPackage.files.includes(sourceOnlyPath), false, `root runtime package must exclude source-only ${sourceOnlyPath}`);
+}
+
 const generatedCheck = spawnSync(process.execPath, [path.join(root, "scripts", "generate-third-party-licenses.mjs"), "--check"], {
   cwd: root,
   encoding: "utf8",

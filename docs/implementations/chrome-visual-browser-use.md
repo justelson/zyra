@@ -217,10 +217,9 @@ On demand:
 
 1. it lists visible Chrome targets;
 2. it requests a target and capability set;
-3. the request appears in Control Center;
-4. the user approves or rejects;
-5. approval binds the grant to that exact principal and tab;
-6. completion, cancellation, disconnection, or Emergency Stop revokes active grants and pending requests.
+3. Supervised, Auto review, and Edits only render the bounded paired-Chrome request in canonical chat, while Full access issues the bounded root grant automatically;
+4. any approval binds the grant to that exact principal and tab;
+5. completion, cancellation, disconnection, or Emergency Stop revokes active grants and pending requests.
 
 A child cannot request Windows control, enumerate protected targets, widen a grant, redelegate, or retain control after its run.
 
@@ -239,7 +238,7 @@ The first implementation must add an executable per-action confirmation path for
 - software installation;
 - legal acceptance.
 
-While awaiting approval, the screenshot and cursor remain visible but the input queue is paused.
+While awaiting approval, the screenshot and cursor remain visible but the input queue is paused. Main creates an exact pending action record and canonical chat resolves it. Full access does not bypass this per-action path.
 
 ## 13. Bounded data and privacy
 

@@ -20,7 +20,7 @@ import type {
     AssistantUserInputAnswer,
     FleetSnapshot
 } from '../../shared/assistant/contracts'
-import { parseAgentSurfaceDescriptor, sanitizeFileChangeRawPayload } from '../../shared/assistant/contracts'
+import { isAssistantRuntimeMode, parseAgentSurfaceDescriptor, sanitizeFileChangeRawPayload } from '../../shared/assistant/contracts'
 import { getAssistantModelReasoningEfforts, isAssistantReasoningEffort } from '../../shared/assistant/reasoning-efforts'
 import type { AssistantRuntimePolicy } from '../../shared/assistant/runtime-policy'
 import { analyzeAssistantReadResult } from '../../shared/assistant/read-activity'
@@ -1545,7 +1545,7 @@ export class ZyraPiRuntime extends EventEmitter {
                 type: 'root',
                 threadId: context.localThreadId,
                 turnId
-            }, operation, signal)
+            }, operation, signal, { permissionMode: context.runtimeMode })
         })
         context.unsubscribe = worker.onEvent((event, metadata) => this.handleZyraEvent(context, event, metadata))
         this.sessions.set(thread.id, context)
@@ -1642,11 +1642,9 @@ export class ZyraPiRuntime extends EventEmitter {
         const config = asRecord(result['config']) || result
         context.model = normalizeZyraModel(asString(config['model']) || undefined) || model
         context.thinking = isAssistantReasoningEffort(config['thinking']) ? config['thinking'] : configuration.effort
-        context.runtimeMode = config['runtimeMode'] === 'full-access'
-            ? 'full-access'
-            : config['runtimeMode'] === 'approval-required'
-                ? 'approval-required'
-                : configuration.runtimeMode
+        context.runtimeMode = isAssistantRuntimeMode(config['runtimeMode'])
+            ? config['runtimeMode']
+            : configuration.runtimeMode
         context.interactionMode = 'default'
         context.profile = normalizeZyraProfile(config['profile'] || profile)
     }
@@ -2292,11 +2290,9 @@ export class ZyraPiRuntime extends EventEmitter {
             const model = String(result['model'] || context.model)
             const thinking = isAssistantReasoningEffort(result['thinking']) ? result['thinking'] : context.thinking
             const profile = normalizeZyraProfile(result['profile'] || context.profile)
-            const runtimeMode: AssistantRuntimeMode = result['runtimeMode'] === 'full-access'
-                ? 'full-access'
-                : result['runtimeMode'] === 'approval-required'
-                    ? 'approval-required'
-                    : context.runtimeMode
+            const runtimeMode: AssistantRuntimeMode = isAssistantRuntimeMode(result['runtimeMode'])
+                ? result['runtimeMode']
+                : context.runtimeMode
             const webSearch = typeof result['webSearch'] === 'boolean' ? result['webSearch'] : context.webSearch
             const webFetch = typeof result['webFetch'] === 'boolean' ? result['webFetch'] : context.webFetch
             const agentServerActiveTurnId = asString(result['agentServerActiveTurnId'])
@@ -2451,7 +2447,9 @@ export class ZyraPiRuntime extends EventEmitter {
             const model = asString(event['model']) || context.model
             const thinking = isAssistantReasoningEffort(event['thinking']) ? event['thinking'] : context.thinking
             const profile = normalizeZyraProfile(event['profile'] || context.profile)
-            const runtimeMode: AssistantRuntimeMode = event['runtimeMode'] === 'full-access' ? 'full-access' : 'approval-required'
+            const runtimeMode: AssistantRuntimeMode = isAssistantRuntimeMode(event['runtimeMode'])
+                ? event['runtimeMode']
+                : context.runtimeMode
             const webSearch = typeof event['webSearch'] === 'boolean' ? event['webSearch'] : context.webSearch
             const webFetch = typeof event['webFetch'] === 'boolean' ? event['webFetch'] : context.webFetch
             context.model = model

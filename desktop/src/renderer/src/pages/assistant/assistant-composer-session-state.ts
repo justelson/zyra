@@ -1,4 +1,4 @@
-import type { AssistantInteractionMode, AssistantRuntimeMode } from '@shared/assistant/contracts'
+import { isAssistantRuntimeMode, type AssistantInteractionMode, type AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
 import type { ComposerContextFile } from './assistant-composer-types'
@@ -45,7 +45,7 @@ function sanitizeAssistantComposerSessionState(value: unknown): AssistantCompose
         draft: typeof record.draft === 'string' && record.draft.length > 0 ? record.draft : undefined,
         contextFiles: contextFiles.length > 0 ? contextFiles : undefined,
         model: typeof record.model === 'string' && record.model.trim().length > 0 ? record.model.trim() : undefined,
-        runtimeMode: record.runtimeMode === 'full-access' || record.runtimeMode === 'approval-required' ? record.runtimeMode : undefined,
+        runtimeMode: isAssistantRuntimeMode(record.runtimeMode) ? record.runtimeMode : undefined,
         interactionMode: record.interactionMode === 'plan' || record.interactionMode === 'default' ? 'default' : undefined,
         effort: isAssistantReasoningEffort(record.effort) ? record.effort : undefined,
         fastModeEnabled: typeof record.fastModeEnabled === 'boolean' ? record.fastModeEnabled : undefined

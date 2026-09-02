@@ -185,7 +185,6 @@ export function AssistantPendingUserInputFooter(props: {
                 selectedRuntimeMode={composerController.selectedRuntimeMode}
                 setSelectedRuntimeMode={composerController.setSelectedRuntimeMode}
                 displayedProfile={composerController.displayedProfile}
-                setShowFullAccessConfirm={composerController.setShowFullAccessConfirm}
             />
             <div className={cn('flex shrink-0 items-center', isReviewStep ? 'gap-1.5' : 'gap-2')}>
                 {(progressQuestionIndex > 0 || isReviewStep) ? <button type="button" disabled={responding} onClick={onBack} className={cn('inline-flex items-center justify-center gap-1 rounded-full bg-white/[0.04] py-2 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-white/[0.06] hover:text-sparkle-text disabled:opacity-50', isReviewStep ? 'min-w-[80px] px-3' : 'min-w-[92px] px-3.5')}><ArrowLeft size={12} />{returnToReview ? 'Review' : 'Back'}</button> : null}

@@ -34,7 +34,6 @@ import {
 } from './assistant-composer-inline-mentions'
 import type { AssistantPromptResourcesPayload, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { AssistantComposerController } from './useAssistantComposerController'
-import { writeFullAccessConfirmSuppressed } from './assistant-safety-preferences'
 import { deriveAssistantComposerViewState, shouldShowComposerRealtimeVoicePrimaryAction } from './assistant-composer-view-state'
 import { buildAssistantVoiceExecutionConfiguration } from './assistant-voice-execution-configuration'
 import {
@@ -48,6 +47,7 @@ import {
     buildAssistantComposerCommandItems,
     findAssistantComposerSlashToken,
     getAssistantComposerCommandOptionId,
+    resolveAssistantComposerCommandMenuIndex,
     type AssistantComposerCommandItem
 } from './assistant-composer-command-menu'
 
@@ -131,6 +131,7 @@ export function AssistantComposerView({
     const [slashMenuPresent, setSlashMenuPresent] = useState(false)
     const [slashMenuAnimatedOpen, setSlashMenuAnimatedOpen] = useState(false)
     const attachmentShelfRef = useRef<HTMLDivElement | null>(null)
+    const commandActivationPendingRef = useRef(false)
     const hasFloatingShelf = controller.queuedMessages.length > 0 || controller.contextFiles.length > 0
     const hasInlineMentionOverlay = controller.text.length > 0 && controller.inlineMentionTags.length > 0
     const {
@@ -202,6 +203,7 @@ export function AssistantComposerView({
     }, [controller.text])
 
     useEffect(() => {
+        commandActivationPendingRef.current = false
         setActiveCommandIndex(0)
     }, [slashToken?.query])
 
@@ -348,17 +350,23 @@ export function AssistantComposerView({
     }, [controller.onOverflowWheel, getNormalizedWheelDelta, syncTextareaScroll])
 
     const selectCommandItem = useCallback((item: AssistantComposerCommandItem) => {
-        if (!slashToken) return
-        const next = applyAssistantComposerCommandItem(controller.text, slashToken, item)
-        controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
-        controller.setText(next.text)
-        controller.setComposerCursor(next.cursor)
-        if (controller.historyCursor != null) controller.setHistoryCursor(null)
-        window.requestAnimationFrame(() => {
-            const textarea = controller.textareaRef.current
-            textarea?.focus()
-            textarea?.setSelectionRange(next.cursor, next.cursor)
-        })
+        if (!slashToken || commandActivationPendingRef.current) return
+        commandActivationPendingRef.current = true
+        try {
+            const next = applyAssistantComposerCommandItem(controller.text, slashToken, item)
+            controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
+            controller.setText(next.text)
+            controller.setComposerCursor(next.cursor)
+            if (controller.historyCursor != null) controller.setHistoryCursor(null)
+            window.requestAnimationFrame(() => {
+                const textarea = controller.textareaRef.current
+                textarea?.focus()
+                textarea?.setSelectionRange(next.cursor, next.cursor)
+            })
+        } catch (error) {
+            commandActivationPendingRef.current = false
+            throw error
+        }
     }, [controller, slashToken])
 
     const handleComposerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -370,8 +378,12 @@ export function AssistantComposerView({
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             if (commandItems.length > 0) {
-                const direction = event.key === 'ArrowDown' ? 1 : -1
-                setActiveCommandIndex((current) => (current + direction + commandItems.length) % commandItems.length)
+                const direction = event.key === 'ArrowDown' ? 'ArrowDown' : 'ArrowUp'
+                setActiveCommandIndex((current) => resolveAssistantComposerCommandMenuIndex(
+                    current,
+                    direction,
+                    commandItems.length
+                ))
             }
             return
         }
@@ -795,7 +807,6 @@ export function AssistantComposerView({
                                 displayedProfile={controller.displayedProfile}
                                 zyraProfile={controller.zyraProfile}
                                 onZyraProfileChange={controller.onZyraProfileChange}
-                                setShowFullAccessConfirm={controller.setShowFullAccessConfirm}
                                 isConnected={controller.isConnected}
                                 isConnecting={controller.isConnecting}
                                 reconnectPending={controller.reconnectPending}
@@ -887,21 +898,6 @@ export function AssistantComposerView({
                 />
             </div>
 
-            <ConfirmModal
-                isOpen={controller.showFullAccessConfirm}
-                title="Switch to full access?"
-                message="Zyra will stop asking before commands and give this thread full local access. Use it when you trust the project and want faster edits."
-                confirmLabel="Switch to full access"
-                cancelLabel="Keep supervised"
-                variant="warning"
-                checkboxLabel="Don't ask again on this device"
-                onConfirm={(options) => {
-                    if (options?.checkboxChecked) writeFullAccessConfirmSuppressed(true)
-                    controller.setSelectedRuntimeMode('full-access')
-                    controller.setShowFullAccessConfirm(false)
-                }}
-                onCancel={() => controller.setShowFullAccessConfirm(false)}
-            />
             <ConfirmModal
                 isOpen={showBrowserSpeechFallbackModal}
                 title="Browser speech failed"

@@ -5,6 +5,7 @@ import type {
     Settings
 } from './settings'
 import { isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
+import { isAssistantRuntimeMode } from '@shared/assistant/contracts'
 
 type AssistantDefaultsSubset = Pick<
     Settings,
@@ -31,7 +32,9 @@ export function loadLegacyAssistantComposerDefaults(
         }
         return {
             assistantDefaultModel: typeof parsed.model === 'string' ? parsed.model.trim() : defaults.assistantDefaultModel,
-            assistantDefaultRuntimeMode: parsed.runtimeMode === 'full-access' ? 'full-access' : defaults.assistantDefaultRuntimeMode,
+            assistantDefaultRuntimeMode: parsed.runtimeMode == null
+                ? defaults.assistantDefaultRuntimeMode
+                : sanitizeAssistantDefaultRuntimeMode(parsed.runtimeMode),
             assistantDefaultEffort:
                 isAssistantReasoningEffort(parsed.effort)
                     ? parsed.effort
@@ -46,7 +49,7 @@ export function loadLegacyAssistantComposerDefaults(
 }
 
 export function sanitizeAssistantDefaultRuntimeMode(value: unknown): AssistantDefaultRuntimeMode {
-    return value === 'full-access' ? 'full-access' : 'approval-required'
+    return isAssistantRuntimeMode(value) ? value : 'approval-required'
 }
 
 export function sanitizeAssistantDefaultEffort(value: unknown): AssistantDefaultEffort {
@@ -54,7 +57,10 @@ export function sanitizeAssistantDefaultEffort(value: unknown): AssistantDefault
 }
 
 export function getAssistantDefaultRuntimeModeLabel(value: AssistantDefaultRuntimeMode): string {
-    return value === 'full-access' ? 'Full access' : 'Supervised'
+    if (value === 'full-access') return 'Full access'
+    if (value === 'auto-review') return 'Auto review'
+    if (value === 'edits-only') return 'Edits only'
+    return 'Supervised'
 }
 
 export function getAssistantDefaultEffortLabel(value: AssistantDefaultEffort): string {

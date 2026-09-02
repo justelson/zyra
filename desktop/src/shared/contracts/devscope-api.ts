@@ -556,6 +556,8 @@ export interface DevScopeAgentControlApi {
     updateWorkspaceState: (input: ControlWorkspaceSnapshot | null) => Promise<DevScopeResult<{ workspace: ControlWorkspaceSnapshot | null }>>
     approveGrant: (input: RendererControlGrantInput) => Promise<DevScopeResult<{ grant: ControlGrant }>>
     rejectGrant: (requestId: string) => Promise<DevScopeResult<{ rejected: boolean }>>
+    approveAction: (requestId: string) => Promise<DevScopeResult<{ approved: boolean }>>
+    rejectAction: (requestId: string) => Promise<DevScopeResult<{ rejected: boolean }>>
     revokeGrant: (grantId: string) => Promise<DevScopeResult<{ revoked: boolean }>>
     emergencyStop: () => Promise<DevScopeResult<{ stopped: boolean }>>
     clearAudit: () => Promise<DevScopeResult<{ cleared: boolean }>>

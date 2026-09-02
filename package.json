@@ -20,7 +20,7 @@
     "test:desktop-install": "node scripts/test-zyra-desktop-install.mjs && bun run --cwd desktop test:release-infra",
     "test:agent-platform-integration": "bun desktop/scripts/test-agent-platform-integration.ts",
     "test:agent-server": "node scripts/test-zyra-chat-index.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-zyra-agent-server-bridge.mjs && bun run --cwd desktop test:agent-server && bun run --cwd desktop test:assistant-project",
-    "test:permissions": "node scripts/test-zyra-permission-gate.mjs",
+    "test:permissions": "node scripts/test-zyra-permission-gate.mjs && node scripts/test-zyra-permission-reviewer.mjs && node scripts/test-zyra-cli-permissions.mjs",
     "test:voice-agent-contracts": "node scripts/validate-voice-agent-contracts.mjs",
     "test:provider-runtime": "node scripts/test-chatgpt-realtime-call.mjs && node scripts/test-codex-realtime-contract-sync.mjs && node scripts/test-provider-runtime-migration.mjs",
     "test:analytics": "node scripts/test-product-analytics.mjs",

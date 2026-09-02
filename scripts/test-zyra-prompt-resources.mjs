@@ -99,12 +99,12 @@ try {
   )
   assert.deepEqual(
     resources.commands.find((command) => command.name === 'yolo'),
-    { name: 'yolo', description: 'Switch this thread to full access locally.', scope: 'built-in' },
+    { name: 'yolo', description: 'Switch this thread to full access.', scope: 'built-in' },
     'custom command files cannot replace trusted Desktop built-ins'
   )
   assert.equal(resources.commands.some((command) => command.name === 'bad name'), false)
   assert.ok(resources.commands.length <= ZYRA_PROMPT_RESOURCE_LIMITS.maxCommands)
-  for (const builtIn of ['yolo', 'safe', 'include']) {
+  for (const builtIn of ['yolo', 'auto', 'edits', 'safe', 'include']) {
     assert.equal(resources.commands.some((command) => command.name === builtIn), true)
   }
 

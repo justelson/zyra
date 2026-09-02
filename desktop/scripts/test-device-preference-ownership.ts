@@ -50,6 +50,8 @@ try {
     assert.equal(sanitizeDevicePreferenceValue('assistantTitleModel', 56), undefined, 'the title model rejects malformed non-string values')
     assert.equal(sanitizeDevicePreferenceValue('assistantReasoningSummary', 'raw'), undefined, 'raw chain-of-thought cannot become a reasoning-summary mode')
     assert.equal(sanitizeDevicePreferenceValue('assistantReasoningSummary', 'detailed'), 'detailed')
+    assert.equal(sanitizeDevicePreferenceValue('assistantDefaultRuntimeMode', 'auto-review'), 'auto-review')
+    assert.equal(sanitizeDevicePreferenceValue('assistantDefaultRuntimeMode', 'edits-only'), 'edits-only')
     assert.equal(sanitizeDevicePreferenceValue('assistantContextCompactionThresholdTokens', 500_000), 372_000, 'context limits clamp below the 400k model ceiling')
 
     const allOwned = new Set([...SHARED_DEVICE_PREFERENCE_KEYS, ...SURFACE_DEVICE_PREFERENCE_KEYS])

@@ -20,6 +20,19 @@ export type AssistantComposerSlashToken = {
     query: string
 }
 
+export function resolveAssistantComposerCommandMenuIndex(
+    currentIndex: number,
+    direction: 'ArrowDown' | 'ArrowUp',
+    itemCount: number
+): number {
+    if (itemCount <= 0) return 0
+    const normalizedIndex = Number.isFinite(currentIndex)
+        ? Math.min(Math.max(Math.trunc(currentIndex), 0), itemCount - 1)
+        : 0
+    if (direction === 'ArrowDown') return (normalizedIndex + 1) % itemCount
+    return (normalizedIndex - 1 + itemCount) % itemCount
+}
+
 export function findAssistantComposerSlashToken(text: string, cursor: number): AssistantComposerSlashToken | null {
     const safeCursor = Math.max(0, Math.min(cursor, text.length))
     const beforeCursor = text.slice(0, safeCursor)

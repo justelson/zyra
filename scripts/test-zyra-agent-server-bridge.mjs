@@ -58,6 +58,27 @@ try {
     .at(-1)?.data;
   assert.equal(persistedConfig?.thinking, "high", "chat configuration must be recorded in canonical Pi history");
   assert.equal(persistedConfig?.runtimeMode, "full-access");
+  for (const runtimeMode of ["auto-review", "edits-only"]) {
+    await desktop.request("session.request", {
+      sessionKey: attached.sessionKey,
+      type: "configure",
+      payload: {
+        model: attached.connected.model,
+        thinking: "high",
+        profile: "default",
+        runtimeMode,
+        webSearch: true,
+        webFetch: true
+      }
+    });
+    const latestMode = readFileSync(fixtureSessionPath, "utf8")
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry.type === "custom" && entry.customType === "zyra.chat-config.v1")
+      .at(-1)?.data?.runtimeMode;
+    assert.equal(latestMode, runtimeMode, `${runtimeMode} must persist without collapsing into another mode`);
+  }
   await desktop.detach(attached.sessionKey);
   assert.equal(server.state().sessions.length, 1, "desktop detach must leave the bridge alive");
   await desktop.attach({
@@ -79,7 +100,7 @@ try {
   });
   assert.equal(reopened.canonicalChatId, attached.canonicalChatId, "TUI must reopen the desktop-created canonical chat");
   assert.equal(reopened.connected.thinking, "high", "reopened surfaces must inherit the canonical chat thinking level");
-  assert.equal(reopened.connected.runtimeMode, "full-access", "reopened surfaces must inherit the canonical permission mode");
+  assert.equal(reopened.connected.runtimeMode, "edits-only", "reopened surfaces must inherit the canonical permission mode");
   assert.equal(reopened.connected.model, attached.connected.model, "reopened surfaces must inherit the canonical model");
   assert.equal(server.state().sessions.length, 1, "both surfaces must resolve to the same bridge worker");
   await tui.request("session.stop", { sessionKey: reopened.sessionKey, reason: "bridge test complete" });

@@ -8,7 +8,7 @@ import { dispatchZyraThemeChanged } from './theme-events'
 import { clearProjectViewCaches } from './projectViewCache'
 import { clearRecentProjects } from './recentProjects'
 import { clearSettingsRuntimeCaches } from './settings-cache-registry'
-import type { AssistantReasoningEffort } from '@shared/assistant/contracts'
+import type { AssistantReasoningEffort, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import {
     DEFAULT_ASSISTANT_AUTO_TITLE_TURNS,
     DEFAULT_ASSISTANT_TITLE_MODEL,
@@ -90,7 +90,7 @@ export type PullRequestChangeSource = 'unstaged' | 'staged' | 'local-commits' | 
 export type AssistantUsageDisplayMode = 'remaining' | 'used'
 export type AssistantTextStreamingMode = 'stream' | 'chunks'
 export type AssistantToolOutputDefaultMode = 'expanded' | 'minimized'
-export type AssistantDefaultRuntimeMode = 'approval-required' | 'full-access'
+export type AssistantDefaultRuntimeMode = AssistantRuntimeMode
 export type AssistantDefaultEffort = AssistantReasoningEffort
 export type AssistantReasoningSummary = AssistantReasoningSummaryMode
 export type AssistantTranscriptionEngine = 'browser' | 'codex'

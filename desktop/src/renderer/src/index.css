@@ -259,7 +259,7 @@ body:not(.light) .framework-badge {
   transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.assistant-composer-footer-access-control > svg {
+.assistant-composer-footer-access-icon {
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
@@ -317,7 +317,7 @@ body:not(.light) .framework-badge {
     padding-inline: 0;
   }
 
-  .assistant-composer-footer-access-control > svg {
+  .assistant-composer-footer-access-icon {
     width: 16px;
     height: 16px;
   }
@@ -345,7 +345,7 @@ body:not(.light) .framework-badge {
 @media (prefers-reduced-motion: reduce) {
   .assistant-composer-footer-model-label,
   .assistant-composer-footer-access-control,
-  .assistant-composer-footer-access-control > svg,
+  .assistant-composer-footer-access-icon,
   .assistant-composer-footer-access-label,
   .assistant-composer-footer-context {
     transition-duration: 0.01ms;

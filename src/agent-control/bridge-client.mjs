@@ -14,7 +14,7 @@ export class AgentControlBridgeClient {
       return Promise.reject(new ControlContractError("Desktop control bridge is unavailable.", "CONTROL_CAPABILITY_UNAVAILABLE"));
     }
     const requestId = randomUUID();
-    const timeoutMs = Math.max(100, Math.min(30000, Number(options.timeoutMs) || this.defaultTimeoutMs));
+    const timeoutMs = Math.max(100, Math.min(10 * 60 * 1000, Number(options.timeoutMs) || this.defaultTimeoutMs));
     return new Promise((resolve, reject) => {
       const finish = (callback, value) => {
         const pending = this.pending.get(requestId);

@@ -15,6 +15,8 @@ export const AGENT_CONTROL_IPC = {
     requestGrant: 'zyra:agent-control:request-grant',
     approveGrant: 'zyra:agent-control:approve-grant',
     rejectGrant: 'zyra:agent-control:reject-grant',
+    approveAction: 'zyra:agent-control:approve-action',
+    rejectAction: 'zyra:agent-control:reject-action',
     revokeGrant: 'zyra:agent-control:revoke-grant',
     emergencyStop: 'zyra:agent-control:emergency-stop',
     clearAudit: 'zyra:agent-control:clear-audit',

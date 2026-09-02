@@ -6,7 +6,7 @@ export function createComputerControlTool(options = {}) {
   return defineTool({
     name: "computer_control",
     label: "Computer control",
-    description: "Observe and control only an explicitly selected ordinary Windows application window through the desktop permission broker.",
+    description: "Observe and control only an explicitly selected ordinary Windows application window through the desktop permission broker. The chat permission mode applies here too: Full access issues routine grants automatically; Supervised, Auto review, and Edits only ask in chat. Critical side effects always pause in chat.",
     parameters: computerControlSchema,
     execute: async (_toolCallId, input = {}, signal) => {
       const normalized = normalizeControlToolInput(input);
@@ -19,7 +19,9 @@ export function createComputerControlTool(options = {}) {
       }
       try {
         const operation = toBridgeOperation(normalized);
-        const result = await options.client.request(operation, { signal, timeoutMs: normalized.timeoutMs });
+        const waitsForUser = normalized.operation === "request_grant" || (normalized.sideEffect && normalized.sideEffect !== "none");
+        const timeoutMs = normalized.timeoutMs ?? (waitsForUser ? 10 * 60 * 1000 : undefined);
+        const result = await options.client.request(operation, { signal, timeoutMs });
         return toolResult(formatControlResult(normalized.operation, result), result);
       } catch (error) {
         return toolResult(`Computer control failed: ${error instanceof Error ? error.message : String(error)}`, {
@@ -60,7 +62,7 @@ function toBridgeOperation(input) {
 
 function formatControlResult(operation, result) {
   if (operation === "list_windows") return `Selectable Windows application windows: ${Array.isArray(result.windows) ? result.windows.length : 0}`;
-  if (operation === "request_grant") return result.pending ? "Control grant is waiting for explicit user approval in Control Center." : "Control grant issued.";
+  if (operation === "request_grant") return result.pending ? "Control grant is waiting for approval in chat." : "Control grant issued.";
   if (operation === "release") return "Control grant released.";
   if (result.observation) return `Computer ${operation} completed at revision ${result.observation.revision}.`;
   return `Computer ${operation} completed.`;

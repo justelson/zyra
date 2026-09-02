@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import type {
     AssistantActivity,
     AssistantAccountOverview,
-    AssistantLatestTurn
+    AssistantLatestTurn,
+    AssistantRuntimeMode
 } from '@shared/assistant/contracts'
 import {
     estimateAssistantSessionCostUsd,
@@ -38,6 +39,7 @@ import {
     type AssistantComposerSessionState
 } from './assistant-composer-session-state'
 import { SIDEBAR_EFFORT_LABELS } from './useAssistantPageSidebarState'
+import { getProfileLabel } from './assistant-composer-controller-constants'
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 
 type ThreadDetailsSelection = {
@@ -54,7 +56,7 @@ type ThreadDetailsSelection = {
     selectedPlaygroundLabTitle: string | null
     activeThreadModel: string
     activeThreadThinking: AssistantLatestTurn['effort']
-    activeThreadRuntimeMode: 'approval-required' | 'full-access'
+    activeThreadRuntimeMode: AssistantRuntimeMode
     latestTurn: AssistantLatestTurn | null
     activityFeed: AssistantActivity[]
     pendingApprovalsCount: number
@@ -281,7 +283,7 @@ export function ConnectedAssistantThreadDetailsPanel(props: {
         : (selection.latestTurn?.serviceTier === 'fast' || (selection.latestTurn?.serviceTier == null && composerSessionState.fastModeEnabled) ? 'Fast' : 'Standard')
     const selectedRuntimeLabel = selection.selectionHydrating
         ? 'Syncing…'
-        : selection.activeThreadRuntimeMode === 'full-access' ? 'Full access' : 'Supervised'
+        : getProfileLabel(selection.activeThreadRuntimeMode)
     const activeSessionTurnUsage = sessionTurnUsage?.sessionId === selection.selectedSessionId ? sessionTurnUsage : null
     const sessionCostEstimate = useMemo(
         () => estimateAssistantSessionCostUsd(activeSessionTurnUsage?.turns || []),

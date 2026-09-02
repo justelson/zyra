@@ -89,7 +89,7 @@ const ENUMS: Record<string, ReadonlySet<string>> = {
     gitPullRequestDefaultChangeSource: new Set(['unstaged', 'staged', 'local-commits', 'all-local-work']),
     commitAIProvider: new Set(['groq', 'gemini', 'codex']),
     assistantProductProfile: new Set(['default', 'builder']),
-    assistantDefaultRuntimeMode: new Set(['approval-required', 'full-access']),
+    assistantDefaultRuntimeMode: new Set(['approval-required', 'auto-review', 'edits-only', 'full-access']),
     assistantDefaultEffort: new Set(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     assistantReasoningSummary: new Set(['auto', 'detailed', 'concise']),
     assistantBusyMessageMode: new Set(['queue', 'force']),

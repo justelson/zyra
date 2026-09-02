@@ -26,7 +26,10 @@ export function buildEffortSliderTicks(optionCount: number): string {
 }
 
 export function getProfileLabel(runtimeMode: AssistantRuntimeMode) {
-    return runtimeMode === 'full-access' ? 'Full access' : 'Safe'
+    if (runtimeMode === 'full-access') return 'Full access'
+    if (runtimeMode === 'auto-review') return 'Auto review'
+    if (runtimeMode === 'edits-only') return 'Edits only'
+    return 'Supervised'
 }
 
 export function readLegacyComposerSessionState(): AssistantComposerSessionState {

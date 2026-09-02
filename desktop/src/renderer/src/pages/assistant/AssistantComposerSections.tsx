@@ -2,7 +2,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties,
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { cn } from '@/lib/utils'
-import { AudioLines, Check, ChevronDown, ChevronUp, Gauge, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, SendHorizontal, Square, Zap } from 'lucide-react'
+import { AudioLines, Check, ChevronDown, ChevronUp, FilePenLine, Gauge, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, SendHorizontal, ShieldCheck, Square, Zap } from 'lucide-react'
+import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { formatAssistantModelLabel } from './assistant-model-labels'
 import { getContentTypeTag, getContextFileMeta, isPastedTextAttachment } from './assistant-composer-utils'
@@ -10,7 +11,6 @@ import { parseAssistantBrowserAnnotation } from './assistant-browser-annotation-
 import type { ComposerContextFile } from './assistant-composer-types'
 import type { MentionCandidate } from './assistant-composer-mentions'
 import { buildEffortSliderTicks } from './assistant-composer-controller-constants'
-import { readFullAccessConfirmSuppressed } from './assistant-safety-preferences'
 import { AssistantFileAttachmentCard, AssistantPastedTextCard } from './AssistantAttachmentCards'
 import { AssistantAttachmentImageCard } from './AssistantAttachmentImageCard'
 import { AssistantBrowserAnnotationCard } from './AssistantBrowserAnnotationCard'
@@ -24,6 +24,23 @@ function getEffortTone(effort: string): { textClass: string } {
 function isLatestModel(model: { id: string; label?: string }, latestModelId: string | null): boolean {
     return Boolean(latestModelId && model.id === latestModelId)
 }
+
+const ASSISTANT_ACCESS_OPTIONS: Array<{
+    mode: AssistantRuntimeMode
+    label: string
+    shortLabel: string
+    pillWidth: string
+    description: string
+    pillClass: string
+    accentClass: string
+    selectedMenuClass: string
+    icon: typeof Lock
+}> = [
+    { mode: 'approval-required', label: 'Supervised', shortLabel: 'Supervised', pillWidth: '104px', description: 'Ask before commands, edits, and control.', pillClass: 'border-emerald-400/35 bg-emerald-500/[0.13] text-emerald-100 hover:bg-emerald-500/[0.18]', accentClass: 'text-emerald-300', selectedMenuClass: 'bg-emerald-500/[0.09]', icon: Lock },
+    { mode: 'auto-review', label: 'Auto review', shortLabel: 'Auto', pillWidth: '68px', description: 'Review automatically; ask when risk is unclear.', pillClass: 'border-sky-400/35 bg-sky-500/[0.13] text-sky-100 hover:bg-sky-500/[0.18]', accentClass: 'text-sky-300', selectedMenuClass: 'bg-sky-500/[0.09]', icon: ShieldCheck },
+    { mode: 'edits-only', label: 'Edits only', shortLabel: 'Edits', pillWidth: '72px', description: 'Allow project edits; ask for commands and control.', pillClass: 'border-amber-400/35 bg-amber-500/[0.13] text-amber-100 hover:bg-amber-500/[0.18]', accentClass: 'text-amber-300', selectedMenuClass: 'bg-amber-500/[0.09]', icon: FilePenLine },
+    { mode: 'full-access', label: 'Full access', shortLabel: 'Full', pillWidth: '64px', description: 'Run routine work; ask only for critical actions.', pillClass: 'border-rose-400/35 bg-rose-500/[0.13] text-rose-100 hover:bg-rose-500/[0.18]', accentClass: 'text-rose-300', selectedMenuClass: 'bg-rose-500/[0.09]', icon: LockOpen }
+]
 
 export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
     contextFiles,
@@ -406,7 +423,6 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     setFastModeEnabled,
     selectedRuntimeMode,
     setSelectedRuntimeMode,
-    setShowFullAccessConfirm,
     isConnected = true,
     isConnecting = false,
     reconnectPending = false,
@@ -443,21 +459,22 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     setFastModeEnabled: Dispatch<SetStateAction<boolean>>
     selectedInteractionMode: string
     setSelectedInteractionMode: Dispatch<SetStateAction<any>>
-    selectedRuntimeMode: string
-    setSelectedRuntimeMode: Dispatch<SetStateAction<any>>
+    selectedRuntimeMode: AssistantRuntimeMode
+    setSelectedRuntimeMode: Dispatch<SetStateAction<AssistantRuntimeMode>>
     displayedProfile: string
     zyraProfile?: 'default' | 'builder'
     onZyraProfileChange?: (profile: 'default' | 'builder') => void
-    setShowFullAccessConfirm: Dispatch<SetStateAction<boolean>>
     isConnected?: boolean
     isConnecting?: boolean
     reconnectPending?: boolean
     onReconnect?: () => Promise<void> | void
 }) {
     const [activeSubmenu, setActiveSubmenu] = useState<'model' | 'speed' | null>(null)
+    const [showAccessMenu, setShowAccessMenu] = useState(false)
     const [submenuLeft, setSubmenuLeft] = useState({ model: 234, speed: 234 })
     const submenuCloseTimerRef = useRef<number | null>(null)
     const submenuContainerRef = useRef<HTMLDivElement | null>(null)
+    const accessMenuRef = useRef<HTMLDivElement | null>(null)
     const selectedModelText = formatAssistantModelLabel(selectedModelLabel)
     const selectedEffortText = EFFORT_LABELS[selectedEffort] || selectedEffort
     const selectedEffortTone = getEffortTone(selectedEffort)
@@ -469,6 +486,8 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         ? 'var(--color-text-dark)'
         : 'var(--accent-primary)'
     const traitsMenuOpensDown = placement === 'center'
+    const selectedAccess = ASSISTANT_ACCESS_OPTIONS.find((option) => option.mode === selectedRuntimeMode) || ASSISTANT_ACCESS_OPTIONS[0]
+    const SelectedAccessIcon = selectedAccess.icon
 
     const menuPanelClass = 'overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[13px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_5%,transparent)] backdrop-blur-xl'
     const menuRouteClass = 'group flex h-[36px] w-full items-center gap-3 rounded-lg px-2.5 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]'
@@ -524,6 +543,22 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     useEffect(() => {
         if (!showTraitsDropdown) setActiveSubmenu(null)
     }, [showTraitsDropdown])
+
+    useEffect(() => {
+        if (!showAccessMenu) return
+        const closeOnPointerDown = (event: PointerEvent) => {
+            if (!accessMenuRef.current?.contains(event.target as Node)) setShowAccessMenu(false)
+        }
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setShowAccessMenu(false)
+        }
+        window.addEventListener('pointerdown', closeOnPointerDown)
+        window.addEventListener('keydown', closeOnEscape)
+        return () => {
+            window.removeEventListener('pointerdown', closeOnPointerDown)
+            window.removeEventListener('keydown', closeOnEscape)
+        }
+    }, [showAccessMenu])
 
     useLayoutEffect(() => {
         if (!showTraitsDropdown) return
@@ -712,7 +747,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                     disabled={controlsLocked}
                     onClick={toggleTraitsDropdown}
                     className={cn(
-                        'relative inline-flex h-7 w-full min-w-0 max-w-full items-center overflow-hidden whitespace-nowrap rounded-md px-1 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:text-sparkle-text sm:px-1.5',
+                        'relative inline-flex h-7 w-fit min-w-0 max-w-full items-center overflow-hidden whitespace-nowrap rounded-md px-1 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:text-sparkle-text sm:px-1.5',
                         controlsLocked && 'cursor-not-allowed opacity-45 hover:text-sparkle-text-secondary'
                     )}
                     title={showModelRefreshState ? 'Refreshing controls...' : 'Model, thinking, and speed'}
@@ -738,35 +773,64 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                     </span>
                 </button>
             </div>
-            <button
-                type="button"
-                aria-pressed={selectedRuntimeMode === 'full-access'}
-                onClick={() => {
-                    if (selectedRuntimeMode === 'full-access') {
-                        setSelectedRuntimeMode('approval-required')
-                        return
-                    }
-                    if (readFullAccessConfirmSuppressed()) {
-                        setSelectedRuntimeMode('full-access')
-                        return
-                    }
-                    setShowFullAccessConfirm(true)
-                }}
-                aria-label={selectedRuntimeMode === 'full-access' ? 'Full access enabled' : 'Supervised access'}
-                style={{ '--assistant-access-expanded-width': selectedRuntimeMode === 'full-access' ? '64px' : '104px' } as CSSProperties}
-                className={cn(
-                    'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
-                    selectedRuntimeMode === 'full-access'
-                        ? 'border-amber-400/25 bg-amber-500/[0.10] text-amber-100 hover:bg-amber-500/[0.14]'
-                        : 'border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-200 hover:bg-emerald-500/[0.12]'
-                )}
-                title={selectedRuntimeMode === 'full-access' ? 'Full access enabled' : 'Supervised access'}
-            >
-                {selectedRuntimeMode === 'full-access'
-                    ? <LockOpen size={12} />
-                    : <Lock size={12} />}
-                <span className="assistant-composer-footer-access-label">{selectedRuntimeMode === 'full-access' ? 'Full' : 'Supervised'}</span>
-            </button>
+            <div ref={accessMenuRef} className="relative shrink-0">
+                {showAccessMenu ? (
+                    <div
+                        role="menu"
+                        aria-label="Permission mode"
+                        className={cn(
+                            'absolute right-0 z-[180] w-[226px] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[12px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-xl animate-in fade-in duration-150',
+                            traitsMenuOpensDown ? 'top-[36px] slide-in-from-top-1' : 'bottom-[36px] slide-in-from-bottom-1'
+                        )}
+                    >
+                        {ASSISTANT_ACCESS_OPTIONS.map((option) => {
+                            const Icon = option.icon
+                            const selected = option.mode === selectedRuntimeMode
+                            return (
+                                <button
+                                    key={option.mode}
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked={selected}
+                                    onClick={() => {
+                                        setShowAccessMenu(false)
+                                        setSelectedRuntimeMode(option.mode)
+                                    }}
+                                    className={cn(
+                                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]',
+                                        selected && option.selectedMenuClass
+                                    )}
+                                >
+                                    <Icon size={14} className={cn('shrink-0', option.accentClass)} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block font-medium text-sparkle-text">{option.label}</span>
+                                        <span className="block truncate text-[10px] text-sparkle-text-dark">{option.description}</span>
+                                    </span>
+                                    {selected ? <Check size={14} className={cn('shrink-0', option.accentClass)} /> : null}
+                                </button>
+                            )
+                        })}
+                    </div>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={controlsLocked}
+                    aria-haspopup="menu"
+                    aria-expanded={showAccessMenu}
+                    onClick={() => setShowAccessMenu((open) => !open)}
+                    aria-label={`${selectedAccess.label} permission mode`}
+                    style={{ '--assistant-access-expanded-width': selectedAccess.pillWidth } as CSSProperties}
+                    className={cn(
+                        'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
+                        selectedAccess.pillClass,
+                        controlsLocked && 'cursor-not-allowed opacity-45'
+                    )}
+                    title={selectedAccess.label}
+                >
+                    <SelectedAccessIcon className="assistant-composer-footer-access-icon" />
+                    <span className="assistant-composer-footer-access-label">{selectedAccess.shortLabel}</span>
+                </button>
+            </div>
             {connectionPillState ? (
                 <button
                     type="button"

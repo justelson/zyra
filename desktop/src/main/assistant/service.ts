@@ -47,6 +47,7 @@ import {
     DEFAULT_INSTRUCTOR_REALTIME_VOICE,
     DEFAULT_INSTRUCTOR_VOICE_INSTRUCTIONS,
     foregroundRouteClaim,
+    isAssistantRuntimeMode,
     mergeFileChangePayloadRecords,
     parseAssistantHistoryBodyRef
 } from '../../shared/assistant/contracts'
@@ -1031,7 +1032,13 @@ export class AssistantService {
                 outcome: 'started',
                 model_family: classifyAnalyticsModelFamily(thread?.model),
                 effort: normalizeAnalyticsEffort(thread?.thinking),
-                runtime_mode: thread?.runtimeMode === 'full-access' ? 'full_access' : 'approval_required',
+                runtime_mode: thread?.runtimeMode === 'full-access'
+                    ? 'full_access'
+                    : thread?.runtimeMode === 'auto-review'
+                        ? 'auto_review'
+                        : thread?.runtimeMode === 'edits-only'
+                            ? 'edits_only'
+                            : 'approval_required',
                 attachment_count: Array.isArray(options?.images) ? options.images.length : 0
             }
         })
@@ -2952,7 +2959,7 @@ function requireCanonicalVoiceExecutionConfiguration(value: unknown): AssistantV
     const profile = typeof record?.profile === 'string' ? record.profile.trim().toLowerCase() : ''
     if (!model) throw new Error('Voice start is missing the selected Chat model.')
     if (!isAssistantReasoningEffort(record?.effort)) throw new Error('Voice start is missing the selected Chat reasoning effort.')
-    if (record?.runtimeMode !== 'approval-required' && record?.runtimeMode !== 'full-access') {
+    if (!isAssistantRuntimeMode(record?.runtimeMode)) {
         throw new Error('Voice start is missing the selected Chat permission mode.')
     }
     if (record?.interactionMode !== 'default' && record?.interactionMode !== 'plan') {

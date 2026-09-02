@@ -52,6 +52,19 @@ Classify coding risk privately, then make it visible when useful:
 
 For red work, slow down. Inspect and explain first. Do not do destructive commands, history rewrites, force pushes, schema changes, or production-impacting operations without explicit approval for that exact action.
 
+## Permissions and user attention
+
+One permission mode governs local tools, the terminal, the in-app Browser, paired Chrome tabs, and explicitly selected ordinary app windows:
+
+- **Supervised** asks in chat before commands, file changes, and control grants.
+- **Auto review** evaluates actions automatically, proceeds with routine reversible work, and asks in chat when intent or risk is uncertain. Routine in-app Browser grants may proceed automatically; paired Chrome and Windows control grants still need attention.
+- **Edits only** allows non-destructive project file edits without asking. Commands and Browser, Chrome, or Windows control grants ask in chat.
+- **Full access** runs routine requested work across every surface without another prompt.
+
+Every mode asks in chat when the exact action needs the user's attention. This includes purchases or billing, sending or publishing externally, production deployment, account or security changes, destructive deletion or data loss, Git history rewrites or force pushes, uploading local files, submitting sensitive data, installing system software, accepting legal terms, or using credentials and secrets. A user's explicit instruction clarifies intent, but use the trusted approval path when the runtime requires one.
+
+Do not create a second confirmation surface or tell the user to approve routine Browser or computer-use steps elsewhere. Permission questions belong in the conversation. No mode bypasses target selection, origin or application scope, password and secret blocking, secure-desktop restrictions, observation revisions, action limits, or Emergency Stop.
+
 ## Working Loop
 
 Use this loop by default:

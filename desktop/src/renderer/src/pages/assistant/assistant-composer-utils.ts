@@ -1,4 +1,5 @@
 import type { AssistantPromptImageInput } from '@shared/assistant/contracts'
+import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import {
     buildAssistantBrowserAnnotationPrompt,
     parseAssistantBrowserAnnotation
@@ -6,13 +7,15 @@ import {
 import type { ComposerContextFile } from './assistant-composer-types'
 
 export const SLASH_COMMANDS = [
-    { command: '/yolo', description: 'Switch this thread to full access locally.' },
-    { command: '/safe', description: 'Switch this thread back to approval-required mode.' },
+    { command: '/yolo', description: 'Switch this thread to full access.' },
+    { command: '/auto', description: 'Switch this thread to automatic review.' },
+    { command: '/edits', description: 'Allow project edits and ask before other actions.' },
+    { command: '/safe', description: 'Switch this thread back to supervised access.' },
     { command: '/include', description: 'Add a file path to the composer context shelf.' }
 ] as const
 
 export type AssistantDesktopSlashCommand = {
-    name: 'yolo' | 'safe' | 'include'
+    name: 'yolo' | 'auto' | 'edits' | 'safe' | 'include'
     argument: string
 }
 
@@ -25,7 +28,7 @@ export function listAssistantDesktopSlashCommandResources() {
 }
 
 export function parseAssistantDesktopSlashCommand(value: string): AssistantDesktopSlashCommand | null {
-    const match = String(value || '').trim().match(/^\/(yolo|safe|include)(?:\s+([\s\S]*))?$/i)
+    const match = String(value || '').trim().match(/^\/(yolo|auto|edits|safe|include)(?:\s+([\s\S]*))?$/i)
     if (!match) return null
     return {
         name: match[1].toLowerCase() as AssistantDesktopSlashCommand['name'],
@@ -34,7 +37,7 @@ export function parseAssistantDesktopSlashCommand(value: string): AssistantDeskt
 }
 
 export type AssistantDesktopSlashCommandAction =
-    | { type: 'runtime-mode'; mode: 'full-access' | 'approval-required' }
+    | { type: 'runtime-mode'; mode: AssistantRuntimeMode }
     | { type: 'include'; path: string; name: string; kind: 'image' | 'code' | 'file' }
     | { type: 'error'; message: string }
 
@@ -42,6 +45,8 @@ export function resolveAssistantDesktopSlashCommandAction(
     command: AssistantDesktopSlashCommand
 ): AssistantDesktopSlashCommandAction {
     if (command.name === 'yolo') return { type: 'runtime-mode', mode: 'full-access' }
+    if (command.name === 'auto') return { type: 'runtime-mode', mode: 'auto-review' }
+    if (command.name === 'edits') return { type: 'runtime-mode', mode: 'edits-only' }
     if (command.name === 'safe') return { type: 'runtime-mode', mode: 'approval-required' }
     if (!command.argument) return { type: 'error', message: 'Type a file path after /include.' }
     const name = command.argument.split(/[\\/]/).filter(Boolean).at(-1) || command.argument

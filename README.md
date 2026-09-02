@@ -62,10 +62,16 @@ Useful commands:
 zyra                         # open a chat in the current project
 zyra -p "explain this error" # one prompt, printed to the terminal
 zyra resume                  # reopen a previous chat
+zyra new --full-access       # start a chat without command or edit prompts
+zyra new --auto-review       # let Zyra review commands and edits automatically
+zyra new --edits-only        # allow edits but keep command approvals
+zyra new --supervised        # start a chat that asks before risky tools
 zyra threads                 # list local chats
 zyra doctor                  # check the local setup
 zyra --update                # install the latest release
 ```
+
+Resumed chats keep their permission mode. An explicit startup flag overrides it for that chat; use `/access` to change it inside the TUI.
 
 Type `/` in a chat to find commands and discovered Agent Skills. Project commands live in `.zyra/commands`; project skills can come from `.zyra/skills`, `.agents/skills`, or `.pi/skills`. See the [agents, skills, and workflows guide](docs/guides/subagents-workflows.md).
 

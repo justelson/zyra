@@ -38,6 +38,7 @@ import { formatAgentDoctorReport } from "./agents/definition-validator.mjs";
 import { buildProjectStartPrompt } from "./project-start.mjs";
 import { getSlashCommand, parseSlashInput } from "./slash-commands.mjs";
 import { normalizeWebToolsMode } from "./web-tools-picker.mjs";
+import { normalizeZyraPermissionMode } from "./permission-mode.mjs";
 import {
   DESKTOP_WORKSPACE_COMMANDS,
   formatDesktopWorkspaceResult,
@@ -183,6 +184,8 @@ async function handleSlashCommand(runtime, ui, text, parsed, controls = {}) {
       return runThinking(runtime, ui, arg);
     case "mode":
       return runMode(runtime, ui, arg);
+    case "access":
+      return runAccess(runtime, ui, arg);
     case "themes":
       return runThemes(runtime, ui, arg);
     case "models":
@@ -732,6 +735,22 @@ async function runInterruptMode(runtime, ui, arg) {
   return true;
 }
 
+function runAccess(runtime, ui, arg) {
+  const requested = String(arg || "").trim();
+  if (!requested) {
+    ui.info(`Access: ${formatPermissionMode(runtime.permissionMode)}. Use /access supervised|auto|edits|full.`);
+    return true;
+  }
+  const next = normalizeZyraPermissionMode(requested);
+  if (!next) {
+    ui.info("Use /access supervised, /access auto, /access edits, or /access full.");
+    return true;
+  }
+  runtime.permissionMode = next;
+  ui.info(`Access: ${formatPermissionMode(next)}.`);
+  return true;
+}
+
 async function runCustomSlashCommand(runtime, ui, rawCommand, arg, controls) {
   const skillMatch = rawCommand.match(/^\/skill:([a-z0-9][a-z0-9_-]{0,63})$/i);
   const prompt = skillMatch
@@ -784,4 +803,11 @@ function formatNotificationMode(mode) {
 function formatInterruptMode(mode) {
   if (mode === "queue") return "queue Enter until the active turn finishes";
   return "steer Enter after the next tool-call boundary";
+}
+
+function formatPermissionMode(mode) {
+  if (mode === "full-access") return "full access";
+  if (mode === "auto-review") return "auto review";
+  if (mode === "edits-only") return "edits only";
+  return "supervised";
 }

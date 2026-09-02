@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Plus } from 'lucide-react'
-import type { AssistantPendingUserInput, AssistantUserInputAnswer } from '@shared/assistant/contracts'
+import type { AssistantPendingUserInput, AssistantRuntimeMode, AssistantUserInputAnswer } from '@shared/assistant/contracts'
 import { cn } from '@/lib/utils'
 import {
     AssistantPendingUserInputFooter,
@@ -37,7 +37,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     availableModels: Array<{ id: string; label: string; description?: string }>
     activeModel: string | undefined
     modelsLoading: boolean
-    runtimeMode: 'approval-required' | 'full-access'
+    runtimeMode: AssistantRuntimeMode
     interactionMode: 'default' | 'plan'
     activeProfile: 'safe-dev' | 'yolo-fast'
     activeStatusLabel: string

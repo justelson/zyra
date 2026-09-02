@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import type {
     ControlAction,
@@ -9,9 +10,11 @@ import type {
     ControlObservation,
     ControlObservationMode,
     ControlPairingState,
+    ControlPendingActionApproval,
     ControlPlanRequest,
     ControlPlanResult,
     ControlPrincipal,
+    ControlSideEffectClass,
     ControlStateSnapshot,
     ControlTarget,
     ControlWindowCandidate,
@@ -30,7 +33,7 @@ import {
 } from '../../shared/agent-control/validation'
 import { ActionQueue } from './action-queue'
 import { AuditStore } from './audit-store'
-import { assertActionAllowed, assertCapabilitiesSupportedByTarget, assertGrantSupportsTarget } from './capability-policy'
+import { assertActionAllowed, assertCapabilitiesSupportedByTarget, assertGrantSupportsTarget, controlActionRequiresApproval } from './capability-policy'
 import { AgentControlError, toAgentControlError } from './control-errors'
 import { GrantStore } from './grant-store'
 import { ObservationStore } from './observation-store'
@@ -102,6 +105,11 @@ export class AgentControlBroker extends EventEmitter {
     private readonly userAuthorizedBrowserIntents = new Map<string, { threadId: string; tabId: string; targetId: string; expiresAt: number }>()
     private readonly pendingGrantWaiters = new Map<string, {
         resolve: (grant: ControlGrant) => void
+        reject: (error: AgentControlError) => void
+    }>()
+    private readonly pendingActionApprovals = new Map<string, ControlPendingActionApproval>()
+    private readonly pendingActionApprovalWaiters = new Map<string, {
+        resolve: () => void
         reject: (error: AgentControlError) => void
     }>()
 
@@ -354,6 +362,9 @@ export class AgentControlBroker extends EventEmitter {
         for (const [planId, plan] of this.pausedPlans) {
             if (plan.request.targetId === targetId) this.pausedPlans.delete(planId)
         }
+        for (const pending of [...this.pendingActionApprovals.values()]) {
+            if (pending.targetId === targetId) this.cancelPendingActionApproval(pending.requestId, reason)
+        }
         for (const [ownerId, workspace] of this.workspacesByOwner) {
             if (!workspace.browser.tabs.some((tab) => tab.targetId === targetId)) continue
             const next = {
@@ -445,7 +456,7 @@ export class AgentControlBroker extends EventEmitter {
         maxActions?: number
         allowedOrigins?: string[]
         allowedExecutableIdentities?: string[]
-    }) {
+    }, options: { silent?: boolean } = {}) {
         this.assertAlive()
         const principal = assertControlPrincipal(input.principal)
         const target = this.targets.get(assertControlIdentifier(input.targetId, 'targetId')).target
@@ -472,15 +483,17 @@ export class AgentControlBroker extends EventEmitter {
             allowedExecutableIdentities,
             screenshots: capabilities.includes('observe.screenshot')
         })
-        this.audit.append({
-            eventType: 'grant.requested', principal, targetId: target.targetId, targetKind: target.kind,
-            outcome: 'allowed', message: 'Waiting for explicit user approval.', redactions: []
-        })
-        this.changed()
+        if (!options.silent) {
+            this.audit.append({
+                eventType: 'grant.requested', principal, targetId: target.targetId, targetKind: target.kind,
+                outcome: 'allowed', message: 'Waiting for approval in chat.', redactions: []
+            })
+            this.changed()
+        }
         return request
     }
 
-    approvePendingGrant(input: RendererControlGrantInput): ControlGrant {
+    approvePendingGrant(input: RendererControlGrantInput, options: { auditMessage?: string } = {}): ControlGrant {
         this.assertAlive()
         const requestId = assertControlIdentifier(input.pendingRequestId, 'pendingRequestId')
         const pending = this.grants.getPending(requestId)
@@ -526,7 +539,7 @@ export class AgentControlBroker extends EventEmitter {
         this.grants.removePending(requestId)
         this.audit.append({
             eventType: 'grant.issued', principal: grant.principal, targetId: grant.targetId, targetKind: target.kind,
-            grantId: grant.grantId, outcome: 'allowed', message: 'User approved a bounded control grant.', redactions: []
+            grantId: grant.grantId, outcome: 'allowed', message: options.auditMessage || 'User approved a bounded control grant.', redactions: []
         })
         this.changed()
         this.pendingGrantWaiters.get(requestId)?.resolve(grant)
@@ -545,6 +558,25 @@ export class AgentControlBroker extends EventEmitter {
         this.pendingGrantWaiters.get(normalizedRequestId)?.reject(
             new AgentControlError('CONTROL_CANCELLED', 'The user declined the Browser control request.')
         )
+    }
+
+    approvePendingAction(requestId: string): void {
+        const id = assertControlIdentifier(requestId, 'requestId')
+        const pending = this.pendingActionApprovals.get(id)
+        if (!pending) throw new AgentControlError('CONTROL_TARGET_NOT_FOUND', 'The pending action approval is no longer available.')
+        this.pendingActionApprovals.delete(id)
+        this.audit.append({
+            eventType: 'action-approval.resolved', principal: pending.principal, targetId: pending.targetId,
+            grantId: pending.grantId, actionType: pending.actionType, outcome: 'allowed',
+            message: `User approved ${pending.sideEffect} in chat.`, redactions: []
+        })
+        this.changed()
+        this.pendingActionApprovalWaiters.get(id)?.resolve()
+    }
+
+    rejectPendingAction(requestId: string): void {
+        const id = assertControlIdentifier(requestId, 'requestId')
+        this.cancelPendingActionApproval(id, 'The user declined this critical action in chat.')
     }
 
     delegate(request: DelegatedControlLeaseRequest): ControlGrant {
@@ -616,14 +648,18 @@ export class AgentControlBroker extends EventEmitter {
         if (grant.targetId !== request.targetId) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The grant is bound to another target.')
         const registered = this.targets.get(request.targetId)
         assertGrantSupportsTarget(grant, registered.target)
-        assertActionAllowed(grant, registered.target, request.action)
+        const requiredSideEffect = controlActionRequiresApproval(request.action) ? request.action.sideEffect : undefined
+        assertActionAllowed(grant, registered.target, request.action, { approvedSideEffect: requiredSideEffect })
         const requestedObservation = this.observations.requireRevision(request.targetId, request.observationRevision)
         assertSafeObservedElementAction(requestedObservation, request.action)
         assertVisualActionInsideObservation(requestedObservation, request.action)
+        if (requiredSideEffect) {
+            await this.waitForActionApproval(principal, grant, request, requiredSideEffect, signal)
+        }
         return this.actions.enqueue(request.targetId, async () => {
             const currentGrant = this.grants.requireActive(request.grantId, principal)
             const previousObservation = this.observations.requireRevision(request.targetId, request.observationRevision)
-            assertActionAllowed(currentGrant, registered.target, request.action)
+            assertActionAllowed(currentGrant, registered.target, request.action, { approvedSideEffect: requiredSideEffect })
             assertSafeObservedElementAction(previousObservation, request.action)
             assertVisualActionInsideObservation(previousObservation, request.action)
             const startedAt = Date.now()
@@ -697,11 +733,24 @@ export class AgentControlBroker extends EventEmitter {
         }
         assertGrantSupportsTarget(grant, registered.target)
         const requestedObservation = this.observations.requireRevision(request.targetId, request.observationRevision)
-        for (const action of request.steps) {
-            assertActionAllowed(grant, registered.target, action)
+        const requiredSideEffects = request.steps.map((action) => controlActionRequiresApproval(action) ? action.sideEffect : undefined)
+        for (const [index, action] of request.steps.entries()) {
+            assertActionAllowed(grant, registered.target, action, { approvedSideEffect: requiredSideEffects[index] })
             assertSafeObservedElementAction(requestedObservation, action)
             assertVisualActionInsideObservation(requestedObservation, action)
             assertActionInsideStageRegion(request.stage.expectedRegion, action)
+        }
+        for (const [index, action] of request.steps.entries()) {
+            const requiredSideEffect = requiredSideEffects[index]
+            if (!requiredSideEffect) continue
+            await this.waitForActionApproval(principal, grant, {
+                version: 1,
+                requestId: `${request.requestId}:step:${index + 1}`,
+                grantId: request.grantId,
+                targetId: request.targetId,
+                observationRevision: request.observationRevision,
+                action
+            }, requiredSideEffect, signal)
         }
         return this.actions.enqueue(request.targetId, async () => {
             const currentGrant = this.grants.requireRemaining(request.grantId, principal, request.steps.length + 1)
@@ -715,9 +764,9 @@ export class AgentControlBroker extends EventEmitter {
             const startedAt = Date.now()
             this.activeStageByTarget.set(request.targetId, planId)
             try {
-                for (const action of request.steps) {
+                for (const [index, action] of request.steps.entries()) {
                     this.grants.requireActive(currentGrant.grantId, principal)
-                    assertActionAllowed(currentGrant, registered.target, action)
+                    assertActionAllowed(currentGrant, registered.target, action, { approvedSideEffect: requiredSideEffects[index] })
                     assertSafeObservedElementAction(previousObservation, action)
                     assertVisualActionInsideObservation(previousObservation, action)
                     const actionResult = await registered.driver.act(registered, action, {
@@ -811,6 +860,9 @@ export class AgentControlBroker extends EventEmitter {
         for (const [planId, plan] of this.pausedPlans) {
             if (plan.request.grantId === grantId) this.pausedPlans.delete(planId)
         }
+        for (const pending of [...this.pendingActionApprovals.values()]) {
+            if (pending.grantId === grantId) this.cancelPendingActionApproval(pending.requestId, 'The control grant was revoked.')
+        }
         this.audit.append({
             eventType: 'grant.revoked', principal: grant.principal, targetId: grant.targetId,
             grantId: grant.grantId, outcome: 'cancelled', message: 'Control grant revoked.', redactions: []
@@ -838,7 +890,9 @@ export class AgentControlBroker extends EventEmitter {
             })
             this.pendingGrantWaiters.get(request.requestId)?.reject(new AgentControlError('CONTROL_CANCELLED', reason))
         }
-        if (revoked.length || pending.length) this.changed()
+        const pendingActions = [...this.pendingActionApprovals.values()].filter((request) => sameControlPrincipal(request.principal, principal))
+        for (const request of pendingActions) this.cancelPendingActionApproval(request.requestId, reason)
+        if (revoked.length || pending.length || pendingActions.length) this.changed()
     }
 
     async emergencyStop(reason = 'Emergency stop requested by user.'): Promise<void> {
@@ -849,6 +903,9 @@ export class AgentControlBroker extends EventEmitter {
         for (const pending of this.grants.listPending()) {
             this.grants.removePending(pending.requestId)
             this.pendingGrantWaiters.get(pending.requestId)?.reject(new AgentControlError('CONTROL_CANCELLED', reason))
+        }
+        for (const pending of [...this.pendingActionApprovals.values()]) {
+            this.cancelPendingActionApproval(pending.requestId, reason)
         }
         this.observations.invalidateAll()
         this.cursors.clear()
@@ -900,6 +957,7 @@ export class AgentControlBroker extends EventEmitter {
             targets: this.targets.list().map((entry) => entry.target),
             grants,
             pendingGrants: this.grants.listPending(),
+            pendingActionApprovals: [...this.pendingActionApprovals.values()],
             audit: this.audit.list(),
             health: (this.options.drivers || []).map((driver) => ({
                 targetKind: driver.kind,
@@ -914,7 +972,12 @@ export class AgentControlBroker extends EventEmitter {
         }
     }
 
-    async handleToolOperation(principalValue: unknown, operationValue: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    async handleToolOperation(
+        principalValue: unknown,
+        operationValue: unknown,
+        signal?: AbortSignal,
+        options: { permissionMode?: 'approval-required' | 'auto-review' | 'edits-only' | 'full-access' } = {}
+    ): Promise<Record<string, unknown>> {
         this.assertAlive()
         assertBridgeMessageSize(operationValue)
         const principal = assertControlPrincipal(principalValue)
@@ -1050,6 +1113,10 @@ export class AgentControlBroker extends EventEmitter {
                 if (principal.type === 'root' && requestedTarget.kind === 'zyra-browser' && this.browserSurface) {
                     await this.browserSurface.revealTabs(principal, requestedTarget, null, signal)
                 }
+                const automaticGrant = principal.type === 'root' && (
+                    options.permissionMode === 'full-access'
+                    || (options.permissionMode === 'auto-review' && requestedTarget.kind === 'zyra-browser')
+                )
                 const request = this.requestGrant({
                     principal,
                     targetId: operation.targetId,
@@ -1058,7 +1125,23 @@ export class AgentControlBroker extends EventEmitter {
                     maxActions: operation.maxActions,
                     allowedOrigins: operation.allowedOrigins,
                     allowedExecutableIdentities: operation.allowedExecutableIdentities
-                })
+                }, { silent: automaticGrant })
+                if (automaticGrant) {
+                    const grant = this.approvePendingGrant({
+                        pendingRequestId: request.requestId,
+                        targetId: request.targetId,
+                        capabilities: request.capabilities,
+                        durationMs: Math.max(1_000, Date.parse(request.expiresAt) - Date.now()),
+                        maxActions: request.maxActions,
+                        allowedOrigins: request.allowedOrigins,
+                        allowedExecutableIdentities: request.allowedExecutableIdentities
+                    }, {
+                        auditMessage: options.permissionMode === 'auto-review'
+                            ? 'Auto review issued a bounded in-app Browser grant.'
+                            : 'Full access issued a bounded control grant.'
+                    })
+                    return { pending: false, request, grant }
+                }
                 const grant = await this.waitForPendingGrant(request.requestId, signal)
                 return { pending: false, request, grant }
             }
@@ -1251,6 +1334,78 @@ export class AgentControlBroker extends EventEmitter {
             grantId: grant.grantId, outcome: 'completed', message, redactions: []
         })
         this.changed()
+    }
+
+    private waitForActionApproval(
+        principal: ControlPrincipal,
+        grant: ControlGrant,
+        request: ControlActionRequest,
+        sideEffect: Exclude<ControlSideEffectClass, 'none'>,
+        signal?: AbortSignal
+    ): Promise<void> {
+        const requestId = `control-action-approval:${randomUUID()}`
+        const now = Date.now()
+        const expiresAtMs = Math.min(Date.parse(grant.expiresAt), now + 10 * 60 * 1_000)
+        if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
+            return Promise.reject(new AgentControlError('CONTROL_GRANT_EXPIRED', 'The control grant expired before approval could be requested.'))
+        }
+        const pending: ControlPendingActionApproval = {
+            requestId,
+            principal,
+            targetId: request.targetId,
+            grantId: request.grantId,
+            actionRequestId: request.requestId,
+            actionType: request.action.type,
+            sideEffect,
+            observationRevision: request.observationRevision,
+            requestedAt: new Date(now).toISOString(),
+            expiresAt: new Date(expiresAtMs).toISOString()
+        }
+        this.pendingActionApprovals.set(requestId, pending)
+        this.audit.append({
+            eventType: 'action-approval.requested', principal, targetId: request.targetId,
+            grantId: request.grantId, actionType: request.action.type, outcome: 'allowed',
+            message: `Waiting for ${sideEffect} approval in chat.`, redactions: []
+        })
+        this.changed()
+
+        return new Promise((resolve, reject) => {
+            let settled = false
+            const finish = (callback: () => void) => {
+                if (settled) return
+                settled = true
+                clearTimeout(timer)
+                signal?.removeEventListener('abort', abort)
+                this.pendingActionApprovalWaiters.delete(requestId)
+                callback()
+            }
+            const abort = () => this.cancelPendingActionApproval(requestId, 'Critical action approval was cancelled.')
+            const timer = setTimeout(() => {
+                this.cancelPendingActionApproval(requestId, 'Critical action approval timed out.')
+            }, Math.max(1, expiresAtMs - Date.now()))
+            timer.unref?.()
+            this.pendingActionApprovalWaiters.set(requestId, {
+                resolve: () => finish(resolve),
+                reject: (error) => finish(() => reject(error))
+            })
+            if (signal?.aborted) abort()
+            else signal?.addEventListener('abort', abort, { once: true })
+        })
+    }
+
+    private cancelPendingActionApproval(requestId: string, reason: string): void {
+        const pending = this.pendingActionApprovals.get(requestId)
+        if (!pending) return
+        this.pendingActionApprovals.delete(requestId)
+        this.audit.append({
+            eventType: 'action-approval.resolved', principal: pending.principal, targetId: pending.targetId,
+            grantId: pending.grantId, actionType: pending.actionType, outcome: 'denied',
+            message: reason, redactions: []
+        })
+        this.changed()
+        this.pendingActionApprovalWaiters.get(requestId)?.reject(
+            new AgentControlError('CONTROL_CANCELLED', reason)
+        )
     }
 
     private waitForPendingGrant(requestId: string, signal?: AbortSignal): Promise<ControlGrant> {

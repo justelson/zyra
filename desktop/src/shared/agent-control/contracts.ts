@@ -237,7 +237,7 @@ export type ControlAuditEvent = {
     version: 1
     auditId: string
     occurredAt: string
-    eventType: 'grant.requested' | 'grant.issued' | 'grant.revoked' | 'grant.expired' | 'action' | 'plan' | 'interaction' | 'observation' | 'emergency-stop' | 'pairing' | 'target'
+    eventType: 'grant.requested' | 'grant.issued' | 'grant.revoked' | 'grant.expired' | 'action-approval.requested' | 'action-approval.resolved' | 'action' | 'plan' | 'interaction' | 'observation' | 'emergency-stop' | 'pairing' | 'target'
     principal?: ControlPrincipal
     parentPrincipal?: ControlPrincipal
     targetId?: string
@@ -268,6 +268,19 @@ export type ControlPendingGrant = {
     allowedOrigins?: string[]
     allowedExecutableIdentities?: string[]
     screenshots: boolean
+}
+
+export type ControlPendingActionApproval = {
+    requestId: string
+    principal: ControlPrincipal
+    targetId: string
+    grantId: string
+    actionRequestId: string
+    actionType: ControlAction['type']
+    sideEffect: Exclude<ControlSideEffectClass, 'none'>
+    observationRevision: number
+    requestedAt: string
+    expiresAt: string
 }
 
 export type ControlPairingState = {
@@ -329,6 +342,7 @@ export type ControlStateSnapshot = {
     targets: ControlTarget[]
     grants: ControlGrant[]
     pendingGrants: ControlPendingGrant[]
+    pendingActionApprovals: ControlPendingActionApproval[]
     audit: ControlAuditEvent[]
     health: ControlDriverHealth[]
     cursors: ControlCursorState[]

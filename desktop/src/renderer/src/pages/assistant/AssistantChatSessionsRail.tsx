@@ -205,6 +205,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     activeSessionId: string | null
     activeThreadId: string | null
     commandPending: boolean
+    pendingControlThreadIds: ReadonlySet<string>
     onCreateChat: () => Promise<void> | void
     onCreateProjectChat: (projectPath?: string) => Promise<void> | void
     onSelectSession: (sessionId: string) => Promise<void> | void
@@ -228,6 +229,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
         activeSessionId,
         activeThreadId,
         commandPending,
+        pendingControlThreadIds,
         onCreateChat,
         onCreateProjectChat,
         onSelectSession,
@@ -785,6 +787,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                         activeSessionId={activeSessionId}
                         activeThreadId={activeThreadId}
                         commandPending={commandPending}
+                        pendingControlThreadIds={pendingControlThreadIds}
                         projectIconOverrides={projectIconOverrides}
                         headerActions={baseSidebarActions}
                         onCreateProjectChat={onCreateProjectChat}
@@ -807,6 +810,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                                     activeSessionId={activeSessionId}
                                     activeThreadId={activeThreadId}
                                     commandPending={commandPending}
+                                    pendingControlThreadIds={pendingControlThreadIds}
                                     onSelectSession={onSelectSession}
                                     onSelectThread={onSelectThread}
                                     onRename={renameSession}
@@ -826,6 +830,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                                     activeSessionId={activeSessionId}
                                     activeThreadId={activeThreadId}
                                     commandPending={commandPending}
+                                    pendingControlThreadIds={pendingControlThreadIds}
                                     onSelectSession={onSelectSession}
                                     onSelectThread={onSelectThread}
                                     onRename={renameSession}
@@ -913,6 +918,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                                                         activeSessionId={activeSessionId}
                                                         activeThreadId={activeThreadId}
                                                         commandPending={commandPending}
+                                                        pendingControlThreadIds={pendingControlThreadIds}
                                                         compact
                                                         projectNested
                                                         onSelectSession={onSelectSession}
@@ -1063,6 +1069,7 @@ function ChatRow(props: {
     activeSessionId: string | null
     activeThreadId: string | null
     commandPending: boolean
+    pendingControlThreadIds: ReadonlySet<string>
     compact?: boolean
     projectNested?: boolean
     onSelectSession: (sessionId: string) => Promise<void> | void
@@ -1075,6 +1082,7 @@ function ChatRow(props: {
         session,
         activeSessionId,
         activeThreadId,
+        pendingControlThreadIds,
         compact = false,
         projectNested = false,
         onSelectSession,
@@ -1087,11 +1095,12 @@ function ChatRow(props: {
     const isActiveSession = session.id === activeSessionId
     const sessionThreads = session.threads.filter((thread) => thread.source === 'subagent')
     const showThreads = isActiveSession && sessionThreads.length > 0
+    const hasPendingControlApproval = session.threads.some((thread) => pendingControlThreadIds.has(thread.id))
     const statusPill = resolveAssistantThreadStatusPill(
         statusThread,
         isActiveSession && statusThread?.id === activeThreadId
     )
-    const showStatusPill = Boolean(statusPill && statusPill.showLabel !== false)
+    const showStatusPill = Boolean(!hasPendingControlApproval && statusPill && statusPill.showLabel !== false)
     const timeLabel = formatRelativeTime(getSessionLastActivityAt(session))
     const tuiOpen = isAssistantSessionOpenInTui(session)
 
@@ -1124,6 +1133,12 @@ function ChatRow(props: {
                     className="min-w-0 flex-1 text-[13px] leading-none"
                 />
                 <span className="inline-flex shrink-0 items-center gap-1.5">
+                    {hasPendingControlApproval ? (
+                        <span className="inline-flex h-4 shrink-0 items-center gap-1 rounded-full bg-amber-400/10 px-1.5 text-[9px] font-medium leading-none text-amber-200 ring-1 ring-inset ring-amber-300/15" title="Review permission in chat">
+                            <span className="h-1 w-1 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />
+                            <span>Review</span>
+                        </span>
+                    ) : null}
                     {showStatusPill && statusPill ? (
                         <span
                             className={cn(

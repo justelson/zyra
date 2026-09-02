@@ -33,7 +33,7 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
                             <h3 className="text-sm font-semibold text-sparkle-text">{approval.title || 'Tool approval required'}</h3>
                             {props.pendingApprovals.length > 1 ? <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-sparkle-text-muted">{props.pendingApprovals.length} pending</span> : null}
                         </div>
-                        <p className="mt-1 text-xs leading-5 text-sparkle-text-secondary">Supervised mode paused this tool before it ran.</p>
+                        <p className="mt-1 text-xs leading-5 text-sparkle-text-secondary">Zyra paused before this action ran.</p>
                     </div>
                 </div>
 

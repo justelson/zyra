@@ -46,6 +46,7 @@ type Props = {
     activeSessionId: string | null
     activeThreadId: string | null
     commandPending: boolean
+    pendingControlThreadIds: ReadonlySet<string>
     projectIconOverrides: Record<string, string>
     headerActions: ReactNode
     onCreateProjectChat: (projectPath?: string) => Promise<void> | void
@@ -307,10 +308,12 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 projectPath: resolveSessionProjectPath(session),
                 project: projectByPath.get(resolveSessionProjectPath(session))!
             }
-            const status = resolveRowStatus(thread, active && thread?.id === props.activeThreadId)
+            const status = session.threads.some((entry) => props.pendingControlThreadIds.has(entry.id))
+                ? 'approval'
+                : resolveRowStatus(thread, active && thread?.id === props.activeThreadId)
             const unsettled = { ...base, status }
             return { ...unsettled, settled: isEffectivelySettled(unsettled, settlementOverrides) }
-        }), [props.activeSessionId, props.activeThreadId, projectByPath, scope, settlementOverrides, visibleSessions])
+        }), [props.activeSessionId, props.activeThreadId, props.pendingControlThreadIds, projectByPath, scope, settlementOverrides, visibleSessions])
 
     const activeWorkItems = useMemo(() => items
         .filter((item) => !item.settled && item.status !== 'ready')

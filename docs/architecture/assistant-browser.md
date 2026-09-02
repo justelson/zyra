@@ -172,11 +172,11 @@ These values are supplied directly by `BrowserViewManager` when it constructs th
 
 ## Visual Agent Control
 
-Each trusted Browser guest registers as an on-demand `zyra-browser` control target. The Browser remains usable without an agent; authority is created only after a root or child principal requests a bounded grant and the user approves it in Control Center or from the exact tab’s Browser toolbar.
+Each trusted Browser guest registers as an on-demand `zyra-browser` control target. The Browser remains usable without an agent. A root or child principal still needs a bounded grant. Supervised and Edits-only root requests are approved in canonical chat. Auto review may issue routine bounded in-app Browser grants automatically but asks for paired Chrome or Windows control. Full access may issue routine bounded root grants across every control target. Child authority still requires an attenuated parent lease.
 
 Fresh chats receive only the small `browser_use` loader. `browser_use({ action: "load" })` activates `browser_tabs`, `browser_access`, `browser_observe`, `browser_perform`, and `browser_session` for that Pi session; the legacy `browser_control` definition stays registered only as an inactive compatibility path. Unloading removes the full Browser schemas again while preserving the loader.
 
-`browser_tabs.open` lets an agent create a blank sandboxed tab without navigation or input authority. Main sends a nonce-bound request only to the selected thread’s renderer and waits until that exact tab registers as a trusted guest. A root agent may reveal it in the Inspector. Child agents may create background tabs but cannot reveal or take over Zyra’s interface. The agent must then request a separately scoped grant through `browser_access` before it can navigate, observe, or interact.
+`browser_tabs.open` lets an agent create a blank sandboxed tab without navigation or input authority. Main sends a nonce-bound request only to the selected thread’s renderer and waits until that exact tab registers as a trusted guest. A root agent may reveal it in the Inspector. Child agents may create background tabs but cannot reveal or take over Zyra’s interface. The agent must then request a separately scoped grant through `browser_access` before it can navigate, observe, or interact. The selected permission mode changes the approval step, not the grant's target, scope, expiry, action budget, or revision checks.
 
 Root agents can also operate on retained tabs without creating replacements:
 

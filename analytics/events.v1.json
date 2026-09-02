@@ -57,7 +57,7 @@
         "outcome": { "type": "enum", "values": ["started", "completed", "failed", "cancelled", "interrupted", "recovered", "unknown"] },
         "model_family": { "type": "enum", "values": ["openai", "anthropic", "google", "groq", "local", "other", "unknown"] },
         "effort": { "type": "enum", "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max", "unknown"] },
-        "runtime_mode": { "type": "enum", "values": ["approval_required", "full_access", "unknown"] },
+        "runtime_mode": { "type": "enum", "values": ["approval_required", "auto_review", "edits_only", "full_access", "unknown"] },
         "duration_ms": { "type": "integer", "min": 0, "max": 3600000 },
         "attachment_count": { "type": "integer", "min": 0, "max": 32 },
         "error_code": { "type": "error_code" }

@@ -6,7 +6,7 @@ export function createBrowserControlTool(options = {}) {
   return defineTool({
     name: "browser_control",
     label: "Browser control",
-    description: "Discover and reveal existing in-app Browser tabs, create normal or incognito tabs when needed, resize the Inspector, arrange two Browser tabs side by side, request user-approved access, then visually observe and control only granted targets. New tabs default to incognito; choose normal only when saved sign-in or site state is required.",
+    description: "Discover and reveal Browser targets, create normal or incognito in-app tabs when needed, request bounded access, then visually observe and control only granted targets. The chat permission mode applies here too: Full access and routine Auto review in-app grants proceed automatically; Supervised, Edits only, and Auto review for paired Chrome ask in chat. Critical side effects always pause in chat. New tabs default to incognito; choose normal only when saved sign-in or site state is required.",
     parameters: browserControlSchema,
     execute: async (_toolCallId, input = {}, signal) => {
       const normalized = normalizeControlToolInput(input);
@@ -19,7 +19,8 @@ export function createBrowserControlTool(options = {}) {
       }
       try {
         const operation = toBridgeOperation(normalized);
-        const timeoutMs = normalized.timeoutMs ?? (normalized.operation === "open_tab" ? 30000 : undefined);
+        const waitsForUser = normalized.operation === "request_grant" || (normalized.sideEffect && normalized.sideEffect !== "none");
+        const timeoutMs = normalized.timeoutMs ?? (waitsForUser ? 10 * 60 * 1000 : normalized.operation === "open_tab" ? 30000 : undefined);
         const result = await options.client.request(operation, { signal, timeoutMs });
         return toolResult(formatControlResult(normalized.operation, result), result);
       } catch (error) {
@@ -107,7 +108,7 @@ function formatControlResult(operation, result) {
   if (operation === "resize_inspector") return `Inspector width updated to ${Number(result.width)}px (requested ${Number(result.requestedWidth)}px).`;
   if (operation === "request_grant") {
     return result.pending
-      ? `Browser access is waiting for explicit user approval in Control Center.\n${JSON.stringify({ requestId: result.request?.requestId, targetId: result.request?.targetId, capabilities: result.request?.capabilities, expiresAt: result.request?.expiresAt }, null, 2)}`
+      ? `Browser access is waiting for approval in chat.\n${JSON.stringify({ requestId: result.request?.requestId, targetId: result.request?.targetId, capabilities: result.request?.capabilities, expiresAt: result.request?.expiresAt }, null, 2)}`
       : `Control grant issued.\n${JSON.stringify({ grantId: result.grant?.grantId, targetId: result.grant?.targetId, capabilities: result.grant?.capabilities, expiresAt: result.grant?.expiresAt, remainingActions: Math.max(0, Number(result.grant?.maxActions) - Number(result.grant?.actionCount)) }, null, 2)}`;
   }
   if (operation === "release") return "Control grant released.";

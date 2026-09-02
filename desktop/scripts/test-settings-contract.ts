@@ -244,7 +244,7 @@ storage.setItem('devscope:project-details:diff-render-mode:v1', 'split')
 storage.setItem('zyra-ui:active-profile:v2', 'builder')
 storage.setItem('devscope:assistant-composer-preferences', JSON.stringify({
     model: 'legacy-model',
-    runtimeMode: 'full-access',
+    runtimeMode: 'auto-review',
     interactionMode: 'plan',
     effort: 'high',
     fastModeEnabled: true
@@ -259,7 +259,7 @@ assert.equal(migrated.fileDiffRenderMode, 'split')
 assert.equal(migrated.assistantProductProfile, 'builder')
 assert.equal(migrated.assistantDefaultModel, 'legacy-model')
 assert.equal(migrated.assistantTitleModel, 'openai-codex/gpt-5.6-luna')
-assert.equal(migrated.assistantDefaultRuntimeMode, 'full-access')
+assert.equal(migrated.assistantDefaultRuntimeMode, 'auto-review')
 assert.equal('assistantDefaultInteractionMode' in migrated, false, 'retired Plan-mode preferences are removed')
 assert.equal(migrated.assistantDefaultEffort, 'high')
 assert.equal(migrated.assistantDefaultFastMode, true)

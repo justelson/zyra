@@ -237,7 +237,10 @@ function contextColor(theme, usage) {
 }
 
 function formatPermissionMode(value) {
-  return value === "full-access" ? "full access" : "approval required";
+  if (value === "full-access") return "full access";
+  if (value === "auto-review") return "auto review";
+  if (value === "edits-only") return "edits only";
+  return "supervised";
 }
 
 function permissionModeColor(theme, permissionMode) {

@@ -137,7 +137,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     const [showTraitsDropdown, setShowTraitsDropdown] = useState(false)
     const [showBranchDropdown, setShowBranchDropdown] = useState(false)
     const [showMentionMenu, setShowMentionMenu] = useState(false)
-    const [showFullAccessConfirm, setShowFullAccessConfirm] = useState(false)
     const [composerCursor, setComposerCursor] = useState(0)
     const [modelQuery, setModelQuery] = useState('')
     const [branchQuery, setBranchQuery] = useState('')
@@ -576,8 +575,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         showBranchDropdown,
         setShowBranchDropdown,
         showMentionMenu,
-        showFullAccessConfirm,
-        setShowFullAccessConfirm,
         previewAttachment,
         setPreviewAttachment,
         removingAttachmentIds,

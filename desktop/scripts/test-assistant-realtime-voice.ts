@@ -920,6 +920,16 @@ assert.deepEqual(buildAssistantVoiceExecutionConfiguration({
     profile: 'builder',
     serviceTier: 'fast'
 }, 'Voice startup and chat-open preparation must share one exact configuration builder')
+for (const runtimeMode of ['approval-required', 'auto-review', 'edits-only', 'full-access'] as const) {
+    assert.equal(buildAssistantVoiceExecutionConfiguration({
+        model: 'openai-codex/gpt-5.6-sol',
+        runtimeMode,
+        effort: 'high',
+        interactionMode: 'default',
+        profile: 'default',
+        fastModeEnabled: false
+    }).runtimeMode, runtimeMode, `Voice must preserve the ${runtimeMode} Chat permission mode`)
+}
 
 const voiceLabSource = readFileSync(
     new URL('../src/renderer/src/pages/assistant/InstructorVoiceLab.tsx', import.meta.url),

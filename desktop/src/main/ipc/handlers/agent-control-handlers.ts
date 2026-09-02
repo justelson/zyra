@@ -121,6 +121,16 @@ export function createAgentControlHandlers(mainWindow: BrowserWindow) {
             broker.rejectPendingGrant(requestId)
             return { rejected: true }
         }),
+        approveAction: (event: IpcMainInvokeEvent, requestId: string) => result(() => {
+            assertTrustedRenderer(event, mainWindow)
+            broker.approvePendingAction(requestId)
+            return { approved: true }
+        }),
+        rejectAction: (event: IpcMainInvokeEvent, requestId: string) => result(() => {
+            assertTrustedRenderer(event, mainWindow)
+            broker.rejectPendingAction(requestId)
+            return { rejected: true }
+        }),
         revokeGrant: (event: IpcMainInvokeEvent, grantId: string) => result(() => {
             assertTrustedRenderer(event, mainWindow)
             broker.revokeGrant(grantId)

@@ -38,6 +38,17 @@ assert.equal(arbiter.decide(collaborationTarget, outsideBaseline, {
 }).disposition, 'pause', 'repeated activity outside the stage region should pause')
 
 const driver = new FakeControlDriver()
+let afterWaitAction: (() => void) | null = null
+const act = driver.act.bind(driver)
+driver.act = async (...args: Parameters<FakeControlDriver['act']>) => {
+    const result = await act(...args)
+    if (args[1].type === 'wait') {
+        const callback = afterWaitAction
+        afterWaitAction = null
+        callback?.()
+    }
+    return result
+}
 const broker = new AgentControlBroker({ drivers: [driver] })
 const firstTargetId = broker.targets.createTargetId('zyra-browser')
 const otherTargetId = broker.targets.createTargetId('zyra-browser')
@@ -67,10 +78,10 @@ const grant = broker.approvePendingGrant({
 })
 const first = await broker.observe(principal, grant.grantId, firstTargetId, true, undefined, 'both')
 
-setTimeout(() => {
+afterWaitAction = () => {
     broker.recordUserInteraction(otherTargetId, 'pointer-action', 'mouseDown')
     broker.recordUserInteraction(otherTargetId, 'keyboard', 'rawKeyDown')
-}, 10)
+}
 const unrelated = await broker.perform(principal, {
     version: 1,
     requestId: 'plan:unrelated-tab',
@@ -79,7 +90,7 @@ const unrelated = await broker.perform(principal, {
     observationRevision: first.revision,
     stage: { summary: 'Wait, then move on target A', expectedActivity: 'mixed' },
     steps: [
-        { type: 'wait', condition: { type: 'delay', durationMs: 80 }, timeoutMs: 100 },
+        { type: 'wait', condition: { type: 'delay', durationMs: 1 }, timeoutMs: 100 },
         { type: 'move', x: 120, y: 140, durationMs: 10 }
     ],
     observationMode: 'visual',
@@ -88,8 +99,10 @@ const unrelated = await broker.perform(principal, {
 assert.equal(unrelated.outcome, 'completed', 'activity in another tab must not interrupt the stage')
 assert.equal(unrelated.completedSteps, 2)
 
-setTimeout(() => broker.recordUserInteraction(firstTargetId, 'keyboard', 'rawKeyDown'), 10)
-setTimeout(() => broker.recordUserInteraction(firstTargetId, 'keyboard', 'rawKeyDown'), 110)
+afterWaitAction = () => {
+    broker.recordUserInteraction(firstTargetId, 'keyboard', 'rawKeyDown')
+    broker.recordUserInteraction(firstTargetId, 'scroll', 'mouseWheel')
+}
 const paused = await broker.perform(principal, {
     version: 1,
     requestId: 'plan:target-divergence',
@@ -98,7 +111,7 @@ const paused = await broker.perform(principal, {
     observationRevision: unrelated.observation.revision,
     stage: { summary: 'Pause at the next boundary if target-local activity diverges', expectedActivity: 'pointer' },
     steps: [
-        { type: 'wait', condition: { type: 'delay', durationMs: 180 }, timeoutMs: 220 },
+        { type: 'wait', condition: { type: 'delay', durationMs: 1 }, timeoutMs: 100 },
         { type: 'move', x: 180, y: 200, durationMs: 10 }
     ],
     observationMode: 'visual',

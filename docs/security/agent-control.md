@@ -21,6 +21,14 @@ root turn or attenuated child principal
 
 The Electron main process owns targets, grants, observations, action serialization, audit, pairing, and emergency stop. Renderer values cannot mint target authority. Numeric Electron, Chrome, HWND, and UI Automation identities stay inside trusted drivers.
 
+## Permission presentation
+
+Zyra has four user-facing permission modes shared by local tools and control surfaces. Supervised asks before root control grants. Auto review issues routine bounded in-app Browser grants automatically but asks before paired Chrome or Windows grants. Edits only asks before every control grant. Full access issues routine bounded root grants automatically across Browser, paired Chrome, and explicitly selected Windows windows.
+
+No mode widens a grant or removes broker checks. Purchases, external sending or publishing, production deployment, account or security changes, destructive deletion, history rewrites, file uploads, sensitive-data submission, software installation, legal acceptance, and secret handling always require attention. Browser and computer actions in those classes create an exact pending action record in main. The action resumes only after approval from a trusted Zyra renderer in canonical chat.
+
+Browser chrome and Thread Details show pending or active status only. Chrome pairing, browser-owned optional permission requests, exact-tab activation, and Windows window selection remain explicit setup gestures because their platform owners require them.
+
 ## Threat model
 
 | Threat | Boundary |

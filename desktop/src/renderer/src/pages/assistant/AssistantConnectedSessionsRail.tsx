@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAssistantSessionsRailStore } from '@/lib/assistant/store'
 import { useSettings } from '@/lib/settings'
@@ -13,6 +13,7 @@ import type {
 import { isAssistantDraftSession } from './assistant-sessions-rail-utils'
 import { buildAssistantChatRoute } from './assistant-chat-route'
 import { createAssistantChatAndNavigate } from './create-assistant-chat-and-navigate'
+import { useAgentControlState } from './useAgentControlState'
 
 export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSessionsRail(props: {
     collapsed: boolean
@@ -35,6 +36,13 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
     const railController = useAssistantSessionsRailStore()
     const navigate = useNavigate()
     const { settings } = useSettings()
+    const controlState = useAgentControlState()
+    const pendingControlThreadIds = useMemo(() => new Set([
+        ...(controlState?.pendingGrants || []),
+        ...(controlState?.pendingActionApprovals || [])
+    ].map((pending) => pending.principal.type === 'root'
+        ? pending.principal.threadId
+        : pending.principal.parentThreadId)), [controlState?.pendingActionApprovals, controlState?.pendingGrants])
     const creatingChatRef = useRef(false)
     const creatingProjectChatRef = useRef(false)
     const handleCreateChat = useCallback(async () => {
@@ -107,6 +115,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
             activeSessionId={railController.activeSessionId}
             activeThreadId={railController.activeThreadId}
             commandPending={railController.commandPending}
+            pendingControlThreadIds={pendingControlThreadIds}
             onCreateChat={handleCreateChat}
             onCreateProjectChat={handleCreateProjectChat}
             onSelectSession={handleSelectSession}

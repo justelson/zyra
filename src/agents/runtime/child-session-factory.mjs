@@ -50,7 +50,7 @@ export class ChildSessionFactory {
       createWriteTool,
     } = await loadPi();
     const cwd = path.resolve(options.cwd ?? this.project);
-    await mkdir(this.transcriptDirectory, { recursive: true });
+    if (!options.noSession) await mkdir(this.transcriptDirectory, { recursive: true });
     const agentDir = this.agentDir ?? getAgentDir();
     const settingsManager = SettingsManager.inMemory(this.settings);
     const resourceLoader = new DefaultResourceLoader({
@@ -61,11 +61,13 @@ export class ChildSessionFactory {
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
-      systemPrompt: buildChildSystemPrompt(options),
+      systemPrompt: String(options.systemPrompt || "").trim() || buildChildSystemPrompt(options),
       appendSystemPrompt: [],
     });
     await resourceLoader.reload();
-    const sessionManager = options.sessionFile
+    const sessionManager = options.noSession
+      ? SessionManager.inMemory(cwd)
+      : options.sessionFile
       ? SessionManager.open(options.sessionFile, this.transcriptDirectory)
       : SessionManager.create(cwd, this.transcriptDirectory, { parentSession: options.parentSessionFile });
     const browserSessionRef = { current: null };

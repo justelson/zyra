@@ -8,6 +8,7 @@ import { resolveAssistantContextCompactionLimitTokens } from '@shared/assistant/
 import type {
     ControlAuditEvent,
     ControlGrant,
+    ControlPendingActionApproval,
     ControlPendingGrant,
     ControlPrincipal,
     ControlStateSnapshot,
@@ -91,6 +92,7 @@ export type AssistantThreadControlSummary = {
     grants: ControlGrant[]
     activeGrants: ControlGrant[]
     pendingGrants: ControlPendingGrant[]
+    pendingActionApprovals: ControlPendingActionApproval[]
     latestEvent: ControlAuditEvent | null
 }
 
@@ -231,18 +233,21 @@ export function countAssistantThreadPendingControl(
 ): number {
     if (!state || !threadId) return 0
     return state.pendingGrants.filter((grant) => isControlPrincipalForThread(grant.principal, threadId)).length
+        + (state.pendingActionApprovals || []).filter((approval) => isControlPrincipalForThread(approval.principal, threadId)).length
 }
 
 export function selectAssistantThreadControl(
     state: ControlStateSnapshot | null,
     threadId: string | null
 ): AssistantThreadControlSummary {
-    if (!state || !threadId) return { targets: [], grants: [], activeGrants: [], pendingGrants: [], latestEvent: null }
+    if (!state || !threadId) return { targets: [], grants: [], activeGrants: [], pendingGrants: [], pendingActionApprovals: [], latestEvent: null }
     const grants = state.grants.filter((grant) => isControlPrincipalForThread(grant.principal, threadId))
     const pendingGrants = state.pendingGrants.filter((grant) => isControlPrincipalForThread(grant.principal, threadId))
+    const pendingActionApprovals = (state.pendingActionApprovals || []).filter((approval) => isControlPrincipalForThread(approval.principal, threadId))
     const targetIds = new Set([
         ...grants.map((grant) => grant.targetId),
         ...pendingGrants.map((grant) => grant.targetId),
+        ...pendingActionApprovals.map((approval) => approval.targetId),
         ...state.targets.flatMap((target) => target.kind === 'zyra-browser' && target.ownerThreadId === threadId ? [target.targetId] : [])
     ])
     const targets = state.targets.filter((target) => targetIds.has(target.targetId))
@@ -257,6 +262,7 @@ export function selectAssistantThreadControl(
         grants,
         activeGrants: grants.filter((grant) => grant.state === 'active'),
         pendingGrants,
+        pendingActionApprovals,
         latestEvent
     }
 }

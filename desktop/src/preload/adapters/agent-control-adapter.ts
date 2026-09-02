@@ -19,6 +19,8 @@ export function createAgentControlAdapter() {
         updateWorkspaceState: (input: ControlWorkspaceSnapshot | null) => ipcRenderer.invoke(AGENT_CONTROL_IPC.updateWorkspaceState, input),
         approveGrant: (input: RendererControlGrantInput) => ipcRenderer.invoke(AGENT_CONTROL_IPC.approveGrant, input),
         rejectGrant: (requestId: string) => ipcRenderer.invoke(AGENT_CONTROL_IPC.rejectGrant, requestId),
+        approveAction: (requestId: string) => ipcRenderer.invoke(AGENT_CONTROL_IPC.approveAction, requestId),
+        rejectAction: (requestId: string) => ipcRenderer.invoke(AGENT_CONTROL_IPC.rejectAction, requestId),
         revokeGrant: (grantId: string) => ipcRenderer.invoke(AGENT_CONTROL_IPC.revokeGrant, grantId),
         emergencyStop: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.emergencyStop),
         clearAudit: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.clearAudit),

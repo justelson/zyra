@@ -21,8 +21,10 @@ export {
 const ROOT = path.resolve(process.env.ZYRA_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'))
 const RESOURCE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const BUILT_IN_DESKTOP_COMMANDS = [
-  { name: 'yolo', description: 'Switch this thread to full access locally.' },
-  { name: 'safe', description: 'Switch this thread back to approval-required mode.' },
+  { name: 'yolo', description: 'Switch this thread to full access.' },
+  { name: 'auto', description: 'Switch this thread to automatic review.' },
+  { name: 'edits', description: 'Allow project edits and ask before other actions.' },
+  { name: 'safe', description: 'Switch this thread back to supervised access.' },
   { name: 'include', description: 'Add a file path to the composer context shelf.' },
 ]
 

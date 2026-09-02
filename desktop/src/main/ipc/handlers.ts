@@ -317,6 +317,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(AGENT_CONTROL_IPC.updateWorkspaceState, controlHandlers.updateWorkspaceState)
     ipcMain.handle(AGENT_CONTROL_IPC.approveGrant, controlHandlers.approveGrant)
     ipcMain.handle(AGENT_CONTROL_IPC.rejectGrant, controlHandlers.rejectGrant)
+    ipcMain.handle(AGENT_CONTROL_IPC.approveAction, controlHandlers.approveAction)
+    ipcMain.handle(AGENT_CONTROL_IPC.rejectAction, controlHandlers.rejectAction)
     ipcMain.handle(AGENT_CONTROL_IPC.revokeGrant, controlHandlers.revokeGrant)
     ipcMain.handle(AGENT_CONTROL_IPC.emergencyStop, controlHandlers.emergencyStop)
     ipcMain.handle(AGENT_CONTROL_IPC.clearAudit, controlHandlers.clearAudit)

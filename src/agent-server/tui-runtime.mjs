@@ -13,13 +13,24 @@ import { launchInstalledDesktop } from "../desktop-app.mjs";
 import { removeZyraTitleGenerationMessages } from "../title-generation.mjs";
 import { ZyraAgentServerClient } from "./client.mjs";
 import { captureCliEvent } from "../analytics/cli.mjs";
+import { normalizeZyraPermissionMode } from "../permission-mode.mjs";
 
 export const TUI_RESUME_HISTORY_ENTRY_LIMIT = 120;
+
+export function resolveTuiPermissionAttachFields(options = {}, preferences = {}) {
+  const explicitMode = normalizeZyraPermissionMode(options.permissionMode);
+  const runtimeMode = explicitMode || (preferences.profile === "yolo-fast" ? "full-access" : null);
+  return runtimeMode ? { runtimeMode } : {};
+}
 
 export async function createZyraTuiClientRuntime(options = {}) {
   const project = path.resolve(options.project || defaults.project);
   const preferences = resolveZyraStartupPreferences(project, options);
-  const requestedChatConfig = normalizeRemoteChatConfig({ thinking: options.thinking });
+  const requestedPermissionFields = resolveTuiPermissionAttachFields(options, preferences);
+  const requestedChatConfig = normalizeRemoteChatConfig({
+    thinking: options.thinking,
+    ...requestedPermissionFields,
+  });
   const client = new ZyraAgentServerClient({
     root: defaults.root,
     clientId: `tui:${process.pid}:${randomUUID()}`,
@@ -45,7 +56,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     model: preferences.model,
     thinking: preferences.thinking,
     profile: preferences.profile || "default",
-    runtimeMode: options.permissionMode === "full-access" || preferences.profile === "yolo-fast" ? "full-access" : "approval-required",
+    ...requestedPermissionFields,
     webSearch: preferences.webSearch,
     webFetch: preferences.webFetch,
     lastSequence: 0
@@ -110,7 +121,8 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const thinkingState = { value: thinkingLevel };
   let currentModel = model;
   let currentProfile = connectedConfig.profile || connected.profile || preferences.profile || "default";
-  let currentPermissionMode = normalizeRemoteRuntimeMode(connectedConfig.runtimeMode || connected.runtimeMode || options.permissionMode || (preferences.profile === "yolo-fast" ? "full-access" : undefined));
+  const connectedPermissionMode = connectedConfig.runtimeMode || connected.runtimeMode;
+  let currentPermissionMode = normalizeRemoteRuntimeMode(requestedChatConfig.runtimeMode || connectedPermissionMode);
   let currentWebSearch = typeof connectedConfig.webSearch === "boolean" ? connectedConfig.webSearch : preferences.webSearch;
   let currentWebFetch = typeof connectedConfig.webFetch === "boolean" ? connectedConfig.webFetch : preferences.webFetch;
   let compacting = false;
@@ -428,7 +440,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
       if (!disposed) void syncRemoteChatConfig().catch(() => undefined);
     });
   };
-  if (requestedChatConfig.thinking && requestedChatConfig.thinking !== connectedConfig.thinking) {
+  if (
+    (requestedChatConfig.thinking && requestedChatConfig.thinking !== connectedConfig.thinking)
+    || (requestedChatConfig.runtimeMode && requestedChatConfig.runtimeMode !== connectedPermissionMode)
+  ) {
     await syncRemoteChatConfig();
   }
 
@@ -742,7 +757,7 @@ function dedupeRemoteMessages(messages) {
 }
 
 function normalizeRemoteRuntimeMode(value) {
-  return value === "full-access" ? "full-access" : "approval-required";
+  return normalizeZyraPermissionMode(value) || "approval-required";
 }
 
 function normalizeRemoteChatConfig(value) {
@@ -752,7 +767,7 @@ function normalizeRemoteChatConfig(value) {
     model: asString(source.model),
     thinking: ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinking) ? thinking : null,
     profile: asString(source.profile),
-    runtimeMode: source.runtimeMode === "full-access" || source.runtimeMode === "approval-required" ? source.runtimeMode : null,
+    runtimeMode: normalizeZyraPermissionMode(source.runtimeMode),
     webSearch: typeof source.webSearch === "boolean" ? source.webSearch : undefined,
     webFetch: typeof source.webFetch === "boolean" ? source.webFetch : undefined,
   };

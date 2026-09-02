@@ -349,25 +349,17 @@ Every action requires the latest observation revision. Stale actions return a ty
 
 ### 7.1 User-visible grant flow
 
-Before control begins, show:
+The canonical chat owns permission decisions.
 
-- Requesting root or subagent identity.
-- Exact target.
-- Allowed origin or executable.
-- Requested capabilities.
-- Expiry.
-- Maximum actions.
-- Whether screenshots are included.
-- Side-effect policy.
+- Supervised root requests render one bounded grant card in chat.
+- Auto review issues routine bounded in-app Browser grants automatically and renders paired Chrome or Windows requests in chat.
+- Edits only renders every control-grant request in chat.
+- Full access issues routine bounded root grants across Browser, paired Chrome, and selected Windows windows without another prompt.
+- Child agents still require an attenuated parent lease.
+- Browser chrome and Thread Details show pending or active status without approval buttons.
+- Chrome pairing, browser-owned optional permission requests, exact-tab activation, and Windows window selection remain explicit setup gestures.
 
-Default presets:
-
-```text
-Observe only                    5 minutes, 30 observations
-Interact with this tab          10 minutes, 100 actions
-Interact with this app window   10 minutes, 100 actions
-One action                      expires after one successful action
-```
+A grant remains bound to the requesting principal, exact target, allowed origin or executable, capabilities, expiry, action count, and screenshot policy. The selected chat mode changes only whether a routine root grant needs a separate approval.
 
 ### 7.2 Side effects
 
@@ -826,12 +818,13 @@ When the active Browser tab is controlled:
 
 - Show a visible control indicator.
 - Show principal and remaining lease time.
-- Offer pause, revoke, and emergency stop.
+- Offer revoke and emergency stop for active control.
+- Show pending requests as “Waiting in chat” without approve or deny buttons.
 - Keep normal Browser navigation and profile controls unchanged.
 
 ### 13.3 Approval cards
 
-Use typed approval cards for grant and side-effect requests. Do not encode permission requests as ordinary chat prose.
+Use typed approval cards in canonical chat for grant and side-effect requests. Main owns each pending record, and trusted renderer actions resolve it. Do not add a second approval surface in Browser chrome, Thread Details, settings, or a modal.
 
 ### 13.4 Responsive and motion behavior
 

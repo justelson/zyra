@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Bot, Check, Copy, FolderGit2, PanelRight, Pencil, RefreshCw, X } from 'lucide-react'
-import type { AssistantModelInfo, FleetSnapshot } from '@shared/assistant/contracts'
+import type { AssistantModelInfo, AssistantRuntimeMode, FleetSnapshot } from '@shared/assistant/contracts'
 import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import { useSettings } from '@/lib/settings'
@@ -12,6 +12,7 @@ import {
     type AssistantComposerSessionState
 } from './assistant-composer-session-state'
 import { SIDEBAR_EFFORT_LABELS } from './useAssistantPageSidebarState'
+import { getProfileLabel } from './assistant-composer-controller-constants'
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { resolveAssistantThreadDetailsNowState, selectAssistantThreadControl, summarizeAssistantThreadUsage } from './assistant-thread-details'
 import { AssistantThreadDetailsContext } from './AssistantThreadDetailsContext'
@@ -27,7 +28,7 @@ type ThreadDetailsSelection = {
     threadState: string
     threadModel: string
     threadEffort: string | null
-    runtimeMode: 'approval-required' | 'full-access'
+    runtimeMode: AssistantRuntimeMode
     profile: string | null
     latestTurnId: string | null
     latestTurnState: string | null
@@ -337,7 +338,7 @@ export function AssistantThreadDetailsWorkspace({
                                 <DetailRow label="Model" value={model} />
                                 <DetailRow label="Thinking" value={effort} />
                                 <DetailRow label="Speed" value={speed} />
-                                <DetailRow label="Access" value={selection.runtimeMode === 'full-access' ? 'Full access' : 'Supervised'} />
+                                <DetailRow label="Access" value={getProfileLabel(selection.runtimeMode)} />
                                 {selection.profile ? <DetailRow label="Profile" value={selection.profile} /> : null}
                             </div>
                         </section>

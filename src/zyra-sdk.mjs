@@ -338,10 +338,11 @@ function createZyraBuiltinExtensions(options = {}) {
   if (options.reasoningSummaryState) {
     extensions.push(createReasoningSummaryExtension(options.reasoningSummaryState));
   }
-  if (options.permissionRequest) {
+  if (options.permissionRequest || options.permissionReview) {
     extensions.push(createZyraPermissionGateExtension({
       project: options.project,
       requestPermission: options.permissionRequest,
+      reviewPermission: options.permissionReview,
       getPermissionMode: options.getPermissionMode,
     }));
   }
@@ -483,6 +484,7 @@ async function createZyraResourceLoader(project, options = {}) {
     codexServiceTierState: options.codexServiceTierState,
     thinkingState: options.thinkingState,
     permissionRequest: options.permissionRequest,
+    permissionReview: options.permissionReview,
     getPermissionMode: options.getPermissionMode,
     extensionRuntime: createExtensionRuntime(),
     skillsResult: await loadSkills(),
@@ -796,6 +798,7 @@ export async function createZyraSession(options = {}) {
     thinkingState,
     reasoningSummaryState,
     permissionRequest: options.permissionRequest,
+    permissionReview: options.permissionReview,
     getPermissionMode: options.getPermissionMode,
     project,
     projectTrusted: options.projectTrusted === true || preferences.projectTrusted === true,

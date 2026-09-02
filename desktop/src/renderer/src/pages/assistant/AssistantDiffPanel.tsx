@@ -590,7 +590,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
             loading: transitionLoadingTabId === tab.id || contentLoadingTabId === tab.id,
             preview: turn.prompt
         }] : []
-    }), [activeTabId, browserTabs, browserWorkspaceState.tabs, contentLoadingTabId, controlState?.pendingGrants, diffTabContext, effectiveFleetSnapshot, explorerViewCapsule?.activePreview, filesTabContext, fleetSnapshotLoading, pendingControlCount, reviewContextDiff?.filePath, settings.appearanceResolvedMode, transitionLoadingTabId, turns, workspaceTabs])
+    }), [activeTabId, browserTabs, browserWorkspaceState.tabs, contentLoadingTabId, controlState?.pendingActionApprovals, controlState?.pendingGrants, diffTabContext, effectiveFleetSnapshot, explorerViewCapsule?.activePreview, filesTabContext, fleetSnapshotLoading, pendingControlCount, reviewContextDiff?.filePath, settings.appearanceResolvedMode, transitionLoadingTabId, turns, workspaceTabs])
 
     const activeWorkspaceTab = workspaceTabs.find((tab) => tab.id === activeTabId) || workspaceTabs[0] || null
     useEffect(() => {

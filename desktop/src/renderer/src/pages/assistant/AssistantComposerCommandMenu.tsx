@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { BookOpenText, SquareTerminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AssistantComposerCommandItem } from './assistant-composer-command-menu'
@@ -25,18 +25,24 @@ export function AssistantComposerCommandMenu({
     onSelect: (item: AssistantComposerCommandItem) => void
 }) {
     const listRef = useRef<HTMLDivElement | null>(null)
+    const activeItemId = items[activeIndex]?.id || null
 
-    useEffect(() => {
-        const activeItem = listRef.current?.querySelector<HTMLElement>('[data-command-active="true"]')
+    useLayoutEffect(() => {
+        const options = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') || [])
+        const activeItem = options[activeIndex]
+        const lookaheadItem = options[Math.min(activeIndex + 1, options.length - 1)]
         activeItem?.scrollIntoView({ block: 'nearest' })
-    }, [activeIndex])
+        if (lookaheadItem && lookaheadItem !== activeItem) {
+            lookaheadItem.scrollIntoView({ block: 'nearest' })
+        }
+    }, [activeIndex, activeItemId])
 
     return (
         <div className="pointer-events-auto mx-auto w-[calc(100%-1rem)] overflow-hidden rounded-t-[14px] rounded-b-[8px] border border-b-0 border-white/[0.075] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_-14px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:w-[calc(100%-2.25rem)]">
             <div
                 id={menuId}
                 ref={listRef}
-                className="custom-scrollbar max-h-[min(12.5rem,32vh)] overflow-y-auto px-1.5 pb-3 pt-1.5"
+                className="custom-scrollbar max-h-[min(12.5rem,32vh)] scroll-pb-10 overflow-y-auto px-1.5 pb-10 pt-1.5"
                 role="listbox"
                 aria-label="Commands and skills"
             >
@@ -61,7 +67,7 @@ export function AssistantComposerCommandMenu({
                             role="option"
                             aria-selected={active}
                             data-command-active={active ? 'true' : 'false'}
-                            onMouseEnter={() => onActiveIndexChange(index)}
+                            onMouseMove={() => onActiveIndexChange(index)}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelect(item)}
                             className={cn(

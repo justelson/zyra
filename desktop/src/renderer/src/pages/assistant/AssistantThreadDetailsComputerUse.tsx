@@ -1,50 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Check, ChevronDown, Globe2, LoaderCircle, Monitor, ShieldCheck, X } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { ChevronDown, Globe2, Monitor, ShieldCheck } from 'lucide-react'
 import type {
-    ControlCapability,
-    ControlPendingGrant,
     ControlStateSnapshot,
-    ControlTarget,
     ControlWindowCandidate
 } from '@shared/agent-control/contracts'
 import { cn } from '@/lib/utils'
-import {
-    clearBrowserControlApprovalPreferences,
-    onBrowserControlApprovalPreferencesChange,
-    readBrowserControlApprovalPreferences
-} from './assistant-control-approval-preferences'
 import type { AssistantThreadControlSummary } from './assistant-thread-details'
-
-function controlTargetLabel(target: ControlTarget | undefined): string {
-    if (!target) return 'Computer surface'
-    if (target.kind === 'zyra-browser') {
-        if (target.title?.trim()) return target.title.trim()
-        if (target.origin) {
-            try { return new URL(target.origin).hostname.replace(/^www\./, '') }
-            catch { return target.origin }
-        }
-        return 'Zyra Browser'
-    }
-    if (target.kind === 'chrome-tab') {
-        if (target.origin) {
-            try { return `Chrome · ${new URL(target.origin).hostname.replace(/^www\./, '')}` }
-            catch { return `Chrome · ${target.origin}` }
-        }
-        return 'Chrome tab'
-    }
-    return target.executableIdentity.split(/[\\/]/).at(-1) || 'Windows app'
-}
-
-function controlCapabilitySummary(capabilities: readonly ControlCapability[]): string {
-    const actions: string[] = []
-    if (capabilities.some((entry) => entry.startsWith('observe.'))) actions.push('view the page')
-    if (capabilities.some((entry) => entry.startsWith('pointer.'))) actions.push('click')
-    if (capabilities.some((entry) => entry.startsWith('keyboard.')) || capabilities.includes('form.select')) actions.push('type')
-    if (capabilities.includes('navigate')) actions.push('navigate')
-    if (capabilities.includes('scroll')) actions.push('scroll')
-    if (capabilities.includes('tab.manage')) actions.push('manage tabs')
-    return actions.length > 0 ? new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' }).format(actions) : 'use this surface'
-}
+import { controlTargetLabel } from './assistant-control-presentation'
 
 function formatClock(value: string | null | undefined): string {
     if (!value) return ''
@@ -66,13 +28,10 @@ export function AssistantThreadDetailsComputerUse({
     const [error, setError] = useState<string | null>(null)
     const [advancedOpen, setAdvancedOpen] = useState(false)
     const [windows, setWindows] = useState<ControlWindowCandidate[]>([])
-    const [rememberedSiteCount, setRememberedSiteCount] = useState(() => readBrowserControlApprovalPreferences().length)
+    const pendingAction = threadControl.pendingActionApprovals[0] || null
     const pendingGrant = threadControl.pendingGrants[0] || null
+    const hasPendingApproval = Boolean(pendingAction || pendingGrant)
     const targetById = new Map(threadControl.targets.map((target) => [target.targetId, target]))
-
-    useEffect(() => onBrowserControlApprovalPreferencesChange(() => {
-        setRememberedSiteCount(readBrowserControlApprovalPreferences().length)
-    }), [])
 
     const run = useCallback(async (operation: () => Promise<{ success: boolean; error?: string } | unknown>) => {
         setBusy(true)
@@ -98,39 +57,23 @@ export function AssistantThreadDetailsComputerUse({
         return result
     }), [run])
 
-    const approveGrant = useCallback((request: ControlPendingGrant) => run(() => (
-        window.devscope.agentControl.approveGrant({
-            pendingRequestId: request.requestId,
-            targetId: request.targetId,
-            capabilities: request.capabilities,
-            durationMs: Math.max(1_000, Date.parse(request.expiresAt) - Date.now()),
-            maxActions: request.maxActions,
-            allowedOrigins: request.allowedOrigins,
-            allowedExecutableIdentities: request.allowedExecutableIdentities
-        })
-    )), [run])
-
     return (
         <section className={cn('border-t border-white/[0.06]', className || 'mt-5 pt-4')} aria-labelledby="thread-control-heading">
             <div className="flex items-center justify-between gap-3">
                 <h3 id="thread-control-heading" className="text-[10px] font-semibold text-sparkle-text-secondary">Computer use</h3>
                 <span className={cn(
                     'inline-flex items-center gap-1.5 text-[8px] font-medium',
-                    pendingGrant ? 'text-amber-200/75' : threadControl.activeGrants.length > 0 ? 'text-emerald-200/70' : 'text-sparkle-text-muted/40'
+                    hasPendingApproval ? 'text-amber-200/75' : threadControl.activeGrants.length > 0 ? 'text-emerald-200/70' : 'text-sparkle-text-muted/40'
                 )}>
-                    <span className={cn('size-1 rounded-full', pendingGrant ? 'bg-amber-300' : threadControl.activeGrants.length > 0 ? 'bg-emerald-300' : 'bg-white/20')} />
-                    {pendingGrant ? 'Review' : threadControl.activeGrants.length > 0 ? 'Active' : 'Idle'}
+                    <span className={cn('size-1 rounded-full', hasPendingApproval ? 'bg-amber-300' : threadControl.activeGrants.length > 0 ? 'bg-emerald-300' : 'bg-white/20')} />
+                    {hasPendingApproval ? 'Review' : threadControl.activeGrants.length > 0 ? 'Active' : 'Idle'}
                 </span>
             </div>
 
-            {pendingGrant ? (
-                <ControlRequest
-                    request={pendingGrant}
-                    target={targetById.get(pendingGrant.targetId)}
-                    busy={busy}
-                    onApprove={() => void approveGrant(pendingGrant)}
-                    onReject={() => void run(() => window.devscope.agentControl.rejectGrant(pendingGrant.requestId))}
-                />
+            {hasPendingApproval ? (
+                <div className="mt-3 border-y border-amber-300/10 bg-amber-400/[0.025] py-2.5 text-[9px] leading-4 text-amber-100/65">
+                    {pendingAction ? 'Review this critical action in chat.' : 'Review this computer-use request in chat.'}
+                </div>
             ) : null}
 
             {threadControl.activeGrants.length > 0 ? (
@@ -149,7 +92,7 @@ export function AssistantThreadDetailsComputerUse({
                         )
                     })}
                 </div>
-            ) : !pendingGrant ? (
+            ) : !hasPendingApproval ? (
                 <div className="mt-2.5 flex min-w-0 items-center gap-2.5 border-y border-white/[0.05] py-2.5">
                     <ShieldCheck size={12} className="shrink-0 text-sparkle-text-muted/45" />
                     <div className="min-w-0 flex-1">
@@ -181,7 +124,6 @@ export function AssistantThreadDetailsComputerUse({
                     <div className="flex flex-wrap gap-1.5">
                         <button type="button" disabled={busy || controlState?.pairing.state === 'waiting'} onClick={() => void run(() => window.devscope.agentControl.startChromePairing())} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40">Pair Chrome</button>
                         <button type="button" disabled={busy} onClick={() => void refreshWindows()} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40">Choose window</button>
-                        {rememberedSiteCount > 0 ? <button type="button" onClick={() => clearBrowserControlApprovalPreferences()} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03]">Forget sites · {rememberedSiteCount}</button> : null}
                         {controlState?.active ? <button type="button" onClick={() => void run(() => window.devscope.agentControl.emergencyStop())} className="h-7 border border-red-400/15 px-2 text-[8px] text-red-200/65 hover:bg-red-400/[0.05]">Stop all computer use</button> : null}
                     </div>
                     {controlState?.pairing.state === 'waiting' ? <p className="font-mono text-[10px] text-sparkle-text-secondary">Chrome code {controlState.pairing.code} · port {controlState.pairing.port}</p> : null}
@@ -200,31 +142,5 @@ export function AssistantThreadDetailsComputerUse({
             ) : null}
             {error ? <p className="mt-2 text-[8px] leading-3.5 text-red-200/65">{error}</p> : null}
         </section>
-    )
-}
-
-function ControlRequest({ request, target, busy, onApprove, onReject }: {
-    request: ControlPendingGrant
-    target: ControlTarget | undefined
-    busy: boolean
-    onApprove: () => void
-    onReject: () => void
-}) {
-    return (
-        <div className="mt-3 border-y border-amber-300/10 bg-amber-400/[0.025] py-3" aria-label="Computer-use approval needed">
-            <div className="flex items-start gap-2.5">
-                <ShieldCheck size={12} className="mt-0.5 text-amber-200/70" />
-                <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium text-sparkle-text-secondary">Allow {controlTargetLabel(target)}?</p>
-                    <p className="mt-1 text-[9px] leading-4 text-sparkle-text-muted/55">
-                        {request.principal.type === 'agent' ? 'A child agent' : 'This thread'} wants to {controlCapabilitySummary(request.capabilities)}. Access expires automatically.
-                    </p>
-                </div>
-            </div>
-            <div className="mt-2.5 flex justify-end gap-1.5">
-                <button type="button" disabled={busy} onClick={onReject} className="inline-flex h-7 items-center gap-1 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40"><X size={9} />Not now</button>
-                <button type="button" disabled={busy} onClick={onApprove} className="inline-flex h-7 items-center gap-1 border border-emerald-300/15 bg-emerald-400/[0.055] px-2 text-[8px] font-medium text-emerald-100/80 hover:bg-emerald-400/[0.09] disabled:opacity-40">{busy ? <LoaderCircle size={9} className="animate-spin" /> : <Check size={9} />}Allow</button>
-            </div>
-        </div>
     )
 }

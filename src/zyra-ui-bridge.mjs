@@ -7,6 +7,8 @@ import { AgentControlBridgeClient } from "./agent-control/bridge-client.mjs";
 import { startTemporaryBrowserRelay } from "./agent-control/temporary-browser-relay.mjs";
 import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./agent-server/canonical-message-ledger.mjs";
 import { resolveLiveContextUsage } from "./live-context-usage.mjs";
+import { normalizeZyraPermissionMode } from "./permission-mode.mjs";
+import { createZyraPermissionReviewer } from "./zyra-permission-reviewer.mjs";
 
 const root = path.resolve(process.env.ZYRA_ROOT ?? path.resolve(import.meta.dirname, ".."));
 const sdkPath = path.join(root, "src", "zyra-sdk.mjs");
@@ -18,6 +20,7 @@ let unsubscribeManagedBash;
 let unsubscribeFleet;
 let temporaryBrowserRelay;
 let activePermissionMode = "approval-required";
+let permissionReviewer;
 let liveContextBaselineTokens;
 let lastLiveContextPublishedAt = 0;
 const ZYRA_CHAT_CONFIG_CUSTOM_TYPE = "zyra.chat-config.v1";
@@ -38,7 +41,6 @@ function sendResponse(id, ok, payload = {}) {
 }
 
 function requestToolPermission(request = {}) {
-  if (activePermissionMode === "full-access") return Promise.resolve("acceptOnce");
   const requestId = randomUUID();
   send({
     type: "event",
@@ -58,6 +60,43 @@ function requestToolPermission(request = {}) {
     const timer = setTimeout(() => resolvePermissionRequest(requestId, "decline", "Approval timed out."), 10 * 60 * 1000);
     timer.unref?.();
     pendingPermissionRequests.set(requestId, { resolve, timer });
+  });
+}
+
+function reviewToolPermission(request = {}) {
+  if (activePermissionMode !== "auto-review" && activePermissionMode !== "full-access") {
+    return Promise.resolve({ decision: "ask", reason: "Automatic permission review is not active for this mode." });
+  }
+  syncPermissionReviewer();
+  if (!permissionReviewer) {
+    return Promise.resolve({ decision: "ask", reason: "Automatic review is unavailable." });
+  }
+  return permissionReviewer.review({
+    ...request,
+    userRequest: latestUserRequest(),
+  });
+}
+
+function latestUserRequest() {
+  const messages = Array.isArray(runtime?.session?.state?.messages)
+    ? runtime.session.state.messages
+    : [];
+  const message = [...messages].reverse().find((entry) => entry?.role === "user");
+  return messageTextForTitle(message).trim().slice(0, 4_000);
+}
+
+function syncPermissionReviewer() {
+  if (!runtime || (activePermissionMode !== "auto-review" && activePermissionMode !== "full-access")) {
+    permissionReviewer?.dispose?.();
+    permissionReviewer = undefined;
+    return;
+  }
+  permissionReviewer ??= createZyraPermissionReviewer({
+    runtime,
+    project: runtime.project || runtime.session?.sessionManager?.getCwd?.(),
+  });
+  void permissionReviewer.warm().catch((error) => {
+    process.stderr.write(`[permission-reviewer] ${error instanceof Error ? error.message : String(error)}\n`);
   });
 }
 
@@ -143,6 +182,8 @@ function disposeRuntime() {
   declinePendingPermissions();
   cancelPendingUserInputs();
   stopTemporaryBrowserRelay();
+  permissionReviewer?.dispose?.();
+  permissionReviewer = undefined;
   if (typeof unsubscribe === "function") {
     unsubscribe();
   }
@@ -190,6 +231,7 @@ async function handleConnect(payload) {
     rootThreadId: payload.localThreadId || undefined,
     controlBridgeClient,
     permissionRequest: requestToolPermission,
+    permissionReview: reviewToolPermission,
     requestUserInput,
     getPermissionMode: () => activePermissionMode,
     ...overrides,
@@ -527,7 +569,7 @@ function normalizePromptImages(value) {
 const VALID_THINKING_LEVELS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function normalizeRuntimeMode(value) {
-  return value === "full-access" ? "full-access" : "approval-required";
+  return normalizeZyraPermissionMode(value) || "approval-required";
 }
 
 function normalizeChatConfig(value) {
@@ -539,7 +581,7 @@ function normalizeChatConfig(value) {
     ...(model ? { model } : {}),
     ...(VALID_THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
     ...(/^[a-z0-9_-]{1,64}$/.test(profileValue) ? { profile: profileValue } : {}),
-    ...(source.runtimeMode === "full-access" || source.runtimeMode === "approval-required"
+    ...(normalizeZyraPermissionMode(source.runtimeMode)
       ? { runtimeMode: normalizeRuntimeMode(source.runtimeMode) }
       : {}),
     ...(typeof source.webSearch === "boolean" ? { webSearch: source.webSearch } : {}),
@@ -605,6 +647,7 @@ async function applyChatConfig(sdk, value, options = {}) {
       webFetch: typeof requested.webFetch === "boolean" ? requested.webFetch : runtime.webFetch,
     });
   }
+  syncPermissionReviewer();
 
   const next = currentChatConfig(sdk);
   const configurationChanged = !sameChatConfig(current, next);

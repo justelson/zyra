@@ -1,4 +1,11 @@
-export type AssistantRuntimeMode = 'approval-required' | 'full-access'
+export type AssistantRuntimeMode = 'approval-required' | 'auto-review' | 'edits-only' | 'full-access'
+
+export function isAssistantRuntimeMode(value: unknown): value is AssistantRuntimeMode {
+    return value === 'approval-required'
+        || value === 'auto-review'
+        || value === 'edits-only'
+        || value === 'full-access'
+}
 export type AssistantInteractionMode = 'default' | 'plan'
 export type AssistantReasoningEffort = 'off' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type AssistantThreadState =

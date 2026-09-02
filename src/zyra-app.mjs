@@ -37,6 +37,7 @@ import { formatZyraVersion, isZyraVersionRequest } from "./version.mjs";
 import { createZyraTuiClientRuntime, listCanonicalZyraChats } from "./agent-server/tui-runtime.mjs";
 import { captureCliEvent, initializeCliAnalytics, shutdownCliAnalytics } from "./analytics/cli.mjs";
 import { classifyErrorCode, normalizeAnalyticsCommandName } from "./analytics/contracts.mjs";
+import { extractZyraPermissionModeArgs } from "./permission-mode.mjs";
 
 const useEmbeddedRuntime = process.env.ZYRA_EMBEDDED_RUNTIME === "1";
 const createCliRuntime = (options) => useEmbeddedRuntime ? createZyraSession(options) : createZyraTuiClientRuntime(options);
@@ -44,7 +45,8 @@ const listCliSessions = (options) => useEmbeddedRuntime ? listZyraSessions(optio
 let cliStartupCompleted = false;
 
 function parse(argv) {
-  const args = [...argv];
+  const permissionArgs = extractZyraPermissionModeArgs(argv);
+  const args = [...permissionArgs.args];
   let command = "chat";
   let project = defaults.project;
   let prompt = "";
@@ -56,6 +58,7 @@ function parse(argv) {
   let model = "";
   let thinking = "";
   let serviceTier = "";
+  const permissionMode = permissionArgs.permissionMode;
   let profile = "";
   let terminalTheme = "";
   let statusLine = "";
@@ -68,10 +71,10 @@ function parse(argv) {
   let skipOnboarding = false;
 
   if (isZyraVersionRequest(args)) {
-    return { command: "version", project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
+    return { command: "version", project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, permissionMode, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
   }
   if (args[0] === "--help" || args[0] === "-h") {
-    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
+    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, permissionMode, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
   }
 
   if (args[0] && !args[0].startsWith("-")) {
@@ -197,7 +200,7 @@ function parse(argv) {
     throw new Error('Usage: zyra -p "your question"');
   }
 
-  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
+  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, serviceTier, permissionMode, profile, terminalTheme, statusLine, notifications, interruptMode, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
 }
 
 async function runUpdate() {
@@ -436,6 +439,7 @@ async function runMain() {
     model: parsed.model || undefined,
     thinking: parsed.thinking || undefined,
     codexServiceTier: parsed.serviceTier || undefined,
+    permissionMode: parsed.permissionMode,
     profile: parsed.profile || undefined,
     terminalTheme: parsed.terminalTheme || undefined,
     statusLine: parsed.statusLine || undefined,
@@ -708,6 +712,10 @@ async function restartZyraProcess(runtime, options = {}) {
   if (runtime.statusLine) args.push("--statusline", runtime.statusLine);
   if (runtime.notifications) args.push("--notifications", runtime.notifications);
   if (runtime.interruptMode) args.push("--interrupt", runtime.interruptMode);
+  if (runtime.permissionMode === "full-access") args.push("--full-access");
+  if (runtime.permissionMode === "auto-review") args.push("--auto-review");
+  if (runtime.permissionMode === "edits-only") args.push("--edits-only");
+  if (runtime.permissionMode === "approval-required") args.push("--supervised");
   const codexServiceTier = runtime.codexServiceTierState?.value ?? runtime.codexServiceTier;
   if (codexServiceTier && codexServiceTier !== "default") args.push("--service-tier", codexServiceTier);
   if (runtime.session.model) args.push("--model", `${runtime.session.model.provider}/${runtime.session.model.id}`);

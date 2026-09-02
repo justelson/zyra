@@ -1,18 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ShieldCheck, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { useSettings } from '@/lib/settings'
 import {
     clearPersistedAssistantBrowserWorkspaces,
     countPersistedAssistantBrowserWorkspaces
 } from '../assistant/assistant-browser-workspace-state'
-import {
-    clearBrowserControlApprovalPreferences,
-    onBrowserControlApprovalPreferencesChange,
-    readBrowserControlApprovalPreferences,
-    removeBrowserControlApprovalPreference,
-    type BrowserControlApprovalPreference
-} from '../assistant/assistant-control-approval-preferences'
 import {
     SettingsButton,
     SettingsNotice,
@@ -25,16 +18,11 @@ import {
 
 export default function BrowserControlSettings() {
     const { settings, updateSettings } = useSettings()
-    const [approvalPreferences, setApprovalPreferences] = useState<BrowserControlApprovalPreference[]>(() => readBrowserControlApprovalPreferences())
     const [retainedWorkspaceCount, setRetainedWorkspaceCount] = useState(() => countPersistedAssistantBrowserWorkspaces())
     const [browserHistoryState, setBrowserHistoryState] = useState<'checking' | 'present' | 'empty' | 'unavailable'>('checking')
     const [adBlockBusy, setAdBlockBusy] = useState(false)
     const [status, setStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
     const integratedBrowserAvailable = isElectronRendererRuntime()
-
-    useEffect(() => onBrowserControlApprovalPreferencesChange(() => {
-        setApprovalPreferences(readBrowserControlApprovalPreferences())
-    }), [])
 
     useEffect(() => {
         if (!integratedBrowserAvailable || typeof window.devscope.getBrowserHistory !== 'function') {
@@ -117,18 +105,6 @@ export default function BrowserControlSettings() {
                 )}
             </SettingsSection>
 
-            <SettingsSection title="Remembered Browser control" headerAction={approvalPreferences.length > 0 ? <SettingsButton variant="ghost" onClick={clearBrowserControlApprovalPreferences}>Revoke all</SettingsButton> : undefined}>
-                {approvalPreferences.length === 0 ? (
-                    <SettingsNotice>No remembered Browser-control approvals.</SettingsNotice>
-                ) : approvalPreferences.map((preference) => (
-                    <SettingsRow
-                        key={`${preference.origin}:${preference.createdAt}`}
-                        title={<span className="inline-flex items-center gap-2"><ShieldCheck size={13} className="text-emerald-300" />{preference.origin}</span>}
-                        description={`${preference.capabilities.join(', ')} · up to ${preference.maxActions} actions · ${Math.round(preference.durationMs / 1000)}s grants`}
-                        control={<SettingsButton variant="ghost" onClick={() => removeBrowserControlApprovalPreference(preference.origin, preference.createdAt)}>Revoke</SettingsButton>}
-                    />
-                ))}
-            </SettingsSection>
         </SettingsPageContainer>
     )
 }

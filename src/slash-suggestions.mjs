@@ -1,7 +1,7 @@
 import { getZyraAvailableModels, getZyraAvailableThinkingLevels, getZyraThinkingLevel, listCustomCommands, listZyraProfiles, listZyraSkills, listZyraThemes } from "./zyra-sdk.mjs";
 import { applyFileMentionSuggestion, getFileMentionSuggestions } from "./file-mentions.mjs";
 import { getModelCompatibilityLabel } from "./model-compatibility.mjs";
-import { CODEX_MODES, getSlashCommand, INTERRUPT_MODES, listSlashCommandSuggestions, NOTIFICATION_MODES, STATUS_LINE_MODES } from "./slash-commands.mjs";
+import { ACCESS_MODES, CODEX_MODES, getSlashCommand, INTERRUPT_MODES, listSlashCommandSuggestions, NOTIFICATION_MODES, STATUS_LINE_MODES } from "./slash-commands.mjs";
 
 export function getSlashSuggestions(runtime, text) {
   const agentMentions = getAgentMentionSuggestions(runtime, text);
@@ -223,6 +223,11 @@ export function applySlashSuggestion(text, item) {
 
   if (item.kind === "command") {
     return item.submitOnEnter ? item.value : `${item.value} `;
+  }
+
+  if (query.startsWith("/access ") || query.startsWith("/permissions ")) {
+    const command = query.startsWith("/permissions ") ? "/permissions " : "/access ";
+    return buildSimpleArgumentSuggestions(ACCESS_MODES, query.slice(command.length), "permission mode");
   }
 
   if (item.kind === "skill") return `${item.value} `;

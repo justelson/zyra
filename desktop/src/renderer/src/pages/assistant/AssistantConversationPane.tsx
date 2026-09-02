@@ -46,6 +46,8 @@ import { useAssistantQueuedComposer, type AssistantQueuedComposerSessionState } 
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { useInstructorVoiceSession } from './useInstructorVoiceSession'
 import { useAssistantPageTimelineScroll } from './useAssistantPageTimelineScroll'
+import { useAgentControlState } from './useAgentControlState'
+import { isControlPrincipalForThread } from './assistant-thread-details'
 
 const TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX = 420
 const TIMELINE_HIDE_SCROLL_BUTTON_THRESHOLD_PX = 180
@@ -79,6 +81,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const controller = useAssistantConversationStore()
     const actions = useAssistantStoreActions()
     const { settings, updateSettings } = useSettings()
+    const controlState = useAgentControlState()
     const visibilitySnapshot = useRendererVisibilitySnapshot()
     const composerPaneRef = useRef<HTMLDivElement | null>(null)
     const [zyraProfileOverride, setZyraProfileOverride] = useState<AssistantProductProfile | null>(null)
@@ -360,6 +363,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const effectivePendingApprovals = newChatHandoffActive
         ? []
         : controller.activeThread?.pendingApprovals.filter((approval) => approval.status === 'pending') || []
+    const permissionThreadId = newChatHandoffActive ? null : controller.activeThread?.id || null
+    const pendingControlGrants = controlState?.pendingGrants.filter((request) => isControlPrincipalForThread(request.principal, permissionThreadId)) || []
+    const pendingControlActions = (controlState?.pendingActionApprovals || []).filter((request) => isControlPrincipalForThread(request.principal, permissionThreadId))
+    const hasPendingControlApproval = pendingControlGrants.length > 0 || pendingControlActions.length > 0
     const effectivePendingUserInputs = newChatHandoffActive ? [] : controller.pendingUserInputs
     const conversationSurfaceMode = deriveAssistantConversationSurfaceMode({
         newChatHandoffActive,
@@ -372,7 +379,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         isThreadWorking,
         connectionBelongsToSelectedChat,
         isLoadingSelectedChat,
-        pendingApprovalCount: effectivePendingApprovals.length,
+        pendingApprovalCount: effectivePendingApprovals.length + pendingControlGrants.length + pendingControlActions.length,
         pendingInputCount: effectivePendingUserInputs.length,
         hasPendingLabRequest: Boolean(controller.selectedSession?.pendingLabRequest)
     })
@@ -1047,10 +1054,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onViewDiff={props.onViewDiff}
                         />
                     ) : null}
-                    {voiceVisible && effectivePendingApprovals.length === 0 ? (
+                    {voiceVisible && !hasPendingControlApproval && effectivePendingApprovals.length === 0 ? (
                         <AssistantCanonicalVoiceStage voice={voice} preferences={voicePreferences} />
                     ) : null}
-                    {voiceVisible ? (
+                    {voiceVisible && !hasPendingControlApproval ? (
                         <AssistantCanonicalVoiceDock
                             voice={voice}
                             preferences={voicePreferences}
@@ -1067,6 +1074,9 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         newChatPrompt={emptyComposerPrompt}
                         pendingPlaygroundLabRequest={null}
                         pendingApprovals={effectivePendingApprovals}
+                        pendingControlActions={pendingControlActions}
+                        pendingControlGrants={pendingControlGrants}
+                        controlTargets={controlState?.targets || []}
                         pendingUserInputs={effectivePendingUserInputs}
                         commandPending={!newChatHandoffActive && controller.commandPending}
                         composerDisabled={newChatHandoffActive}

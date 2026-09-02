@@ -1,4 +1,4 @@
-import type { ControlAction, ControlCapability, ControlGrant, ControlTarget } from '../../shared/agent-control/contracts'
+import type { ControlAction, ControlCapability, ControlGrant, ControlSideEffectClass, ControlTarget } from '../../shared/agent-control/contracts'
 import {
     CONTROL_ACTION_CAPABILITY,
     CONTROL_SIDE_EFFECTS_REQUIRING_APPROVAL,
@@ -19,7 +19,20 @@ export function assertGrantSupportsTarget(grant: ControlGrant, target: ControlTa
     assertTargetScope(grant, target)
 }
 
-export function assertActionAllowed(grant: ControlGrant, target: ControlTarget, action: ControlAction): void {
+export function controlActionRequiresApproval(action: ControlAction): action is ControlAction & { sideEffect: Exclude<ControlSideEffectClass, 'none'> } {
+    if (!('sideEffect' in action)) return false
+    const sideEffect = action.sideEffect
+    return sideEffect !== undefined
+        && sideEffect !== 'none'
+        && CONTROL_SIDE_EFFECTS_REQUIRING_APPROVAL.has(sideEffect)
+}
+
+export function assertActionAllowed(
+    grant: ControlGrant,
+    target: ControlTarget,
+    action: ControlAction,
+    options: { approvedSideEffect?: ControlSideEffectClass } = {}
+): void {
     const capability = CONTROL_ACTION_CAPABILITY[action.type]
     if (capability && !grant.capabilities.includes(capability)) {
         throw new AgentControlError('CONTROL_CAPABILITY_DENIED', `The grant does not allow ${capability}.`)
@@ -27,10 +40,10 @@ export function assertActionAllowed(grant: ControlGrant, target: ControlTarget, 
     if (action.type === 'type' && action.x !== undefined && !grant.capabilities.includes('pointer.click')) {
         throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Coordinate typing also requires pointer.click.')
     }
-    if ('sideEffect' in action && action.sideEffect && CONTROL_SIDE_EFFECTS_REQUIRING_APPROVAL.has(action.sideEffect)) {
+    if (controlActionRequiresApproval(action) && options.approvedSideEffect !== action.sideEffect) {
         throw new AgentControlError(
             'CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED',
-            `The ${action.sideEffect} action requires explicit per-action user approval.`
+            `The ${action.sideEffect} action requires approval in chat.`
         )
     }
     if ('text' in action && /(password|secret|token|credential)\s*[:=]/i.test(action.text)) {

@@ -75,7 +75,7 @@ export function AssistantAgentDirectory({
             data-agent-page-size={ASSISTANT_AGENT_DIRECTORY_PAGE_SIZE}
         >
             <div data-assistant-capsule-scroll="agents-directory" className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]">
-                <div className="mx-auto w-full max-w-[52rem]">
+                <div className="mx-auto w-full max-w-[56rem]">
                     <header className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-white/[0.04] pb-3">
                         <div>
                             <h2 className="text-[14px] font-semibold text-sparkle-text">Delegated work</h2>
@@ -118,7 +118,7 @@ export function AssistantAgentDirectory({
                     className="shrink-0 border-t border-white/[0.04] bg-[color-mix(in_srgb,var(--color-bg)_97%,black)] px-3"
                     data-testid="assistant-agent-directory-footer"
                 >
-                    <div className="mx-auto flex h-10 w-full max-w-[52rem] items-center justify-between gap-3 text-[9px] text-sparkle-text-muted/55">
+                    <div className="mx-auto flex h-10 w-full max-w-[56rem] items-center justify-between gap-3 text-[9px] text-sparkle-text-muted/55">
                         <span>{pageStart + 1}–{Math.min(pageStart + ASSISTANT_AGENT_DIRECTORY_PAGE_SIZE, agents.length)} of {agents.length} agents</span>
                         {pageCount > 1 ? (
                             <nav className="flex items-center gap-1" aria-label="Agent directory pages">

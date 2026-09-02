@@ -131,6 +131,7 @@ assert.match(directoryMarkup, /data-max-columns="3"/)
 assert.match(directoryMarkup, /data-card-width="16\.5rem"/)
 assert.match(directoryMarkup, /data-card-height="12\.5rem"/)
 assert.match(directoryMarkup, /data-testid="assistant-agent-directory-footer"/)
+assert.equal((directoryMarkup.match(/max-w-\[56rem\]/g) || []).length, 2, 'Agents must use the same content and footer width as Workflows')
 assert.doesNotMatch(directoryMarkup, /Run details/, 'the directory does not dump selected agent details below its cards')
 
 const markup = renderToStaticMarkup(<AssistantFleetWorkspace threadId="thread-1" snapshot={fleet} selectedAgentRunId="agent-1" selectedWorkflowRunId={null} onSelectAgent={() => {}} onSelectWorkflow={() => {}} />)

@@ -183,20 +183,10 @@ type ActiveCanonicalVoice = {
     executionConfiguration: AssistantVoiceExecutionConfiguration
 }
 
-type CompletedRealtimeUserTranscriptEvent = Extract<RealtimeDomainEvent, { text: string }> & {
-    type: 'realtime.user.transcript.completed'
-}
-
 type VoiceStrongRequest = Pick<
-    CompletedRealtimeUserTranscriptEvent,
+    Extract<RealtimeDomainEvent, { type: 'realtime.delegation.requested' }>,
     'adapterSessionId' | 'conversationId' | 'providerItemId' | 'text'
 >
-
-function isCompletedRealtimeUserTranscriptEvent(
-    event: RealtimeDomainEvent
-): event is CompletedRealtimeUserTranscriptEvent {
-    return event.type === 'realtime.user.transcript.completed'
-}
 
 type ActiveVoiceStrongTask = {
     taskId: string
@@ -1735,7 +1725,7 @@ export class AssistantService {
     private handleCanonicalVoiceEvent(event: RealtimeDomainEvent): void {
         const legacy = canonicalVoicePresentationEvent(event)
         if (legacy) this.broadcastRealtimeVoiceEvent(legacy)
-        if (isCompletedRealtimeUserTranscriptEvent(event) && shouldDelegateVoiceInspection(event.text)) {
+        if (event.type === 'realtime.delegation.requested') {
             this.routeVoiceStrongRequest(event)
         }
         if ((event.type === 'realtime.session.error' || event.type === 'realtime.session.closed')

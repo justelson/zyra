@@ -221,6 +221,16 @@ export class ChatGptRealtimeForegroundAdapter implements RealtimeForegroundAdapt
 
     ingestWebRtcEvent(sessionId: string, value: unknown): void {
         const session = this.requireCurrentSession(sessionId)
+        const delegation = normalizeWebRtcDelegationEvent(value)
+        if (delegation) {
+            this.emit({
+                ...eventBase(session, this.clock.now()),
+                type: 'realtime.delegation.requested',
+                providerItemId: delegation.providerItemId,
+                text: delegation.text
+            })
+            return
+        }
         const event = normalizeWebRtcTranscriptEvent(value, session.webRtcTurnRoles)
         if (event && session.suppressedHydrationProviderItemIds.has(event.providerItemId)) return
         if (event && session.completedTranscriptProviderItemIds.has(event.providerItemId)) return
@@ -433,6 +443,24 @@ function consumeCanonicalSpeechReplay(
 type NormalizedWebRtcTranscriptEvent =
     | { kind: 'delta'; role: 'user' | 'assistant'; providerItemId: string; delta: string }
     | { kind: 'completed'; role: 'user' | 'assistant'; providerItemId: string; text: string }
+
+export function normalizeWebRtcDelegationEvent(
+    value: unknown
+): { providerItemId: string; text: string } | null {
+    const payload = asRecord(value)
+    if (asText(payload?.['type']) !== 'delegation.created') return null
+    const item = asRecord(payload?.['item'])
+    if (asText(item?.['type']) !== 'delegation' || asText(item?.['target']) !== 'client') return null
+    const providerItemId = boundedProviderItemId(asText(item?.['id']))
+    const content = Array.isArray(item?.['content']) ? item.content : []
+    const text = content
+        .map((entry) => asRecord(entry))
+        .filter((entry) => asText(entry?.['type']) === 'input_text')
+        .map((entry) => asText(entry?.['text']) || '')
+        .join('')
+        .trim()
+    return providerItemId && text && text.length <= 8_000 ? { providerItemId, text } : null
+}
 
 export function normalizeWebRtcTranscriptEvent(
     value: unknown,

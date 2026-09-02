@@ -101,7 +101,7 @@ assert.equal(headers.get('chatgpt-account-id'), 'account-id')
 assert.match(headers.get('content-type') || '', /^multipart\/form-data; boundary=/u)
 const multipartText = Buffer.from(capturedInit?.body as Uint8Array).toString('latin1')
 assert.match(multipartText, /name="file"; filename="voice\.wav"/u)
-assert.doesNotMatch(multipartText, /name="model"/u)
+assert.match(multipartText, /name="model"[\s\S]*whisper-1/u, 'the direct ChatGPT endpoint must receive its transcription model')
 assert.doesNotMatch(multipartText, /secret-token/u, 'credentials must stay in headers rather than the multipart body')
 
 const authRefreshCalls: boolean[] = []
@@ -139,10 +139,22 @@ await assert.rejects(
             return new Response('{}', { status: 403 })
         }
     }),
-    /login has expired/u,
-    'auth failures must map to safe sign-in guidance'
+    /did not allow transcription/u,
+    'account-level refusal must offer a safe recovery path'
 )
-assert.equal(forbiddenRequests, 2, '403 should retry once and then stop')
+assert.equal(forbiddenRequests, 1, '403 must not repeat the same rejected upload as an auth refresh')
+
+await assert.rejects(
+    transcribeCodexVoiceWithDependencies(baseInput, {
+        resolveCredentials: async () => ({ accessToken: 'token', accountId: 'account-id' }),
+        requestTranscription: async () => new Response('<html>challenge</html>', {
+            status: 403,
+            headers: { 'content-type': 'text/html', 'cf-mitigated': 'challenge' }
+        })
+    }),
+    /browser check.*Browser dictation/u,
+    'Cloudflare challenges must be identified instead of being mislabeled as an expired login'
+)
 
 assert.equal(formatAssistantVoiceDuration(0), '0:00')
 assert.equal(formatAssistantVoiceDuration(120_000), '2:00')
@@ -179,6 +191,7 @@ assert.equal(workingCapabilities.canStop, true, 'active-turn Stop should remain 
 
 const speechHookSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/useAssistantSpeechInput.ts'), 'utf8')
 const transcriptionSource = readFileSync(resolve(import.meta.dir, '../src/main/assistant/codex-voice-transcription.ts'), 'utf8')
+const mainIndexSource = readFileSync(resolve(import.meta.dir, '../src/main/index.ts'), 'utf8')
 const recorderBarSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantVoiceRecorderBar.tsx'), 'utf8')
 const composerSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantComposerView.tsx'), 'utf8')
 const rendererCssSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/index.css'), 'utf8')
@@ -186,6 +199,9 @@ assert.doesNotMatch(transcriptionSource, /\.codex|CodexAppServerRuntime|codex-ap
 assert.doesNotMatch(transcriptionSource, /chatgpt-account\.mjs|pathToFileURL|import\(\/\* @vite-ignore \*\//u, 'transcription must not cold-load Pi auth and OAuth modules on Electron main')
 assert.doesNotMatch(transcriptionSource, /zyra-sdk\.mjs/u, 'subscription transcription must not import the full Pi SDK into Electron')
 assert.match(transcriptionSource, /getSharedOpenAIAuthWorkerClient\(\)\.account\.resolveChatGptAccountAuth\(\)/u, 'ChatGPT transcription must resolve the same Pi account source off the main event loop')
+assert.match(transcriptionSource, /session\.defaultSession\.fetch/u, 'desktop transcription must use Chromium networking so ChatGPT browser checks can reuse the app session')
+assert.match(mainIndexSource, /setupServices\.auth\.prewarm\(\)/u, 'Desktop startup must warm Pi auth before the first ChatGPT recording')
+assert.doesNotMatch(mainIndexSource, /if \(setupServices\.onboarding\.shouldShowOnboarding\(\)\) \{[\s\S]{0,200}auth\.prewarm/u, 'auth warming must not be limited to onboarding')
 assert.match(speechHookSource, /ASSISTANT_VOICE_MAX_DURATION_MS/u, 'the recorder should enforce the 120-second client bound')
 assert.match(speechHookSource, /capturedSampleCount/u, 'captured PCM must stay bounded even while renderer timers are throttled')
 assert.match(speechHookSource, /latest\.scopeKey !== recordingScopeKey/u, 'a recording must not cross into another chat')
@@ -210,6 +226,8 @@ assert.match(composerSource, /<AnimatedHeight[\s\S]{0,140}isOpen=\{!showCodexRec
 assert.match(composerSource, /showCodexRecorder \? 'rounded-full' : 'rounded-\[18px\]'/u, 'the composer shell should morph into a full pill while recording')
 assert.match(composerSource, /showCodexRecorder[\s\S]{0,120}\? 'gap-2 px-1\.5 py-1\.5'/u, 'the active recorder should use one compact composer row')
 assert.match(composerSource, /showCodexRecorder/u, 'the expanded recorder should replace compact footer actions while active')
+assert.match(composerSource, /role="alert"[\s\S]{0,500}\{speechError\}/u, 'transcription failures must remain visible after the recorder closes')
+assert.match(composerSource, /Reconnect ChatGPT[\s\S]{0,900}Use Browser dictation/u, 'ChatGPT transcription errors must expose working recovery actions')
 assert.match(composerSource, /showCodexRecorder[\s\S]*?capabilities\.canStop[\s\S]*?<ComposerSendButton/u, 'the active-turn Stop button should remain beside the Codex recorder')
 
 console.log('assistant voice transcription contract: ok')

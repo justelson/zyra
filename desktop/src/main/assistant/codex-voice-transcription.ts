@@ -225,7 +225,10 @@ function encodeMultipartWav(audio: Buffer): { body: Buffer; contentType: string 
         `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="voice.wav"\r\nContent-Type: audio/wav\r\n\r\n`,
         'utf8'
     )
-    const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')
+    const suffix = Buffer.from(
+        `\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n--${boundary}--\r\n`,
+        'utf8'
+    )
     const body = Buffer.concat([prefix, audio, suffix])
     if (body.length > CODEX_VOICE_MAX_MULTIPART_BYTES) {
         throw new Error('Voice notes are limited to 10 MB.')
@@ -236,15 +239,29 @@ function encodeMultipartWav(audio: Buffer): { body: Buffer; contentType: string 
     }
 }
 
+async function fetchCodexVoiceFromDesktopSession(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+    try {
+        const { session } = await import('electron')
+        return await session.defaultSession.fetch(input instanceof URL ? input.href : input, {
+            ...init,
+            credentials: 'include'
+        })
+    } catch (error) {
+        if (error instanceof Error && !/Cannot find module|Unknown built-in module/u.test(error.message)) throw error
+        return await fetch(input, init)
+    }
+}
+
 export async function requestCodexVoiceTranscription(request: CodexVoiceRequest): Promise<Response> {
     const endpoint = assertAllowedTranscriptionUrl(request.endpoint || CODEX_VOICE_TRANSCRIPTION_URL)
     const multipart = encodeMultipartWav(request.audio)
     const controller = new AbortController()
     const requestBody = Uint8Array.from(multipart.body).buffer
     const timeout = setTimeout(() => controller.abort(), CODEX_VOICE_REQUEST_TIMEOUT_MS)
+    const fetchImpl = request.fetchImpl || fetchCodexVoiceFromDesktopSession
 
     try {
-        return await (request.fetchImpl || fetch)(endpoint, {
+        return await fetchImpl(endpoint, {
             method: 'POST',
             redirect: 'error',
             signal: controller.signal,
@@ -254,7 +271,7 @@ export async function requestCodexVoiceTranscription(request: CodexVoiceRequest)
                 'ChatGPT-Account-Id': request.accountId,
                 'Content-Type': multipart.contentType,
                 'User-Agent': 'Zyra Desktop Voice Transcription',
-                originator: 'Zyra Desktop'
+                originator: 'zyra_desktop'
             },
             body: requestBody
         })
@@ -316,14 +333,21 @@ async function readBoundedResponseText(response: Response): Promise<string> {
     }
 }
 
-function readStatusError(status: number): string {
-    if (status === 401 || status === 403) {
-        return 'Your ChatGPT login has expired. Sign in through Zyra and try again.'
+function readStatusError(response: Response): string {
+    if (response.status === 401) {
+        return 'Your ChatGPT login has expired. Reconnect ChatGPT through Zyra and try again.'
     }
-    if (status === 413) return 'Voice notes are limited to 10 MB.'
-    if (status === 429) return 'ChatGPT transcription is busy or rate-limited. Try again shortly.'
-    if (status >= 500) return 'ChatGPT transcription is temporarily unavailable. Try again shortly.'
-    return `Voice transcription failed with status ${status}.`
+    if (response.status === 403) {
+        const browserChallenge = response.headers.get('cf-mitigated') === 'challenge'
+            || response.headers.get('content-type')?.toLowerCase().includes('text/html')
+        return browserChallenge
+            ? 'ChatGPT blocked transcription with a browser check. Use Browser dictation or try again later.'
+            : 'ChatGPT did not allow transcription for this account. Reconnect ChatGPT or use Browser dictation.'
+    }
+    if (response.status === 413) return 'Voice notes are limited to 10 MB.'
+    if (response.status === 429) return 'ChatGPT transcription is busy or rate-limited. Try again shortly.'
+    if (response.status >= 500) return 'ChatGPT transcription is temporarily unavailable. Try again shortly.'
+    return `Voice transcription failed with status ${response.status}.`
 }
 
 export async function transcribeCodexVoiceWithDependencies(
@@ -338,7 +362,7 @@ export async function transcribeCodexVoiceWithDependencies(
         accountId: credentials.accountId
     })
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
         await response.body?.cancel().catch(() => undefined)
         credentials = await dependencies.resolveCredentials(true)
         response = await dependencies.requestTranscription({
@@ -350,7 +374,7 @@ export async function transcribeCodexVoiceWithDependencies(
 
     if (!response.ok) {
         await response.body?.cancel().catch(() => undefined)
-        throw new Error(readStatusError(response.status))
+        throw new Error(readStatusError(response))
     }
 
     const raw = await readBoundedResponseText(response)

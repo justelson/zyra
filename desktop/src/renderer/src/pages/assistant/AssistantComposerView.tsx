@@ -161,6 +161,9 @@ export function AssistantComposerView({
     const showCodexRecorder = transcriptionEnabled
         && settings.assistantTranscriptionEngine === 'codex'
         && (controller.voiceInput.isRecording || controller.voiceInput.isTranscribing)
+    const speechError = controller.voiceInput.speechError?.trim() || ''
+    const speechErrorNeedsReconnect = settings.assistantTranscriptionEngine === 'codex'
+        && /ChatGPT.*(?:login|account)|Reconnect ChatGPT/i.test(speechError)
     const composerMotionDuration = showCodexRecorder ? 320 : 240
     const slashToken = useMemo(
         () => findAssistantComposerSlashToken(controller.text, controller.composerCursor),
@@ -885,6 +888,23 @@ export function AssistantComposerView({
                             )}
                         </div>
                     </div>
+                    {speechError ? (
+                        <div role="alert" className="mt-1.5 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1 px-2 text-[10px] leading-4 text-amber-200/80">
+                            <span className="min-w-0 flex-1">{speechError}</span>
+                            {settings.assistantTranscriptionEngine === 'codex' ? (
+                                <div className="flex shrink-0 items-center gap-2">
+                                    {speechErrorNeedsReconnect ? (
+                                        <button type="button" onClick={() => navigate('/settings/account')} className="font-medium text-amber-100 underline decoration-amber-200/35 underline-offset-2 hover:decoration-amber-100">
+                                            Reconnect ChatGPT
+                                        </button>
+                                    ) : null}
+                                    <button type="button" onClick={() => updateSettings({ assistantTranscriptionEngine: 'browser' })} className="font-medium text-amber-100 underline decoration-amber-200/35 underline-offset-2 hover:decoration-amber-100">
+                                        Use Browser dictation
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
 
                 <AssistantAttachmentPreviewModal

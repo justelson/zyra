@@ -1009,11 +1009,9 @@ app.whenReady().then(async () => {
             }
         })
     }
-    if (setupServices.onboarding.shouldShowOnboarding()) {
-        void setupServices.auth.prewarm().catch((error) => {
-            log.warn('[Onboarding] OpenAI connection prewarm failed', error)
-        })
-    }
+    void setupServices.auth.prewarm().catch((error) => {
+        log.warn('[OpenAI] connection prewarm failed', error)
+    })
     configureAssistantService({
         getNewChatExecutionDefaults: () => setupServices.preferences.getNewChatWebDefaults(),
         openDesktopWorkspace: (request) => assistantUtilityWindowManager.openFromTui(request),

@@ -237,6 +237,50 @@ assert.equal(
 realtime.emitTranscript({
     sessionId: activation.handle.adapterSessionId,
     role: 'user',
+    providerItemId: 'voice_user_fallback_prefix',
+    text: 'Yo',
+    completed: true
+})
+realtime.emitTranscript({
+    sessionId: activation.handle.adapterSessionId,
+    role: 'user',
+    providerItemId: 'voice_user_provider_full',
+    text: 'Yo, so can you please help me check the time',
+    completed: true
+})
+await transcriptCommitter.flush()
+assert.deepEqual(
+    writer.records('chat_voice_core')
+        .filter((entry) => entry.input.providerItemId.startsWith('voice_user_'))
+        .map((entry) => [entry.input.providerItemId, entry.input.text]),
+    [['voice_user_provider_full', 'Yo, so can you please help me check the time']],
+    'canonical Voice must keep only the stabilized provider completion when it extends a shorter fallback prefix'
+)
+realtime.emitTranscript({
+    sessionId: activation.handle.adapterSessionId,
+    role: 'user',
+    providerItemId: 'intentional_repeat_user_1',
+    text: 'Hello',
+    completed: true
+})
+realtime.emitTranscript({
+    sessionId: activation.handle.adapterSessionId,
+    role: 'user',
+    providerItemId: 'intentional_repeat_user_2',
+    text: 'Hello',
+    completed: true
+})
+await transcriptCommitter.flush()
+assert.deepEqual(
+    writer.records('chat_voice_core')
+        .filter((entry) => entry.input.providerItemId.startsWith('intentional_repeat_user_'))
+        .map((entry) => entry.input.providerItemId),
+    ['intentional_repeat_user_1', 'intentional_repeat_user_2'],
+    'canonical Voice must preserve two exact repeated user utterances as separate turns'
+)
+realtime.emitTranscript({
+    sessionId: activation.handle.adapterSessionId,
+    role: 'user',
     providerItemId: 'voice_item_user_1',
     text: 'Hello, respond with exactly I am here',
     completed: true
@@ -270,9 +314,9 @@ realtime.emitTranscript({
     completed: true
 })
 await transcriptCommitter.flush()
-assert.equal(committedVoiceReceipts.length, 4, 'replayed provider completion returns the same receipt to subscribers')
-assert.equal(new Set(committedVoiceReceipts).size, 3)
-assert.equal(writer.records('chat_voice_core').length, 5)
+assert.equal(committedVoiceReceipts.length, 7, 'replayed provider completion returns the same receipt to subscribers')
+assert.equal(new Set(committedVoiceReceipts).size, 6)
+assert.equal(writer.records('chat_voice_core').length, 8)
 const committedSpokenUsers = writer.records('chat_voice_core')
     .filter((entry) => entry.input.providerItemId.startsWith('voice_item_user_'))
 assert.deepEqual(

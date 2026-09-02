@@ -15,7 +15,8 @@ import {
 } from '../src/renderer/src/pages/assistant/instructor-voice-activity'
 import { INSTRUCTOR_VOICE_VISUAL_THEMES } from '../src/renderer/src/pages/assistant/instructor-voice-visuals'
 import {
-    applyRealtimeTranscriptEvent
+    applyRealtimeTranscriptEvent,
+    latestStreamingVoiceTranscript
 } from '../src/renderer/src/pages/assistant/instructor-voice-transcript'
 import { shouldShowComposerRealtimeVoicePrimaryAction } from '../src/renderer/src/pages/assistant/assistant-composer-view-state'
 import { buildAssistantVoiceExecutionConfiguration } from '../src/renderer/src/pages/assistant/assistant-voice-execution-configuration'
@@ -42,7 +43,10 @@ import {
 } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import { shouldDelegateVoiceInspection } from '../src/main/assistant/voice/voice-strong-routing'
 import { buildVoiceStrongTaskActivity } from '../src/main/assistant/voice/voice-strong-task-activity'
-import { normalizeWebRtcTranscriptEvent } from '../src/main/assistant/voice/codex-realtime-foreground-adapter'
+import {
+    normalizeWebRtcDelegationEvent,
+    normalizeWebRtcTranscriptEvent
+} from '../src/main/assistant/voice/codex-realtime-foreground-adapter'
 import {
     normalizeInstructorVoicePreferences,
     readInstructorVoicePreferences,
@@ -287,6 +291,42 @@ assert.deepEqual(typedVoiceTranscript.map(({ id, text }) => ({ id, text })), [{
     id: 'provider-spoken-turn-1',
     text: 'Typed response spoken through ChatGPT.'
 }], 'the provider completion must replace the optimistic typed Voice bubble instead of duplicating it')
+assert.equal(
+    latestStreamingVoiceTranscript(typedVoiceTranscript),
+    null,
+    'the orb caption must clear after a finalized utterance enters the canonical timeline'
+)
+const streamingCaption = { id: 'assistant-streaming', role: 'assistant', text: 'Still speaking', final: false }
+assert.equal(
+    latestStreamingVoiceTranscript([...typedVoiceTranscript, streamingCaption])?.id,
+    streamingCaption.id,
+    'the orb caption must keep showing the current streaming utterance'
+)
+let repeatedUserPrefix = applyRealtimeTranscriptEvent([], {
+    type: 'turn.done',
+    turn: { id: 'fallback-user-yo', role: 'user', transcript: 'Yo' }
+})
+repeatedUserPrefix = applyRealtimeTranscriptEvent(repeatedUserPrefix, {
+    type: 'turn.created',
+    turn: { id: 'provider-user-full', role: 'user', transcript: '' }
+})
+repeatedUserPrefix = applyRealtimeTranscriptEvent(repeatedUserPrefix, {
+    type: 'turn.done',
+    turn: { id: 'provider-user-full', role: 'user', transcript: 'Yo, so can you please help me check the time' }
+})
+assert.deepEqual(repeatedUserPrefix.map(({ id, text }) => ({ id, text })), [{
+    id: 'provider-user-full',
+    text: 'Yo, so can you please help me check the time'
+}], 'a provider completion must replace an adjacent shorter fallback prefix with a different item ID')
+let intentionalRepeatedUser = applyRealtimeTranscriptEvent([], {
+    type: 'turn.done',
+    turn: { id: 'intentional-user-1', role: 'user', transcript: 'Hello' }
+})
+intentionalRepeatedUser = applyRealtimeTranscriptEvent(intentionalRepeatedUser, {
+    type: 'turn.done',
+    turn: { id: 'intentional-user-2', role: 'user', transcript: 'Hello' }
+})
+assert.equal(intentionalRepeatedUser.length, 2, 'two exact repeated user utterances must remain separate turns')
 
 const repeatedUserText = "We're going to take a shower"
 let transcript = applyRealtimeTranscriptEvent([], {
@@ -705,6 +745,27 @@ assert.deepEqual(normalizeWebRtcTranscriptEvent({
     providerItemId: 'assistant-partial-item',
     text: 'ZYRA_VOICE_SINGLE_830'
 }, 'turn.done is the canonical assistant completion')
+assert.deepEqual(normalizeWebRtcDelegationEvent({
+    type: 'delegation.created',
+    item: {
+        id: 'handoff-check-time',
+        type: 'delegation',
+        target: 'client',
+        content: [{ type: 'input_text', text: 'Can you check the time?' }]
+    }
+}), {
+    providerItemId: 'handoff-check-time',
+    text: 'Can you check the time?'
+}, 'Frameless client delegation must route the exact provider handoff to Zyra')
+assert.equal(normalizeWebRtcDelegationEvent({
+    type: 'delegation.created',
+    item: {
+        id: 'handoff-other-target',
+        type: 'delegation',
+        target: 'server',
+        content: [{ type: 'input_text', text: 'Do not route this.' }]
+    }
+}), null, 'Zyra must ignore delegations owned by another target')
 
 const voiceTaskStartedAt = '2026-08-10T10:00:00.000Z'
 const runningVoiceTaskActivity = buildVoiceStrongTaskActivity({
@@ -983,6 +1044,10 @@ const codexRealtimeVoiceSource = readFileSync(
     new URL('../src/main/assistant/codex-realtime-voice.ts', import.meta.url),
     'utf8'
 )
+const realtimeForegroundAdapterSource = readFileSync(
+    new URL('../src/main/assistant/voice/codex-realtime-foreground-adapter.ts', import.meta.url),
+    'utf8'
+)
 const conversationPaneSource = readFileSync(
     new URL('../src/renderer/src/pages/assistant/AssistantConversationPane.tsx', import.meta.url),
     'utf8'
@@ -1103,6 +1168,7 @@ assert.match(
     'brief WebRTC disconnects should receive a bounded recovery grace instead of killing Voice immediately'
 )
 assert.match(voiceSessionSource, /sentClientCommandIdsRef/u, 'renderer commands must be deduplicated before reaching oai-events')
+assert.match(voiceSessionSource, /type === 'delegation\.created'/u, 'the renderer must forward the provider handoff event across the canonical Voice bridge')
 assert.match(voiceSessionSource, /realtimeSessionGeneration/u, 'renderer commands must be bound to the active Voice generation')
 assert.match(voiceSessionSource, /requiresIdleResponse && realtimeResponseActiveRef\.current/u, 'context commands must queue while ChatGPT is already speaking')
 assert.doesNotMatch(realtimeVoiceContractSource, /response\.create/u, 'Frameless client commands must stay within the live provider command set')
@@ -1166,9 +1232,19 @@ assert.match(
     'cold Voice overlaps canonical history hydration with the already-required Assistant connection'
 )
 assert.match(
-    readFileSync(new URL('../src/main/assistant/voice/codex-realtime-foreground-adapter.ts', import.meta.url), 'utf8'),
+    realtimeForegroundAdapterSource,
     /requestSpeech\(item\.text, item\.canonicalMessageId\)/u,
     'primary-task narration carries its canonical identity through the speakable command'
+)
+assert.match(
+    realtimeForegroundAdapterSource,
+    /normalizeWebRtcDelegationEvent\(value\)[\s\S]{0,500}type: 'realtime\.delegation\.requested'/u,
+    'the main adapter must turn the provider handoff into one owner-scoped domain event'
+)
+assert.match(
+    assistantServiceSource,
+    /event\.type === 'realtime\.delegation\.requested'[\s\S]{0,180}routeVoiceStrongRequest\(event\)/u,
+    'spoken primary-agent work must start from the provider delegation instead of a transcript keyword guess'
 )
 assert.match(
     assistantServiceSource,

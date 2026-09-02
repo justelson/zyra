@@ -119,7 +119,8 @@ function waitForIceGatheringComplete(peer: RTCPeerConnection, timeoutMs = 10_000
 
 function isCanonicalTranscriptBridgeEvent(payload: Record<string, unknown>): boolean {
     const type = typeof payload.type === 'string' ? payload.type : ''
-    return type === 'turn.created'
+    return type === 'delegation.created'
+        || type === 'turn.created'
         || type === 'turn.delta'
         || type === 'turn.done'
         || type === 'input_transcript.added'

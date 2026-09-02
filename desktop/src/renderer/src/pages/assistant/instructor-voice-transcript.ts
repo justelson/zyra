@@ -1,3 +1,5 @@
+import { isExtendedVoiceTranscriptPrefix } from '@shared/assistant/voice-transcript-reconciliation'
+
 export interface InstructorTranscriptImage {
     id: string
     name: string
@@ -11,6 +13,10 @@ export interface InstructorTranscriptEntry {
     final: boolean
     canonicalMessageId?: string
     images?: InstructorTranscriptImage[]
+}
+
+export function latestStreamingVoiceTranscript(entries: InstructorTranscriptEntry[]): InstructorTranscriptEntry | null {
+    return [...entries].reverse().find((entry) => !entry.final && entry.text.trim()) || null
 }
 
 type RealtimeTurn = {
@@ -97,6 +103,22 @@ function findTranscriptCompletionTarget(
     return latest?.role === role && !latest.final ? latest : null
 }
 
+function removeAdjacentUserPrefix(
+    entries: InstructorTranscriptEntry[],
+    completedEntryId: string
+): InstructorTranscriptEntry[] {
+    const completedIndex = entries.findIndex((entry) => entry.id === completedEntryId)
+    if (completedIndex <= 0) return entries
+    const completed = entries[completedIndex]
+    const previous = entries[completedIndex - 1]
+    if (completed.role !== 'user'
+        || previous.role !== 'user'
+        || !completed.final
+        || !previous.final
+        || !isExtendedVoiceTranscriptPrefix(previous.text, completed.text)) return entries
+    return entries.filter((_, index) => index !== completedIndex - 1)
+}
+
 /**
  * Applies the identity-bearing transcript events emitted on ChatGPT realtime v3's
  * WebRTC data channel. Turn IDs are the source of truth, so replaying a turn
@@ -149,21 +171,21 @@ export function applyRealtimeTranscriptEvent(
             turn.id,
             turn.role
         )
-        if (streamingEntry) {
-            return updateEntry(deduplicatedEntries, streamingEntry.id, (entry) => ({
+        const completedEntries = streamingEntry
+            ? updateEntry(deduplicatedEntries, streamingEntry.id, (entry) => ({
                 ...entry,
                 id: turn.id,
                 role: turn.role,
                 text: text || entry.text,
                 final: true
             }))
-        }
-        return [...deduplicatedEntries, {
-            id: turn.id,
-            role: turn.role,
-            text,
-            final: true
-        }]
+            : [...deduplicatedEntries, {
+                id: turn.id,
+                role: turn.role,
+                text,
+                final: true
+            }]
+        return removeAdjacentUserPrefix(completedEntries, turn.id)
     }
 
     const item = asRecord(payload?.item)
@@ -223,14 +245,16 @@ export function applyRealtimeTranscriptEvent(
         const final = role === 'user'
         const deduplicatedEntries = final ? removeMatchingComposerResponse(entries, role, text, itemId) : entries
         const streamingEntry = findTranscriptCompletionTarget(deduplicatedEntries, itemId, role)
-        if (!streamingEntry) return text ? [...deduplicatedEntries, { id: itemId, role, text, final }] : deduplicatedEntries
-        return updateEntry(deduplicatedEntries, streamingEntry.id, (entry) => ({
-            ...entry,
-            id: itemId,
-            role,
-            text: text || entry.text,
-            final
-        }))
+        const completedEntries = streamingEntry
+            ? updateEntry(deduplicatedEntries, streamingEntry.id, (entry) => ({
+                ...entry,
+                id: itemId,
+                role,
+                text: text || entry.text,
+                final
+            }))
+            : text ? [...deduplicatedEntries, { id: itemId, role, text, final }] : deduplicatedEntries
+        return final ? removeAdjacentUserPrefix(completedEntries, itemId) : completedEntries
     }
 
     return entries

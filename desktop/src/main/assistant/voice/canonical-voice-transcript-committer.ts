@@ -1,9 +1,24 @@
 import { createHash } from 'node:crypto'
 import type { CanonicalMessageCommitReceipt, RealtimeDomainEvent } from '../../../shared/assistant/contracts'
 import { foregroundRouteClaim } from '../../../shared/assistant/contracts'
+import { isExtendedVoiceTranscriptPrefix } from '../../../shared/assistant/voice-transcript-reconciliation'
 import type { ConversationGateway } from '../foreground/conversation-gateway'
 import type { ForegroundRouteController } from '../foreground/foreground-route-controller'
 import type { CanonicalVoiceSessionController } from './canonical-voice-session-controller'
+
+type TranscriptEventFields = Omit<Extract<RealtimeDomainEvent, { text: string }>, 'type'>
+type TranscriptCompletionEvent = TranscriptEventFields & {
+    type: 'realtime.user.transcript.completed' | 'realtime.assistant.transcript.completed'
+}
+type UserTranscriptCompletionEvent = TranscriptEventFields & {
+    type: 'realtime.user.transcript.completed'
+}
+
+function isUserTranscriptCompletionEvent(event: RealtimeDomainEvent): event is UserTranscriptCompletionEvent {
+    return event.type === 'realtime.user.transcript.completed'
+}
+
+const USER_TRANSCRIPT_STABILIZATION_MS = 5_000
 
 export class CanonicalVoiceTranscriptCommitter {
     private queue: Promise<void> = Promise.resolve()
@@ -11,6 +26,8 @@ export class CanonicalVoiceTranscriptCommitter {
     private readonly listeners = new Set<(receipt: CanonicalMessageCommitReceipt) => void>()
     private readonly errorListeners = new Set<(error: Error, event: RealtimeDomainEvent) => void>()
     private readonly firstCompletionAt = new Map<string, string>()
+    private pendingUserCompletion: UserTranscriptCompletionEvent | null = null
+    private pendingUserTimer: ReturnType<typeof setTimeout> | null = null
 
     constructor(
         sessionController: CanonicalVoiceSessionController,
@@ -18,12 +35,16 @@ export class CanonicalVoiceTranscriptCommitter {
         private readonly gateway: ConversationGateway
     ) {
         this.unsubscribe = sessionController.subscribe((event) => {
-            if (event.type !== 'realtime.user.transcript.completed'
-                && event.type !== 'realtime.assistant.transcript.completed') return
-            this.queue = this.queue.then(() => this.commit(event)).catch((error) => {
-                const normalized = error instanceof Error ? error : new Error('Voice transcript commit failed.')
-                for (const listener of this.errorListeners) listener(normalized, event)
-            })
+            if (isUserTranscriptCompletionEvent(event)) {
+                this.stageUserCompletion(event)
+                return
+            }
+            if (event.type === 'realtime.assistant.transcript.completed') {
+                this.flushPendingUserCompletion()
+                this.enqueueCommit(event)
+                return
+            }
+            if (event.type === 'realtime.delegation.requested') this.flushPendingUserCompletion()
         })
     }
 
@@ -38,19 +59,67 @@ export class CanonicalVoiceTranscriptCommitter {
     }
 
     async flush(): Promise<void> {
+        this.flushPendingUserCompletion()
         await this.queue
     }
 
     dispose(): void {
         this.unsubscribe()
+        if (this.pendingUserTimer) clearTimeout(this.pendingUserTimer)
+        this.pendingUserTimer = null
+        this.pendingUserCompletion = null
         this.listeners.clear()
         this.errorListeners.clear()
         this.firstCompletionAt.clear()
     }
 
-    private async commit(
-        event: Extract<RealtimeDomainEvent, { type: 'realtime.user.transcript.completed' | 'realtime.assistant.transcript.completed' }>
-    ): Promise<void> {
+    private stageUserCompletion(event: UserTranscriptCompletionEvent): void {
+        const pending = this.pendingUserCompletion
+        if (pending) {
+            const sameSession = pending.conversationId === event.conversationId
+                && pending.realtimeSessionId === event.realtimeSessionId
+                && pending.realtimeSessionGeneration === event.realtimeSessionGeneration
+            if (sameSession && pending.providerItemId === event.providerItemId) {
+                this.pendingUserCompletion = event
+                this.schedulePendingUserFlush()
+                return
+            }
+            if (sameSession && isExtendedVoiceTranscriptPrefix(pending.text, event.text)) {
+                this.pendingUserCompletion = event
+                this.schedulePendingUserFlush()
+                return
+            }
+            this.flushPendingUserCompletion()
+        }
+        this.pendingUserCompletion = event
+        this.schedulePendingUserFlush()
+    }
+
+    private schedulePendingUserFlush(): void {
+        if (this.pendingUserTimer) clearTimeout(this.pendingUserTimer)
+        this.pendingUserTimer = setTimeout(() => {
+            this.pendingUserTimer = null
+            this.flushPendingUserCompletion()
+        }, USER_TRANSCRIPT_STABILIZATION_MS)
+        this.pendingUserTimer.unref?.()
+    }
+
+    private flushPendingUserCompletion(): void {
+        if (this.pendingUserTimer) clearTimeout(this.pendingUserTimer)
+        this.pendingUserTimer = null
+        const pending = this.pendingUserCompletion
+        this.pendingUserCompletion = null
+        if (pending) this.enqueueCommit(pending)
+    }
+
+    private enqueueCommit(event: TranscriptCompletionEvent): void {
+        this.queue = this.queue.then(() => this.commit(event)).catch((error) => {
+            const normalized = error instanceof Error ? error : new Error('Voice transcript commit failed.')
+            for (const listener of this.errorListeners) listener(normalized, event)
+        })
+    }
+
+    private async commit(event: TranscriptCompletionEvent): Promise<void> {
         const route = this.routes.activeRoute(event.conversationId)
         if (route.surface_mode !== 'voice'
             || route.realtime_session_id !== event.realtimeSessionId

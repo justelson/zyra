@@ -4,6 +4,7 @@ import { InstructorVoiceLiveTranscript } from './InstructorVoiceLiveTranscript'
 import { InstructorVoiceOrb } from './InstructorVoiceOrb'
 import type { InstructorVoicePreferences } from './instructor-voice-preferences'
 import type { useInstructorVoiceSession } from './useInstructorVoiceSession'
+import { latestStreamingVoiceTranscript } from './instructor-voice-transcript'
 import './AssistantCanonicalVoiceStage.css'
 
 type VoiceSession = ReturnType<typeof useInstructorVoiceSession>
@@ -16,7 +17,7 @@ export function AssistantCanonicalVoiceStage({
     preferences: InstructorVoicePreferences
 }) {
     const latestTranscript = useMemo(
-        () => [...voice.transcript].reverse().find((entry) => entry.text.trim()) || null,
+        () => latestStreamingVoiceTranscript(voice.transcript),
         [voice.transcript]
     )
     const connecting = voice.status === 'requesting-microphone' || voice.status === 'connecting'

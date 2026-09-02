@@ -127,6 +127,11 @@ export type RealtimeDomainEvent =
         providerItemId: string
         text: string
     })
+    | (RealtimeEventBase & {
+        type: 'realtime.delegation.requested'
+        providerItemId: string
+        text: string
+    })
     | (RealtimeEventBase & { type: 'realtime.audio.started' | 'realtime.audio.stopped'; providerItemId: string | null })
     | (RealtimeEventBase & { type: 'realtime.interrupted'; providerItemId: string | null })
     | (RealtimeEventBase & { type: 'realtime.usage.updated'; inputTokens: number; outputTokens: number })

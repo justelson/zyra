@@ -28,6 +28,7 @@ import type {
     AssistantModelInfo,
     AssistantRealtimeVoiceEvent,
     AssistantRuntimeStatus,
+    AssistantSearchChatsInput,
     AssistantSendPromptOptions,
     AssistantSendRealtimeVoiceMessageInput,
     AssistantSession,
@@ -837,6 +838,14 @@ export class AssistantService {
         return { success: true as const, body }
     }
 
+    async getHistoryAroundMessage(threadId: string, messageId: string, turnLimit?: number) {
+        await this.ensureReady()
+        const record = findThreadRecord(this.state.snapshot, threadId)
+        if (!record) throw new Error(`Assistant thread not found: ${threadId}`)
+        const result = await this.persistence.readHistoryAroundMessage({ threadId, messageId, turnLimit })
+        return { success: true as const, ...result }
+    }
+
     async getReviewIndex(threadId: string) {
         await this.ensureReady()
         const record = findThreadRecord(this.state.snapshot, threadId)
@@ -844,6 +853,11 @@ export class AssistantService {
         // Review is a persisted read model. Opening the panel must never turn into an
         // unbounded canonical-history import on the main/UI critical path.
         return { success: true as const, index: await this.persistence.readReviewIndex(record.thread.id) }
+    }
+
+    async searchChats(input: AssistantSearchChatsInput) {
+        await this.ensureReady()
+        return { success: true as const, result: await this.persistence.searchChats(input) }
     }
 
     async searchTurns(threadId: string, query: string, limit?: number) {

@@ -15,6 +15,8 @@ import type {
     AssistantFleetOperationResultPayload,
     AssistantFleetSnapshotPayload,
     AssistantGetHistoryPageInput,
+    AssistantGetHistoryAroundMessageInput,
+    AssistantHistoryAroundMessageResultPayload,
     AssistantHistoryBodyResultPayload,
     AssistantHydrateHistoryBodyInput,
     AssistantGetReviewIndexInput,
@@ -30,6 +32,8 @@ import type {
     AssistantRedeemAccountResetPayload,
     AssistantReviewIndexResultPayload,
     AssistantRuntimeStatus,
+    AssistantSearchChatsInput,
+    AssistantSearchChatsResultPayload,
     AssistantSearchTurnsInput,
     AssistantSearchTurnsResultPayload,
     AssistantSendPromptOptions,
@@ -594,9 +598,11 @@ export interface DevScopeAssistantApi {
     selectThread: (input: AssistantSelectThreadInput) => Promise<DevScopeResult<{ sessionId: string; threadId: string; snapshot?: AssistantShellSnapshot; status?: AssistantRuntimeStatus }>>
     getThreadDetailBootstrap: (threadId: string) => Promise<DevScopeResult<AssistantThreadDetailResultPayload>>
     getHistoryPage: (input: AssistantGetHistoryPageInput) => Promise<DevScopeResult<AssistantHistoryPageResultPayload>>
+    getHistoryAroundMessage: (input: AssistantGetHistoryAroundMessageInput) => Promise<DevScopeResult<AssistantHistoryAroundMessageResultPayload>>
     hydrateHistoryBody: (input: AssistantHydrateHistoryBodyInput) => Promise<DevScopeResult<AssistantHistoryBodyResultPayload>>
     getReviewIndex: (input: AssistantGetReviewIndexInput) => Promise<DevScopeResult<AssistantReviewIndexResultPayload>>
     getTurnDetail: (input: AssistantGetTurnDetailInput) => Promise<DevScopeResult<AssistantTurnDetailResultPayload>>
+    searchChats: (input: AssistantSearchChatsInput) => Promise<DevScopeResult<AssistantSearchChatsResultPayload>>
     searchTurns: (input: AssistantSearchTurnsInput) => Promise<DevScopeResult<AssistantSearchTurnsResultPayload>>
     renameSession: (sessionId: string, title: string) => Promise<DevScopeResult>
     regenerateSessionTitle: (sessionId: string) => Promise<DevScopeResult<{ title: string }>>

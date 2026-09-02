@@ -7,6 +7,7 @@ export type AssistantConversationPaneProps = {
     rightPanelMode: 'none' | 'details' | 'plan' | 'review'
     showRightSidebarToggle?: boolean
     deletingMessageId: string | null
+    focusMessageId?: string | null
     fallbackSessionMode: 'work' | 'playground'
     playgroundRootMissing: boolean
     playgroundTerminalAccess: boolean

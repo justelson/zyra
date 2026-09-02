@@ -458,6 +458,37 @@ export function synchronizeAssistantVisibleHistory(
     }, detachedFromLatest ? 'older' : 'newer')
 }
 
+export function applyAssistantHistoryAnchorPage(
+    snapshot: AssistantSnapshot,
+    current: AssistantRetainedHistory,
+    page: AssistantHistoryPage
+): { snapshot: AssistantSnapshot; history: AssistantRetainedHistory } {
+    let history = current
+    const nextSnapshot = patchThread(snapshot, page.threadId, (thread) => {
+        history = boundAssistantActiveHistoryWindow({
+            ...current,
+            messages: page.messages,
+            activities: page.activities,
+            proposedPlans: page.proposedPlans,
+            pageInfo: page.pageInfo,
+            loadingOlder: false,
+            loadingNewer: false,
+            loadOlderError: null,
+            loadNewerError: null,
+            fullyLoaded: !page.pageInfo.hasOlder && !page.pageInfo.hasNewer,
+            shellRevision: getAssistantThreadHydrationRevision(thread),
+            lastUsedAt: Date.now()
+        }, page.pageInfo.hasNewer ? 'older' : 'newer')
+        return {
+            ...thread,
+            messages: history.messages,
+            activities: history.activities,
+            proposedPlans: history.proposedPlans
+        }
+    })
+    return { snapshot: nextSnapshot, history }
+}
+
 export function applyAssistantHistoryPage(
     snapshot: AssistantSnapshot,
     current: AssistantRetainedHistory,

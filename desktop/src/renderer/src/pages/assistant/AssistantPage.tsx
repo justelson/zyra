@@ -20,6 +20,7 @@ import { useAssistantBrowserSurfaceRequests } from './useAssistantBrowserSurface
 import { useAssistantPageSidebarState } from './useAssistantPageSidebarState'
 import { useAssistantReviewIndex } from './useAssistantReviewIndex'
 import { useAssistantChatRouting } from './useAssistantChatRouting'
+import { parseAssistantChatRoute, parseAssistantMessageSearchTarget } from './assistant-chat-route'
 import { parseAssistantFilesShellLaunchRequest } from '@shared/assistant/files-shell-launch-route'
 
 type AssistantPageShellSelection = {
@@ -82,6 +83,14 @@ export default function AssistantPage() {
     const incomingFilesShellLaunchRequest = useMemo(
         () => parseAssistantFilesShellLaunchRequest(location.search),
         [location.search]
+    )
+    const messageSearchTarget = useMemo(
+        () => parseAssistantMessageSearchTarget(location.search),
+        [location.search]
+    )
+    const requestedChatTarget = useMemo(
+        () => parseAssistantChatRoute(location.pathname),
+        [location.pathname]
     )
     const [filesShellLaunchRequest, setFilesShellLaunchRequest] = useState(incomingFilesShellLaunchRequest)
     useEffect(() => {
@@ -279,6 +288,26 @@ export default function AssistantPage() {
         [effectiveDiffActivity, effectiveDiffTarget]
     )
     const { toast, showToast } = useAssistantTransientToast()
+    const messageSearchRequestRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!messageSearchTarget) {
+            messageSearchRequestRef.current = null
+            return
+        }
+        if (!shell.bootstrapped || shell.commandPending || !shell.selectedSessionId || !shell.activeThreadId) return
+        if (
+            requestedChatTarget.kind !== 'chat'
+            || requestedChatTarget.sessionId !== shell.selectedSessionId
+            || (requestedChatTarget.threadId && requestedChatTarget.threadId !== shell.activeThreadId)
+        ) return
+        const requestKey = `${shell.selectedSessionId}:${shell.activeThreadId}:${messageSearchTarget}`
+        if (messageSearchRequestRef.current === requestKey) return
+        messageSearchRequestRef.current = requestKey
+        void actions.loadHistoryAroundMessage(shell.activeThreadId, messageSearchTarget).then((focused) => {
+            if (messageSearchRequestRef.current !== requestKey) return
+            if (!focused) showToast('That search result is no longer available.', 'error')
+        })
+    }, [actions, messageSearchTarget, requestedChatTarget, shell.activeThreadId, shell.bootstrapped, shell.commandPending, shell.selectedSessionId, showToast])
 
     useEffect(() => {
         const handleResize = () => setViewportWidth(window.innerWidth)
@@ -540,6 +569,7 @@ export default function AssistantPage() {
                             rightPanelMode={rightPanelMode}
                             showRightSidebarToggle
                             deletingMessageId={deletingMessageId}
+                            focusMessageId={messageSearchTarget}
                             fallbackSessionMode={railMode}
                             playgroundRootMissing={false}
                             playgroundTerminalAccess={false}

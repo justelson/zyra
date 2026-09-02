@@ -30,6 +30,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     latestTurnStartedAt: string | null
     turnUsageById?: ReadonlyMap<string, AssistantSessionTurnUsageEntry>
     deletingMessageId: string | null
+    focusMessageId?: string | null
     loadingChats: boolean
     assistantTextStreamingMode: AssistantTextStreamingMode
     assistantToolOutputDefaultMode: AssistantToolOutputDefaultMode
@@ -126,6 +127,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         latestTurnStartedAt={props.latestTurnStartedAt}
                         turnUsageById={props.turnUsageById}
                         deletingMessageId={props.deletingMessageId}
+                        focusMessageId={props.focusMessageId}
                         loadingChats={props.loadingChats}
                         assistantTextStreamingMode={props.assistantTextStreamingMode}
                         assistantToolOutputDefaultMode={props.assistantToolOutputDefaultMode}

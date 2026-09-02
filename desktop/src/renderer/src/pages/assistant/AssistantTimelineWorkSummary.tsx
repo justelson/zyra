@@ -42,6 +42,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     running = false,
     collapseForTerminalResponse = false,
     outcome = null,
+    revealContent = false,
     renderChildren
 }: {
     startedAt: string
@@ -49,6 +50,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     running?: boolean
     collapseForTerminalResponse?: boolean
     outcome?: 'completed' | 'interrupted' | 'failed' | 'no-response' | null
+    revealContent?: boolean
     renderChildren: () => ReactNode
 }) {
     const initialExpandedRef = useRef<boolean | null>(null)
@@ -119,6 +121,13 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
             setContentMounted(false)
         }, WORK_SUMMARY_UNMOUNT_DELAY_MS)
     }
+
+    const previousRevealContentRef = useRef(false)
+    useEffect(() => {
+        const shouldReveal = revealContent && !previousRevealContentRef.current
+        previousRevealContentRef.current = revealContent
+        if (shouldReveal) setWorkExpanded(true, triggerRef.current)
+    }, [revealContent])
 
     useEffect(() => {
         if (!expanded || !contentMounted || contentVisible || contentRevealFrameRef.current !== null) return

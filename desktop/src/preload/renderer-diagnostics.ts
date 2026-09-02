@@ -91,6 +91,7 @@ function safeIpcContext(channel: string, args: unknown[]): RendererDiagnosticIpc
         }
     } else if (
         channel === ASSISTANT_IPC.selectThread
+        || channel === ASSISTANT_IPC.getHistoryAroundMessage
         || channel === ASSISTANT_IPC.hydrateHistoryBody
         || channel === ASSISTANT_IPC.getReviewIndex
         || channel === ASSISTANT_IPC.getTurnDetail

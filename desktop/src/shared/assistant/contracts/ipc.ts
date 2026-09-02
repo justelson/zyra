@@ -10,6 +10,7 @@ import type {
     AssistantDomainEvent,
     AssistantRateLimitResetRedemption,
     AssistantGetHistoryPageInput,
+    AssistantGetHistoryAroundMessageInput,
     AssistantHydrateHistoryBodyInput,
     AssistantHistoryBody,
     AssistantGetReviewIndexInput,
@@ -18,6 +19,8 @@ import type {
     AssistantPlaygroundState,
     AssistantReviewIndex,
     AssistantRuntimeStatus,
+    AssistantSearchChatsInput,
+    AssistantSearchChatsResult,
     AssistantSearchTurnsInput,
     AssistantSearchTurnsResult,
     AssistantSessionTurnUsagePayload,
@@ -50,9 +53,11 @@ export const ASSISTANT_IPC = {
     selectThread: 'devscope:assistant:selectThread',
     getThreadDetailBootstrap: 'devscope:assistant:getThreadDetailBootstrap',
     getHistoryPage: 'devscope:assistant:getHistoryPage',
+    getHistoryAroundMessage: 'devscope:assistant:getHistoryAroundMessage',
     hydrateHistoryBody: 'devscope:assistant:hydrateHistoryBody',
     getReviewIndex: 'devscope:assistant:getReviewIndex',
     getTurnDetail: 'devscope:assistant:getTurnDetail',
+    searchChats: 'devscope:assistant:searchChats',
     searchTurns: 'devscope:assistant:searchTurns',
     renameSession: 'devscope:assistant:renameSession',
     regenerateSessionTitle: 'devscope:assistant:regenerateSessionTitle',
@@ -203,13 +208,18 @@ export interface AssistantFleetOperationResultPayload {
 
 export type { FleetOperationInput }
 
-export type { AssistantGetHistoryPageInput, AssistantHydrateHistoryBodyInput, AssistantGetReviewIndexInput, AssistantGetTurnDetailInput, AssistantSearchTurnsInput }
+export type { AssistantGetHistoryPageInput, AssistantGetHistoryAroundMessageInput, AssistantHydrateHistoryBodyInput, AssistantGetReviewIndexInput, AssistantGetTurnDetailInput, AssistantSearchChatsInput, AssistantSearchTurnsInput }
 
 export interface AssistantThreadDetailResultPayload {
     detail: AssistantThreadDetail
 }
 
 export interface AssistantHistoryPageResultPayload {
+    page: AssistantHistoryPage
+}
+
+export interface AssistantHistoryAroundMessageResultPayload {
+    messageId: string
     page: AssistantHistoryPage
 }
 
@@ -223,6 +233,10 @@ export interface AssistantTurnDetailResultPayload {
 
 export interface AssistantReviewIndexResultPayload {
     index: AssistantReviewIndex
+}
+
+export interface AssistantSearchChatsResultPayload {
+    result: AssistantSearchChatsResult
 }
 
 export interface AssistantSearchTurnsResultPayload {

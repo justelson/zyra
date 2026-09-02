@@ -51,7 +51,7 @@
         "test:assistant-diff": "bun scripts/test-assistant-diff-contract.ts",
         "test:assistant-live-context": "bun scripts/test-assistant-live-context-and-rendering.ts",
         "test:assistant-continuity": "bun scripts/test-assistant-canonical-continuity.ts",
-        "test:assistant-history": "bun scripts/test-assistant-history-persistence.ts && bun scripts/test-assistant-paged-history.ts",
+        "test:assistant-history": "bun scripts/test-assistant-history-persistence.ts && bun scripts/test-assistant-paged-history.ts && bun scripts/test-assistant-chat-search.ts",
         "test:assistant-canonical-review": "bun scripts/test-assistant-canonical-review.ts",
         "test:assistant-project": "bun scripts/test-assistant-project-lock.ts && bun scripts/test-project-icon-resolver.ts",
         "test:assistant-images": "bun scripts/test-assistant-image-pipeline.ts",

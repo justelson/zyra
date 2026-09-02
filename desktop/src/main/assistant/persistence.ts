@@ -8,9 +8,13 @@ import type {
     AssistantActivity,
     AssistantDomainEvent,
     AssistantGetHistoryPageInput,
+    AssistantGetHistoryAroundMessageInput,
+    AssistantHistoryAroundMessageResult,
     AssistantHistoryPage,
     AssistantMessage,
     AssistantReviewIndex,
+    AssistantSearchChatsInput,
+    AssistantSearchChatsResult,
     AssistantSearchTurnsResult,
     AssistantSessionTurnUsageEntry,
     AssistantTurnDetail,
@@ -21,8 +25,10 @@ import type {
 import { is } from '../utils'
 import { backupAssistantDatabaseSet } from './assistant-database-files'
 import { createDefaultSnapshot, recoverPersistedSnapshot } from './projector'
-import { mergeAssistantSearchTurnIds, readAssistantActivity, readAssistantHistoryPage, readAssistantReviewIndex, readAssistantThreadDetail, readAssistantTurnDetail, searchAssistantTurns } from './persistence-history'
+import { mergeAssistantSearchTurnIds, readAssistantActivity, readAssistantHistoryAroundMessage, readAssistantHistoryPage, readAssistantReviewIndex, readAssistantThreadDetail, readAssistantTurnDetail, searchAssistantTurns } from './persistence-history'
 import { hydrateSnapshotThreads, summarizeThread } from './persistence-snapshot'
+import { initializeAssistantSearchIndex, searchAssistantChatsFallback } from './assistant-search-index'
+import { AssistantSearchWorkerClient } from './assistant-search-worker-client'
 import { deleteFleetProjection, projectFleetSnapshot, readFleetSnapshot } from './fleet-persistence'
 import {
     readHydratedThreadDetails,
@@ -103,6 +109,12 @@ export class AssistantPersistence {
     private pendingProcessingPromise: Promise<void> | null = null
     private fallbackSnapshotSource: AssistantSnapshot | null = null
     private readonly activeStreamingThreadIds = new Set<string>()
+    private readonly searchWorker = new AssistantSearchWorkerClient()
+    private searchIndexAvailable = false
+    private searchBackfillTimer: NodeJS.Timeout | null = null
+    private searchWorkerStartTimer: NodeJS.Timeout | null = null
+    private searchBackfillPending = false
+    private closing = false
     private diskFlushDeferred = false
 
     constructor() {
@@ -211,6 +223,13 @@ export class AssistantPersistence {
         return this.enqueue(() => readAssistantHistoryPage(this.requireDb(), input))
     }
 
+    async readHistoryAroundMessage(input: AssistantGetHistoryAroundMessageInput): Promise<AssistantHistoryAroundMessageResult> {
+        await this.ensureInitialized()
+        this.clearPendingEventTimer()
+        await this.processPendingEvents()
+        return this.enqueue(() => readAssistantHistoryAroundMessage(this.requireDb(), input))
+    }
+
     async readReviewIndex(threadId: string): Promise<AssistantReviewIndex> {
         await this.ensureInitialized()
         this.clearPendingEventTimer()
@@ -232,6 +251,24 @@ export class AssistantPersistence {
             upsertAssistantCanonicalTimelineProjection(this.requireDb(), input)
             this.scheduleFlush()
         })
+    }
+
+    async searchChats(input: AssistantSearchChatsInput): Promise<AssistantSearchChatsResult> {
+        await this.ensureInitialized()
+        this.clearPendingEventTimer()
+        await this.processPendingEvents()
+        if (this.databaseBackend === 'native') {
+            if (!this.searchIndexAvailable) {
+                throw new Error('Indexed chat search is unavailable.')
+            }
+            try {
+                return await this.searchWorker.search(this.filePath, input)
+            } catch (error) {
+                log.warn('[AssistantPersistence] Worker-owned indexed chat search failed.', error)
+                throw error
+            }
+        }
+        return this.enqueue(() => searchAssistantChatsFallback(this.requireDb(), input))
     }
 
     async searchTurns(threadId: string, query: string, limit?: number): Promise<AssistantSearchTurnsResult> {
@@ -323,7 +360,11 @@ export class AssistantPersistence {
     }
 
     async close(): Promise<void> {
+        this.closing = true
+        this.clearSearchBackfillTimer()
+        this.clearSearchWorkerStartTimer()
         await this.flush()
+        await this.searchWorker.dispose()
         await this.enqueue(() => {
             this.db?.close()
             this.db = null
@@ -351,6 +392,7 @@ export class AssistantPersistence {
                 this.db = dbBytes ? new SQL.Database(dbBytes) : new SQL.Database()
             }
             initializeAssistantPersistenceSchema(this.requireDb())
+            this.initializeSearchIndex()
 
             const storedVersion = hadDatabase ? readAssistantPersistenceVersion(this.requireDb()) : PERSISTENCE_VERSION
             if (shouldForceAssistantDbReset()) {
@@ -414,6 +456,9 @@ export class AssistantPersistence {
         importLegacyJson: boolean
         backupLegacyJson: boolean
     }): Promise<void> {
+        this.clearSearchBackfillTimer()
+        this.clearSearchWorkerStartTimer()
+        await this.searchWorker.reset().catch(() => undefined)
         let closeError: unknown = null
         try {
             this.db?.close()
@@ -452,6 +497,7 @@ export class AssistantPersistence {
             this.db = new SQL.Database()
         }
         initializeAssistantPersistenceSchema(this.requireDb())
+        this.initializeSearchIndex()
         upsertAssistantMeta(this.requireDb(), 'persistenceVersion', String(PERSISTENCE_VERSION))
 
         if (options.importLegacyJson && existsSync(this.legacyFilePath)) {
@@ -459,6 +505,50 @@ export class AssistantPersistence {
         }
 
         await this.flushNow()
+    }
+
+    private initializeSearchIndex(): void {
+        this.searchIndexAvailable = initializeAssistantSearchIndex(this.requireDb())
+        if (!this.searchIndexAvailable) return
+        this.scheduleSearchBackfill()
+        this.clearSearchWorkerStartTimer()
+        this.searchWorkerStartTimer = setTimeout(() => {
+            this.searchWorkerStartTimer = null
+            if (!this.closing && this.searchIndexAvailable) this.searchWorker.start()
+        }, 350)
+        this.searchWorkerStartTimer.unref?.()
+    }
+
+    private scheduleSearchBackfill(delayMs = 25): void {
+        if (this.closing || !this.searchIndexAvailable || this.searchBackfillTimer || this.searchBackfillPending) return
+        this.searchBackfillTimer = setTimeout(() => {
+            this.searchBackfillTimer = null
+            this.searchBackfillPending = true
+            let complete = false
+            let nextDelayMs = 8
+            void this.searchWorker.backfill(this.filePath).then((result) => {
+                complete = result.complete
+            }).catch((error) => {
+                nextDelayMs = 2_000
+                log.warn('[AssistantPersistence] Background chat search indexing paused after an error.', error)
+            }).finally(() => {
+                this.searchBackfillPending = false
+                if (!complete) this.scheduleSearchBackfill(nextDelayMs)
+            })
+        }, delayMs)
+        this.searchBackfillTimer.unref?.()
+    }
+
+    private clearSearchBackfillTimer(): void {
+        if (!this.searchBackfillTimer) return
+        clearTimeout(this.searchBackfillTimer)
+        this.searchBackfillTimer = null
+    }
+
+    private clearSearchWorkerStartTimer(): void {
+        if (!this.searchWorkerStartTimer) return
+        clearTimeout(this.searchWorkerStartTimer)
+        this.searchWorkerStartTimer = null
     }
 
     private schedulePendingEventProcessing(delayMs = PERSISTENCE_EVENT_BATCH_DELAY_MS): void {
@@ -512,6 +602,7 @@ export class AssistantPersistence {
     }
 
     private scheduleFlush(): void {
+        if (this.searchIndexAvailable && !this.closing) this.scheduleSearchBackfill(25)
         if (this.activeStreamingThreadIds.size > 0) {
             if (this.writeTimer) {
                 clearTimeout(this.writeTimer)

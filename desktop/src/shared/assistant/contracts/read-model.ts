@@ -288,6 +288,34 @@ export interface AssistantReviewIndex {
     turns: AssistantReviewTurnIndexEntry[]
 }
 
+export type AssistantChatSearchScope = 'active' | 'archived' | 'all'
+
+export interface AssistantSearchChatsInput {
+    query: string
+    scope?: AssistantChatSearchScope
+    limit?: number
+}
+
+export interface AssistantChatSearchMatch {
+    sessionId: string
+    threadId: string
+    messageId: string
+    role: 'user' | 'assistant'
+    title: string
+    projectPath: string | null
+    snippet: string
+    createdAt: string
+    archived: boolean
+}
+
+export interface AssistantSearchChatsResult {
+    query: string
+    scope: AssistantChatSearchScope
+    matches: AssistantChatSearchMatch[]
+    indexingOlderChats: boolean
+    searchBackend: 'fts5' | 'scan'
+}
+
 export interface AssistantSearchTurnsInput {
     threadId: string
     query: string
@@ -297,6 +325,17 @@ export interface AssistantSearchTurnsInput {
 export interface AssistantSearchTurnsResult {
     threadId: string
     turnIds: string[]
+}
+
+export interface AssistantGetHistoryAroundMessageInput {
+    threadId: string
+    messageId: string
+    turnLimit?: number
+}
+
+export interface AssistantHistoryAroundMessageResult {
+    messageId: string
+    page: AssistantHistoryPage
 }
 
 export interface AssistantTurnDetail {

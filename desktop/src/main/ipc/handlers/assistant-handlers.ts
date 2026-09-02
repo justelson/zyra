@@ -11,6 +11,7 @@ import type {
     AssistantDeletePlaygroundLabInput,
     AssistantDeleteMessageInput,
     AssistantGetHistoryPageInput,
+    AssistantGetHistoryAroundMessageInput,
     AssistantHydrateHistoryBodyInput,
     AssistantGetReviewIndexInput,
     AssistantGetSessionTurnUsageInput,
@@ -19,6 +20,7 @@ import type {
     AssistantPersistClipboardImageInput,
     AssistantRedeemAccountResetInput,
     AssistantResolveClipboardAttachmentInput,
+    AssistantSearchChatsInput,
     AssistantSearchTurnsInput,
     AssistantSendPromptOptions,
     AssistantSendRealtimeVoiceMessageInput,
@@ -176,6 +178,11 @@ export function handleAssistantGetHistoryPage(_event: Electron.IpcMainInvokeEven
     return withAssistantResult(() => getAssistantService().getHistoryPage(input))
 }
 
+export function handleAssistantGetHistoryAroundMessage(_event: Electron.IpcMainInvokeEvent, input: AssistantGetHistoryAroundMessageInput) {
+    log.info('IPC: assistant:getHistoryAroundMessage', { threadId: input?.threadId, messageId: input?.messageId })
+    return withAssistantResult(() => getAssistantService().getHistoryAroundMessage(input.threadId, input.messageId, input.turnLimit))
+}
+
 export function handleAssistantHydrateHistoryBody(_event: Electron.IpcMainInvokeEvent, input: AssistantHydrateHistoryBodyInput) {
     log.info('IPC: assistant:hydrateHistoryBody', { activityId: input?.activityId })
     return withAssistantResult(() => getAssistantService().hydrateHistoryBody(input))
@@ -189,6 +196,11 @@ export function handleAssistantGetReviewIndex(_event: Electron.IpcMainInvokeEven
 export function handleAssistantGetTurnDetail(_event: Electron.IpcMainInvokeEvent, input: AssistantGetTurnDetailInput) {
     log.info('IPC: assistant:getTurnDetail', { threadId: input?.threadId, turnId: input?.turnId })
     return withAssistantResult(() => getAssistantService().getTurnDetail(input.threadId, input.turnId))
+}
+
+export function handleAssistantSearchChats(_event: Electron.IpcMainInvokeEvent, input: AssistantSearchChatsInput) {
+    log.info('IPC: assistant:searchChats', { queryLength: input?.query?.length || 0, scope: input?.scope })
+    return withAssistantResult(() => getAssistantService().searchChats(input))
 }
 
 export function handleAssistantSearchTurns(_event: Electron.IpcMainInvokeEvent, input: AssistantSearchTurnsInput) {

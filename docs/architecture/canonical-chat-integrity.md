@@ -67,6 +67,12 @@ The canonical JSONL remains authoritative when a Desktop activity payload must b
 
 Resume replays the latest canonical page before input starts. `/older` loads another page. Images appear as medium-appropriate `[Image N: mime/type]` tags. `/session` displays the stable thread ID and `/session copy` copies it with OSC 52.
 
+## Local full-text search projection
+
+Desktop derives a range-candidate FTS5 projection over fixed global buckets of at most 128 durable message row IDs plus an exact per-message FTS5 projection keyed by bucket and archive scope. They index final user messages and only the assistant message owned by a durable turn, with a 16,384-character per-message ceiling; exact results are revalidated against canonical rows. Streaming/provisional output, activities, terminal output, system content, and private reasoning stay outside the indexes. Existing rows backfill in immediately searchable 400-message batches. SQLite triggers enqueue deduplicated dirty bucket/session identities; the search worker owns projection rebuilds for inserts, canonical completion, ownership changes, archive changes, and deletions.
+
+Search runs through a read-only worker connection and returns bounded excerpts with canonical session, thread, and message IDs. Selecting an excerpt reads a small page around that message and focuses it in the virtual timeline; it never hydrates the full transcript. The complete contract is [ADR-0012](../adr/0012-use-a-derived-fts-projection-for-local-chat-search.md).
+
 ## File-index boundary
 
 Chat project metadata may legitimately remain the user home folder, but the source-file index does not recursively crawl home, app-data, or drive roots. It indexes explicit project roots only, refreshes only roots already registered, caps depth/entry count, skips generated directories, and quietly ignores inaccessible entries or malformed package metadata.

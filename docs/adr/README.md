@@ -24,6 +24,12 @@ Status vocabulary:
 - [ADR-0010: Use strong consultation and retrieval-first worker escalation](0010-use-strong-consultation-and-retrieval-first-worker-escalation.md)
 - [ADR-0011: Use attention items, focus visits, and Home receipts](0011-use-attention-items-focus-visits-and-home-receipts.md)
 
+## Product and platform decisions
+
+- [ADR-0012: Use a derived FTS projection for local chat search](0012-use-a-derived-fts-projection-for-local-chat-search.md) — **Accepted and implemented.**
+- [ADR-0013: Use chat permissions and critical-only Full access escalation](0013-use-chat-permissions-and-critical-only-full-access-escalation.md) — **Superseded by ADR-0014.**
+- [ADR-0014: Share four permission modes across chat and control](0014-share-four-permission-modes-across-chat-and-control.md) — **Accepted and implemented.**
+
 ## Format
 
 Each ADR records context, decision, consequences, alternatives, and verification. A changed load-bearing decision creates a refining or superseding ADR rather than silently rewriting accepted history.

@@ -46,6 +46,7 @@ function resolveScrollElement(value: unknown): HTMLDivElement | null {
 export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(props: {
     rows: TimelineDisplayRow[]
     windowKey: string
+    focusMessageId?: string | null
     listRef: RefObject<LegendListRef | null>
     scrollContainerRef?: RefObject<HTMLDivElement | null>
     contentInsetEndAdjustment: number
@@ -268,6 +269,11 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         updateScrollMode('free-scrolling')
         settleInitialPresentation(props.windowKey, props.onInitialLayout)
     }, [cancelEndAlignment, cancelStartupAlignment, clearCompletionEndFollow, props.onInitialLayout, props.windowKey, settleInitialPresentation, stopInitialHistoryBackfill, updateScrollMode])
+
+    useLayoutEffect(() => {
+        if (!props.focusMessageId) return
+        stopFollowingForUserNavigation()
+    }, [props.focusMessageId, stopFollowingForUserNavigation])
 
     useLayoutEffect(() => {
         const shouldSnap = shouldSnapRendererPresentation(

@@ -41,6 +41,7 @@ import {
     shouldEagerlyConnectAssistantThread
 } from './assistant-new-chat-policy'
 import {
+    applyAssistantHistoryAnchorPage,
     applyAssistantHistoryPage,
     applyAssistantRetainedHistory,
     applyAssistantThreadDetail,
@@ -109,6 +110,7 @@ export class AssistantStore {
     private readonly pendingSelectionHydrations = new Map<string, Promise<void>>()
     private readonly pendingCanonicalHistoryRehydrations = new Map<string, Promise<void>>()
     private readonly pendingHistoryLoads = new Map<string, Promise<boolean>>()
+    private readonly pendingHistoryAnchors = new Map<string, Promise<boolean>>()
 
     subscribe = (listener: () => void) => {
         this.listeners.add(listener)
@@ -462,6 +464,78 @@ export class AssistantStore {
 
     async loadNewerHistory(threadId?: string, turnLimit = 1): Promise<boolean> {
         return this.loadHistoryPage('newer', threadId, turnLimit)
+    }
+
+    async loadHistoryAroundMessage(threadId: string, messageId: string): Promise<boolean> {
+        const normalizedThreadId = String(threadId || '').trim()
+        const normalizedMessageId = String(messageId || '').trim()
+        if (!normalizedThreadId || !normalizedMessageId) return false
+        const requestKey = `${normalizedThreadId}:${normalizedMessageId}`
+        const existing = this.pendingHistoryAnchors.get(requestKey)
+        if (existing) return existing
+        const promise = (async () => {
+            const targetSessionId = this.state.snapshot.sessions
+                .find((session) => session.threads.some((thread) => thread.id === normalizedThreadId))?.id || null
+            if (!targetSessionId) return false
+            try {
+                const applyAnchor = async () => {
+                    // Route selection may still have a cached or in-flight detail hydration. Force
+                    // that authoritative bootstrap to settle before applying the centered page.
+                    await this.requestSessionHydration(targetSessionId, normalizedThreadId, 0, true)
+                    const currentHistory = this.state.historyByThreadId[normalizedThreadId]
+                    if (!currentHistory) return false
+                    const result = await window.devscope.assistant.getHistoryAroundMessage({
+                        threadId: normalizedThreadId,
+                        messageId: normalizedMessageId,
+                        turnLimit: 4
+                    })
+                    if (!result.success) throw new Error(result.error)
+                    let applied = false
+                    this.setState((current) => {
+                        const latest = current.historyByThreadId[normalizedThreadId]
+                        if (!latest) return {}
+                        const next = applyAssistantHistoryAnchorPage(current.snapshot, latest, result.page)
+                        applied = next.history.messages.some((message) => message.id === normalizedMessageId)
+                        return {
+                            snapshot: next.snapshot,
+                            historyByThreadId: {
+                                ...current.historyByThreadId,
+                                [normalizedThreadId]: next.history
+                            }
+                        }
+                    })
+                    return applied
+                }
+                if (!await applyAnchor()) return false
+                // A route-triggered connection can begin one final detail hydration immediately
+                // after selection. Verify that it did not replace the anchor, and repair once if it did.
+                await new Promise((resolve) => window.setTimeout(resolve, 180))
+                const stillAnchored = this.state.historyByThreadId[normalizedThreadId]
+                    ?.messages.some((message) => message.id === normalizedMessageId) || false
+                return stillAnchored || await applyAnchor()
+            } catch (error) {
+                const message = formatAssistantHistoryLoadError(error)
+                this.setState((current) => {
+                    const latest = current.historyByThreadId[normalizedThreadId]
+                    if (!latest) return {}
+                    return {
+                        historyByThreadId: {
+                            ...current.historyByThreadId,
+                            [normalizedThreadId]: {
+                                ...latest,
+                                loadOlderError: message,
+                                lastUsedAt: Date.now()
+                            }
+                        }
+                    }
+                })
+                return false
+            }
+        })().finally(() => {
+            this.pendingHistoryAnchors.delete(requestKey)
+        })
+        this.pendingHistoryAnchors.set(requestKey, promise)
+        return promise
     }
 
     private async loadHistoryPage(direction: 'older' | 'newer', threadId?: string, turnLimit = 1): Promise<boolean> {

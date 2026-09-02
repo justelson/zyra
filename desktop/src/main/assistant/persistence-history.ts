@@ -2,6 +2,8 @@ import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
     AssistantGetHistoryPageInput,
+    AssistantGetHistoryAroundMessageInput,
+    AssistantHistoryAroundMessageResult,
     AssistantHistoryPage,
     AssistantReviewChangeIndexEntry,
     AssistantReviewIndex,
@@ -25,6 +27,7 @@ import {
     reconcileAssistantUserTurnIds,
     resolveAssistantTurnIdAlias
 } from '../../shared/assistant/turn-reconciliation'
+import { ASSISTANT_CHAT_SEARCH_MAX_INDEXED_MESSAGE_CHARACTERS } from '../../shared/assistant/chat-search'
 import { decodeAssistantHistoryCursor, encodeAssistantHistoryCursor } from '../../shared/assistant/history-cursor'
 import {
     ASSISTANT_TIMELINE_KIND_RANK,
@@ -122,6 +125,11 @@ function readMessages(db: SqlDatabase, threadId: string, lower: AssistantTimelin
     return reconcileAssistantMessageReplays(descending ? records.reverse() : records)
 }
 
+function readMessageById(db: SqlDatabase, threadId: string, messageId: string): AssistantMessage | null {
+    const row = db.exec(`SELECT id, role, text, turn_id, streaming, timeline_sequence, created_at, updated_at, provider_item_id, modality FROM assistant_messages WHERE thread_id = ? AND id = ? LIMIT 1`, [threadId, messageId])[0]?.values?.[0]
+    return row ? mapMessage(row) : null
+}
+
 function readActivities(db: SqlDatabase, threadId: string, lower: AssistantTimelineOrderKey | null, upper: AssistantTimelineOrderKey | null, limit?: number): AssistantActivity[] {
     const range = keyRangeSql('activity', lower, upper)
     const descending = typeof limit === 'number'
@@ -162,6 +170,39 @@ function readHistoryRangeSize(
         characters += toNumber(row?.[1])
     }
     return { records, characters }
+}
+
+function historyRangeExceedsBudget(
+    db: SqlDatabase,
+    threadId: string,
+    lower: AssistantTimelineOrderKey,
+    upper: AssistantTimelineOrderKey | null,
+    maxRecords: number,
+    maxCharacters: number
+): boolean {
+    let records = 0
+    let characters = 0
+    for (const [table, kind, characterExpression] of [
+        ['assistant_messages', 'message', "LENGTH(COALESCE(text, ''))"],
+        ['assistant_activities', 'activity', `LENGTH(COALESCE(summary, '')) + LENGTH(COALESCE(detail, '')) + CASE WHEN LENGTH(COALESCE(payload_json, '')) <= ${ASSISTANT_ACTIVITY_PAYLOAD_MAX_CHARACTERS} THEN LENGTH(COALESCE(payload_json, '')) ELSE ${ASSISTANT_TRUNCATED_ACTIVITY_PAYLOAD_ESTIMATED_CHARACTERS} END`],
+        ['assistant_proposed_plans', 'plan', "LENGTH(COALESCE(plan_markdown, ''))"]
+    ] as const) {
+        const remainingRecordBudget = maxRecords - records
+        if (remainingRecordBudget < 0) return true
+        const range = keyRangeSql(kind, lower, upper)
+        const rows = db.exec(`SELECT ${characterExpression} FROM ${table} WHERE thread_id = ?${range.sql} LIMIT ?`, [
+            threadId,
+            ...range.params,
+            remainingRecordBudget + 1
+        ])[0]?.values || []
+        records += rows.length
+        if (records > maxRecords) return true
+        for (const row of rows) {
+            characters += toNumber(row[0])
+            if (characters > maxCharacters) return true
+        }
+    }
+    return false
 }
 
 function hasRecordBefore(db: SqlDatabase, threadId: string, key: AssistantTimelineOrderKey): boolean {
@@ -248,8 +289,7 @@ function readForwardAssistantHistoryPage(
     const availableTurns = Math.min(turnLimit, boundaryRows.length)
     for (let count = 2; count <= availableTurns; count += 1) {
         const candidateUpper = boundaryRows[count] ? historyBoundaryKey(boundaryRows[count]!) : null
-        const size = readHistoryRangeSize(db, threadId, pageLower, candidateUpper)
-        if (size.records > maxRecords || size.characters > maxCharacters) break
+        if (historyRangeExceedsBudget(db, threadId, pageLower, candidateUpper, maxRecords, maxCharacters)) break
         selectedTurnCount = count
     }
     const upperRow = boundaryRows[selectedTurnCount]
@@ -348,6 +388,167 @@ export function readAssistantHistoryPage(db: SqlDatabase, input: AssistantGetHis
             turnCount: selectedTurnCount
         }
     }
+}
+
+function constrainAssistantHistoryAnchorPage(
+    page: AssistantHistoryPage,
+    messageId: string
+): AssistantHistoryPage {
+    const recordCount = page.messages.length + page.activities.length + page.proposedPlans.length
+    if (recordCount <= ASSISTANT_HISTORY_PAGE_MAX_RECORDS
+        && JSON.stringify(page).length <= ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS) {
+        return page
+    }
+    const targetMessage = page.messages.find((message) => message.id === messageId)
+    if (!targetMessage) throw new Error('Assistant search message was not found.')
+    const targetOnlyPage: AssistantHistoryPage = {
+        ...page,
+        messages: [targetMessage],
+        activities: [],
+        proposedPlans: [],
+        pageInfo: { ...page.pageInfo, turnCount: 1 }
+    }
+    if (JSON.stringify(targetOnlyPage).length > ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS) {
+        throw new Error('Assistant search message was not found.')
+    }
+    return targetOnlyPage
+}
+
+function readAssistantTargetOnlyPage(
+    db: SqlDatabase,
+    threadId: string,
+    messageId: string,
+    lower: AssistantTimelineOrderKey,
+    upper: AssistantTimelineOrderKey | null
+): AssistantHistoryPage {
+    const targetMessage = readMessageById(db, threadId, messageId)
+    if (!targetMessage) throw new Error('Assistant search message was not found.')
+    const page: AssistantHistoryPage = {
+        threadId,
+        messages: [targetMessage],
+        activities: [],
+        proposedPlans: [],
+        pageInfo: {
+            oldestCursor: encodeAssistantHistoryCursor(threadId, lower),
+            newestCursor: upper ? encodeAssistantHistoryCursor(threadId, upper) : null,
+            hasOlder: hasRecordBefore(db, threadId, lower),
+            hasNewer: Boolean(upper),
+            turnCount: 1
+        }
+    }
+    if (JSON.stringify(page).length > ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS) {
+        throw new Error('Assistant search message was not found.')
+    }
+    return page
+}
+
+export function readAssistantHistoryAroundMessage(
+    db: SqlDatabase,
+    input: AssistantGetHistoryAroundMessageInput
+): AssistantHistoryAroundMessageResult {
+    const threadId = String(input.threadId || '').trim()
+    const messageId = String(input.messageId || '').trim()
+    if (!threadId || !messageId) throw new Error('Assistant thread and message ids are required.')
+    const targetRow = db.exec(`
+        SELECT id, timeline_sequence, created_at
+        FROM assistant_messages
+        WHERE thread_id = ? AND id = ? AND streaming = 0
+          AND length(text) <= ${ASSISTANT_CHAT_SEARCH_MAX_INDEXED_MESSAGE_CHARACTERS}
+          AND (
+            role = 'user'
+            OR (
+              role = 'assistant'
+              AND EXISTS (
+                SELECT 1 FROM assistant_turns AS turns
+                WHERE turns.thread_id = assistant_messages.thread_id
+                  AND turns.assistant_message_id = assistant_messages.id
+              )
+            )
+          )
+        LIMIT 1
+    `, [threadId, messageId])[0]?.values?.[0]
+    if (!targetRow) throw new Error('Assistant search message was not found.')
+    const targetKey = historyBoundaryKey(targetRow)
+    const boundaryRow = db.exec(`
+        SELECT id, timeline_sequence, created_at
+        FROM assistant_messages
+        WHERE thread_id = ?
+          AND role = 'user'
+          AND (created_at, COALESCE(timeline_sequence, -1), 0, id) <= (?, ?, ?, ?)
+        ORDER BY created_at DESC, COALESCE(timeline_sequence, -1) DESC, id DESC
+        LIMIT 1
+    `, [threadId, ...tupleValues(targetKey)])[0]?.values?.[0]
+    const turnLimit = clampTurnLimit(input.turnLimit, 4)
+    if (boundaryRow) {
+        const lower = historyBoundaryKey(boundaryRow)
+        const nextBoundaryRow = db.exec(`
+            SELECT id, timeline_sequence, created_at
+            FROM assistant_messages
+            WHERE thread_id = ?
+              AND role = 'user'
+              AND (created_at, COALESCE(timeline_sequence, -1), 0, id) > (?, ?, ?, ?)
+            ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC
+            LIMIT 1
+        `, [threadId, ...tupleValues(lower)])[0]?.values?.[0]
+        const firstUpper = nextBoundaryRow ? historyBoundaryKey(nextBoundaryRow) : null
+        if (historyRangeExceedsBudget(
+            db,
+            threadId,
+            lower,
+            firstUpper,
+            ASSISTANT_HISTORY_PAGE_MAX_RECORDS,
+            ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS
+        )) {
+            return { messageId, page: readAssistantTargetOnlyPage(db, threadId, messageId, lower, firstUpper) }
+        }
+        const page = readForwardAssistantHistoryPage(
+            db,
+            threadId,
+            lower,
+            turnLimit,
+            ASSISTANT_HISTORY_PAGE_MAX_RECORDS,
+            ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS
+        )
+        return {
+            messageId,
+            page: constrainAssistantHistoryAnchorPage(page, messageId)
+        }
+    }
+
+    const nextBoundaryRow = db.exec(`
+        SELECT id, timeline_sequence, created_at
+        FROM assistant_messages
+        WHERE thread_id = ?
+          AND role = 'user'
+          AND (created_at, COALESCE(timeline_sequence, -1), 0, id) > (?, ?, ?, ?)
+        ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC
+        LIMIT 1
+    `, [threadId, ...tupleValues(targetKey)])[0]?.values?.[0]
+    const upper = nextBoundaryRow ? historyBoundaryKey(nextBoundaryRow) : null
+    if (historyRangeExceedsBudget(
+        db,
+        threadId,
+        targetKey,
+        upper,
+        ASSISTANT_HISTORY_PAGE_MAX_RECORDS,
+        ASSISTANT_HISTORY_PAGE_MAX_CHARACTERS
+    )) {
+        return { messageId, page: readAssistantTargetOnlyPage(db, threadId, messageId, targetKey, upper) }
+    }
+    const page: AssistantHistoryPage = {
+        threadId,
+        messages: readMessages(db, threadId, targetKey, upper),
+        activities: readActivities(db, threadId, targetKey, upper),
+        proposedPlans: readPlans(db, threadId, targetKey, upper),
+        pageInfo: {
+            oldestCursor: encodeAssistantHistoryCursor(threadId, targetKey),
+            newestCursor: upper ? encodeAssistantHistoryCursor(threadId, upper) : null,
+            hasOlder: hasRecordBefore(db, threadId, targetKey),
+            hasNewer: Boolean(upper),
+            turnCount: 1
+        }
+    }
+    return { messageId, page: constrainAssistantHistoryAnchorPage(page, messageId) }
 }
 
 function readPendingApprovals(db: SqlDatabase, threadId: string): AssistantPendingApproval[] {

@@ -485,12 +485,17 @@ export class BrowserAssistantBridge {
             }
             case 'getThreadDetailBootstrap': return service.getThreadDetailBootstrap(args[0] as string)
             case 'getHistoryPage': return service.getHistoryPage(args[0] as any)
+            case 'getHistoryAroundMessage': {
+                const input = args[0] as { threadId: string; messageId: string; turnLimit?: number }
+                return service.getHistoryAroundMessage(input.threadId, input.messageId, input.turnLimit)
+            }
             case 'hydrateHistoryBody': return service.hydrateHistoryBody(args[0] as any)
             case 'getReviewIndex': return service.getReviewIndex((args[0] as { threadId: string }).threadId)
             case 'getTurnDetail': {
                 const input = args[0] as { threadId: string; turnId: string }
                 return service.getTurnDetail(input.threadId, input.turnId)
             }
+            case 'searchChats': return service.searchChats(args[0] as any)
             case 'searchTurns': {
                 const input = args[0] as { threadId: string; query: string; limit?: number }
                 return service.searchTurns(input.threadId, input.query, input.limit)

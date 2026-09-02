@@ -91,6 +91,21 @@ After the complete Settings/chat sweep and settlement, the full production proce
 | Long-chat detail | 2.90 s | 1.94 s median before local-first ordering | 32.9% faster |
 | Useful surface | 5.30 s | 4.69 s median | 11.6% faster |
 
+## Local chat-search scale
+
+`desktop/scripts/benchmark-assistant-chat-search.mjs` builds 10,000 chats and 1,000,000 realistic durable messages, then exercises the production worker with common, phrase-like, rare, active, and all-chat queries. The authoritative Windows run used Electron 43.2.0's Node 24.18.0 / SQLite 3.53.1 runtime.
+
+| Metric | Result | Budget |
+| --- | ---: | ---: |
+| Warm search p50 | 21.01 ms | — |
+| Warm search p95 | 32.05 ms | < 50 ms |
+| Cold worker/search p50 | 125.98 ms | — |
+| Cold worker/search p95 | 194.92 ms | < 200 ms |
+| Electron-main dispatch p95 | 0.087 ms | < 2 ms |
+| Cold worker-constructor p95 | 1.131 ms | — |
+
+The dual-projection 1,000,000-message fixture built in 88.50 seconds under Electron 43.2.0's Node mode. Search samples scope-specific fixed buckets across two history ranges, caps canonical candidates at 300 rows, and merges exact message documents whenever a multi-token sample contains a cross-message-only bucket. The 80-run warm maximum was 123.95 ms; the enforced release target remains p95 so isolated host scheduling outliers do not redefine the interaction budget.
+
 ## Optional product analytics overhead
 
 `npm run benchmark:analytics` uses an in-process fake transport and 100 synthetic allowlisted events. On the Windows release workstation, disabled initialization took 2.06 ms with a 48,496-byte observed heap delta and zero requests or payload bytes. The enabled durability stress pass took 33.31 ms to initialize, recorded a 321,328-byte heap delta and 18.66 ms maximum event-loop delay, and emitted 36,845 bytes across five fake batches. Persisting 100 events sequentially took 1,996.86 ms because each accepted event fsyncs the bounded queue; product callers do not await that I/O.

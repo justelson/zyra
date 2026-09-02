@@ -19,6 +19,15 @@ export function buildAssistantChatRoute(sessionId: string, threadId?: string | n
     return `/assistant/chat/${sessionSegment}/thread/${encodeURIComponent(threadId)}`
 }
 
+export function buildAssistantMessageSearchRoute(sessionId: string, threadId: string, messageId: string): string {
+    return `${buildAssistantChatRoute(sessionId, threadId)}?message=${encodeURIComponent(messageId)}`
+}
+
+export function parseAssistantMessageSearchTarget(search: string): string | null {
+    const value = new URLSearchParams(search).get('message')
+    return value?.trim() || null
+}
+
 export function parseAssistantChatRoute(pathname: string): AssistantChatRouteTarget {
     const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
     if (normalized === '/assistant') return { kind: 'assistant-root' }

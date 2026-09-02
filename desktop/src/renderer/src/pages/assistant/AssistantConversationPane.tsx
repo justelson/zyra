@@ -1023,6 +1023,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             latestTurnStartedAt={effectiveLatestTurnStartedAt}
                             turnUsageById={turnUsageById}
                             deletingMessageId={props.deletingMessageId}
+                            focusMessageId={props.focusMessageId}
                             loadingChats={isLoadingSelectedChat}
                             assistantTextStreamingMode={settings.assistantTextStreamingMode}
                             assistantToolOutputDefaultMode={settings.assistantToolOutputDefaultMode}

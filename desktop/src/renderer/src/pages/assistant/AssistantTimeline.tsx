@@ -68,6 +68,7 @@ type AssistantTimelineProps = {
     latestTurnStartedAt?: string | null
     turnUsageById?: ReadonlyMap<string, AssistantSessionTurnUsageEntry>
     deletingMessageId?: string | null
+    focusMessageId?: string | null
     loadingChats?: boolean
     assistantTextStreamingMode?: AssistantTextStreamingMode
     assistantToolOutputDefaultMode?: AssistantToolOutputDefaultMode
@@ -115,6 +116,7 @@ function AssistantTimelineImpl({
     latestTurnStartedAt = null,
     turnUsageById,
     deletingMessageId = null,
+    focusMessageId = null,
     loadingChats = false,
     assistantTextStreamingMode = 'stream',
     assistantToolOutputDefaultMode = 'expanded',
@@ -233,6 +235,57 @@ function AssistantTimelineImpl({
         return next.rows
     }, [rows])
 
+    const lastMessageRevealRef = useRef<string | null>(null)
+    const revealMessageInDom = useCallback((messageId: string): boolean => {
+        const target = document.getElementById(getTimelineMessageDomId(messageId))
+        if (!target) return false
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+        target.animate(
+            [
+                { backgroundColor: 'rgba(96, 165, 250, 0)', boxShadow: '0 0 0 0 rgba(96, 165, 250, 0)' },
+                { backgroundColor: 'rgba(96, 165, 250, 0.12)', boxShadow: '0 0 0 1px rgba(96, 165, 250, 0.26)' },
+                { backgroundColor: 'rgba(96, 165, 250, 0)', boxShadow: '0 0 0 0 rgba(96, 165, 250, 0)' }
+            ],
+            { duration: reduceMotion ? 1 : 1_350, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+        )
+        target.focus({ preventScroll: true })
+        return true
+    }, [])
+    useEffect(() => {
+        if (!focusMessageId) lastMessageRevealRef.current = null
+    }, [focusMessageId])
+
+    useLayoutEffect(() => {
+        const messageId = focusMessageId
+        if (!messageId || lastMessageRevealRef.current === messageId) return
+        const rowIndex = stableRows.findIndex((row) => (
+            row.kind === 'message' ? row.message.id === messageId
+                : row.kind === 'turn-work-summary' ? row.rows.some((nested) => nested.kind === 'message' && nested.message.id === messageId)
+                    : false
+        ))
+        if (rowIndex < 0) return
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        void listRef.current?.scrollToIndex({ index: rowIndex, viewPosition: 0.5, animated: !reduceMotion })
+        let secondFrame = 0
+        let retryTimer = 0
+        const finishReveal = () => {
+            if (!revealMessageInDom(messageId)) return false
+            lastMessageRevealRef.current = messageId
+            return true
+        }
+        const firstFrame = window.requestAnimationFrame(() => {
+            secondFrame = window.requestAnimationFrame(() => {
+                if (!finishReveal()) retryTimer = window.setTimeout(finishReveal, 360)
+            })
+        })
+        return () => {
+            window.cancelAnimationFrame(firstFrame)
+            if (secondFrame) window.cancelAnimationFrame(secondFrame)
+            if (retryTimer) window.clearTimeout(retryTimer)
+        }
+    }, [focusMessageId, revealMessageInDom, stableRows])
+
     useLayoutEffect(() => {
         const activityId = pendingActivityRevealRef.current
         if (!activityId) return
@@ -280,6 +333,7 @@ function AssistantTimelineImpl({
                     running={row.running}
                     collapseForTerminalResponse={row.terminalResponseVisible}
                     outcome={row.outcome}
+                    revealContent={Boolean(focusMessageId && row.rows.some((nested) => nested.kind === 'message' && nested.message.id === focusMessageId))}
                     renderChildren={() => (
                         <div className="[&>*:last-child]:pb-0">
                             {row.rows.map((workRow) => renderRowContainer(workRow, renderRow(workRow)))}
@@ -432,7 +486,8 @@ function AssistantTimelineImpl({
             <div
                 key={row.id}
                 id={row.kind === 'message' ? getTimelineMessageDomId(row.message.id) : undefined}
-                className="pb-4"
+                tabIndex={row.kind === 'message' ? -1 : undefined}
+                className="pb-4 outline-none"
                 data-assistant-timeline-row-id={row.id}
                 data-assistant-timeline-row-kind={row.kind}
                 data-assistant-message-role={row.kind === 'message' ? row.message.role : undefined}
@@ -446,6 +501,7 @@ function AssistantTimelineImpl({
         <AssistantVirtualTimeline
             rows={stableRows}
             windowKey={windowKey}
+            focusMessageId={focusMessageId}
             listRef={listRef}
             scrollContainerRef={scrollContainerRef}
             contentInsetEndAdjustment={contentInsetEndAdjustment}

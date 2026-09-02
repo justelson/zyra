@@ -41,6 +41,7 @@ import {
     handleAssistantGetAccountOverview,
     handleAssistantGetFleetSnapshot,
     handleAssistantGetHistoryPage,
+    handleAssistantGetHistoryAroundMessage,
     handleAssistantGetSkillSourceOverview,
     handleAssistantHydrateHistoryBody,
     handleAssistantGetReviewIndex,
@@ -70,6 +71,7 @@ import {
     handleAssistantUnsubscribeRealtimeVoice,
     handleAssistantUpdateSkillSourceSettings,
     handleAssistantWorkflowAction,
+    handleAssistantSearchChats,
     handleAssistantSearchTurns,
     handleAssistantSelectSession,
     handleAssistantSelectThread,
@@ -371,9 +373,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.selectThread, requireCompletedSetup(handleAssistantSelectThread))
     ipcMain.handle(ASSISTANT_IPC.getThreadDetailBootstrap, requireCompletedSetup(handleAssistantGetThreadDetailBootstrap))
     ipcMain.handle(ASSISTANT_IPC.getHistoryPage, requireCompletedSetup(handleAssistantGetHistoryPage))
+    ipcMain.handle(ASSISTANT_IPC.getHistoryAroundMessage, requireCompletedSetup(handleAssistantGetHistoryAroundMessage))
     ipcMain.handle(ASSISTANT_IPC.hydrateHistoryBody, requireCompletedSetup(handleAssistantHydrateHistoryBody))
     ipcMain.handle(ASSISTANT_IPC.getReviewIndex, requireCompletedSetup(handleAssistantGetReviewIndex))
     ipcMain.handle(ASSISTANT_IPC.getTurnDetail, requireCompletedSetup(handleAssistantGetTurnDetail))
+    ipcMain.handle(ASSISTANT_IPC.searchChats, requireCompletedSetup(handleAssistantSearchChats))
     ipcMain.handle(ASSISTANT_IPC.searchTurns, requireCompletedSetup(handleAssistantSearchTurns))
     ipcMain.handle(ASSISTANT_IPC.renameSession, requireCompletedSetup(handleAssistantRenameSession))
     ipcMain.handle(ASSISTANT_IPC.regenerateSessionTitle, requireCompletedSetup(handleAssistantRegenerateSessionTitle))

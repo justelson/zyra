@@ -7,6 +7,11 @@ export type CommandPaletteResult = {
     title: string
     subtitle?: string
     badge?: string
+    contentMatch?: {
+        source: 'user' | 'assistant'
+        snippet: string
+        query: string
+    }
     icon?: ReactNode
     action: () => void
     group: string

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, Check, ChevronRight, FolderOpen, KeyRound, Palette, RefreshCw } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, FolderOpen, Info, KeyRound, Palette, RefreshCw } from 'lucide-react'
 import type {
     OnboardingAppearanceSelection,
     OnboardingAuthStatus,
@@ -10,7 +10,7 @@ import { useSettings, type Settings } from '@/lib/settings'
 import { getThemeDefinition } from '@/lib/settings-theme-catalog'
 import { AppearanceSystemThemeCard, AppearanceThemeCard } from '@/pages/settings/appearance/AppearancePreviews'
 import { AppearanceThemeSelector } from '@/pages/settings/appearance/AppearanceThemeSelect'
-import { SettingsInput } from '@/pages/settings/settings-layout'
+import { SettingsInput, SettingsSwitch } from '@/pages/settings/settings-layout'
 import { OpenAiLogo } from '@/components/ui/OpenAiLogo'
 import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 import { cn } from '@/lib/utils'
@@ -32,50 +32,70 @@ function OnboardingAnalyticsChoice({
     analyticsError,
     onAnalyticsChoice
 }: OnboardingAnalyticsChoiceProps) {
+    const [detailsOpen, setDetailsOpen] = useState(false)
+    const detail = analyticsError
+        || (analyticsManagedByEnvironment
+            ? 'This build manages the setting.'
+            : analyticsLoading
+                ? 'Saving…'
+                : analyticsChoice === true && !analyticsConfigured
+                    ? 'Enabled, but unavailable in this build.'
+                    : 'Share coarse feature outcomes, performance timings, and allowlisted diagnostic codes. Events use a stable random installation ID to keep pseudonymous events together across sessions; it is not derived from your account or device identity. Unsent events expire from the local queue after 7 days. Never prompts, responses, transcripts, files, paths, URLs, account identity, or terminal content.')
+
     return (
-        <section className="w-full border-y border-[var(--surface-divider)] py-4 text-left" aria-labelledby="onboarding-analytics-title">
-            <div className="flex items-start gap-3 px-1">
-                <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-[var(--accent-primary)]"><BarChart3 size={15} /></span>
-                <span className="min-w-0">
-                    <h2 id="onboarding-analytics-title" className="text-[12px] font-semibold text-sparkle-text">Help improve Zyra</h2>
-                    <p className="mt-1 text-[10px] leading-4 text-sparkle-text-muted">Share feature usage, performance timings, and allowlisted diagnostic codes. Zyra never sends prompts, responses, transcripts, files, paths, URLs, account identity, or terminal content.</p>
+        <div className="flex min-h-12 w-full items-center justify-between gap-5 px-1 py-2 text-left">
+            <span className="flex min-w-0 items-center gap-1.5">
+                <span id="onboarding-analytics-title" className="truncate text-[11px] font-semibold text-sparkle-text">Share product usage and diagnostics</span>
+                <span className="group relative inline-flex shrink-0">
+                    <button
+                        type="button"
+                        aria-label="About product usage and diagnostics"
+                        aria-expanded={detailsOpen}
+                        aria-describedby="onboarding-analytics-detail"
+                        onClick={() => setDetailsOpen((open) => !open)}
+                        onBlur={() => setDetailsOpen(false)}
+                        className="inline-flex size-5 items-center justify-center rounded text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]"
+                    >
+                        <Info size={12} strokeWidth={1.8} />
+                    </button>
+                    <span
+                        id="onboarding-analytics-detail"
+                        role={analyticsError ? 'alert' : 'tooltip'}
+                        className={cn(
+                            'absolute bottom-full left-1/2 z-40 mb-2 w-72 -translate-x-1/2 rounded-md border border-[var(--surface-divider)] bg-[var(--settings-popover)] px-3 py-2 text-[10px] font-normal leading-4 text-sparkle-text-secondary shadow-xl transition-[opacity,transform] group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100',
+                            detailsOpen ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-1 opacity-0'
+                        )}
+                    >
+                        {detail}
+                    </span>
                 </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Product analytics preference">
-                <button type="button" role="radio" aria-checked={analyticsChoice === true} disabled={analyticsLoading || analyticsManagedByEnvironment} onClick={() => onAnalyticsChoice(true)} className={cn('min-h-12 rounded-md border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55', analyticsChoice === true ? 'border-[color-mix(in_srgb,var(--accent-primary)_58%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_9%,transparent)]' : 'border-[var(--surface-divider)] hover:bg-[var(--surface-hover)]')}>
-                    <span className="block text-[10px] font-semibold text-sparkle-text">Share diagnostics and usage</span>
-                    <span className="mt-0.5 block text-[9px] text-sparkle-text-muted">No account or content data</span>
-                </button>
-                <button type="button" role="radio" aria-checked={analyticsChoice === false} disabled={analyticsLoading || analyticsManagedByEnvironment} onClick={() => onAnalyticsChoice(false)} className={cn('min-h-12 rounded-md border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55', analyticsChoice === false ? 'border-[color-mix(in_srgb,var(--accent-primary)_58%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_9%,transparent)]' : 'border-[var(--surface-divider)] hover:bg-[var(--surface-hover)]')}>
-                    <span className="block text-[10px] font-semibold text-sparkle-text">No thanks</span>
-                    <span className="mt-0.5 block text-[9px] text-sparkle-text-muted">Keep product analytics off</span>
-                </button>
-            </div>
-            {analyticsLoading ? <p role="status" className="mt-2 text-[9px] text-sparkle-text-muted">Saving analytics preference...</p> : null}
-            {analyticsChoice === true && !analyticsConfigured && !analyticsLoading ? <p role="status" className="mt-2 text-[9px] text-[var(--status-warning)]">Preference saved. Analytics is unavailable in this build.</p> : null}
-            {analyticsManagedByEnvironment ? <p className="mt-2 text-[9px] text-sparkle-text-muted">This build manages the analytics setting.</p> : null}
-            {analyticsError ? <p role="alert" className="mt-2 text-[9px] text-[var(--status-danger)]">{analyticsError}</p> : null}
-        </section>
+            </span>
+            <SettingsSwitch
+                checked={analyticsChoice === true}
+                disabled={analyticsLoading || analyticsManagedByEnvironment}
+                onCheckedChange={onAnalyticsChoice}
+                label="Share product usage and diagnostics"
+            />
+        </div>
     )
 }
 
-export function WelcomeStep({ saving, error, onStart, ...analyticsProps }: {
+export function WelcomeStep({ saving, error, onStart }: {
     saving: boolean
     error: string | null
     onStart: () => void
-} & OnboardingAnalyticsChoiceProps) {
+}) {
     return (
         <section className="mx-auto flex w-full max-w-[520px] flex-col items-center text-center" aria-labelledby="onboarding-welcome-title">
             <h1 id="onboarding-welcome-title" className="text-[18px] font-medium tracking-[-0.025em] text-sparkle-text-secondary sm:text-[20px]">
                 Welcome to
             </h1>
             <ZyraLogoASCII size="lg" variant="loading" className="mt-5 drop-shadow-[0_0_24px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)]" />
-            <div className="mt-8 w-full"><OnboardingAnalyticsChoice {...analyticsProps} /></div>
             <button
                 type="button"
-                disabled={saving || analyticsProps.analyticsLoading || analyticsProps.analyticsChoice === null}
+                disabled={saving}
                 onClick={onStart}
-                className="mt-6 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-md bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                className="mt-8 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-md bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >
                 Start setup<ArrowRight size={14} />
             </button>

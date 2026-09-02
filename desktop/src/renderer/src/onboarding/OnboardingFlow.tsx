@@ -117,16 +117,19 @@ export function OnboardingFlow() {
         }
     }, [record.startedAt])
 
-    const setAnalyticsChoice = async (enabled: boolean) => {
-        if (analyticsLoading || analyticsStatus?.canChangeEnabled === false) return
+    const setAnalyticsChoice = async (enabled: boolean): Promise<boolean> => {
+        if (analyticsLoading) return false
+        if (analyticsStatus?.canChangeEnabled === false) return true
         setAnalyticsLoading(true)
         setAnalyticsError(null)
         try {
             const status = await setDesktopAnalyticsEnabled(enabled)
             if (!status || !status.preferenceSet) throw new Error('Zyra could not save the analytics preference.')
             setAnalyticsStatus(status)
+            return true
         } catch (choiceError) {
             setAnalyticsError(choiceError instanceof Error ? choiceError.message : 'Could not save the analytics preference.')
+            return false
         } finally {
             setAnalyticsLoading(false)
         }
@@ -219,6 +222,10 @@ export function OnboardingFlow() {
                     await onboarding.commitStep({ expectedRevision, step: 'projects', selection: projects })
                     break
                 case 'review':
+                    if (analyticsChoice === null) {
+                        const analyticsPreferenceSaved = await setAnalyticsChoice(false)
+                        if (!analyticsPreferenceSaved) throw new Error('Save the diagnostics preference before finishing setup.')
+                    }
                     await onboarding.commitStep({ expectedRevision, step: 'review' })
                     break
             }
@@ -249,7 +256,6 @@ export function OnboardingFlow() {
     const analyticsChoice = analyticsStatus?.preferenceSet ? analyticsStatus.requested : null
     const canContinue = record.currentStep !== 'connect-openai' || auth.status?.verified === true
     const projectReady = record.currentStep !== 'projects' || Boolean(projects.projectsFolder.trim())
-    const analyticsReady = record.currentStep !== 'review' || analyticsChoice !== null
     const currentIndex = ONBOARDING_STEPS.indexOf(record.currentStep)
     const stepTitle = record.currentStep === 'review' && !record.reviewActive
         ? 'Ready to open Zyra'
@@ -282,12 +288,6 @@ export function OnboardingFlow() {
                             <WelcomeStep
                                 saving={saving}
                                 error={error}
-                                analyticsChoice={analyticsChoice}
-                                analyticsConfigured={analyticsStatus?.configured === true}
-                                analyticsManagedByEnvironment={analyticsStatus?.canChangeEnabled === false}
-                                analyticsLoading={analyticsLoading}
-                                analyticsError={analyticsError}
-                                onAnalyticsChoice={(enabled) => { void setAnalyticsChoice(enabled) }}
                                 onStart={() => void continueStep()}
                             />
                         </div>
@@ -354,7 +354,7 @@ export function OnboardingFlow() {
                                     </div>
                                 </div>
 
-                                <button type="button" disabled={saving || analyticsLoading || !canContinue || !projectReady || !analyticsReady} onClick={() => void continueStep()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-[12px] font-semibold text-[var(--accent-on-primary)] shadow-[0_8px_24px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
+                                <button type="button" disabled={saving || analyticsLoading || !canContinue || !projectReady} onClick={() => void continueStep()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-[12px] font-semibold text-[var(--accent-on-primary)] shadow-[0_8px_24px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                                     {continueLabel}{record.currentStep !== 'review' ? <ArrowRight size={13} /> : null}
                                 </button>
                             </div>

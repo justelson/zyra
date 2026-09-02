@@ -32,6 +32,14 @@ _Avoid_: Project path, current folder
 The one filesystem root a Chat uses as the starting location for relative work.
 _Avoid_: Project, Chat scope
 
+**Project instructions**:
+Rules inherited by every Chat belonging to a Project.
+_Avoid_: Folder rules
+
+**Folder-local instructions**:
+Rules that govern work performed inside one Folder.
+_Avoid_: Project instructions
+
 ## Relationships
 
 - A **Project** owns exactly one **Project home**.
@@ -43,6 +51,8 @@ _Avoid_: Project, Chat scope
 - A **Chat scope** cannot exceed an **Associated folder's** maximum access level.
 - An existing **Chat scope** changes only through an explicit scope update.
 - Every **Chat** has exactly one **Working root** selected from its **Chat scope**.
+- **Project instructions** apply throughout every Chat belonging to their Project.
+- **Folder-local instructions** apply only while work touches their Folder.
 
 ## Example dialogue
 

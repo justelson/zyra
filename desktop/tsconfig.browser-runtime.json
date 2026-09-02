@@ -10,7 +10,6 @@
         "src/types/build-metadata.d.ts",
         "src/types/window.d.ts",
         "src/renderer/src/vite-env.d.ts",
-        "src/renderer/src/monaco-workers.d.ts",
         "src/preload/index.ts",
         "src/main/index.ts",
         "src/main/browser-realtime-voice-event-stream.ts",

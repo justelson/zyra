@@ -1,12 +1,12 @@
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-vs/editor/editor.worker?worker'
-import jsonWorker from 'monaco-vs/language/json/json.worker?worker'
-import cssWorker from 'monaco-vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-vs/language/typescript/ts.worker?worker'
-import codiconFontUrl from 'monaco-vs/base/browser/ui/codicons/codicon/codicon.ttf?url'
-import 'monaco-vs/base/browser/ui/codicons/codicon/codicon.css'
+import editorWorker from '../../../../../node_modules/monaco-editor/esm/vs/editor/editor.worker.js?worker'
+import jsonWorker from '../../../../../node_modules/monaco-editor/esm/vs/language/json/json.worker.js?worker'
+import cssWorker from '../../../../../node_modules/monaco-editor/esm/vs/language/css/css.worker.js?worker'
+import htmlWorker from '../../../../../node_modules/monaco-editor/esm/vs/language/html/html.worker.js?worker'
+import tsWorker from '../../../../../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js?worker'
+import codiconFontUrl from '../../../../../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.ttf?url'
+import '../../../../../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css'
 
 type MonacoGlobal = typeof globalThis & {
     MonacoEnvironment?: {

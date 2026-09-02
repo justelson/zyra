@@ -77,7 +77,6 @@ export default defineConfig({
             alias: {
                 '@': resolve(__dirname, 'src/renderer/src'),
                 '@shared': resolve(__dirname, 'src/shared'),
-                'monaco-vs': resolve(__dirname, 'node_modules/monaco-editor/esm/vs'),
                 react: resolve(__dirname, 'node_modules/react'),
                 'react-dom': resolve(__dirname, 'node_modules/react-dom'),
                 'react/jsx-runtime': resolve(__dirname, 'node_modules/react/jsx-runtime.js'),

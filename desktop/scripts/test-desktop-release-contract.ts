@@ -205,15 +205,29 @@ for (const target of ['windows-x64', 'macos-arm64', 'macos-x64', 'linux-x64']) {
 
 const electronConfig = readFileSync(path.join(desktopRoot, 'electron.vite.config.ts'), 'utf8')
 const browserConfig = readFileSync(path.join(desktopRoot, 'vite.browser.config.ts'), 'utf8')
+const browserRuntimeTsconfig = readFileSync(path.join(desktopRoot, 'tsconfig.browser-runtime.json'), 'utf8')
 const monacoRuntime = readFileSync(path.join(desktopRoot, 'src', 'renderer', 'src', 'lib', 'monaco', 'runtime.ts'), 'utf8')
 const updatesSource = readFileSync(path.join(desktopRoot, 'src', 'renderer', 'src', 'lib', 'app-updates.tsx'), 'utf8')
 const browserAdapterSource = readFileSync(path.join(desktopRoot, 'src', 'renderer', 'src', 'lib', 'browser-devscope-adapter.ts'), 'utf8')
 const buildMetadataSource = readFileSync(path.join(desktopRoot, 'src', 'renderer', 'src', 'lib', 'release-build-metadata.ts'), 'utf8')
 const aboutSource = readFileSync(path.join(desktopRoot, 'src', 'renderer', 'src', 'pages', 'settings', 'AboutSettings.tsx'), 'utf8')
 assert(electronConfig.includes('__ZYRA_DESKTOP_VERSION__: JSON.stringify(desktopVersion)'))
-assert(electronConfig.includes("'monaco-vs': resolve(__dirname, 'node_modules/monaco-editor/esm/vs')"), 'Monaco workers and non-JavaScript assets must bypass its broken 0.56 deep export map deliberately')
-assert.match(monacoRuntime, /monaco-vs\/editor\/editor\.worker\?worker[\s\S]*monaco-vs\/language\/typescript\/ts\.worker\?worker/, 'Monaco workers must resolve from the pinned ESM filesystem alias')
-assert.doesNotMatch(monacoRuntime, /monaco-editor\/esm\/vs/, 'Monaco 0.55 deep worker paths cannot return to release builds')
+assert.doesNotMatch(electronConfig, /['"]monaco-vs['"]\s*:/, 'Monaco worker resolution cannot depend on a Vite alias that a running dev server may have loaded before HMR')
+for (const monacoAsset of [
+    'editor/editor.worker.js?worker',
+    'language/json/json.worker.js?worker',
+    'language/css/css.worker.js?worker',
+    'language/html/html.worker.js?worker',
+    'language/typescript/ts.worker.js?worker',
+    'base/browser/ui/codicons/codicon/codicon.ttf?url',
+    'base/browser/ui/codicons/codicon/codicon.css'
+]) {
+    assert(
+        monacoRuntime.includes(`../../../../../node_modules/monaco-editor/esm/vs/${monacoAsset}`),
+        `Monaco 0.56 asset ${monacoAsset} must use a config-independent filesystem path`
+    )
+}
+assert.doesNotMatch(browserRuntimeTsconfig, /monaco-workers\.d\.ts/, 'Browser-runtime typechecking cannot retain the removed alias declaration file')
 assert(browserConfig.includes('__ZYRA_DESKTOP_VERSION__: JSON.stringify(desktopVersion)'))
 assert(updatesSource.includes('reportHostDesktopVersion'), 'Desktop and Browser update surfaces must report the host package version')
 assert(browserAdapterSource.includes('currentVersion: __ZYRA_DESKTOP_VERSION__'))

@@ -20,6 +20,7 @@ type PendingComposerDispatch = {
 export type AssistantQueuedComposerSessionState = {
     sessionId: string
     threadState: string
+    latestTurnState: string | null
     pendingApprovalCount: number
     pendingUserInputCount: number
 }
@@ -58,9 +59,10 @@ function cloneContextFiles(contextFiles: ComposerContextFile[]): ComposerContext
     return contextFiles.map((file) => ({ ...file }))
 }
 
-function isQueueSessionBusy(sessionState: AssistantQueuedComposerSessionState | null | undefined): boolean {
+export function isAssistantQueuedComposerSessionBusy(sessionState: AssistantQueuedComposerSessionState | null | undefined): boolean {
     if (!sessionState) return false
     if (sessionState.pendingApprovalCount > 0 || sessionState.pendingUserInputCount > 0) return true
+    if (sessionState.latestTurnState === 'running') return true
     return sessionState.threadState === 'starting'
         || sessionState.threadState === 'running'
         || sessionState.threadState === 'waiting'
@@ -367,7 +369,7 @@ export function useAssistantQueuedComposer(args: {
 
         for (const [sessionId, queuedMessages] of Object.entries(queuedComposerMessagesBySessionId)) {
             if (queueDrainSessionIdsRef.current.has(sessionId)) continue
-            if (isQueueSessionBusy(sessionStateById.get(sessionId))) continue
+            if (isAssistantQueuedComposerSessionBusy(sessionStateById.get(sessionId))) continue
 
             const nextQueuedMessage = queuedMessages.find((entry) => !entry.previewOnly)
             if (!nextQueuedMessage) continue

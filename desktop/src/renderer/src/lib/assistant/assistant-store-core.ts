@@ -13,6 +13,7 @@ import type {
     AssistantPlaygroundState,
     AssistantSendPromptOptions,
     AssistantSelectThreadInput,
+    AssistantSetSessionProjectInput,
     AssistantSession,
     AssistantSnapshot,
     AssistantThread,
@@ -71,9 +72,12 @@ function isReusableEmptySession(session: AssistantSession, input?: AssistantCrea
     if (!isPristineAssistantSession(session)) return false
     if (input?.mode && session.mode !== input.mode) return false
     if (input?.projectPath !== undefined && (session.projectPath || null) !== (input.projectPath || null)) return false
+    if (input?.projectId !== undefined && (session.projectId || null) !== (input.projectId || null)) return false
+    if (input?.workingRoot !== undefined && (session.workingRoot || session.projectPath || null) !== (input.workingRoot || null)) return false
     if (input?.playgroundLabId !== undefined && (session.playgroundLabId || null) !== (input.playgroundLabId || null)) return false
     if (input?.mode === undefined && session.mode !== 'work') return false
-    if (input?.projectPath === undefined && session.projectPath) return false
+    if (input?.projectPath === undefined && input?.projectId === undefined && session.projectPath) return false
+    if (input?.projectId === undefined && input?.projectPath === undefined && session.projectId) return false
     if (input?.playgroundLabId === undefined && session.playgroundLabId) return false
     return true
 }
@@ -663,6 +667,15 @@ export class AssistantStore {
 
     async clearLogs(input?: AssistantClearLogsInput) {
         return this.runAction(() => window.devscope.assistant.clearLogs(input), false)
+    }
+
+    async setSessionProject(sessionId: string, input: AssistantSetSessionProjectInput) {
+        const result = await this.runAction(
+            () => window.devscope.assistant.setSessionProject(sessionId, input),
+            false
+        )
+        if (result.success) this.flushPendingAssistantEvents()
+        return result
     }
 
     async setSessionProjectPath(sessionId: string, projectPath: string | null) {

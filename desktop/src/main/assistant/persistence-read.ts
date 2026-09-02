@@ -23,6 +23,7 @@ import {
     summarizeThread
 } from './persistence-snapshot'
 import { deriveSessionTitleFromPrompt, isDefaultSessionTitle } from './utils'
+import { readAssistantChatScopes } from './assistant-project-persistence'
 import {
     type AssistantMetaRow,
     PERSISTENCE_VERSION,
@@ -279,6 +280,7 @@ function readAssistantMeta(db: SqlDatabase): AssistantMetaRow {
 
 function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSnapshot['playground']): AssistantSession[] {
     const sessions = new Map<string, AssistantSession>()
+    const chatScopes = readAssistantChatScopes(db)
     const sessionRoutePatches: Array<{
         sessionId: string
         mode: AssistantSession['mode']
@@ -295,11 +297,16 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
     `)[0]?.values || []
 
     for (const row of sessionRows) {
+        const sessionId = String(row[0] || '')
+        const chatScope = chatScopes.get(sessionId) || null
         const session: AssistantSession = {
-            id: String(row[0] || ''),
+            id: sessionId,
             title: String(row[1] || 'New Session'),
             mode: String(row[2] || 'work') === 'playground' ? 'playground' : 'work',
             projectPath: toNullableString(row[3]),
+            projectId: chatScope?.projectId || null,
+            workingRoot: chatScope?.workingRoot || toNullableString(row[3]),
+            chatScope,
             playgroundLabId: toNullableString(row[4]),
             pendingLabRequest: parseJson(row[5], null),
             archived: toNumber(row[6]) === 1,

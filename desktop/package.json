@@ -83,6 +83,7 @@
         "test:assistant-switching": "bun scripts/test-assistant-session-switching.ts",
         "test:assistant-routing": "bun scripts/test-assistant-chat-routing.ts",
         "test:assistant-new-chat": "bun scripts/test-assistant-new-chat-surface.ts",
+        "test:assistant-project-migration": "bun scripts/test-assistant-project-migration.ts",
         "test:assistant-client-selection": "bun scripts/test-assistant-client-local-selection.ts && bun scripts/test-assistant-create-session-race.ts",
         "maint:loc": "node scripts/maint/check-loc.mjs",
         "maint:loc:strict": "node scripts/maint/check-loc.mjs --strict",

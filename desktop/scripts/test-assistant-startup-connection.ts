@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type {
     AssistantRuntimeStatus,
     AssistantSnapshot,
@@ -13,10 +15,13 @@ import {
 } from '../src/renderer/src/lib/assistant/assistant-new-chat-policy'
 import { shouldAutoReconnectAssistantOnStartup } from '../src/renderer/src/lib/assistant/assistant-runtime-preferences'
 import { areAssistantSessionsRailSelectionsEqual } from '../src/renderer/src/lib/assistant/assistant-store-selection-helpers'
-import { getAssistantThreadPhase, isAssistantThreadActivelyWorking } from '../src/renderer/src/lib/assistant/selectors'
+import { getAssistantThreadPhase, isAssistantSessionBackgroundActive, isAssistantThreadActivelyWorking } from '../src/renderer/src/lib/assistant/selectors'
 import { toAssistantThreadShell } from '../src/main/assistant/persistence-snapshot'
 import { TrailingAsyncReconciler } from '../src/main/assistant/trailing-async-reconciler'
 import { shouldAutoReconnectAssistantThread } from '../src/renderer/src/pages/assistant/assistant-connection-recovery-policy'
+import { AssistantConnectionRecoveryBanner } from '../src/renderer/src/pages/assistant/AssistantConnectionRecoveryBanner'
+import { MAX_ASSISTANT_RECONNECT_ATTEMPTS } from '../src/renderer/src/pages/assistant/assistant-runtime-recovery'
+import { getPausedAssistantRuntimeRecovery } from '../src/renderer/src/pages/assistant/useAssistantConnectionRecovery'
 import { deriveAssistantComposerCapabilities } from '../src/renderer/src/pages/assistant/assistant-composer-capabilities'
 import { getAssistantThreadLastMessageAt, resolveAssistantThreadStatusPill } from '../src/renderer/src/pages/assistant/assistant-sessions-rail-utils'
 import { mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from '../src/main/assistant/service-canonical-presence'
@@ -35,6 +40,54 @@ assert.doesNotMatch(composerEffectsSource, /didAutoRefreshModelsRef/, 'the compo
 assert.match(composerEffectsSource, /areAssistantComposerConfigurationsEqual[\s\S]{0,300}writeAssistantComposerSessionState\(sessionId, currentComposerState\)/u, 'thread configuration choices persist immediately instead of being lost to the draft debounce')
 assert.match(conversationPaneSource, /useSettingsDefaults=\{selectedSessionIsDraft \|\| newChatHandoffActive\}/u, 'only a New Chat inherits global composer defaults')
 assert.match(composerControllerSource, /resolveRetainedAssistantComposerModel/u, 'model catalog refreshes preserve an explicit thread model')
+const reconnectingMarkup = renderToStaticMarkup(createElement(AssistantConnectionRecoveryBanner, {
+    issue: { key: 'connection-lost', title: 'Connection lost', brief: 'fetch failed', recoverable: true, raw: 'fetch failed' },
+    reconnectPending: true,
+    reconnectAttempt: 1,
+    reconnectMaxAttempts: 10,
+    reconnectExhausted: false,
+    onReconnect: () => {}
+}))
+assert.equal(MAX_ASSISTANT_RECONNECT_ATTEMPTS, 10, 'Desktop uses the shared ten-attempt recovery budget')
+assert.match(reconnectingMarkup, /Reconnecting 1 of 10/, 'Desktop shows the first reconnect attempt in one compact status row')
+assert.doesNotMatch(reconnectingMarkup, /fetch failed/i, 'Desktop hides raw transport errors from the primary recovery UI')
+const pausedMarkup = renderToStaticMarkup(createElement(AssistantConnectionRecoveryBanner, {
+    issue: { key: 'connection-lost', title: 'Connection lost', brief: 'fetch failed', recoverable: true, raw: 'fetch failed' },
+    reconnectPending: false,
+    reconnectAttempt: 10,
+    reconnectMaxAttempts: 10,
+    reconnectExhausted: true,
+    onReconnect: () => {}
+}))
+assert.match(pausedMarkup, /Paused · Network issue/)
+assert.match(pausedMarkup, /Try again/)
+assert.deepEqual(getPausedAssistantRuntimeRecovery([{
+    id: 'paused-network-recovery',
+    kind: 'connection.recovery',
+    tone: 'warning',
+    summary: 'Paused · Network issue',
+    turnId: 'turn-network-recovery',
+    createdAt: new Date().toISOString(),
+    payload: { category: 'connection-recovery', status: 'paused', attempt: 10, maxAttempts: 10 }
+}]), { attempt: 10, maxAttempts: 10 }, 'runtime retry exhaustion hydrates the same manual recovery banner')
+assert.equal(getPausedAssistantRuntimeRecovery([{
+    id: 'new-network-recovery',
+    kind: 'connection.recovery',
+    tone: 'warning',
+    summary: 'Reconnecting 1 of 10',
+    turnId: 'new-turn',
+    createdAt: new Date().toISOString(),
+    payload: { category: 'connection-recovery', status: 'retrying', attempt: 1, maxAttempts: 10 }
+}, {
+    id: 'old-paused-network-recovery',
+    kind: 'connection.recovery',
+    tone: 'warning',
+    summary: 'Paused · Network issue',
+    turnId: 'old-turn',
+    createdAt: new Date(0).toISOString(),
+    payload: { category: 'connection-recovery', status: 'paused', attempt: 10, maxAttempts: 10 }
+}]), null, 'an old paused recovery cannot block a newer reconnect cycle')
+
 assert.match(
     composerControllerSource,
     /draftWarmKey[\s\S]{0,500}text\.trim\(\)[\s\S]{0,350}onDraftStarted\?\.\(\)/u,
@@ -419,25 +472,69 @@ assert.equal(
     false,
     'a completed response with canonical ready presence cannot remain Working'
 )
-assert.equal(
-    getAssistantThreadPhase({
-        ...thread,
+const detachedRunningThread: AssistantThread = {
+    ...thread,
+    state: 'running',
+    latestTurn: {
+        id: 'stale-turn',
         state: 'running',
-        latestTurn: {
-            id: 'stale-turn',
-            state: 'running',
-            requestedAt: now,
-            startedAt: now,
-            completedAt: null,
-            model: thread.model,
-            interactionMode: 'default',
-            usage: null,
-            updatedAt: now
-        },
-        canonicalPresence: { ...readyPresence, state: 'detached', clients: [] }
-    }).key,
+        requestedAt: now,
+        startedAt: now,
+        completedAt: null,
+        assistantMessageId: null,
+        usage: null
+    },
+    canonicalPresence: { ...readyPresence, state: 'detached', clients: [] }
+}
+assert.equal(
+    getAssistantThreadPhase(detachedRunningThread).key,
     'stale',
-    'a detached canonical worker must not be presented as live work'
+    'a detached canonical worker must remain visibly stale while Desktop reconnects'
+)
+assert.equal(
+    isAssistantThreadActivelyWorking(detachedRunningThread),
+    true,
+    'a transport detachment cannot finish an explicitly running turn'
+)
+assert.equal(
+    isAssistantThreadActivelyWorking({ ...detachedRunningThread, state: 'error', canonicalPresence: undefined }),
+    true,
+    'a recoverable thread error cannot override the running turn ledger'
+)
+assert.equal(
+    resolveAssistantThreadStatusPill(detachedRunningThread, true)?.label,
+    'Working',
+    'the chat rail cannot label an explicitly running turn stale or failed'
+)
+assert.equal(
+    isAssistantSessionBackgroundActive({ ...snapshot.sessions[0]!, threads: [detachedRunningThread] }, null),
+    true,
+    'an explicitly running turn remains background-active while Desktop reconnects'
+)
+const explicitlyFailedThread: AssistantThread = {
+    ...detachedRunningThread,
+    state: 'ready',
+    canonicalPresence: readyPresence,
+    latestTurn: {
+        ...detachedRunningThread.latestTurn!,
+        state: 'error',
+        completedAt: now
+    }
+}
+assert.equal(
+    resolveAssistantThreadStatusPill(explicitlyFailedThread, true)?.label,
+    'Failed',
+    'an explicit failed turn remains failed even after the connection returns to ready'
+)
+assert.equal(
+    resolveAssistantThreadStatusPill({
+        ...explicitlyFailedThread,
+        state: 'error',
+        canonicalPresence: undefined,
+        latestTurn: { ...explicitlyFailedThread.latestTurn!, state: 'completed' }
+    }, true)?.label,
+    'Connection issue',
+    'a connection error after explicit turn completion cannot relabel that turn failed'
 )
 
 const pendingApprovalThread: AssistantThread = {

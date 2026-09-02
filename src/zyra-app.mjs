@@ -38,6 +38,7 @@ import { createZyraTuiClientRuntime, listCanonicalZyraChats } from "./agent-serv
 import { captureCliEvent, initializeCliAnalytics, shutdownCliAnalytics } from "./analytics/cli.mjs";
 import { classifyErrorCode, normalizeAnalyticsCommandName } from "./analytics/contracts.mjs";
 import { extractZyraPermissionModeArgs } from "./permission-mode.mjs";
+import { isNetworkRecoveryError } from "./network-recovery.mjs";
 
 const useEmbeddedRuntime = process.env.ZYRA_EMBEDDED_RUNTIME === "1";
 const createCliRuntime = (options) => useEmbeddedRuntime ? createZyraSession(options) : createZyraTuiClientRuntime(options);
@@ -631,7 +632,7 @@ async function runMain() {
       try {
         return await runPromptTurn(submission);
       } catch (error) {
-        if (!(suppressNextAbortError && isExpectedAbortError(error))) {
+        if (!(suppressNextAbortError && isExpectedAbortError(error)) && !isNetworkRecoveryError(error)) {
           ui.error(error);
         }
       } finally {

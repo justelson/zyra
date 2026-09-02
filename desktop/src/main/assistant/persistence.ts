@@ -1,17 +1,24 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { rename as renameFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import log from 'electron-log'
 import initSqlJs, { type Database as SqlDatabase } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
+    AssistantAssociateProjectFolderInput,
+    AssistantDismissProjectCandidateInput,
     AssistantDomainEvent,
     AssistantGetHistoryPageInput,
     AssistantGetHistoryAroundMessageInput,
     AssistantHistoryAroundMessageResult,
     AssistantHistoryPage,
     AssistantMessage,
+    AssistantChatScope,
+    AssistantCreateProjectInput,
+    AssistantProject,
+    AssistantProjectCatalog,
+    AssistantRemoveProjectFolderInput,
     AssistantReviewIndex,
     AssistantSearchChatsInput,
     AssistantSearchChatsResult,
@@ -20,6 +27,7 @@ import type {
     AssistantTurnDetail,
     AssistantSnapshot,
     AssistantThreadDetail,
+    AssistantUpdateProjectInput,
     FleetSnapshot
 } from '../../shared/assistant/contracts'
 import { is } from '../utils'
@@ -30,6 +38,22 @@ import { hydrateSnapshotThreads, summarizeThread } from './persistence-snapshot'
 import { initializeAssistantSearchIndex, searchAssistantChatsFallback } from './assistant-search-index'
 import { AssistantSearchWorkerClient } from './assistant-search-worker-client'
 import { deleteFleetProjection, projectFleetSnapshot, readFleetSnapshot } from './fleet-persistence'
+import {
+    associateAssistantProjectFolder,
+    canonicalAssistantFolderKey,
+    createAssistantChatScopeForProject,
+    createAssistantProject,
+    detectAssistantProjectCandidates,
+    dismissAssistantProjectCandidate,
+    ensureAssistantProjectHomeDirectories,
+    ensureLegacyAssistantProjectForFolder,
+    findAssistantProjectByFolderPath,
+    isAssistantPathInsideRoot,
+    migrateLegacyAssistantProjects,
+    readAssistantProjectCatalog,
+    removeAssistantProjectFolder,
+    updateAssistantProject
+} from './assistant-project-persistence'
 import {
     readHydratedThreadDetails,
     readAssistantFirstUserMessageText,
@@ -99,6 +123,9 @@ function createAssistantFallbackSnapshot(snapshot: AssistantSnapshot): Assistant
 export class AssistantPersistence {
     private readonly filePath: string
     private readonly legacyFilePath: string
+    private readonly projectHomesRoot: string
+    private readonly globalWorkspaceRoot: string
+    private readonly internalProjectPathKeys: ReadonlySet<string>
     private db: SqlDatabase | null = null
     private databaseBackend: 'native' | 'sqljs' = 'sqljs'
     private initPromise: Promise<void> | null = null
@@ -124,6 +151,23 @@ export class AssistantPersistence {
         }
         this.filePath = join(assistantDir, 'assistant-state.sqlite')
         this.legacyFilePath = join(assistantDir, 'assistant-state.json')
+        this.projectHomesRoot = join(assistantDir, 'project-homes')
+        this.globalWorkspaceRoot = join(assistantDir, 'global-workspace')
+        mkdirSync(this.globalWorkspaceRoot, { recursive: true })
+        const internalPaths = [this.globalWorkspaceRoot]
+        if (app.isPackaged) internalPaths.push(dirname(app.getPath('exe')))
+        this.internalProjectPathKeys = new Set(internalPaths.map(canonicalAssistantFolderKey))
+    }
+
+    getGlobalWorkspaceRoot(): string {
+        return this.globalWorkspaceRoot
+    }
+
+    isInternalProjectPath(value?: string | null): boolean {
+        const normalized = String(value || '').trim()
+        return Boolean(normalized && [...this.internalProjectPathKeys].some((root) => (
+            isAssistantPathInsideRoot(normalized, root)
+        )))
     }
 
     async load(): Promise<{ version: number; snapshot: AssistantSnapshot; events: AssistantDomainEvent[] }> {
@@ -182,6 +226,109 @@ export class AssistantPersistence {
         }).catch((error) => {
             log.error('[AssistantPersistence] Failed to update assistant metadata.', error)
         })
+    }
+
+    async listProjects(discoveryRoots: readonly string[] = []): Promise<AssistantProjectCatalog> {
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            if (discoveryRoots.length > 0) {
+                detectAssistantProjectCandidates(
+                    this.requireDb(),
+                    discoveryRoots,
+                    undefined,
+                    [...this.internalProjectPathKeys]
+                )
+            }
+            const catalog = readAssistantProjectCatalog(this.requireDb())
+            ensureAssistantProjectHomeDirectories(catalog.projects.map((project) => project.homePath))
+            if (discoveryRoots.length > 0) this.scheduleFlush()
+            return catalog
+        })
+    }
+
+    async createProject(input: AssistantCreateProjectInput, candidateId?: string): Promise<AssistantProject> {
+        if (this.isInternalProjectPath(input.folderPath)) throw new Error('Zyra installation and internal workspace folders cannot become Projects.')
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const project = createAssistantProject(this.requireDb(), input, {
+                projectHomesRoot: this.projectHomesRoot,
+                candidateId
+            })
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async associateProjectFolder(input: AssistantAssociateProjectFolderInput): Promise<AssistantProject> {
+        if (this.isInternalProjectPath(input.path)) throw new Error('Zyra installation and internal workspace folders cannot be associated with Projects.')
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const project = associateAssistantProjectFolder(this.requireDb(), input)
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async removeProjectFolder(input: AssistantRemoveProjectFolderInput): Promise<AssistantProject> {
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const project = removeAssistantProjectFolder(this.requireDb(), input)
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async updateProject(input: AssistantUpdateProjectInput): Promise<AssistantProject> {
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const project = updateAssistantProject(this.requireDb(), input)
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async dismissProjectCandidate(input: AssistantDismissProjectCandidateInput): Promise<void> {
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            dismissAssistantProjectCandidate(this.requireDb(), input)
+            this.scheduleFlush()
+        })
+    }
+
+    async ensureLegacyProjectForFolder(folderPath: string): Promise<AssistantProject> {
+        if (this.isInternalProjectPath(folderPath)) throw new Error('Internal Zyra folders do not represent Projects.')
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const project = ensureLegacyAssistantProjectForFolder(this.requireDb(), folderPath, {
+                projectHomesRoot: this.projectHomesRoot
+            })
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async ensureProjectForFolder(folderPath: string): Promise<AssistantProject> {
+        if (this.isInternalProjectPath(folderPath)) throw new Error('Zyra installation and internal workspace folders cannot become Projects.')
+        await this.ensureInitialized()
+        return this.enqueue(() => {
+            const existing = findAssistantProjectByFolderPath(this.requireDb(), folderPath)
+            if (existing) return existing
+            const project = createAssistantProject(this.requireDb(), { folderPath }, {
+                projectHomesRoot: this.projectHomesRoot,
+                allowUnavailableFolder: true
+            })
+            this.scheduleFlush()
+            return project
+        })
+    }
+
+    async createProjectChatScope(projectId: string, workingRoot?: string | null): Promise<AssistantChatScope> {
+        await this.ensureInitialized()
+        return this.enqueue(() => createAssistantChatScopeForProject(
+            this.requireDb(),
+            projectId,
+            workingRoot
+        ))
     }
 
     async hydrateSelectedSession(snapshot: AssistantSnapshot, sessionId: string): Promise<AssistantSnapshot> {
@@ -371,6 +518,14 @@ export class AssistantPersistence {
         })
     }
 
+    private projectMigrationOptions() {
+        return {
+            projectHomesRoot: this.projectHomesRoot,
+            excludedLegacyProjectPaths: [...this.internalProjectPathKeys],
+            globalWorkspaceRoot: this.globalWorkspaceRoot
+        }
+    }
+
     private async ensureInitialized(): Promise<void> {
         if (this.initPromise) return this.initPromise
         this.initPromise = this.initialize()
@@ -392,6 +547,8 @@ export class AssistantPersistence {
                 this.db = dbBytes ? new SQL.Database(dbBytes) : new SQL.Database()
             }
             initializeAssistantPersistenceSchema(this.requireDb())
+            const projectMigration = migrateLegacyAssistantProjects(this.requireDb(), this.projectMigrationOptions())
+            ensureAssistantProjectHomeDirectories(projectMigration.projectHomePaths)
             this.initializeSearchIndex()
 
             const storedVersion = hadDatabase ? readAssistantPersistenceVersion(this.requireDb()) : PERSISTENCE_VERSION
@@ -421,6 +578,10 @@ export class AssistantPersistence {
 
             if (!hadDatabase && existsSync(this.legacyFilePath)) {
                 this.importLegacyJson()
+                const importedProjectMigration = migrateLegacyAssistantProjects(this.requireDb(), this.projectMigrationOptions())
+                ensureAssistantProjectHomeDirectories(importedProjectMigration.projectHomePaths)
+                await this.flushNow()
+            } else if (projectMigration.changed) {
                 await this.flushNow()
             }
         } catch (error) {
@@ -503,6 +664,8 @@ export class AssistantPersistence {
         if (options.importLegacyJson && existsSync(this.legacyFilePath)) {
             this.importLegacyJson()
         }
+        const projectMigration = migrateLegacyAssistantProjects(this.requireDb(), this.projectMigrationOptions())
+        ensureAssistantProjectHomeDirectories(projectMigration.projectHomePaths)
 
         await this.flushNow()
     }

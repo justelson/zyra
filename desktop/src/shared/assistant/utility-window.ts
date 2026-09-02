@@ -1,4 +1,5 @@
 import { sanitizeBrowserPersistentUrl } from '../browser-url-sanitization'
+import type { AssistantChatScopeRoot } from './contracts/project'
 
 export const ASSISTANT_UTILITY_GROUP_COLORS = ['#5b8cff', '#a879ff', '#35b889', '#e3a23b', '#e36d76', '#41a7c7', '#c97bd7', '#8ba45b'] as const
 
@@ -48,6 +49,7 @@ export type AssistantUtilityDiffSelection = {
 export type AssistantUtilityExplorerStateCapsule = {
     version: 1
     workspace: 'explorer'
+    rootPath?: string
     currentFolderPath?: string
     expandedPaths?: string[]
     selectedPath?: string
@@ -112,6 +114,7 @@ export type AssistantUtilityTab = {
     threadId: string
     chatTitle: string
     projectPath: string
+    projectRoots?: AssistantChatScopeRoot[]
     workspace: AssistantUtilityWorkspaceKind
     title: string
     colorIndex: number
@@ -128,7 +131,11 @@ export type AssistantUtilityTab = {
 }
 
 export function sanitizeAssistantUtilityTabForPersistence(tab: AssistantUtilityTab): AssistantUtilityTab {
-    const { hasLivePage: _hasLivePage, ...persistentTab } = tab
+    const { hasLivePage: _hasLivePage, ...persistentValues } = tab
+    const persistentTab = {
+        ...persistentValues,
+        projectRoots: sanitizeAssistantUtilityProjectRoots(tab.projectRoots)
+    }
     if (tab.workspace !== 'browser') return persistentTab
     return {
         ...persistentTab,
@@ -228,6 +235,24 @@ const CAPSULE_QUERY_LIMIT = 256
 const CAPSULE_EXPANDED_PATH_LIMIT = 64
 const CAPSULE_SCROLL_LIMIT = 10_000_000
 
+function sanitizeAssistantUtilityProjectRoots(value: unknown): AssistantChatScopeRoot[] | undefined {
+    if (!Array.isArray(value)) return undefined
+    const roots = value.slice(0, 64).flatMap((candidate) => {
+        const record = candidate && typeof candidate === 'object' ? candidate as Record<string, unknown> : null
+        const id = boundedString(record?.['id'], 256)
+        const path = boundedString(record?.['path'], CAPSULE_PATH_LIMIT)
+        if (!id || !path) return []
+        return [{
+            id,
+            kind: record?.['kind'] === 'project-home' ? 'project-home' as const : 'associated-folder' as const,
+            path,
+            label: boundedString(record?.['label'], 256) || path,
+            access: record?.['access'] === 'read-only' ? 'read-only' as const : 'read-write' as const
+        }]
+    })
+    return roots.length > 0 ? roots : undefined
+}
+
 function boundedString(value: unknown, limit: number): string | undefined {
     if (typeof value !== 'string') return undefined
     const clean = value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, limit)
@@ -285,6 +310,7 @@ export function sanitizeAssistantUtilityStateCapsule(
         return {
             version: 1,
             workspace,
+            rootPath: boundedString(input['rootPath'], CAPSULE_PATH_LIMIT),
             currentFolderPath: boundedString(input['currentFolderPath'], CAPSULE_PATH_LIMIT),
             expandedPaths: expandedPaths.length ? expandedPaths : undefined,
             selectedPath: boundedString(input['selectedPath'], CAPSULE_PATH_LIMIT),

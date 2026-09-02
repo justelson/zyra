@@ -31,25 +31,9 @@ function getRowTurnId(row: TimelineRenderRow): string | null {
 type ProjectedTerminalOutcome = 'interrupted' | 'failed'
 
 function getProjectedActivityTerminalOutcome(activity: AssistantActivity): ProjectedTerminalOutcome | null {
-    const stopReason = String(activity.payload?.stopReason || '').trim().toLowerCase()
-    const status = String(activity.payload?.status || '').trim().toLowerCase()
-    if (
-        stopReason === 'aborted'
-        || stopReason === 'cancelled'
-        || stopReason === 'canceled'
-        || stopReason === 'interrupted'
-        || stopReason === 'stopped'
-        || status === 'cancelled'
-        || status === 'canceled'
-        || status === 'aborted'
-        || status === 'interrupted'
-        || status === 'stopped'
-    ) return 'interrupted'
-    if (
-        activity.kind === 'error'
-        && (activity.tone === 'error' || stopReason === 'error' || status === 'failed' || status === 'error')
-    ) return 'failed'
-    return null
+    return activity.turnTerminalOutcome === 'failed' || activity.turnTerminalOutcome === 'interrupted'
+        ? activity.turnTerminalOutcome
+        : null
 }
 
 function buildProjectedTerminalOutcomeByTurn(rows: TimelineRenderRow[]): Map<string, ProjectedTerminalOutcome> {

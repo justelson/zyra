@@ -37,6 +37,13 @@ export type ResolvedUtilityChat = {
     threadId: string
     chatTitle: string
     projectPath: string
+    projectRoots: Array<{
+        id: string
+        kind: 'project-home' | 'associated-folder'
+        path: string
+        label: string
+        access: 'read-only' | 'read-write'
+    }>
 }
 
 export type UtilityWindowCreationOptions = {
@@ -896,13 +903,25 @@ export class AssistantUtilityWindowManager {
         const now = new Date().toISOString()
         const safeBrowserUrl = workspace === 'browser' ? sanitizeBrowserPersistentUrl(request['url']) || '' : ''
         const requestedPath = String(request['path'] || '').trim()
-        const projectRoot = realpathSync(resolve(chat.projectPath || process.cwd()))
-        const resolvedPath = requestedPath ? realpathSync(resolve(projectRoot, requestedPath)) : ''
-        if (resolvedPath) {
-            const projectRelative = relative(projectRoot, resolvedPath)
-            if (projectRelative === '..' || projectRelative.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(projectRelative)) {
-                throw new Error('Files and Terminal paths must stay inside the selected chat project.')
+        const projectRoot = realpathSync(resolve(chat.projectPath))
+        const availableRoots = chat.projectRoots.flatMap((root) => {
+            try {
+                return [{ ...root, path: realpathSync(resolve(root.path)) }]
+            } catch {
+                return []
             }
+        }).sort((left, right) => right.path.length - left.path.length)
+        const resolvedPath = requestedPath ? realpathSync(resolve(projectRoot, requestedPath)) : ''
+        const targetPath = resolvedPath || projectRoot
+        const matchedRoot = availableRoots.find((root) => {
+            const rootRelative = relative(root.path, targetPath)
+            return rootRelative !== '..'
+                && !rootRelative.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)
+                && !isAbsolute(rootRelative)
+        }) || null
+        if (!matchedRoot) throw new Error('Files and Terminal paths must stay inside the selected Chat scope.')
+        if (workspace === 'terminal' && matchedRoot.access === 'read-only') {
+            throw new Error('Terminal cannot start inside a read-only Project folder.')
         }
         return {
             id: workspace === 'browser'
@@ -913,6 +932,7 @@ export class AssistantUtilityWindowManager {
             threadId: chat.threadId,
             chatTitle: chat.chatTitle,
             projectPath: chat.projectPath,
+            projectRoots: chat.projectRoots,
             workspace,
             title: workspaceTitle(workspace, safeBrowserUrl),
             colorIndex: colorIndex(chat.canonicalChatId),

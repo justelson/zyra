@@ -185,7 +185,7 @@ export function AssistantUtilityWorkspaceHost({ tab, active, windowId, onStateCa
 
     if (tab.workspace === 'browser') return <><UtilityBrowser tab={tab} active={active} windowId={windowId} onOpenPreview={preview.openPreview} />{previewModal}</>
     if (tab.workspace === 'explorer') {
-        return <AssistantFilesWorkspace projectPath={tab.path || tab.projectPath || null} active={active} stateCapsule={tab.stateCapsule?.workspace === 'explorer' ? tab.stateCapsule : undefined} onStateCapsuleChange={publishCapsule} />
+        return <AssistantFilesWorkspace projectPath={tab.path || tab.projectPath || null} projectRoots={tab.projectRoots || []} active={active} stateCapsule={tab.stateCapsule?.workspace === 'explorer' ? tab.stateCapsule : undefined} onStateCapsuleChange={publishCapsule} />
     }
     if (tab.workspace === 'terminal') {
         const terminalRuntimeId = tab.terminalRuntimeId || tab.id

@@ -2,14 +2,17 @@ import type {
     AssistantApprovalResponseInput,
     AssistantAccountOverviewPayload,
     AssistantApprovePendingPlaygroundLabRequestInput,
+    AssistantAssociateProjectFolderInput,
     AssistantAttachSessionToPlaygroundLabInput,
     AssistantBootstrapPayload,
     AssistantClearLogsInput,
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
+    AssistantCreateProjectInput,
     AssistantCreateSessionInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantDeletePlaygroundLabInput,
+    AssistantDismissProjectCandidateInput,
     AssistantDeleteMessageInput,
     AssistantEventStreamPayload,
     AssistantFleetOperationResultPayload,
@@ -25,7 +28,10 @@ import type {
     AssistantIngestRealtimeVoiceEventInput,
     AssistantModelInfo,
     AssistantPlaygroundResultPayload,
+    AssistantProject,
+    AssistantProjectCatalog,
     AssistantPromptResourcesPayload,
+    AssistantRemoveProjectFolderInput,
     AssistantPersistClipboardImageInput,
     AssistantRealtimeVoiceEvent,
     AssistantRedeemAccountResetInput,
@@ -43,6 +49,7 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetSessionProjectInput,
     AssistantSessionTurnUsageResultPayload,
     AssistantShellSnapshot,
     AssistantSnapshot,
@@ -50,6 +57,7 @@ import type {
     AssistantHistoryPageResultPayload,
     AssistantTurnDetailResultPayload,
     AssistantTranscribeVoiceInput,
+    AssistantUpdateProjectInput,
     AssistantVoiceTranscriptionState,
     AssistantUserInputResponseInput,
     FleetOperationInput
@@ -588,6 +596,12 @@ export interface DevScopeAssistantApi {
     redeemAccountReset: (input: AssistantRedeemAccountResetInput) => Promise<DevScopeResult<AssistantRedeemAccountResetPayload>>
     getSessionTurnUsage: (input?: AssistantGetSessionTurnUsageInput) => Promise<DevScopeResult<AssistantSessionTurnUsageResultPayload>>
     listModels: (forceRefresh?: boolean) => Promise<DevScopeResult<{ models: AssistantModelInfo[] }>>
+    listProjects: () => Promise<DevScopeResult<{ catalog: AssistantProjectCatalog }>>
+    createProject: (input: AssistantCreateProjectInput, candidateId?: string) => Promise<DevScopeResult<{ project: AssistantProject }>>
+    associateProjectFolder: (input: AssistantAssociateProjectFolderInput) => Promise<DevScopeResult<{ project: AssistantProject }>>
+    removeProjectFolder: (input: AssistantRemoveProjectFolderInput) => Promise<DevScopeResult<{ project: AssistantProject }>>
+    updateProject: (input: AssistantUpdateProjectInput) => Promise<DevScopeResult<{ project: AssistantProject }>>
+    dismissProjectCandidate: (input: AssistantDismissProjectCandidateInput) => Promise<DevScopeResult>
     listPromptResources: (projectPath?: string | null, forceRefresh?: boolean) => Promise<DevScopeResult<AssistantPromptResourcesPayload>>
     getSkillSourceOverview: (projectPath?: string | null) => Promise<DevScopeResult<AssistantSkillSourceOverviewPayload>>
     updateSkillSourceSettings: (settings: AssistantSkillSourceSettings, projectPath?: string | null) => Promise<DevScopeResult<AssistantSkillSourceOverviewPayload>>
@@ -610,6 +624,7 @@ export interface DevScopeAssistantApi {
     deleteSession: (sessionId: string) => Promise<DevScopeResult>
     deleteMessage: (input: AssistantDeleteMessageInput) => Promise<DevScopeResult>
     clearLogs: (input?: AssistantClearLogsInput) => Promise<DevScopeResult>
+    setSessionProject: (sessionId: string, input: AssistantSetSessionProjectInput) => Promise<DevScopeResult>
     setSessionProjectPath: (sessionId: string, projectPath: string | null) => Promise<DevScopeResult>
     setPlaygroundRoot: (input: AssistantSetPlaygroundRootInput) => Promise<DevScopeResult<AssistantPlaygroundResultPayload>>
     createPlaygroundLab: (input: AssistantCreatePlaygroundLabInput) => Promise<DevScopeResult<{ labId: string; sessionId?: string | null } & AssistantPlaygroundResultPayload>>

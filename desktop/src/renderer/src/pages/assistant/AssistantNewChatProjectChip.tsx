@@ -1,28 +1,42 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, FolderOpen, Unlink } from 'lucide-react'
+import { Check, ChevronDown, FolderOpen, FolderPlus, Unlink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 
 export type AssistantProjectChoice = {
+    projectId: string
+    path: string
+    label: string
+    rootLabel: string
+}
+
+export type AssistantDetectedProjectChoice = {
+    id: string
     path: string
     label: string
 }
 
 export function AssistantNewChatProjectChip(props: {
+    projectId: string | null
     projectPath: string | null
+    projectName?: string | null
     projectChoices: AssistantProjectChoice[]
+    detectedProjectChoices?: AssistantDetectedProjectChoice[]
     disabled?: boolean
-    onSelectProject: (projectPath: string | null) => Promise<void> | void
+    onSelectProject: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
+    onImportDetectedProject?: (candidateId: string) => Promise<void> | void
     onChooseFolder: () => Promise<void> | void
 }) {
     const [open, setOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement | null>(null)
     const projectLabel = useMemo(() => {
+        const namedProject = String(props.projectName || '').trim()
+        if (namedProject) return namedProject
         const path = String(props.projectPath || '').trim()
         if (!path) return 'No project'
         const parts = path.split(/[\\/]/).filter(Boolean)
         return parts[parts.length - 1] || path
-    }, [props.projectPath])
+    }, [props.projectName, props.projectPath])
 
     useEffect(() => {
         if (!open) return
@@ -40,9 +54,9 @@ export function AssistantNewChatProjectChip(props: {
         }
     }, [open])
 
-    const selectProject = (projectPath: string | null) => {
+    const selectProject = (projectId: string | null, workingRoot?: string | null) => {
         setOpen(false)
-        void props.onSelectProject(projectPath)
+        void props.onSelectProject(projectId, workingRoot)
     }
 
     return (
@@ -73,32 +87,59 @@ export function AssistantNewChatProjectChip(props: {
                     <button
                         type="button"
                         role="menuitemradio"
-                        aria-checked={!props.projectPath}
+                        aria-checked={!props.projectId}
                         onClick={() => selectProject(null)}
                         className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
                     >
                         <Unlink size={13} className="shrink-0 text-sparkle-text-muted" />
                         <span className="min-w-0 flex-1 truncate">No project</span>
-                        {!props.projectPath ? <Check size={12} /> : null}
+                        {!props.projectId ? <Check size={12} /> : null}
                     </button>
                     {props.projectChoices.length > 0 ? <div className="my-1 border-t border-[var(--surface-divider)]" /> : null}
                     <div className="custom-scrollbar max-h-52 overflow-y-auto">
                         {props.projectChoices.map((project) => (
                             <button
-                                key={project.path}
+                                key={`${project.projectId}:${project.path}`}
                                 type="button"
                                 role="menuitemradio"
-                                aria-checked={project.path === props.projectPath}
-                                onClick={() => selectProject(project.path)}
-                                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                                aria-checked={project.projectId === props.projectId && project.path === props.projectPath}
+                                onClick={() => selectProject(project.projectId, project.path)}
+                                className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
                                 title={project.path}
                             >
                                 <AssistantProjectIcon projectPath={project.path} size={13} />
-                                <span className="min-w-0 flex-1 truncate">{project.label}</span>
-                                {project.path === props.projectPath ? <Check size={12} /> : null}
+                                <span className="min-w-0 flex-1 truncate">
+                                    <span className="block truncate">{project.label}</span>
+                                    <span className="block truncate text-[9px] text-sparkle-text-muted/60">{project.rootLabel}</span>
+                                </span>
+                                {project.projectId === props.projectId && project.path === props.projectPath ? <Check size={12} /> : null}
                             </button>
                         ))}
                     </div>
+                    {(props.detectedProjectChoices?.length || 0) > 0 ? (
+                        <>
+                            <div className="my-1 border-t border-[var(--surface-divider)]" />
+                            <div className="px-2 py-1 text-[9px] font-medium text-sparkle-text-muted/55">Detected folders</div>
+                            <div className="custom-scrollbar max-h-36 overflow-y-auto">
+                                {props.detectedProjectChoices?.map((candidate) => (
+                                    <button
+                                        key={candidate.id}
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            setOpen(false)
+                                            void props.onImportDetectedProject?.(candidate.id)
+                                        }}
+                                        className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                                        title={candidate.path}
+                                    >
+                                        <FolderPlus size={13} className="shrink-0 text-sparkle-text-muted" />
+                                        <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    ) : null}
                     <div className="my-1 border-t border-[var(--surface-divider)]" />
                     <button
                         type="button"

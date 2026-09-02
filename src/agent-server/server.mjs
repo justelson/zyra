@@ -7,6 +7,7 @@ import { AgentBridgeWorker } from "./bridge-worker.mjs";
 import { AgentEventJournal } from "./event-journal.mjs";
 import { CanonicalChatCatalog } from "./catalog.mjs";
 import { getAgentServerPaths } from "./paths.mjs";
+import { isNetworkRecoveryError } from "../network-recovery.mjs";
 import {
   AGENT_SERVER_PROTOCOL_VERSION,
   AgentServerProtocolError,
@@ -532,10 +533,22 @@ export class ZyraAgentServer extends EventEmitter {
     }
     const requested = requestedCandidate;
     const requestedCanonicalId = requested?.canonicalChatId || this.catalog.resolveAlias(params.session || params.localThreadId || "");
-    const sessionProject = requested?.project || project;
-    const sessionCwd = requested?.cwd || requested?.project || params.cwd || project;
+    const sessionProject = params.project || requested?.project || project;
+    const sessionCwd = params.cwd || requested?.cwd || requested?.project || project;
     const provisionalKey = requestedCanonicalId || `pending:${assertAgentServerIdentifier(params.localThreadId || randomUUID(), "local thread id")}`;
     let session = this.sessions.get(provisionalKey);
+    const connectionPayload = { ...params, cwd: sessionCwd };
+    if (session?.requiresAuthorityReconnect(connectionPayload)) {
+      if (session.activeRequests > 0 || session.hasBackgroundWork()) {
+        throw new AgentServerProtocolError(
+          "Chat filesystem scope changed while canonical work is still active.",
+          "AGENT_SERVER_SESSION_BUSY"
+        );
+      }
+      session.dispose("Chat filesystem scope changed; reconnecting with the saved scope.");
+      this.removeSession(session);
+      session = null;
+    }
     if (!session) {
       session = new ServerOwnedSession({
         server: this,
@@ -710,6 +723,31 @@ export class ZyraAgentServer extends EventEmitter {
   }
 }
 
+function canonicalConnectionAuthorityKey(payload) {
+  const normalizePath = (value) => {
+    const normalized = String(value || "").trim();
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const scope = payload?.filesystemScope && typeof payload.filesystemScope === "object"
+    ? payload.filesystemScope
+    : null;
+  const roots = Array.isArray(scope?.roots)
+    ? scope.roots.map((root) => ({
+        id: String(root?.id || ""),
+        kind: root?.kind === "project-home" ? "project-home" : "associated-folder",
+        path: normalizePath(root?.path),
+        access: root?.access === "read-only" ? "read-only" : "read-write"
+      }))
+    : [];
+  return JSON.stringify({
+    cwd: normalizePath(payload?.cwd),
+    projectId: String(scope?.projectId || ""),
+    revision: Number(scope?.revision) || 0,
+    workingRoot: normalizePath(scope?.workingRoot),
+    roots
+  });
+}
+
 class ServerOwnedSession {
   constructor(options) {
     this.server = options.server;
@@ -732,6 +770,7 @@ class ServerOwnedSession {
     this.managedJobIds = new Set();
     this.connectPromise = null;
     this.connectedResult = null;
+    this.connectionAuthorityKey = null;
     this.latestFleetSnapshot = null;
     this.idleTimer = null;
     this.disposed = false;
@@ -746,9 +785,15 @@ class ServerOwnedSession {
     });
   }
 
+  requiresAuthorityReconnect(payload) {
+    if ((!this.connectedResult && !this.connectPromise) || !this.connectionAuthorityKey) return false;
+    return this.connectionAuthorityKey !== canonicalConnectionAuthorityKey(payload);
+  }
+
   connect(payload) {
     if (this.connectedResult) return Promise.resolve(this.connectedResult);
     if (!this.connectPromise) {
+      this.connectionAuthorityKey = canonicalConnectionAuthorityKey(payload);
       this.connectPromise = this.worker.request("connect", payload, { timeoutMs: BRIDGE_CONNECT_TIMEOUT_MS })
         .then((result) => {
           const connected = projectConnectedResult(result);
@@ -759,6 +804,7 @@ class ServerOwnedSession {
         })
         .catch((error) => {
           this.connectPromise = null;
+          this.connectionAuthorityKey = null;
           throw error;
         });
     }
@@ -873,7 +919,8 @@ class ServerOwnedSession {
     } catch (error) {
       if (type === "prompt" && !this.isTurnTerminal(requestContext.turnId)) {
         const errorMessage = error instanceof Error ? error.message : String(error || "Zyra prompt failed.");
-        const interrupted = /\b(?:abort(?:ed)?|cancel(?:led|ed)?|interrupt(?:ed)?|stopp?ed)\b/i.test(errorMessage);
+        const interrupted = isNetworkRecoveryError(error)
+          || /\b(?:abort(?:ed)?|cancel(?:led|ed)?|interrupt(?:ed)?|stopp?ed)\b/i.test(errorMessage);
         this.publish({
           type: "zyra_server_turn_completed",
           outcome: interrupted ? "interrupted" : "failed",
@@ -939,7 +986,7 @@ class ServerOwnedSession {
     if (
       publishedRequestContext
       && this.activeRequestContext === publishedRequestContext
-      && (event?.type === "agent_end" || event?.type === "zyra_server_turn_completed")
+      && ((event?.type === "agent_end" && event.willRetry !== true) || event?.type === "zyra_server_turn_completed")
     ) {
       this.activeRequestContext = null;
       this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, presence: true });
@@ -947,6 +994,7 @@ class ServerOwnedSession {
     if (
       previousAttention !== (this.pendingApprovalRequestIds.size > 0 || this.pendingUserInputRequestIds.size > 0)
       || previousBackgroundWork !== this.hasBackgroundWork()
+      || (event?.type === "auto_retry_end" && event.success === false)
     ) {
       this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, presence: true });
     }
@@ -1005,6 +1053,15 @@ class ServerOwnedSession {
     if (event?.type === "message_end" && event.message?.role === "assistant" && event.message.id && this.latestTurn) {
       this.latestTurn = { ...this.latestTurn, assistantMessageId: String(event.message.id) };
     }
+    if (event?.type === "auto_retry_end" && event.success === false && this.latestTurn) {
+      this.latestTurn = {
+        ...this.latestTurn,
+        state: isNetworkRecoveryError(event.finalError) ? "interrupted" : "error",
+        completedAt: occurredAt
+      };
+      return;
+    }
+    if (event?.type === "agent_end" && event.willRetry === true) return;
     if (event?.type !== "zyra_server_turn_completed" && event?.type !== "agent_end") return;
     const completedTurnId = turnId || this.latestTurn?.id;
     if (!completedTurnId) return;

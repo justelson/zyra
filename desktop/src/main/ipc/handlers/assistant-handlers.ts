@@ -2,14 +2,17 @@ import log from 'electron-log'
 import type {
     AssistantApprovalResponseInput,
     AssistantApprovePendingPlaygroundLabRequestInput,
+    AssistantAssociateProjectFolderInput,
     AssistantAttachSessionToPlaygroundLabInput,
     AssistantClearLogsInput,
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
+    AssistantCreateProjectInput,
     AssistantCreateSessionInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantDeletePlaygroundLabInput,
     AssistantDeleteMessageInput,
+    AssistantDismissProjectCandidateInput,
     AssistantGetHistoryPageInput,
     AssistantGetHistoryAroundMessageInput,
     AssistantHydrateHistoryBodyInput,
@@ -20,6 +23,7 @@ import type {
     AssistantPersistClipboardImageInput,
     AssistantRedeemAccountResetInput,
     AssistantResolveClipboardAttachmentInput,
+    AssistantRemoveProjectFolderInput,
     AssistantSearchChatsInput,
     AssistantSearchTurnsInput,
     AssistantSendPromptOptions,
@@ -28,7 +32,9 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetSessionProjectInput,
     AssistantTranscribeVoiceInput,
+    AssistantUpdateProjectInput,
     AssistantUserInputResponseInput,
     FleetOperationInput
 } from '../../../shared/assistant/contracts'
@@ -118,6 +124,46 @@ export function handleAssistantGetSessionTurnUsage(_event: Electron.IpcMainInvok
 export function handleAssistantListModels(_event: Electron.IpcMainInvokeEvent, forceRefresh?: boolean) {
     log.info('IPC: assistant:listModels', { forceRefresh: Boolean(forceRefresh) })
     return withAssistantResult(() => getAssistantService().listModels(Boolean(forceRefresh)))
+}
+
+export function handleAssistantListProjects() {
+    return withAssistantResult(() => getAssistantService().listProjects())
+}
+
+export function handleAssistantCreateProject(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantCreateProjectInput,
+    candidateId?: string
+) {
+    return withAssistantResult(() => getAssistantService().createProject(input, candidateId))
+}
+
+export function handleAssistantAssociateProjectFolder(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantAssociateProjectFolderInput
+) {
+    return withAssistantResult(() => getAssistantService().associateProjectFolder(input))
+}
+
+export function handleAssistantRemoveProjectFolder(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantRemoveProjectFolderInput
+) {
+    return withAssistantResult(() => getAssistantService().removeProjectFolder(input))
+}
+
+export function handleAssistantUpdateProject(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantUpdateProjectInput
+) {
+    return withAssistantResult(() => getAssistantService().updateProject(input))
+}
+
+export function handleAssistantDismissProjectCandidate(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantDismissProjectCandidateInput
+) {
+    return withAssistantResult(() => getAssistantService().dismissProjectCandidate(input))
 }
 
 export function handleAssistantListPromptResources(
@@ -236,6 +282,15 @@ export function handleAssistantDeleteMessage(_event: Electron.IpcMainInvokeEvent
 export function handleAssistantClearLogs(_event: Electron.IpcMainInvokeEvent, input?: AssistantClearLogsInput) {
     log.info('IPC: assistant:clearLogs', { sessionId: input?.sessionId })
     return withAssistantResult(() => getAssistantService().clearLogs(input))
+}
+
+export function handleAssistantSetSessionProject(
+    _event: Electron.IpcMainInvokeEvent,
+    sessionId: string,
+    input: AssistantSetSessionProjectInput
+) {
+    log.info('IPC: assistant:setSessionProject', { sessionId, projectId: input?.projectId || null })
+    return withAssistantResult(() => getAssistantService().setSessionProject(sessionId, input))
 }
 
 export function handleAssistantSetSessionProjectPath(_event: Electron.IpcMainInvokeEvent, sessionId: string, projectPath: string | null) {

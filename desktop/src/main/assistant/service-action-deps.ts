@@ -6,6 +6,7 @@ import type {
     AssistantDeleteMessageInput,
     AssistantDomainEvent,
     AssistantApprovalDecision,
+    AssistantChatScope,
     AssistantInteractionMode,
     AssistantModelInfo,
     AssistantPlaygroundState,
@@ -25,7 +26,7 @@ import type { AssistantRuntimePolicy } from '../../shared/assistant/runtime-poli
 export interface AssistantRuntimeBridge {
     checkAvailability(): Promise<{ available: boolean; reason: string | null }>
     listModels(forceRefresh?: boolean): Promise<AssistantModelInfo[]>
-    connect(thread: AssistantThread, cwd: string): Promise<void>
+    connect(thread: AssistantThread, cwd: string, filesystemScope?: AssistantChatScope | null): Promise<void>
     hasSession(threadId: string): boolean
     getSessionUsage?(threadId: string): AssistantSessionUsageTotals | null
     generateText(

@@ -1,12 +1,12 @@
 # Zyra Browser and Computer Use Implementation Plan
 
-**Status:** Proposed
+**Status:** Implemented
 
-**Revision:** 1
+**Revision:** 2
 
 **Scope:** In-app Browser control, explicitly paired Chrome tabs, Windows computer use, shared permission broker, agent tools, audit, recovery, UI, packaging, and testing
 
-**Execution mode:** One autonomous builder agent completes this plan end to end in an isolated branch and worktree
+**Execution mode:** Implemented from this plan; unchecked task boxes below are retained as historical planning detail.
 
 ---
 
@@ -16,7 +16,7 @@ Give Zyra secure, observable, revocable control over three target classes:
 
 1. The retained in-app Zyra Browser.
 2. Explicitly paired tabs in the user's Chrome browser.
-3. Explicitly selected Windows application windows.
+3. Exact Windows application windows selected through a root Chat's bounded grant request.
 
 The implementation must let a root Codex agent observe a target, act on the latest observation, verify the result, and stop safely. The same broker must later accept attenuated leases from Zyra subagents without giving them control by default.
 
@@ -357,7 +357,8 @@ The canonical chat owns permission decisions.
 - Full access issues routine bounded root grants across Browser, paired Chrome, and selected Windows windows without another prompt.
 - Child agents still require an attenuated parent lease.
 - Browser chrome and Thread Details show pending or active status without approval buttons.
-- Chrome pairing, browser-owned optional permission requests, exact-tab activation, and Windows window selection remain explicit setup gestures.
+- Chrome pairing, browser-owned optional permission requests, and exact-tab activation remain explicit setup gestures.
+- A root Chat may select one bounded Windows candidate as part of its grant request; modes other than Full access require approval of that exact target in Chat before use.
 
 A grant remains bound to the requesting principal, exact target, allowed origin or executable, capabilities, expiry, action count, and screenshot policy. The selected chat mode changes only whether a routine root grant needs a separate approval.
 
@@ -575,22 +576,29 @@ wait
 release
 ```
 
-#### `computer_control`
+#### Deferred Windows computer tools
+
+Only `tool_search` is advertised before a computer task. A relevant search activates these verb-named tools for the current agent turn:
 
 ```text
-list_windows
-request_grant
-observe
-focus
-click
-type
-key
-scroll
-wait
-release
+computer_open_app
+computer_list_windows
+computer_request_access
+computer_observe
+computer_focus
+computer_click
+computer_type
+computer_key
+computer_scroll
+computer_wait
+computer_release
 ```
 
-Tool output contains normalized observations and references, never raw CDP, raw UIA objects, cookies, handles, or reusable pairing tokens.
+`computer_open_app` resolves a name only against Windows' registered Start apps. It accepts no executable path, command arguments, file, or URL and rejects ambiguous names. `computer_list_windows` requires an application query, returns only matching opaque candidates, and keeps ambient window titles out of the model transcript. Observations and every action return the bounded, redacted next observation directly in model-visible tool content. The tool set unloads at turn completion.
+
+The Windows helper starts on the first computer operation, remains available for the active pending/approved feedback loop, exits immediately when the task releases its grant, and exits after a short idle timeout when enumeration is abandoned. It does not run continuously waiting for work.
+
+Tool output contains normalized observations and references, never raw CDP, raw UIA objects, cookies, handles, or reusable pairing credentials.
 
 TUI-only sessions return a specific capability-unavailable result until a standalone broker transport is implemented. They must not silently emulate desktop control with shell tools.
 
@@ -1254,7 +1262,7 @@ If an external Chrome or Windows UI test cannot run in the isolated environment,
 - [ ] Emergency stop revokes every target and aborts active work.
 - [ ] Chrome pairing requires an explicit user gesture and exact-tab selection.
 - [ ] Unpaired Chrome tabs are inaccessible.
-- [ ] Windows control requires an explicitly selected ordinary application window.
+- [x] Windows control requires one exact ordinary application window selected through a root Chat grant request.
 - [ ] Zyra never elevates or controls UAC/secure desktop.
 - [ ] `SendInput` is fallback-only and respects Windows integrity boundaries.
 - [ ] Active grants and bearer credentials do not survive restart.

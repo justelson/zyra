@@ -48,6 +48,7 @@ const paneSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pa
 const composerPaneSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantConversationComposerPane.tsx'), 'utf8')
 const placementMotionSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/useAssistantComposerPlacementMotion.ts'), 'utf8')
 const projectChipSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantNewChatProjectChip.tsx'), 'utf8')
+const projectCatalogSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/useAssistantProjectCatalog.ts'), 'utf8')
 const composerSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantComposerView.tsx'), 'utf8')
 assert.match(paneSource, /\{!composerIsCentered \? \([\s\S]{0,160}<AssistantConversationTimelinePane/u, 'the hidden timeline must leave layout so it cannot push the centered composer downward')
 assert.match(paneSource, /newChatPrompt=\{emptyComposerPrompt\}/u, 'the centered New Chat surface must receive its contextual greeting')
@@ -60,6 +61,8 @@ assert.match(placementMotionSource, /prefers-reduced-motion: reduce/u, 'composer
 assert.match(projectChipSource, /data-assistant-new-chat-project-chip="true"/u, 'New Chat should expose its project context on the composer seam')
 assert.match(projectChipSource, /No project/u, 'detached New Chat context must be explicit')
 assert.match(projectChipSource, /Choose folder…/u, 'the project context menu must retain the real folder picker path')
+assert.match(projectCatalogSource, /assistant\.listProjects\(\)/u, 'New Chat Project choices come from the durable catalog even when no Chat references a folder')
+assert.match(paneSource, /projectCatalogState\.catalog\.candidates/u, 'detected configured folders remain explicit review candidates in New Chat')
 assert.match(composerSource, /surface-floating[\s\S]{0,260}shadow-\[0_22px_68px/u, 'the centered composer should use the raised floating-surface edge language')
 
 const originalWindow = (globalThis as { window?: unknown }).window

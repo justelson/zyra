@@ -14,6 +14,7 @@ import { removeZyraTitleGenerationMessages } from "../title-generation.mjs";
 import { ZyraAgentServerClient } from "./client.mjs";
 import { captureCliEvent } from "../analytics/cli.mjs";
 import { normalizeZyraPermissionMode } from "../permission-mode.mjs";
+import { ZYRA_RETRY_MAX_ATTEMPTS } from "../network-recovery.mjs";
 
 export const TUI_RESUME_HISTORY_ENTRY_LIMIT = 120;
 
@@ -144,7 +145,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
         activeTurnId,
       };
     }
-    if (!replay && (event.type === "zyra_server_turn_completed" || event.type === "agent_end")) {
+    if (!replay && (event.type === "zyra_server_turn_completed" || (event.type === "agent_end" && event.willRetry !== true))) {
       if (!requestContext?.turnId || requestContext.turnId === activeTurnId) activeTurnId = null;
       currentPresence = {
         ...(currentPresence || {}),
@@ -300,18 +301,44 @@ export async function createZyraTuiClientRuntime(options = {}) {
   reconnectDetached = () => {
     if (disposed) return Promise.resolve();
     if (reconnectPromise) return reconnectPromise;
+    const retryTurnId = activeTurnId;
+    const requestContext = retryTurnId ? { turnId: retryTurnId, localThreadId } : undefined;
     captureCliEvent("zyra_v1_cli", { action: "recovery", outcome: "started", runtime: "client" });
     reconnectPromise = (async () => {
       let delayMs = 120;
-      while (!disposed && !remotelyAttached) {
+      let lastError = "Agent-server connection closed.";
+      for (let attempt = 1; attempt <= ZYRA_RETRY_MAX_ATTEMPTS && !disposed && !remotelyAttached; attempt += 1) {
+        dispatch({
+          type: "auto_retry_start",
+          attempt,
+          maxAttempts: ZYRA_RETRY_MAX_ATTEMPTS,
+          delayMs,
+          errorMessage: lastError,
+          recoveryKind: "network"
+        }, requestContext);
         try {
           await ensureAttached();
+          const recoveredRequestContext = activeTurnFromPresence(currentPresence) ? requestContext : undefined;
+          dispatch({ type: "auto_retry_end", success: true, attempt, recoveryKind: "network" }, recoveredRequestContext);
           captureCliEvent("zyra_v1_cli", { action: "recovery", outcome: "recovered", runtime: "client" });
           return;
-        } catch {
-          await delay(delayMs);
+        } catch (error) {
+          lastError = String(error?.message || error || lastError);
+          if (attempt < ZYRA_RETRY_MAX_ATTEMPTS) await delay(delayMs);
           delayMs = Math.min(2_500, Math.round(delayMs * 1.7));
         }
+      }
+      if (!disposed && !remotelyAttached) {
+        dispatch({
+          type: "auto_retry_end",
+          success: false,
+          attempt: ZYRA_RETRY_MAX_ATTEMPTS,
+          finalError: lastError,
+          recoveryKind: "network"
+        }, requestContext);
+        activeTurnId = null;
+        currentPresence = { ...(currentPresence || {}), state: "interrupted", activeTurnId: null };
+        captureCliEvent("zyra_v1_cli", { action: "recovery", outcome: "failed", runtime: "client" });
       }
     })().finally(() => { reconnectPromise = null; });
     return reconnectPromise;

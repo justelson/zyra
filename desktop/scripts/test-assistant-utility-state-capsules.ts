@@ -8,6 +8,7 @@ import {
 const explorer = sanitizeAssistantUtilityStateCapsule({
     version: 1,
     workspace: 'explorer',
+    rootPath: 'C:/project',
     currentFolderPath: `C:/project/${'folder/'.repeat(300)}`,
     expandedPaths: Array.from({ length: 100 }, (_, index) => `C:/project/folder-${index}`),
     selectedPath: 'C:/project/src/index.ts\u0000',
@@ -24,6 +25,7 @@ const explorer = sanitizeAssistantUtilityStateCapsule({
 }, 'explorer') as AssistantUtilityExplorerStateCapsule
 
 assert.equal(explorer.workspace, 'explorer')
+assert.equal(explorer.rootPath, 'C:/project', 'Files capsules retain the selected Chat-scope root')
 assert.equal(explorer.expandedPaths?.length, 64, 'expanded file state stays bounded')
 assert.equal(explorer.currentFolderPath?.length, 1_024, 'paths stay bounded')
 assert.equal(explorer.selectedPath, 'C:/project/src/index.ts', 'control characters are removed')

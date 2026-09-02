@@ -43,6 +43,12 @@ export const ASSISTANT_IPC = {
     redeemAccountReset: 'devscope:assistant:redeemAccountReset',
     getSessionTurnUsage: 'devscope:assistant:getSessionTurnUsage',
     listModels: 'devscope:assistant:listModels',
+    listProjects: 'devscope:assistant:listProjects',
+    createProject: 'devscope:assistant:createProject',
+    associateProjectFolder: 'devscope:assistant:associateProjectFolder',
+    removeProjectFolder: 'devscope:assistant:removeProjectFolder',
+    updateProject: 'devscope:assistant:updateProject',
+    dismissProjectCandidate: 'devscope:assistant:dismissProjectCandidate',
     listPromptResources: 'devscope:assistant:listPromptResources',
     getSkillSourceOverview: 'devscope:assistant:getSkillSourceOverview',
     updateSkillSourceSettings: 'devscope:assistant:updateSkillSourceSettings',
@@ -65,6 +71,7 @@ export const ASSISTANT_IPC = {
     deleteSession: 'devscope:assistant:deleteSession',
     deleteMessage: 'devscope:assistant:deleteMessage',
     clearLogs: 'devscope:assistant:clearLogs',
+    setSessionProject: 'devscope:assistant:setSessionProject',
     setSessionProjectPath: 'devscope:assistant:setSessionProjectPath',
     setPlaygroundRoot: 'devscope:assistant:setPlaygroundRoot',
     createPlaygroundLab: 'devscope:assistant:createPlaygroundLab',
@@ -281,6 +288,8 @@ export interface AssistantDeleteMessageInput {
 export interface AssistantCreateSessionInput {
     title?: string
     projectPath?: string
+    projectId?: string
+    workingRoot?: string
     mode?: 'work' | 'playground'
     playgroundLabId?: string | null
 }

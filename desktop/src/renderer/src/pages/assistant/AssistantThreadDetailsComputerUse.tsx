@@ -1,9 +1,6 @@
 import { useCallback, useState } from 'react'
 import { ChevronDown, Globe2, Monitor, ShieldCheck } from 'lucide-react'
-import type {
-    ControlStateSnapshot,
-    ControlWindowCandidate
-} from '@shared/agent-control/contracts'
+import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import { cn } from '@/lib/utils'
 import type { AssistantThreadControlSummary } from './assistant-thread-details'
 import { controlTargetLabel } from './assistant-control-presentation'
@@ -27,7 +24,6 @@ export function AssistantThreadDetailsComputerUse({
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [advancedOpen, setAdvancedOpen] = useState(false)
-    const [windows, setWindows] = useState<ControlWindowCandidate[]>([])
     const pendingAction = threadControl.pendingActionApprovals[0] || null
     const pendingGrant = threadControl.pendingGrants[0] || null
     const hasPendingApproval = Boolean(pendingAction || pendingGrant)
@@ -50,12 +46,6 @@ export function AssistantThreadDetailsComputerUse({
             setBusy(false)
         }
     }, [])
-
-    const refreshWindows = useCallback(() => run(async () => {
-        const result = await window.devscope.agentControl.listWindows()
-        if (result.success) setWindows(result.windows)
-        return result
-    }), [run])
 
     return (
         <section className={cn('border-t border-white/[0.06]', className || 'mt-5 pt-4')} aria-labelledby="thread-control-heading">
@@ -123,21 +113,9 @@ export function AssistantThreadDetailsComputerUse({
                 <div className="mt-3 space-y-3 border-l border-white/[0.06] pl-3">
                     <div className="flex flex-wrap gap-1.5">
                         <button type="button" disabled={busy || controlState?.pairing.state === 'waiting'} onClick={() => void run(() => window.devscope.agentControl.startChromePairing())} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40">Pair Chrome</button>
-                        <button type="button" disabled={busy} onClick={() => void refreshWindows()} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40">Choose window</button>
                         {controlState?.active ? <button type="button" onClick={() => void run(() => window.devscope.agentControl.emergencyStop())} className="h-7 border border-red-400/15 px-2 text-[8px] text-red-200/65 hover:bg-red-400/[0.05]">Stop all computer use</button> : null}
                     </div>
                     {controlState?.pairing.state === 'waiting' ? <p className="font-mono text-[10px] text-sparkle-text-secondary">Chrome code {controlState.pairing.code} · port {controlState.pairing.port}</p> : null}
-                    {windows.length > 0 ? (
-                        <div className="divide-y divide-white/[0.045] border-y border-white/[0.055]">
-                            {windows.map((candidate) => (
-                                <button key={candidate.windowToken} type="button" disabled={candidate.blocked || busy} onClick={() => void run(() => window.devscope.agentControl.selectWindow(candidate.windowToken))} className="flex w-full items-center gap-2 py-2 text-left disabled:opacity-40">
-                                    <Monitor size={11} className="text-sparkle-text-muted/45" />
-                                    <span className="min-w-0 flex-1 truncate text-[9px] text-sparkle-text-secondary">{candidate.title || candidate.applicationName}</span>
-                                    <span className="text-[8px] text-sparkle-text-muted/40">Select</span>
-                                </button>
-                            ))}
-                        </div>
-                    ) : null}
                 </div>
             ) : null}
             {error ? <p className="mt-2 text-[8px] leading-3.5 text-red-200/65">{error}</p> : null}

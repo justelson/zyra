@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEven
 import { createPortal } from 'react-dom'
 import { Bot, ChevronDown, Copy, Folder, MoreHorizontal, PanelLeftOpen, Pin, Plus, Search, Settings, SquarePen, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import type { AssistantMessage, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
+import type { AssistantMessage, AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import { useCommandPalette } from '@/lib/commandPalette'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
@@ -184,6 +184,8 @@ function getProjectLabel(path: string): string {
 }
 
 type ProjectGroup = {
+    key: string
+    projectId: string | null
     path: string
     label: string
     projectIconPath: string | null
@@ -201,13 +203,14 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     hoverPreviewEnabled?: boolean
     agentInboxEnabled: boolean
     projectIconOverrides: Record<string, string>
+    projects: AssistantProject[]
     sessions: AssistantSession[]
     activeSessionId: string | null
     activeThreadId: string | null
     commandPending: boolean
     pendingControlThreadIds: ReadonlySet<string>
     onCreateChat: () => Promise<void> | void
-    onCreateProjectChat: (projectPath?: string) => Promise<void> | void
+    onCreateProjectChat: (projectPath?: string, projectId?: string) => Promise<void> | void
     onSelectSession: (sessionId: string) => Promise<void> | void
     onSelectThread: (input: { sessionId: string; threadId: string }) => Promise<void> | void
     onRenameSession: (sessionId: string, title: string) => Promise<void> | void
@@ -225,6 +228,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
         hoverPreviewEnabled = true,
         agentInboxEnabled,
         projectIconOverrides,
+        projects,
         sessions,
         activeSessionId,
         activeThreadId,
@@ -280,23 +284,30 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     ), [activeSessions, pinnedSessionIds])
 
     const projectGroups = useMemo<ProjectGroup[]>(() => {
-        const groupsByPath = new Map<string, ProjectGroup>()
+        const projectsById = new Map(projects.map((project) => [project.id, project]))
+        const groups = new Map<string, ProjectGroup>()
         for (const session of activeSessions) {
             if (pinnedSessionIds.has(session.id)) continue
             const projectPath = getSessionProjectPath(session)
             if (!projectPath) continue
-            const existing = groupsByPath.get(projectPath)
+            const projectId = session.projectId || null
+            const key = projectId ? `project:${projectId}` : `path:${getProjectExpansionKey(projectPath)}`
+            const existing = groups.get(key)
             if (existing) {
                 existing.sessions.push(session)
                 if (getSortableTimestamp(session.createdAt) > getSortableTimestamp(existing.newestCreatedAt)) {
                     existing.newestCreatedAt = session.createdAt
+                    existing.path = projectPath
                 }
                 continue
             }
+            const project = projectId ? projectsById.get(projectId) : null
             const projectPresentation = resolveAssistantProjectPresentation(projectPath, projectIconOverrides)
-            groupsByPath.set(projectPath, {
+            groups.set(key, {
+                key,
+                projectId,
                 path: projectPath,
-                label: getProjectLabel(projectPath),
+                label: project?.name || getProjectLabel(projectPath),
                 projectIconPath: projectPresentation.projectIconPath,
                 projectType: projectPresentation.projectType,
                 framework: projectPresentation.framework,
@@ -304,12 +315,12 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                 newestCreatedAt: session.createdAt
             })
         }
-        return Array.from(groupsByPath.values())
+        return Array.from(groups.values())
             .sort((left, right) => (
                 getSortableTimestamp(right.newestCreatedAt) - getSortableTimestamp(left.newestCreatedAt)
-                || left.path.localeCompare(right.path)
+                || left.key.localeCompare(right.key)
             ))
-    }, [activeSessions, pinnedSessionIds, projectIconOverrides])
+    }, [activeSessions, pinnedSessionIds, projectIconOverrides, projects])
 
     const resolvedMaxWidth = Math.max(
         ASSISTANT_MIN_LEFT_SIDEBAR_WIDTH,
@@ -506,7 +517,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
             id: 'new-chat',
             label: 'New chat in project',
             icon: <SquarePen size={13} />,
-            onSelect: () => onCreateProjectChat(group.path)
+            onSelect: () => onCreateProjectChat(group.path, group.projectId || undefined)
         },
         {
             id: 'copy-path',
@@ -521,7 +532,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
             id: 'toggle-project',
             label: expanded ? 'Collapse project' : 'Expand project',
             icon: <ChevronDown size={13} className={cn(!expanded && '-rotate-90')} />,
-            onSelect: () => toggleProject(group.path, expanded)
+            onSelect: () => toggleProject(group.key, expanded)
         }
     ]
 
@@ -664,7 +675,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
         if (!shouldBootstrapProjectExpansionRef.current) return
         const activeProjectPath = projectGroups.find((group) => (
             group.sessions.some((session) => session.id === activeSessionId)
-        ))?.path
+        ))?.key
         if (!activeProjectPath) return
 
         shouldBootstrapProjectExpansionRef.current = false
@@ -852,19 +863,19 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                             childrenClassName="space-y-0.5 pl-1 pr-0.5"
                         >
                             {projectGroups.map((group) => {
-                                const expanded = expandedProjectPathKeys.has(getProjectExpansionKey(group.path))
+                                const expanded = expandedProjectPathKeys.has(getProjectExpansionKey(group.key))
                                 return (
-                                    <div key={group.path} className="space-y-0.5">
+                                    <div key={group.key} className="space-y-0.5">
                                         <div
                                             role="button"
                                             tabIndex={0}
                                             aria-expanded={expanded}
-                                            onClick={() => toggleProject(group.path, expanded)}
+                                            onClick={() => toggleProject(group.key, expanded)}
                                             onContextMenu={(event) => openProjectContextMenu(event, group, expanded)}
                                             onKeyDown={(event) => {
                                                 if (event.key !== 'Enter' && event.key !== ' ') return
                                                 event.preventDefault()
-                                                toggleProject(group.path, expanded)
+                                                toggleProject(group.key, expanded)
                                             }}
                                             className={cn(
                                                 'group/project-header flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-[10px] pl-1.5 pr-1 transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/35'
@@ -900,7 +911,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                                                     type="button"
                                                     onClick={(event) => {
                                                         event.stopPropagation()
-                                                        void onCreateProjectChat(group.path)
+                                                        void onCreateProjectChat(group.path, group.projectId || undefined)
                                                     }}
                                                     className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-[7px] border border-transparent bg-transparent p-0 text-sparkle-text-muted/58 transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/35"
                                                     title="New chat in project"

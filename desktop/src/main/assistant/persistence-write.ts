@@ -21,6 +21,7 @@ import {
     sqlBool
 } from './persistence-utils'
 import { serializeAssistantActivityPayload } from './persistence-activity-payload'
+import { upsertAssistantChatScope } from './assistant-project-persistence'
 import { sanitizeOptionalPath } from './utils'
 
 export function upsertAssistantCanonicalTimelineProjection(db: SqlDatabase, input: {
@@ -274,6 +275,7 @@ function upsertAssistantSession(db: SqlDatabase, session: AssistantSession): voi
         session.updatedAt,
         session.activeThreadId
     ])
+    if (session.chatScope !== undefined) upsertAssistantChatScope(db, session.id, session.chatScope)
 }
 
 function replaceAssistantPlaygroundLabs(db: SqlDatabase, labs: AssistantPlaygroundLab[]): void {

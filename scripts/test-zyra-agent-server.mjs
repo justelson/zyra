@@ -399,9 +399,15 @@ try {
   }, "an attached surface should resolve canonical user input while the prompt remains active");
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "user_input_resolved"));
   assert.equal((await tui.request("catalog.list", {})).chats[0].presence.attention, null, "catalog presence must clear resolved user-input attention");
+  workers[0].emit("event", { type: "agent_end", willRetry: true });
+  await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "agent_end" && entry.event?.willRetry === true));
+  const retryingCatalog = await tui.request("catalog.list", {});
+  assert.equal(retryingCatalog.chats[0].presence.state, "running", "a retryable agent_end cannot settle the canonical turn");
+  assert.equal(retryingCatalog.chats[0].presence.activeTurnId, "turn:test", "retry backoff retains canonical prompt ownership");
+  assert.ok(server.sessions.get("chat:test")?.activeRequestContext, "another prompt cannot enter while the existing turn is retrying");
   desktop.close();
   assert.equal(server.state().sessions[0].activeRequests, 1, "closing Desktop must not stop active work");
-  workers[0].emit("event", { type: "agent_end" });
+  workers[0].emit("event", { type: "agent_end", willRetry: false });
   await waitUntil(() => server.state().sessions[0].latestTurn?.state === "completed");
   const agentEndCatalog = await tui.request("catalog.list", {});
   assert.equal(agentEndCatalog.chats[0].presence.state, "ready", "agent_end must settle the canonical turn before the prompt request unwinds");
@@ -426,7 +432,7 @@ try {
   const reconnect = client("desktop:reconnect", "desktop", ["desktop-control"]);
   await reconnect.connect();
   const replay = await reconnect.attach({ project, cwd: project, session: "chat:test", localThreadId: "assistant-thread:reconnect", lastSequence: 0 });
-  assert.equal(replay.replay.length, 8, "reconnect must replay metadata, fleet, provider events, approvals, user input, and the authoritative agent completion");
+  assert.equal(replay.replay.length, 9, "reconnect must replay metadata, fleet, provider events, approvals, user input, retry state, and the authoritative agent completion");
   assert.equal(replay.replay[0].event.type, "agent.created");
   assert.equal(Object.keys(replay.replay[0].event.fleet.agents).length, 1);
   assert.equal(replay.replay[1].event.type, "session_metadata");
@@ -438,7 +444,10 @@ try {
   assert.equal(replay.replay[6].event.type, "user_input_resolved");
   assert.deepEqual(replay.replay[6].event.answers.targets, ["Desktop", "TUI"]);
   assert.equal(replay.replay[7].event.type, "agent_end");
-  assert.equal(replay.replay.filter((entry) => entry.event.type === "agent_end").length, 1, "agent_end is the durable provider completion boundary");
+  assert.equal(replay.replay[7].event.willRetry, true);
+  assert.equal(replay.replay[8].event.type, "agent_end");
+  assert.equal(replay.replay[8].event.willRetry, false);
+  assert.equal(replay.replay.filter((entry) => entry.event.type === "agent_end" && entry.event.willRetry !== true).length, 1, "only the final agent_end is the durable provider completion boundary");
   assert.equal(replay.replay.filter((entry) => entry.event.type === "zyra_server_turn_completed").length, 0, "prompt resolution cannot append a duplicate synthetic completion after agent_end");
   // Older journals could attribute agent_settled to the just-completed request.
   // Presence is ready, so transcript replay must never resurrect that turn in TUI state.

@@ -705,12 +705,15 @@ async function resolveAssistantUtilityChat(canonicalChatId: string): Promise<Res
     for (const session of snapshot.sessions) {
         for (const thread of session.threads) {
             if (thread.providerThreadId !== canonicalChatId && thread.id !== canonicalChatId) continue
+            const filesystem = await getAssistantService().getChatFilesystemContext(thread.id)
+            if (!filesystem) return null
             return {
                 canonicalChatId,
                 sessionId: session.id,
                 threadId: thread.id,
                 chatTitle: session.title || 'Untitled chat',
-                projectPath: session.projectPath || thread.cwd || ''
+                projectPath: filesystem.workingRoot,
+                projectRoots: filesystem.roots
             }
         }
     }
@@ -1014,6 +1017,7 @@ app.whenReady().then(async () => {
     })
     configureAssistantService({
         getNewChatExecutionDefaults: () => setupServices.preferences.getNewChatWebDefaults(),
+        getProjectDiscoveryRoots: () => setupServices.preferences.getProjectDiscoveryRoots(),
         openDesktopWorkspace: (request) => assistantUtilityWindowManager.openFromTui(request),
         cancelDesktopWorkspace: (requestId) => assistantUtilityWindowManager.cancelFromTui(requestId),
         handleDesktopWorkspaceTurn: (canonicalChatId, turnId) => assistantUtilityWindowManager.handleTuiTurn(canonicalChatId, turnId),

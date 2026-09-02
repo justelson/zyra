@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { createZyraPermissionGateExtension, describeZyraToolPermission, isDefinitelyCriticalZyraToolPermission, isPotentiallyCriticalZyraToolPermission } from '../src/zyra-permission-gate.mjs';
 
 function toolHandler(options) {
@@ -10,6 +11,72 @@ assert.equal(describeZyraToolPermission({ toolName: 'read', input: { path: 'READ
 assert.equal(describeZyraToolPermission({ toolName: 'browser_control', input: {} }), null, 'browser control keeps its dedicated capability broker');
 assert.equal(describeZyraToolPermission({ toolName: 'bash', input: { command: 'npm test' } }).requestType, 'command');
 assert.deepEqual(describeZyraToolPermission({ toolName: 'write', input: { path: 'src/a.ts' } }).paths, ['src/a.ts']);
+
+const scopedHome = path.resolve('fixture-project-home');
+const scopedWritable = path.resolve('fixture-associated-writable');
+const scopedReadOnly = path.resolve('fixture-associated-read-only');
+const filesystemScope = {
+  roots: [
+    { path: scopedHome, access: 'read-write' },
+    { path: scopedWritable, access: 'read-write' },
+    { path: scopedReadOnly, access: 'read-only' },
+  ],
+};
+assert.equal(describeZyraToolPermission(
+  { toolName: 'read', input: { path: path.join(scopedWritable, 'README.md') } },
+  { project: scopedHome, filesystemScope },
+), null, 'safe reads inside any scoped Project root should proceed');
+assert.equal(describeZyraToolPermission(
+  { toolName: 'edit', input: { path: path.join(scopedReadOnly, 'notes.md') } },
+  { project: scopedHome, filesystemScope },
+).readOnlyViolation, true, 'read-only Associated folders impose a hard write ceiling');
+let scopeBypassRequests = 0;
+const scopedFullAccess = toolHandler({
+  project: scopedHome,
+  filesystemScope,
+  getPermissionMode: () => 'full-access',
+  requestPermission: async () => { scopeBypassRequests += 1; return 'acceptOnce'; },
+});
+assert.match(
+  (await scopedFullAccess({ toolName: 'write', input: { path: path.join(scopedReadOnly, 'notes.md') } })).reason,
+  /read-only Project folder/i,
+);
+assert.match(
+  (await scopedFullAccess({ toolName: 'read', input: { path: path.resolve('outside-scope', 'secret.txt') } })).reason,
+  /outside this chat's filesystem scope/i,
+);
+assert.match(
+  (await scopedFullAccess({ toolName: 'bash', input: { command: `type "${path.resolve('outside-scope', 'secret.txt')}"` } })).reason,
+  /outside this chat's filesystem scope/i,
+  'shell commands with explicit out-of-scope paths are blocked before permission review',
+);
+assert.match(
+  (await scopedFullAccess({ toolName: 'bash', input: { command: `node tools/update.mjs "${scopedReadOnly}"` } })).reason,
+  /read-only Project folder/i,
+  'non-read-only shell commands cannot target a read-only association',
+);
+const readOnlyWorkingRoot = toolHandler({
+  project: scopedReadOnly,
+  filesystemScope,
+  getPermissionMode: () => 'full-access',
+  requestPermission: async () => { scopeBypassRequests += 1; return 'acceptOnce'; },
+});
+assert.equal(
+  await readOnlyWorkingRoot({ toolName: 'bash', input: { command: 'git status --short' } }),
+  undefined,
+  'conservatively read-only commands may run from a read-only working root',
+);
+assert.match(
+  (await readOnlyWorkingRoot({ toolName: 'bash', input: { command: 'npm test' } })).reason,
+  /read-only Project folder/i,
+  'commands that may write are blocked from a read-only working root',
+);
+assert.match(
+  (await readOnlyWorkingRoot({ toolName: 'bash', input: { command: 'git status && node tools/update.mjs' } })).reason,
+  /read-only Project folder/i,
+  'compound shell commands are not treated as conservatively read only',
+);
+assert.equal(scopeBypassRequests, 0, 'permission modes and approval cannot expand a revisioned Chat scope');
 
 let onceRequests = 0;
 const allowOnce = toolHandler({

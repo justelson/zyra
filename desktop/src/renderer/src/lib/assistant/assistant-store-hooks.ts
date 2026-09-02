@@ -7,6 +7,7 @@ import type {
     AssistantCreateSessionInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantSendPromptOptions,
+    AssistantSetSessionProjectInput,
     AssistantVoiceExecutionConfiguration
 } from '@shared/assistant/contracts'
 import {
@@ -97,6 +98,8 @@ const assistantStoreActions = {
     clearLogs: (sessionId?: string) => assistantStore.clearLogs(sessionId ? { sessionId } : undefined).then(() => undefined),
     clearLogsResult: (sessionId?: string) => assistantStore.clearLogs(sessionId ? { sessionId } : undefined),
     clearCommandError: () => assistantStore.clearError(),
+    setSessionProject: (sessionId: string, input: AssistantSetSessionProjectInput) => assistantStore.setSessionProject(sessionId, input).then(() => undefined),
+    setSessionProjectResult: (sessionId: string, input: AssistantSetSessionProjectInput) => assistantStore.setSessionProject(sessionId, input),
     setSessionProjectPath: (sessionId: string, projectPath: string | null) => assistantStore.setSessionProjectPath(sessionId, projectPath).then(() => undefined),
     setSessionProjectPathResult: (sessionId: string, projectPath: string | null) => assistantStore.setSessionProjectPath(sessionId, projectPath),
     setPlaygroundRoot: (rootPath: string | null) => assistantStore.setPlaygroundRoot(rootPath).then(() => undefined),

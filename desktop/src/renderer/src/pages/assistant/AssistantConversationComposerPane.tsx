@@ -39,10 +39,14 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     selectedSessionMode: 'work' | 'playground'
     assistantAvailable: boolean
     assistantConnected: boolean
+    selectedProjectId?: string | null
     selectedProjectPath: string | null
-    projectChoices?: Array<{ path: string; label: string }>
+    selectedProjectName?: string | null
+    projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
+    detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean
-    onSelectProject?: (projectPath: string | null) => Promise<void> | void
+    onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
+    onImportDetectedProject?: (candidateId: string) => Promise<void> | void
     onChooseProjectFolder?: () => Promise<void> | void
     availableModels: Array<{ id: string; label: string; description?: string }>
     activeModel: string | undefined
@@ -222,10 +226,14 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         onZyraProfileChange={props.onZyraProfileChange}
                         runtimeMode={props.runtimeMode}
                         interactionMode={props.interactionMode}
+                        projectId={props.selectedProjectId}
                         projectPath={props.selectedProjectPath}
+                        projectName={props.selectedProjectName}
                         projectChoices={props.projectChoices}
+                        detectedProjectChoices={props.detectedProjectChoices}
                         projectContextDisabled={props.projectContextDisabled}
                         onSelectProject={props.onSelectProject}
+                        onImportDetectedProject={props.onImportDetectedProject}
                         onChooseProjectFolder={props.onChooseProjectFolder}
                         onReconnect={props.onReconnect}
                         onPrepareRealtimeVoice={props.onPrepareRealtimeVoice}

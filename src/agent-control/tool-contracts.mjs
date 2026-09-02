@@ -9,6 +9,8 @@ const sideEffectClass = Type.Union([
 const common = {
   operation: Type.String({ description: "Bounded control operation." }),
   targetId: Type.Optional(Type.String()),
+  windowToken: Type.Optional(Type.String({ description: "Opaque Windows candidate from open_app or list_windows. Use it with request_grant to select and request access in one step." })),
+  application: Type.Optional(Type.String({ description: "Registered Windows app name. Paths, arguments, files, and URLs are not accepted." })),
   primaryTargetId: Type.Optional(Type.String()),
   secondaryTargetId: Type.Optional(Type.String()),
   grantId: Type.Optional(Type.String()),
@@ -54,5 +56,5 @@ export const BROWSER_CONTROL_OPERATIONS = Object.freeze([
   "list_targets", "open_tab", "reveal_tab", "close_tab", "refresh_tab", "open_external", "set_tab_layout", "resize_inspector", "request_grant", "observe", "navigate", "move", "click", "drag", "type", "key", "scroll", "select", "wait", "release",
 ]);
 export const COMPUTER_CONTROL_OPERATIONS = Object.freeze([
-  "list_windows", "request_grant", "observe", "focus", "click", "type", "key", "scroll", "wait", "release",
+  "open_app", "list_windows", "request_grant", "observe", "focus", "click", "type", "key", "scroll", "wait", "release",
 ]);

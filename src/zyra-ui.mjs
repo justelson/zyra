@@ -11,6 +11,7 @@ import {
 import { selectWebTools } from "./web-tools-picker.mjs";
 import { promptSecret as promptSecretInput } from "./secret-input.mjs";
 import { normalizeAgentSurfaceTool } from "./agent-surface.mjs";
+import { classifyRecoveryError } from "./network-recovery.mjs";
 import { normalizeToolFileChangeState } from "./file-change-lifecycle.mjs";
 import { createRequestUserInputDialog } from "./request-user-input-dialog.mjs";
 import { UserMessageComponent, AssistantMessageComponent, CheckedCommandsComponent, StoppedCommandsComponent, ToolMessageComponent } from "./tui/components/message-components.mjs";
@@ -80,6 +81,8 @@ export function createZyraUi(options = {}) {
   let activeAssistantComponent = null;
   let activeAssistantKey = "";
   let activeProgress = null;
+  let activeRetryComponent = null;
+  let activeRetryKind = null;
   let pendingAssistantCommit = null;
   let assistantDividerPending = false;
   let isBusy = false;
@@ -121,6 +124,8 @@ export function createZyraUi(options = {}) {
     activeAssistantComponent = null;
     activeAssistantKey = "";
     activeProgress = null;
+    activeRetryComponent = null;
+    activeRetryKind = null;
     pendingAssistantCommit = null;
     assistantDividerPending = false;
     isBusy = false;
@@ -649,7 +654,7 @@ export function createZyraUi(options = {}) {
         activeAssistantKey = "";
         host.invalidate();
       }
-      if (event.type === "agent_end") {
+      if (event.type === "agent_end" && event.willRetry !== true) {
         flushNonInteractiveCommandSummaries();
         flushAssistantCommit();
         isBusy = false;
@@ -660,8 +665,23 @@ export function createZyraUi(options = {}) {
         host.invalidate();
       }
       if (event.type === "auto_retry_start") {
+        activeRetryKind = event.recoveryKind || classifyRecoveryError(event.errorMessage);
+        const nextRetry = retryPanel({ ...event, recoveryKind: activeRetryKind }, theme, host.width());
         setActivityLabel("retrying");
-        appendPanel(retryPanel(event, theme, host.width()));
+        if (activeRetryComponent) activeRetryComponent.setLines(nextRetry.lines);
+        else {
+          activeRetryComponent = nextRetry;
+          appendPanel(activeRetryComponent);
+        }
+      }
+      if (event.type === "auto_retry_end") {
+        const recoveryKind = activeRetryKind || event.recoveryKind || classifyRecoveryError(event.finalError);
+        const nextRetry = retryPanel({ ...event, recoveryKind }, theme, host.width());
+        if (activeRetryComponent) activeRetryComponent.setLines(nextRetry.lines);
+        else appendPanel(nextRetry);
+        activeRetryComponent = null;
+        activeRetryKind = null;
+        setActivityLabel(event.success === true && isBusy ? "thinking" : "");
       }
       if (event.type === "compaction_start") {
         setActivityLabel("compacting");

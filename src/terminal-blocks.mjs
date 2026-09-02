@@ -1,6 +1,7 @@
 import os from "node:os";
 import { formatCodexUsageWindowLabel, listCodexUsageWindows } from "./codex-usage-windows.mjs";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
+import { buildRecoveryPresentation } from "./network-recovery.mjs";
 
 const bold = "\x1b[1m";
 const reset = "\x1b[0m";
@@ -150,15 +151,15 @@ export function renderCodexUsageBox(stats = {}, theme = fallbackTheme, terminalC
 
 export function renderRetryBlock(event, theme = fallbackTheme, terminalColumns = 100) {
   const width = Math.max(24, Number(terminalColumns || 100) - 1);
-  const contentWidth = Math.max(1, width);
-  const attempt = event.attempt ?? "?";
-  const maxAttempts = event.maxAttempts ?? "?";
-  const title = `retry ${attempt}/${maxAttempts}`;
-  const message = formatRetryErrorMessage(event.errorMessage ?? event.error ?? "request failed; retrying");
-  const rows = [`${title}: ${message}`].flatMap((row) => wrapPlain(row, contentWidth));
-  const rule = `${theme.error}${"-".repeat(contentWidth)}${reset}`;
-  const bgLine = (content = "") => `${theme.toolErrorBg}${theme.toolFg}${padDisplay(truncatePlain(content, contentWidth), contentWidth)}${reset}`;
-  return ["", rule, ...rows.map((row) => bgLine(row)), ""];
+  const presentation = buildRecoveryPresentation(event);
+  const color = presentation.status === "recovered"
+    ? theme.success
+    : presentation.status === "paused"
+      ? theme.warning
+      : theme.accent;
+  const marker = presentation.status === "recovered" ? "✓" : presentation.status === "paused" ? "!" : "↻";
+  const line = `  ${color}${marker} ${truncatePlain(presentation.label, Math.max(1, width - 4))}${reset}`;
+  return ["", line];
 }
 
 function progressBar(percent, theme = fallbackTheme) {
@@ -313,25 +314,6 @@ function wrapPlain(text, width) {
 
   if (current) lines.push(current);
   return lines;
-}
-
-function formatRetryErrorMessage(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return "request failed; retrying";
-
-  const jsonStart = text.indexOf("{");
-  if (jsonStart === -1) return text;
-
-  try {
-    const prefix = text.slice(0, jsonStart).trim().replace(/:\s*$/, "");
-    const parsed = JSON.parse(text.slice(jsonStart));
-    const message = parsed?.error?.message ?? parsed?.message;
-    const code = parsed?.error?.code ?? parsed?.code;
-    const parts = [prefix, message, code ? `(${code})` : ""].filter(Boolean);
-    return parts.length ? parts.join(" ") : text;
-  } catch {
-    return text;
-  }
 }
 
 function truncateVisible(text, max) {

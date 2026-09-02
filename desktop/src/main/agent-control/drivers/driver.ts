@@ -34,11 +34,15 @@ export interface AgentControlDriver {
     observe(target: RegisteredControlTarget, options: DriverObservationOptions): Promise<ControlObservation>
     act(target: RegisteredControlTarget, action: ControlAction, context: DriverActionContext): Promise<{ changed: boolean }>
     readScreenshot?(screenshotRef: string): ControlScreenshotPayload | undefined
+    retainTarget?(target: RegisteredControlTarget): void
     release?(target: RegisteredControlTarget): Promise<void> | void
+    releaseIdle?(): Promise<void> | void
     releaseInputFocus?(target: RegisteredControlTarget): void
     emergencyStop?(): Promise<void> | void
     dispose?(): Promise<void> | void
     health?(): { state: 'ready' | 'degraded' | 'disconnected' | 'unavailable'; lastDisconnectReason?: string }
+    isTargetCurrent?(target: RegisteredControlTarget): boolean
     listWindows?(): Promise<ControlWindowCandidate[]>
+    openApp?(application: string, signal?: AbortSignal): Promise<{ applicationName: string }>
     selectWindow?(windowToken: string): Promise<{ trustedIdentity: unknown; target: Omit<Extract<ControlTarget, { kind: 'windows-window' }>, 'targetId'> }>
 }

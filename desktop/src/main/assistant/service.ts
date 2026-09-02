@@ -6,14 +6,18 @@ import { app } from 'electron'
 import log from 'electron-log'
 import type {
     AssistantApprovePendingPlaygroundLabRequestInput,
+    AssistantAssociateProjectFolderInput,
     AssistantAttachSessionToPlaygroundLabInput,
+    AssistantChatScope,
     AssistantClearLogsInput,
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
+    AssistantCreateProjectInput,
     AssistantCreateSessionInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantDeleteMessageInput,
     AssistantDeletePlaygroundLabInput,
+    AssistantDismissProjectCandidateInput,
     AssistantDomainEvent,
     AssistantGetHistoryPageInput,
     AssistantHistoryBody,
@@ -27,14 +31,17 @@ import type {
     AssistantMessage,
     AssistantModelInfo,
     AssistantRealtimeVoiceEvent,
+    AssistantRemoveProjectFolderInput,
     AssistantRuntimeStatus,
     AssistantSearchChatsInput,
+    AssistantSetSessionProjectInput,
     AssistantSendPromptOptions,
     AssistantSendRealtimeVoiceMessageInput,
     AssistantSession,
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantThread,
+    AssistantUpdateProjectInput,
     AssistantVoiceExecutionConfiguration,
     CanonicalLedgerAppendInput,
     CanonicalMessageCommitReceipt,
@@ -93,6 +100,7 @@ import {
 } from './zyra-pi-runtime'
 import { deriveSessionTitleFromPrompt, isDefaultSessionTitle, nowIso } from './utils'
 import { materializeCanonicalImage } from './canonical-media-cache'
+import { getAssistantCanonicalThreadId } from './thread-identity'
 import { createAssistantSessionRecord } from './service-records'
 import type { AssistantServiceActionDeps } from './service-action-deps'
 import { AssistantPersistence } from './persistence'
@@ -221,6 +229,7 @@ export type AssistantServiceOptions = {
     getTitleGenerationModel?: () => Promise<string | null>
     getTitleAutomation?: () => Promise<{ enabled: boolean; turnInterval: number }>
     getRuntimePolicy?: () => Promise<AssistantRuntimePolicy>
+    getProjectDiscoveryRoots?: () => Promise<string[]>
     openDesktopWorkspace?: (request: Record<string, unknown>) => Promise<Record<string, unknown>>
     cancelDesktopWorkspace?: (requestId: string) => void
     handleDesktopWorkspaceTurn?: (canonicalChatId: string, turnId: string) => void
@@ -544,6 +553,23 @@ export class AssistantService {
         return toAssistantShellSnapshot(this.state.snapshot)
     }
 
+    async getChatFilesystemContext(threadId: string) {
+        await this.ensureReady()
+        const record = findThreadRecord(this.state.snapshot, threadId)
+        if (!record) return null
+        const workingRoot = this.getSessionRuntimeCwd(record.session, record.thread)
+        return {
+            workingRoot,
+            roots: record.session.chatScope?.roots || [{
+                id: `global:${record.session.id}`,
+                kind: 'project-home' as const,
+                path: workingRoot,
+                label: 'Global Chat workspace',
+                access: 'read-write' as const
+            }]
+        }
+    }
+
     async getBootstrap() {
         await this.ensureReady()
         const status = await this.getStatus()
@@ -555,6 +581,53 @@ export class AssistantService {
 
     async getStatus(): Promise<AssistantRuntimeStatus> {
         return getAssistantRuntimeStatusAction(this.actionDeps)
+    }
+
+    async listProjects() {
+        await this.ensureReady()
+        const discoveryRoots = await this.options.getProjectDiscoveryRoots?.().catch(() => []) || []
+        return {
+            success: true as const,
+            catalog: await this.persistence.listProjects(discoveryRoots)
+        }
+    }
+
+    async createProject(input: AssistantCreateProjectInput, candidateId?: string) {
+        await this.ensureReady()
+        return {
+            success: true as const,
+            project: await this.persistence.createProject(input, candidateId)
+        }
+    }
+
+    async associateProjectFolder(input: AssistantAssociateProjectFolderInput) {
+        await this.ensureReady()
+        return {
+            success: true as const,
+            project: await this.persistence.associateProjectFolder(input)
+        }
+    }
+
+    async removeProjectFolder(input: AssistantRemoveProjectFolderInput) {
+        await this.ensureReady()
+        return {
+            success: true as const,
+            project: await this.persistence.removeProjectFolder(input)
+        }
+    }
+
+    async updateProject(input: AssistantUpdateProjectInput) {
+        await this.ensureReady()
+        return {
+            success: true as const,
+            project: await this.persistence.updateProject(input)
+        }
+    }
+
+    async dismissProjectCandidate(input: AssistantDismissProjectCandidateInput) {
+        await this.ensureReady()
+        await this.persistence.dismissProjectCandidate(input)
+        return { success: true as const }
     }
 
     async listModels(forceRefresh = false) {
@@ -582,7 +655,7 @@ export class AssistantService {
         } = {}
     ) {
         return this.runtime.generateText(prompt, {
-            cwd: String(options.cwd || process.cwd()),
+            cwd: String(options.cwd || this.persistence.getGlobalWorkspaceRoot()),
             model: options.model,
             effort: options.effort,
             timeoutMs: options.timeoutMs
@@ -604,7 +677,13 @@ export class AssistantService {
         if (thread.providerThreadId) {
             const record = findThreadRecord(this.state.snapshot, localThreadId)
             try {
-                await this.runtime.connect(thread, record?.session.projectPath || thread.cwd || process.cwd())
+                await this.runtime.connect(
+                    thread,
+                    record
+                        ? this.getSessionRuntimeCwd(record.session, thread)
+                        : this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot(),
+                    record?.session.chatScope
+                )
                 const result = await this.runtime.requestFleetOperation(localThreadId, 'agents', 'list', {})
                 refreshed = (result['snapshot'] || result['fleet']) as FleetSnapshot | null
             } catch (error) {
@@ -628,7 +707,13 @@ export class AssistantService {
         const thread = requireThread(this.state.snapshot, input.threadId)
         const localThreadId = thread.id
         const record = findThreadRecord(this.state.snapshot, localThreadId)
-        await this.runtime.connect(thread, record?.session.projectPath || thread.cwd || process.cwd())
+        await this.runtime.connect(
+            thread,
+            record
+                ? this.getSessionRuntimeCwd(record.session, thread)
+                : this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot(),
+            record?.session.chatScope
+        )
         const result = await this.runtime.requestFleetOperation(localThreadId, namespace, input.action, input.payload || {})
         const snapshot = (result['snapshot'] || result['fleet']) as FleetSnapshot | undefined
         if (snapshot) {
@@ -685,6 +770,7 @@ export class AssistantService {
                 this.prepareVoicePrimaryWorker(
                     thread.id,
                     this.getSessionRuntimeCwd(session, thread),
+                    session.chatScope,
                     requireCanonicalVoiceExecutionConfiguration(voicePreparation)
                 )
             }
@@ -700,7 +786,31 @@ export class AssistantService {
     async createSession(input?: AssistantCreateSessionInput) {
         await this.stopCanonicalVoiceForNavigation()
         try {
-            const result = await createAssistantSessionAction(this.actionDeps, input)
+            const requestedPath = String(input?.workingRoot || input?.projectPath || '').trim()
+            const project = input?.projectId || input?.mode === 'playground'
+                ? null
+                : requestedPath ? await this.persistence.ensureProjectForFolder(requestedPath) : null
+            const projectId = String(input?.projectId || project?.id || '').trim()
+            const chatScope = projectId
+                ? await this.persistence.createProjectChatScope(projectId, requestedPath || null)
+                : null
+            const result = await createAssistantSessionAction(this.actionDeps, {
+                ...input,
+                ...(chatScope ? { projectPath: chatScope.workingRoot } : {})
+            })
+            if (chatScope) {
+                const occurredAt = nowIso()
+                this.appendEvent('session.updated', occurredAt, {
+                    sessionId: result.sessionId,
+                    patch: {
+                        projectId: chatScope.projectId,
+                        projectPath: chatScope.workingRoot,
+                        workingRoot: chatScope.workingRoot,
+                        chatScope,
+                        updatedAt: occurredAt
+                    }
+                }, result.sessionId)
+            }
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'completed' } })
             return result
         } catch (error) {
@@ -797,7 +907,7 @@ export class AssistantService {
             content,
             toolName,
             args,
-            cwd: owner.thread.cwd || owner.session.projectPath || process.cwd(),
+            cwd: this.getSessionRuntimeCwd(owner.session, owner.thread),
             stripBodyFields: true
         })
         const body: AssistantHistoryBody = {
@@ -860,7 +970,7 @@ export class AssistantService {
         try {
             const matches = await this.runtime.searchCanonicalToolOutputs(
                 canonicalChatId,
-                record.session.projectPath || record.thread.cwd || undefined,
+                this.getSessionRuntimeCwd(record.session, record.thread),
                 query,
                 limit
             )
@@ -967,7 +1077,26 @@ export class AssistantService {
         return deleteAssistantMessageAction(this.actionDeps, input)
     }
 
+    async setSessionProject(sessionId: string, input: AssistantSetSessionProjectInput) {
+        const chatScope = input.projectId
+            ? await this.persistence.createProjectChatScope(input.projectId, input.workingRoot)
+            : null
+        return this.applySessionProjectScope(sessionId, chatScope)
+    }
+
     async setSessionProjectPath(sessionId: string, projectPath: string | null) {
+        const normalizedPath = String(projectPath || '').trim()
+        const chatScope = normalizedPath
+            ? await this.persistence.ensureProjectForFolder(normalizedPath)
+                .then((project) => this.persistence.createProjectChatScope(project.id, normalizedPath))
+            : null
+        return this.applySessionProjectScope(sessionId, chatScope)
+    }
+
+    private async applySessionProjectScope(
+        sessionId: string,
+        chatScope: import('../../shared/assistant/contracts').AssistantChatScope | null
+    ) {
         const session = this.state.snapshot.sessions.find((entry) => entry.id === sessionId) || null
         const pendingVoiceBelongsToSession = Boolean(
             this.pendingCanonicalVoiceStart
@@ -978,8 +1107,26 @@ export class AssistantService {
         } else {
             this.invalidateVoicePrimaryWorkerPreparation()
         }
+        const projectPath = chatScope?.workingRoot || null
+        const scopeChanged = JSON.stringify(session?.chatScope || null) !== JSON.stringify(chatScope || null)
         try {
             const result = await setAssistantSessionProjectPathAction(this.actionDeps, sessionId, projectPath)
+            if (scopeChanged && projectPath === session?.projectPath) {
+                for (const thread of session.threads) {
+                    this.runtime.disconnect(getAssistantCanonicalThreadId(thread))
+                }
+            }
+            const occurredAt = nowIso()
+            this.appendEvent('session.updated', occurredAt, {
+                sessionId,
+                patch: {
+                    projectId: chatScope?.projectId || null,
+                    projectPath,
+                    workingRoot: projectPath,
+                    chatScope,
+                    updatedAt: occurredAt
+                }
+            }, sessionId)
             if (projectPath) {
                 void inspectProjectAnalyticsCapabilities(projectPath).then((capabilities) => {
                     this.captureAnalytics({ event: 'zyra_v1_project', properties: { action: 'attach', outcome: 'completed', ...capabilities } })
@@ -1465,7 +1612,7 @@ export class AssistantService {
 
         await Promise.allSettled(activeCanonicalThreads.map(async ({ session, thread }) => {
             try {
-                await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread))
+                await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread), session.chatScope)
                 this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'recover', outcome: 'recovered' } })
             } catch (error) {
                 this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'recover', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
@@ -1598,7 +1745,11 @@ export class AssistantService {
             : null
         const runtimeThreadId = record.thread.providerThreadId || record.thread.id
         if (!this.runtime.hasSession(runtimeThreadId)) {
-            await this.runtime.connect(record.thread, this.getSessionRuntimeCwd(record.session, record.thread))
+            await this.runtime.connect(
+                record.thread,
+                this.getSessionRuntimeCwd(record.session, record.thread),
+                record.session.chatScope
+            )
             throwIfVoiceStartAborted(signal)
         }
         const connected = findThreadRecord(this.state.snapshot, record.thread.id)
@@ -1633,7 +1784,12 @@ export class AssistantService {
         this.realtimeVoiceOwnerId = senderId
         try {
             const projectCwd = this.getSessionRuntimeCwd(connected.session, connected.thread)
-            this.prepareVoicePrimaryWorker(connected.thread.id, projectCwd, executionConfiguration)
+            this.prepareVoicePrimaryWorker(
+                connected.thread.id,
+                projectCwd,
+                connected.session.chatScope,
+                executionConfiguration
+            )
             const activation = await this.requireCanonicalVoiceSessions().startVoice({
                 conversationId,
                 projectCwd,
@@ -1814,6 +1970,7 @@ export class AssistantService {
                 taskId,
                 localThreadId: record.thread.id,
                 cwd: this.getSessionRuntimeCwd(record.session, record.thread),
+                filesystemScope: record.session.chatScope,
                 prompt: buildVoiceStrongInspectionPrompt(event.text),
                 model: active.executionConfiguration.model,
                 effort: active.executionConfiguration.effort,
@@ -1865,6 +2022,7 @@ export class AssistantService {
                 this.prepareVoicePrimaryWorker(
                     record.thread.id,
                     this.getSessionRuntimeCwd(record.session, record.thread),
+                    record.session.chatScope,
                     current.executionConfiguration
                 )
             }
@@ -1879,11 +2037,13 @@ export class AssistantService {
     private prepareVoicePrimaryWorker(
         localThreadId: string,
         cwd: string,
+        filesystemScope: AssistantChatScope | null | undefined,
         executionConfiguration: AssistantVoiceExecutionConfiguration
     ): void {
         void this.runtime.preparePrivateVoiceTask({
             localThreadId,
             cwd,
+            filesystemScope,
             model: executionConfiguration.model,
             effort: executionConfiguration.effort,
             runtimeMode: executionConfiguration.runtimeMode,
@@ -2143,7 +2303,7 @@ export class AssistantService {
         if (!session || !thread) return null
 
         try {
-            await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread))
+            await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread), session.chatScope)
         } catch (error) {
             log.warn('[Assistant] Failed to attach the selected canonical chat during navigation', error)
         }
@@ -2170,7 +2330,7 @@ export class AssistantService {
         try {
             const chat = await this.runtime.getCanonicalChat(
                 thread.providerThreadId,
-                session.projectPath || thread.cwd || undefined
+                this.getSessionRuntimeCwd(session, thread)
             )
             if (!chat) return
             if (shouldRefreshCanonicalHistory({
@@ -2228,6 +2388,8 @@ export class AssistantService {
                 .find(({ thread }) => thread.providerThreadId === chat.canonicalChatId)
             const createdAt = normalizeCatalogDate(chat.createdAt)
             const updatedAt = normalizeCatalogDate(chat.modifiedAt, createdAt)
+            const canonicalProjectPath = this.resolveCanonicalProjectPath(chat.project, chat.cwd)
+            const canonicalRuntimeCwd = canonicalProjectPath || this.persistence.getGlobalWorkspaceRoot()
             const messageCount = Math.max(0, Number(chat.displayMessageCount ?? chat.messageCount) || 0)
             const activityCount = Math.max(0, Number(chat.toolCallCount || 0) + Number(chat.errorCount || 0))
             if (existing) {
@@ -2239,7 +2401,9 @@ export class AssistantService {
                 })) this.markCanonicalHistoryDirty(chat.canonicalChatId)
                 const sessionPatch: Record<string, unknown> = {}
                 if (chat.title && chat.title !== existing.session.title) sessionPatch['title'] = chat.title
-                if (chat.project && chat.project !== existing.session.projectPath) sessionPatch['projectPath'] = chat.project
+                if (!existing.session.chatScope && canonicalProjectPath !== existing.session.projectPath) {
+                    sessionPatch['projectPath'] = canonicalProjectPath
+                }
                 if (chat.archived !== existing.session.archived) sessionPatch['archived'] = chat.archived
                 if (Object.keys(sessionPatch).length > 0) {
                     sessionPatch['updatedAt'] = updatedAt
@@ -2248,7 +2412,7 @@ export class AssistantService {
                         patch: sessionPatch
                     }, existing.session.id, existing.thread.id)
                 }
-                const nextCwd = chat.cwd || chat.project
+                const nextCwd = this.resolveCanonicalProjectPath(existing.session.workingRoot) || canonicalRuntimeCwd
                 const canonicalTurnActive = chat.presence?.state === 'running' || chat.presence?.state === 'background'
                 const nextMessageCount = canonicalTurnActive ? Math.max(existing.thread.messageCount, messageCount) : messageCount
                 const nextActivityCount = Math.max(existing.thread.activityCount, activityCount)
@@ -2306,7 +2470,7 @@ export class AssistantService {
             const sessionId = `assistant-session:shared:${key}`
             const threadId = `assistant-thread:shared:${key}`
             if (this.state.snapshot.sessions.some((session) => session.id === sessionId)) continue
-            const thread = createAssistantThread(createdAt, null, chat.cwd || chat.project)
+            const thread = createAssistantThread(createdAt, null, canonicalRuntimeCwd)
             thread.id = threadId
             thread.providerThreadId = chat.canonicalChatId
             thread.messageCount = messageCount
@@ -2323,13 +2487,35 @@ export class AssistantService {
             const session = createAssistantSessionRecord({
                 sessionId,
                 title: chat.title || 'Shared Zyra chat',
-                projectPath: chat.project || chat.cwd || null,
+                projectPath: canonicalProjectPath,
                 createdAt,
                 thread
             })
             session.archived = chat.archived === true
             session.updatedAt = updatedAt
             this.appendEvent('session.created', createdAt, { session }, sessionId, threadId)
+        }
+        await this.ensureLegacyProjectScopes()
+    }
+
+    private async ensureLegacyProjectScopes(): Promise<void> {
+        const sessions = this.state.snapshot.sessions.filter((session) => session.projectPath && !session.chatScope)
+        for (const session of sessions) {
+            const projectPath = String(session.projectPath || '').trim()
+            if (!projectPath) continue
+            const project = await this.persistence.ensureLegacyProjectForFolder(projectPath)
+            const chatScope = await this.persistence.createProjectChatScope(project.id, projectPath)
+            const occurredAt = nowIso()
+            this.appendEvent('session.updated', occurredAt, {
+                sessionId: session.id,
+                patch: {
+                    projectId: project.id,
+                    projectPath: chatScope.workingRoot,
+                    workingRoot: chatScope.workingRoot,
+                    chatScope,
+                    updatedAt: occurredAt
+                }
+            }, session.id)
         }
     }
 
@@ -2347,7 +2533,7 @@ export class AssistantService {
         const key = createHash('sha256').update(canonicalChatId).digest('hex').slice(0, 24)
         const pending = this.loadCanonicalHistoryPage({
             canonicalChatId,
-            project: session.projectPath || thread.cwd || process.cwd(),
+            project: this.getSessionRuntimeCwd(session, thread),
             key,
             sessionId: session.id,
             threadId: thread.id,
@@ -2527,7 +2713,7 @@ export class AssistantService {
     private async indexCanonicalReviewHistory(session: AssistantSession, thread: AssistantThread): Promise<void> {
         const canonicalChatId = thread.providerThreadId
         if (!canonicalChatId) return
-        const project = session.projectPath || thread.cwd || process.cwd()
+        const project = this.getSessionRuntimeCwd(session, thread)
         const latest = await this.runtime.readCanonicalChatHistory(canonicalChatId, project, {
             limit: 2_000,
             toolResultBodies: 'lazy-v1'
@@ -2716,11 +2902,20 @@ export class AssistantService {
         await this.readyPromise
     }
 
+    private resolveCanonicalProjectPath(...values: unknown[]): string | null {
+        for (const value of values) {
+            const candidate = typeof value === 'string' ? value.trim() : ''
+            if (candidate && !this.persistence.isInternalProjectPath(candidate)) return candidate
+        }
+        return null
+    }
+
     private getSessionRuntimeCwd(
         session: AssistantSession,
         thread: AssistantThread
     ): string {
-        return session.projectPath || thread.cwd || process.cwd()
+        return this.resolveCanonicalProjectPath(session.workingRoot, session.projectPath, thread.cwd)
+            || this.persistence.getGlobalWorkspaceRoot()
     }
 
     private appendEvent(
@@ -3059,6 +3254,10 @@ export function projectCanonicalTimeline(
     const activities = new Map<string, AssistantActivity>()
     const legacyMessageIds = new Set<string>()
     const legacyActivityIds = new Set<string>()
+    const terminalActivityByTurn = new Map<string, {
+        activityId: string
+        outcome: NonNullable<AssistantActivity['turnTerminalOutcome']>
+    }>()
     let activeTurnId: string | null = null
     let suppressInternalTitleTurn = false
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
@@ -3294,7 +3493,21 @@ export function projectCanonicalTimeline(
                     canonicalMessageId: messageId
                 }
             })
+            if (role === 'assistant' && activeTurnId) {
+                terminalActivityByTurn.set(activeTurnId, {
+                    activityId: errorActivityId,
+                    outcome: interrupted ? 'interrupted' : 'failed'
+                })
+            }
+        } else if (role === 'assistant' && activeTurnId) {
+            // A later assistant message proves the earlier provider error was
+            // recoverable inside this same turn.
+            terminalActivityByTurn.delete(activeTurnId)
         }
+    }
+    for (const { activityId, outcome } of terminalActivityByTurn.values()) {
+        const activity = activities.get(activityId)
+        if (activity) activities.set(activityId, { ...activity, turnTerminalOutcome: outcome })
     }
     return {
         messages,

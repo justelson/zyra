@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { ControlAction, ControlElement, ControlObservation, ControlTarget } from '../../../shared/agent-control/contracts'
+import type { ControlAction, ControlElement, ControlObservation, ControlTarget, ControlWindowCandidate } from '../../../shared/agent-control/contracts'
 import type { AgentControlDriver, DriverActionContext, DriverObservationOptions } from './driver'
 import type { RegisteredControlTarget } from '../target-registry'
 
@@ -9,11 +9,53 @@ export class FakeControlDriver implements AgentControlDriver {
     private title = 'Fixture'
     private url = 'http://127.0.0.1/fixture'
     private stopped = false
+    private readonly retainedTargetIds = new Set<string>()
+    private idleReleaseCalls = 0
 
     constructor(kind: ControlTarget['kind'] = 'zyra-browser') {
         this.kind = kind
         this.elements.set('fixture:button', { elementRef: 'fixture:button', role: 'button', name: 'Continue', actions: ['click'] })
         this.elements.set('fixture:password', { elementRef: 'fixture:password', role: 'password', name: 'Password', value: 'never-return-this', sensitive: true, actions: ['type'] })
+    }
+
+    async openApp(application: string): Promise<{ applicationName: string }> {
+        return { applicationName: application }
+    }
+
+    async listWindows(): Promise<ControlWindowCandidate[]> {
+        if (this.kind !== 'windows-window') return []
+        return [{
+            windowToken: 'fixture:window',
+            title: 'Fixture editor',
+            applicationName: 'Fixture',
+            executableIdentity: 'fixture.exe',
+            processId: 4242,
+            blocked: false
+        }]
+    }
+
+    async selectWindow(windowToken: string) {
+        if (this.kind !== 'windows-window' || windowToken !== 'fixture:window') throw new Error('Fixture window is unavailable.')
+        const trustedIdentity = {
+            windowToken,
+            processId: 4242,
+            executableIdentity: 'fixture.exe',
+            applicationName: 'Fixture',
+            title: 'Fixture editor',
+            processStartTime: 1
+        }
+        return {
+            trustedIdentity,
+            target: {
+                kind: 'windows-window' as const,
+                sidecarSessionId: 'fixture:sidecar',
+                processId: trustedIdentity.processId,
+                windowToken,
+                executableIdentity: trustedIdentity.executableIdentity,
+                applicationName: trustedIdentity.applicationName,
+                title: trustedIdentity.title
+            }
+        }
     }
 
     async observe(target: RegisteredControlTarget, options: DriverObservationOptions): Promise<ControlObservation> {
@@ -57,6 +99,26 @@ export class FakeControlDriver implements AgentControlDriver {
         return { changed: !['wait', 'move'].includes(action.type) }
     }
 
+    retainTarget(target: RegisteredControlTarget): void {
+        this.retainedTargetIds.add(target.target.targetId)
+    }
+
+    release(target: RegisteredControlTarget): void {
+        this.retainedTargetIds.delete(target.target.targetId)
+    }
+
+    retainedTargetCount(): number {
+        return this.retainedTargetIds.size
+    }
+
+    releaseIdle(): void {
+        if (this.retainedTargetIds.size === 0) this.idleReleaseCalls += 1
+    }
+
+    idleReleaseCallCount(): number {
+        return this.idleReleaseCalls
+    }
+
     readScreenshot(screenshotRef: string) {
         if (screenshotRef !== 'control-artifact:fixture') return undefined
         const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
@@ -65,6 +127,7 @@ export class FakeControlDriver implements AgentControlDriver {
 
     emergencyStop(): void {
         this.stopped = true
+        this.retainedTargetIds.clear()
     }
 
     resume(): void {

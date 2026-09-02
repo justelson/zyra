@@ -158,12 +158,15 @@ export function getAssistantThreadPhaseLabel(thread: AssistantThread | null): st
 }
 
 export function isAssistantThreadActivelyWorking(thread: AssistantThread | null): boolean {
+    // Connection, tool, and approval states can change while the same turn keeps
+    // running. Only the turn ledger's terminal state can stop that active turn.
+    if (thread?.latestTurn?.state === 'running') return true
+
     const phase = getAssistantThreadPhase(thread)
     if (phase.key === 'background') return true
     if (phase.key !== 'running' && phase.key !== 'waiting') return false
     return thread?.canonicalPresence?.state === 'running'
         || thread?.canonicalPresence?.state === 'background'
-        || thread?.latestTurn?.state === 'running'
 }
 
 export function getAssistantSessionSubtitle(session: AssistantSession): string {
@@ -191,6 +194,7 @@ export function isAssistantSessionBackgroundActive(session: AssistantSession, ac
     const activeThread = getActiveAssistantThread(session)
     const phase = getAssistantThreadPhase(activeThread)
 
+    if (isAssistantThreadActivelyWorking(activeThread)) return true
     if (phase.key === 'starting' || phase.key === 'running' || phase.key === 'waiting' || phase.key === 'background' || phase.key === 'waiting-approval' || phase.key === 'waiting-input') {
         return true
     }

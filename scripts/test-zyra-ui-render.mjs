@@ -10,7 +10,8 @@ import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
 import { markOnboardingComplete, readOnboardingState, shouldRunOnboarding } from "../src/onboarding.mjs";
 import { projectHistoryEntries } from "../src/agent-server/tui-runtime.mjs";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
-import { getZyraAvailableThinkingLevels, getZyraModelThinkingLevels, getZyraThinkingLevel, registerZyraRuntimeModels, resolveZyraStartupPreferences, setModel, setProfile, setThinking, setWebFetch, setWebSearch, setZyraTheme, syncZyraThinkingLevel } from "../src/zyra-sdk.mjs";
+import { ZYRA_RETRY_BASE_DELAY_MS, ZYRA_RETRY_MAX_ATTEMPTS } from "../src/network-recovery.mjs";
+import { applyZyraChatRetryPolicy, getZyraAvailableThinkingLevels, getZyraModelThinkingLevels, getZyraThinkingLevel, registerZyraRuntimeModels, resolveZyraStartupPreferences, setModel, setProfile, setThinking, setWebFetch, setWebSearch, setZyraTheme, syncZyraThinkingLevel } from "../src/zyra-sdk.mjs";
 import { applyGpt56ThinkingEffort, GPT_56_THINKING_LEVELS } from "../src/thinking-levels.mjs";
 import { PI_SUPPORT_PENDING_STATUS } from "../src/model-compatibility.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
@@ -594,6 +595,40 @@ function runTurnEndKeepsRuntimeBusyRegression() {
   assert.equal(ui._debugActivityLabelForTests(), "thinking", "an intermediate turn boundary must stay active while the agent can begin another tool round");
   ui.event({ type: "agent_end" });
   assert.equal(ui._debugActivityLabelForTests(), "", "agent_end should return the editor to idle");
+}
+
+function runNetworkRecoveryLifecycleRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  ui.event({ type: "turn_start" });
+  ui.event({ type: "auto_retry_start", attempt: 1, maxAttempts: 10, delayMs: 100, errorMessage: "fetch failed" });
+  ui.event({ type: "agent_end", willRetry: true });
+  ui.event({ type: "auto_retry_start", attempt: 7, maxAttempts: 10, delayMs: 6400, errorMessage: "fetch failed" });
+
+  const retrying = ui._debugRenderLinesForTests(80).map(stripAnsi).join("\n");
+  assert.equal((retrying.match(/Reconnecting/g) ?? []).length, 1, "network retries update one TUI status component");
+  assert.match(retrying, /Reconnecting 7 of 10/);
+  assert.doesNotMatch(retrying, /fetch failed/i, "the primary TUI must not expose the transport implementation error");
+  assert.equal(ui._debugActivityLabelForTests(), "retrying", "a retryable agent_end cannot make the TUI idle");
+
+  ui.event({ type: "agent_end", willRetry: false });
+  ui.event({ type: "auto_retry_end", success: false, attempt: 10, finalError: "fetch failed" });
+  const paused = ui._debugRenderLinesForTests(80).map(stripAnsi).join("\n");
+  assert.equal((paused.match(/Paused · Network issue/g) ?? []).length, 1, "retry exhaustion leaves one clear paused state");
+  assert.doesNotMatch(paused, /fetch failed/i);
+
+  const overrides = [];
+  applyZyraChatRetryPolicy({ applyOverrides: (value) => overrides.push(value) });
+  assert.equal(ZYRA_RETRY_MAX_ATTEMPTS, 10);
+  assert.equal(ZYRA_RETRY_BASE_DELAY_MS, 100);
+  assert.deepEqual(overrides, [{
+    retry: {
+      enabled: true,
+      maxRetries: 10,
+      baseDelayMs: 100,
+      provider: { maxRetries: 0 }
+    }
+  }], "Zyra applies one bounded retry policy to TUI and Desktop chat sessions");
 }
 
 function runCompactionLifecycleRegression() {
@@ -2765,6 +2800,7 @@ runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
 runInteractiveImageUserMessageDedupRegression();
 runTurnEndKeepsRuntimeBusyRegression();
+runNetworkRecoveryLifecycleRegression();
 runCompactionLifecycleRegression();
 runInteractiveToolComponentRegression();
 runManagedBashStatusReconciliationRegression();

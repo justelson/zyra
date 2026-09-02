@@ -47,6 +47,8 @@ export type ControlTarget =
         processId: number
         windowToken: string
         executableIdentity: string
+        applicationName?: string
+        title?: string
     }
 
 export interface ControlGrant {
@@ -353,6 +355,7 @@ export type ControlStateSnapshot = {
 }
 
 export type ControlWindowCandidate = {
+    targetId?: string
     windowToken: string
     title: string
     applicationName: string

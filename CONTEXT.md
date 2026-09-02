@@ -59,7 +59,18 @@ _Avoid_: Project instructions
 > **Dev:** "Can this Project exist before the user associates a repository?"
 > **Domain expert:** "Yes. The Project already has its Project home, and the repository can be added later as an Associated folder."
 
+## Migration invariants
+
+- Legacy `projectPath` values migrate independently inside each Zyra installation's data root.
+- A packaged Zyra installation directory is internal application state, never a Project or Working root.
+- A global Chat uses a neutral managed workspace inside its installation's data root instead of `process.cwd()`.
+- Windows path identity is case-insensitive.
+- Nested legacy paths remain separate Projects until a later explicit merge.
+- Configured discovery locations produce review candidates; discovery never creates Projects automatically.
+- `projectPath` remains a compatibility projection of the Chat's **Working root** during migration.
+
 ## Flagged ambiguities
 
 - "Workspace" already refers to app and terminal work areas. The Project-owned filesystem location is called **Project home**.
 - Existing code often uses a folder path as Project identity. In the domain, a **Project** and an **Associated folder** are distinct.
+- A moved external Folder is currently shown as unavailable. The product semantics for relinking it while preserving Folder identity remain unresolved; detaching and associating the new path creates a new Folder identity.

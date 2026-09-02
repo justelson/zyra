@@ -77,7 +77,7 @@ await new Promise((resolve) => setTimeout(resolve, 0))
 const editsOnlyPendingGrant = broker.state().pendingGrants.find((request) => request.targetId === targetId)
 assert.ok(editsOnlyPendingGrant, 'edits only should ask in chat before Browser control')
 broker.rejectPendingGrant(editsOnlyPendingGrant!.requestId)
-await assert.rejects(() => editsOnlyGrantPromise, /declined the Browser control request/)
+await assert.rejects(() => editsOnlyGrantPromise, /declined the control request/)
 
 const chromeDriver = new FakeControlDriver('chrome-tab')
 const chromeTargetId = broker.targets.createTargetId('chrome-tab')
@@ -93,7 +93,7 @@ await new Promise((resolve) => setTimeout(resolve, 0))
 const autoChromePendingGrant = broker.state().pendingGrants.find((request) => request.targetId === chromeTargetId)
 assert.ok(autoChromePendingGrant, 'auto review should ask before controlling a paired Chrome tab')
 broker.rejectPendingGrant(autoChromePendingGrant!.requestId)
-await assert.rejects(() => autoChromeGrantPromise, /declined the Browser control request/)
+await assert.rejects(() => autoChromeGrantPromise, /declined the control request/)
 
 const pending = broker.requestGrant({
     principal, targetId,

@@ -286,6 +286,41 @@ assert.equal(canonicalInterruptedActivity?.tone, 'warning', 'a canonical TUI abo
 assert.equal(canonicalInterruptedActivity?.summary, 'Assistant interrupted')
 assert.equal(canonicalInterruptedActivity?.payload?.['status'], 'cancelled')
 assert.equal(canonicalInterruptedActivity?.payload?.['stopReason'], 'aborted')
+assert.equal(canonicalInterruptedActivity?.turnTerminalOutcome, 'interrupted', 'canonical replay marks a certain end-of-turn interruption explicitly')
+
+const canonicalRecoveredProjection = projectCanonicalTimeline([
+    {
+        type: 'message',
+        id: 'recovered-user-entry',
+        timestamp: new Date(canonicalUserTimestamp).toISOString(),
+        message: { role: 'user', timestamp: canonicalUserTimestamp, content: [{ type: 'text', text: 'Retry the request' }] }
+    },
+    {
+        type: 'message',
+        id: 'recovered-error-entry',
+        timestamp: new Date(canonicalAssistantTimestamp).toISOString(),
+        message: {
+            role: 'assistant',
+            timestamp: canonicalAssistantTimestamp,
+            content: [],
+            stopReason: 'error',
+            errorMessage: 'fetch failed'
+        }
+    },
+    {
+        type: 'message',
+        id: 'recovered-final-entry',
+        timestamp: new Date(canonicalAssistantTimestamp + 100).toISOString(),
+        message: {
+            role: 'assistant',
+            timestamp: canonicalAssistantTimestamp + 100,
+            content: [{ type: 'text', text: 'Recovered response' }],
+            stopReason: 'stop'
+        }
+    }
+], 'canonical:recovered', 'recovered-key', new Date(canonicalUserTimestamp).toISOString(), 0)
+const canonicalRecoveredError = canonicalRecoveredProjection.activities.find((activity) => activity.kind === 'error')
+assert.equal(canonicalRecoveredError?.turnTerminalOutcome, undefined, 'a later successful assistant message clears the earlier in-turn error as a terminal candidate')
 
 const canonicalEditPatch = [
     '--- C:/fixture/src/review-index.ts',
@@ -1944,6 +1979,90 @@ assert.equal(serverOwnedDisconnectEvents.some((event) => event.type === 'turn.co
 assert.equal(serverOwnedDisconnectEvents.some((event) => event.type === 'session.state.changed'), false, 'transient Desktop detachment cannot overwrite canonical running state')
 assert.equal(serverOwnedDisconnectContext.activeTurnId, serverOwnedTurnId)
 assert.equal(serverOwnedDisconnectContext.completedTurnIds.has(serverOwnedTurnId), false, 'the later canonical completion must remain eligible')
+
+const networkRetryRuntime = new ZyraPiRuntime()
+const networkRetryEvents: AssistantRuntimeEvent[] = []
+networkRetryRuntime.on('runtime', (event: AssistantRuntimeEvent) => networkRetryEvents.push(event))
+const networkRetryTurnId = 'turn-network-recovery'
+const networkRetryContext = {
+    ...failedTurnContext,
+    localThreadId: projectedThread.id,
+    providerThreadId: projectedThread.providerThreadId || 'provider-network-recovery',
+    resumeProviderThreadId: projectedThread.providerThreadId || 'provider-network-recovery',
+    activeTurnId: networkRetryTurnId,
+    completedTurnIds: new Set<string>(),
+    terminalAssistantMessageOutcome: null,
+    activeRetry: null
+}
+const networkRetryHandler = networkRetryRuntime as unknown as {
+    handleZyraEvent: (
+        targetContext: typeof networkRetryContext,
+        event: Record<string, unknown>,
+        metadata?: { turnId?: string; replay?: boolean; sequence?: number }
+    ) => void
+}
+networkRetryHandler.handleZyraEvent(networkRetryContext, {
+    type: 'auto_retry_start',
+    attempt: 1,
+    maxAttempts: 10,
+    delayMs: 100,
+    errorMessage: 'fetch failed',
+    recoveryKind: 'network'
+}, { turnId: networkRetryTurnId })
+networkRetryHandler.handleZyraEvent(networkRetryContext, {
+    type: 'agent_end',
+    willRetry: true
+}, { turnId: networkRetryTurnId })
+assert.equal(networkRetryEvents.some((event) => event.type === 'turn.completed'), false, 'a retryable agent_end keeps the canonical turn running')
+networkRetryHandler.handleZyraEvent(networkRetryContext, {
+    type: 'auto_retry_start',
+    attempt: 10,
+    maxAttempts: 10,
+    delayMs: 51_200,
+    errorMessage: 'fetch failed',
+    recoveryKind: 'network'
+}, { turnId: networkRetryTurnId })
+networkRetryHandler.handleZyraEvent(networkRetryContext, {
+    type: 'agent_end',
+    willRetry: false
+}, { turnId: networkRetryTurnId })
+const exhaustedNetworkTurn = networkRetryEvents.find((event) => event.type === 'turn.completed')
+assert.equal(
+    exhaustedNetworkTurn?.type === 'turn.completed' ? exhaustedNetworkTurn.payload.outcome : null,
+    'interrupted',
+    'network retry exhaustion pauses the turn instead of reporting an application failure'
+)
+networkRetryHandler.handleZyraEvent(networkRetryContext, {
+    type: 'auto_retry_end',
+    success: false,
+    attempt: 10,
+    finalError: 'fetch failed'
+}, { turnId: networkRetryTurnId })
+const networkRetryActivities = networkRetryEvents.filter((event) => event.type === 'activity')
+assert.equal(new Set(networkRetryActivities.map((event) => event.eventId)).size, networkRetryActivities.length, 'runtime events remain uniquely sequenced')
+assert.equal(new Set(networkRetryActivities.map((event) => event.type === 'activity' ? event.payload.activityId : null)).size, 1, 'all retry attempts target one Desktop activity component')
+assert.equal(networkRetryActivities.at(-1)?.type === 'activity' ? networkRetryActivities.at(-1)?.payload.summary : null, 'Paused · Network issue')
+assert.equal(networkRetryActivities.some((event) => event.type === 'activity' && /fetch failed/i.test(event.payload.detail || '')), false)
+const beforeProjectedRecoveryCount = findProjectedRecord(projectedThread.id)?.thread.activities.length || 0
+for (const event of networkRetryActivities) handleAssistantRuntimeEvent(event, projectedDeps)
+const projectedNetworkRecoveries = findProjectedRecord(projectedThread.id)?.thread.activities.filter((activity) => activity.kind === 'connection.recovery') || []
+assert.equal(projectedNetworkRecoveries.length, 1, 'Desktop projection upserts retry progress instead of appending one row per attempt')
+assert.equal(projectedNetworkRecoveries[0]?.summary, 'Paused · Network issue')
+assert.equal(findProjectedRecord(projectedThread.id)?.thread.activities.length, beforeProjectedRecoveryCount + 1)
+handleAssistantRuntimeEvent({
+    eventId: 'network-recovery-paused-state',
+    type: 'session.state.changed',
+    createdAt: new Date().toISOString(),
+    threadId: projectedThread.id,
+    providerThreadId: projectedThread.providerThreadId || undefined,
+    turnId: networkRetryTurnId,
+    payload: { state: 'error', error: 'Network issue', message: 'Network issue' }
+}, projectedDeps)
+assert.equal(
+    findProjectedRecord(projectedThread.id)?.thread.activities.length,
+    beforeProjectedRecoveryCount + 1,
+    'the paused connection state updates the existing recovery component without adding a generic error row'
+)
 
 const transportRecoveryIssue = getAssistantRecoveryIssue({ threadLastError: 'fetch failed' })
 assert.equal(transportRecoveryIssue?.key, 'connection-lost')

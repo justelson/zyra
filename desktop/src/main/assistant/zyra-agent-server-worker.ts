@@ -239,6 +239,7 @@ export class DesktopAgentServerConnection {
         const result = await client.attach({
             project: payload['cwd'],
             cwd: payload['cwd'],
+            filesystemScope: payload['filesystemScope'],
             session: payload['threadId'] || payload['providerThreadId'],
             localThreadId: payload['localThreadId'],
             model: payload['model'],

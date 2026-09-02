@@ -5,6 +5,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
+import { ZYRA_RETRY_BASE_DELAY_MS, ZYRA_RETRY_MAX_ATTEMPTS } from "./network-recovery.mjs";
 import { createBrowserOAuthLoginCallbacks } from "./oauth-login-callbacks.mjs";
 import { createZyraAuthStorage, createZyraPiRuntime } from "./pi-runtime.mjs";
 import {
@@ -218,8 +219,8 @@ async function loadZyraToolModules() {
     import("./write-diff-tool.mjs"),
     import("./agent-control/browser-control-tool.mjs"),
     import("./agent-control/browser-toolset.mjs"),
-    import("./agent-control/computer-control-tool.mjs"),
-  ]).then(([managedBash, web, writeDiff, browserControl, browserToolset, computerControl]) => ({
+    import("./agent-control/computer-toolset.mjs"),
+  ]).then(([managedBash, web, writeDiff, browserControl, browserToolset, computerToolset]) => ({
     createManagedBashState: managedBash.createManagedBashState,
     createManagedBashTool: managedBash.createManagedBashTool,
     waitForManagedBashAutoUpdate: managedBash.waitForManagedBashAutoUpdate,
@@ -231,7 +232,11 @@ async function loadZyraToolModules() {
     applyBrowserLoaderOnlyState: browserToolset.applyBrowserLoaderOnlyState,
     browserToolsetNames: browserToolset.BROWSER_TOOLSET_NAMES,
     browserLoaderToolName: browserToolset.BROWSER_LOADER_TOOL_NAME,
-    createComputerControlTool: computerControl.createComputerControlTool,
+    createComputerToolSet: computerToolset.createComputerToolSet,
+    applyComputerSearchOnlyState: computerToolset.applyComputerSearchOnlyState,
+    installComputerToolTurnCleanup: computerToolset.installComputerToolTurnCleanup,
+    computerToolsetNames: computerToolset.COMPUTER_TOOLSET_NAMES,
+    computerToolSearchName: computerToolset.COMPUTER_TOOL_SEARCH_NAME,
   }));
   return zyraToolModulesPromise;
 }
@@ -341,6 +346,7 @@ function createZyraBuiltinExtensions(options = {}) {
   if (options.permissionRequest || options.permissionReview) {
     extensions.push(createZyraPermissionGateExtension({
       project: options.project,
+      filesystemScope: options.filesystemScope,
       requestPermission: options.permissionRequest,
       reviewPermission: options.permissionReview,
       getPermissionMode: options.getPermissionMode,
@@ -658,7 +664,12 @@ function refreshZyraPromptContext(runtime, options = {}) {
   }
   injectLayeredMemory(runtime.session, defaults.dataRoot);
   injectActiveProfile(runtime.session, runtime.profile ?? detectDefaultProfile(), runtime.project);
-  runtime.projectMemory = injectProjectMemory(runtime.session, runtime.project);
+  runtime.projectMemory = injectProjectMemory(
+    runtime.session,
+    runtime.project,
+    runtime.projectHome,
+    runtime.filesystemScope,
+  );
 }
 
 function applyWebToolState(session, options = {}) {
@@ -705,6 +716,19 @@ export function ensureBrowserControlToolState(session, enabled, applyLoaderOnly,
   return JSON.stringify(before) !== JSON.stringify(session.getActiveToolNames());
 }
 
+export function ensureComputerToolState(session, enabled, applySearchOnly, computerToolNames = [], searchToolName = "tool_search") {
+  if (typeof session?.getActiveToolNames !== "function" || typeof session?.setActiveToolsByName !== "function") return false;
+  const before = session.getActiveToolNames();
+  if (enabled) {
+    if (typeof applySearchOnly !== "function") throw new Error("The deferred computer tool search was not registered with Pi.");
+    applySearchOnly(session);
+  } else {
+    const blocked = new Set(["computer_control", searchToolName, ...computerToolNames]);
+    session.setActiveToolsByName(before.filter((name) => !blocked.has(name)));
+  }
+  return JSON.stringify(before) !== JSON.stringify(session.getActiveToolNames());
+}
+
 function installZyraSessionModelRegistry(session, piRuntime) {
   const attachAuthStorage = (registry) => {
     if (!registry) throw new Error("Pi did not expose a model registry for the Zyra session.");
@@ -733,8 +757,23 @@ function installZyraSessionModelRegistry(session, piRuntime) {
   void session.modelRegistry;
 }
 
+export function applyZyraChatRetryPolicy(settingsManager) {
+  settingsManager?.applyOverrides?.({
+    retry: {
+      enabled: true,
+      maxRetries: ZYRA_RETRY_MAX_ATTEMPTS,
+      baseDelayMs: ZYRA_RETRY_BASE_DELAY_MS,
+      provider: { maxRetries: 0 },
+    },
+  });
+}
+
 export async function createZyraSession(options = {}) {
   const project = path.resolve(options.project ?? defaults.project);
+  const projectHomeRoot = Array.isArray(options.filesystemScope?.roots)
+    ? options.filesystemScope.roots.find((root) => root?.kind === "project-home" && typeof root.path === "string")
+    : null;
+  const projectHome = projectHomeRoot?.path ? path.resolve(projectHomeRoot.path) : null;
   const sessions = path.resolve(options.sessions ?? getProjectSessionsDir(project));
   const preferences = readProjectPreferences(project);
   const startupPreferences = resolveZyraStartupPreferences(project, options, preferences);
@@ -773,7 +812,11 @@ export async function createZyraSession(options = {}) {
     createBrowserToolSet,
     applyBrowserLoaderOnlyState,
     browserToolsetNames,
-    createComputerControlTool,
+    createComputerToolSet,
+    applyComputerSearchOnlyState,
+    installComputerToolTurnCleanup,
+    computerToolsetNames,
+    computerToolSearchName,
   } = toolModules;
 
   const sessionManager = await createSessionManager(SessionManager, {
@@ -806,11 +849,14 @@ export async function createZyraSession(options = {}) {
   const cwd = sessionManager.getCwd?.() ?? project;
   const managedBash = createManagedBashState();
   const settingsManager = startupResources.settingsManager;
+  if (options.surface !== "memory-worker") applyZyraChatRetryPolicy(settingsManager);
   const fleetEnabled = options.enableFleet !== false && options.surface !== "memory-worker";
   const fleetHolder = {};
   const fleetTools = fleetEnabled ? createFleetTools(fleetHolder) : [];
   const browserSessionRef = { current: null };
   const browserTools = createBrowserToolSet({ client: options.controlBridgeClient, sessionRef: browserSessionRef });
+  const computerSessionRef = { current: null };
+  const computerTools = createComputerToolSet({ client: options.controlBridgeClient, sessionRef: computerSessionRef });
   registerZyraRuntimeModels(piRuntime.modelRegistry);
 
   const result = await createAgentSession({
@@ -842,7 +888,7 @@ export async function createZyraSession(options = {}) {
       ...fleetTools,
       createBrowserControlTool({ client: options.controlBridgeClient }),
       ...browserTools,
-      createComputerControlTool({ client: options.controlBridgeClient }),
+      ...computerTools,
       ...(Array.isArray(options.customTools) ? options.customTools : []),
     ],
     ...startupResources,
@@ -857,6 +903,8 @@ export async function createZyraSession(options = {}) {
   }
 
   browserSessionRef.current = result.session;
+  computerSessionRef.current = result.session;
+  installComputerToolTurnCleanup(result.session);
   installZyraNextTurnCheckpoint(result.session, managedBash, {
     intervalMs: options.managedBashAutoPollMs ?? DEFAULT_MANAGED_BASH_AUTO_POLL_MS,
     waitForUpdate: waitForManagedBashAutoUpdate,
@@ -868,6 +916,13 @@ export async function createZyraSession(options = {}) {
     Boolean(options.controlBridgeClient),
     applyBrowserLoaderOnlyState,
     browserToolsetNames,
+  );
+  ensureComputerToolState(
+    result.session,
+    Boolean(options.controlBridgeClient),
+    applyComputerSearchOnlyState,
+    computerToolsetNames,
+    computerToolSearchName,
   );
   const modelAvailability = options.skipModelAvailability
     ? {
@@ -899,7 +954,9 @@ export async function createZyraSession(options = {}) {
   if (!options.skipProfileInjection) {
     injectActiveProfile(result.session, profile, project);
   }
-  const projectMemory = options.skipProjectMemory ? [] : injectProjectMemory(result.session, project);
+  const projectMemory = options.skipProjectMemory
+    ? []
+    : injectProjectMemory(result.session, project, projectHome, options.filesystemScope);
 
   const preferredModelOptions = { skipAvailabilityCheck: Boolean(options.skipModelAvailability) };
   let selectedModel = await preferDefaultModel(result.session, startupPreferences.model, preferredModelOptions);
@@ -955,6 +1012,8 @@ export async function createZyraSession(options = {}) {
     resourceLoader: startupResources.resourceLoader,
     root: ROOT,
     project,
+    projectHome,
+    filesystemScope: options.filesystemScope,
     sessions,
     theme,
     terminalTheme,
@@ -2521,15 +2580,29 @@ export function checkSetup() {
   };
 }
 
-function injectProjectMemory(session, project) {
-  const files = findProjectInstructionFiles(project);
+function injectProjectMemory(session, project, projectHome = null, filesystemScope = null) {
+  const workingRootFiles = findProjectInstructionFiles(project);
+  const projectHomeFiles = projectHome ? findDirectProjectInstructionFiles(projectHome) : [];
+  const associatedRoots = Array.isArray(filesystemScope?.roots)
+    ? filesystemScope.roots.filter((root) => root?.kind === "associated-folder" && typeof root.path === "string")
+    : [];
+  const associatedRootFiles = associatedRoots.flatMap((root) => findDirectProjectInstructionFiles(root.path));
+  const files = [...new Set([...projectHomeFiles, ...workingRootFiles, ...associatedRootFiles])];
   if (!files.length) return [];
 
-  const sections = [];
+  const sections = [
+    "Project-home instructions apply throughout this Chat. Folder-local instructions apply only while work touches their named Folder."
+  ];
   for (const file of files) {
     const text = readFileSync(file, "utf8").trim();
     if (!text) continue;
-    sections.push(`File: ${formatRelative(project, file)}\n${text.slice(0, 12000)}`);
+    const conditionalRoot = associatedRoots.find((root) => findDirectProjectInstructionFiles(root.path).includes(file));
+    const scopeLabel = projectHomeFiles.includes(file)
+      ? "Project-home instructions"
+      : conditionalRoot && path.resolve(conditionalRoot.path) !== path.resolve(project)
+        ? `Folder-local instructions for ${conditionalRoot.path}`
+        : "Working-root instructions";
+    sections.push(`${scopeLabel}\nFile: ${formatRelative(project, file)}\n${text.slice(0, 12000)}`);
   }
   if (!sections.length) return [];
 
@@ -2548,6 +2621,14 @@ function injectLayeredMemory(session, root, query = "") {
 
 function injectActiveProfile(session, profile, project = defaults.project) {
   upsertSystemPromptBlock(session, ZYRA_PROFILE_MARKER, buildProfilePrompt(profile, project));
+}
+
+function findDirectProjectInstructionFiles(projectHome) {
+  const override = path.join(path.resolve(projectHome), "AGENTS.override.md");
+  const shared = path.join(path.resolve(projectHome), "AGENTS.md");
+  if (existsSync(override)) return [override];
+  if (existsSync(shared)) return [shared];
+  return [];
 }
 
 export function findProjectInstructionFiles(project) {

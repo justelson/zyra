@@ -17,6 +17,7 @@ export interface FilePreviewModalProps extends PreviewMeta {
     content: string
     loading?: boolean
     projectPath?: string
+    readOnly?: boolean
     shellMode?: 'modal' | 'window'
     active?: boolean
     chromeContext: FilePreviewChromeContext

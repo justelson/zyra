@@ -6,8 +6,10 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import log from 'electron-log'
+import { ZYRA_RETRY_MAX_ATTEMPTS } from '../../../../src/network-recovery.mjs'
 import type {
     AssistantApprovalDecision,
+    AssistantChatScope,
     AssistantInteractionMode,
     AssistantModelInfo,
     AssistantReasoningEffort,
@@ -54,6 +56,14 @@ type ActiveCompactionLifecycle = {
     turnId: string | null
 }
 
+type ActiveRetryLifecycle = {
+    activityId: string
+    turnId: string | null
+    recoveryKind: 'network' | 'provider'
+    attempt: number
+    maxAttempts: number
+}
+
 type TerminalAssistantMessageOutcome = {
     turnId: string
     outcome: 'interrupted' | 'failed'
@@ -64,6 +74,7 @@ export type PrivateVoiceTaskInput = {
     taskId: string
     localThreadId: string
     cwd: string
+    filesystemScope?: AssistantChatScope | null
     prompt: string
     model?: string
     effort?: AssistantReasoningEffort
@@ -83,6 +94,7 @@ export type PrivateVoiceTaskResult = {
 export type PrivateVoiceTaskPreparationInput = {
     localThreadId: string
     cwd: string
+    filesystemScope?: AssistantChatScope | null
     model?: string
     effort?: AssistantReasoningEffort
     runtimeMode?: AssistantRuntimeMode
@@ -93,6 +105,7 @@ export type PrivateVoiceTaskPreparationInput = {
 type ResolvedPrivateVoiceTaskConfiguration = {
     localThreadId: string
     cwd: string
+    filesystemScope: AssistantChatScope | null
     model: string
     effort: AssistantReasoningEffort
     runtimeMode: AssistantRuntimeMode
@@ -125,6 +138,7 @@ type ZyraSessionContext = {
     connectPromise: Promise<void> | null
     reconnectPromise: Promise<void> | null
     cwd: string
+    filesystemScope?: AssistantChatScope | null
     model: string
     thinking: AssistantReasoningEffort
     runtimeMode: AssistantRuntimeMode
@@ -147,6 +161,7 @@ type ZyraSessionContext = {
     internalTextByItemId: Map<string, string>
     internalCompletedItemIds: Set<string>
     activeCompaction: ActiveCompactionLifecycle | null
+    activeRetry: ActiveRetryLifecycle | null
     lastAssistantItemId: string | null
     lastUsageTurnId: string | null
     lastUsage: AssistantTurnUsage | null
@@ -971,6 +986,7 @@ function resolvePrivateVoiceTaskConfiguration(
     return {
         localThreadId: input.localThreadId,
         cwd: resolve(input.cwd),
+        filesystemScope: input.filesystemScope || null,
         model: normalizeZyraModel(input.model) || 'openai-codex/gpt-5.6-sol',
         effort: input.effort || 'high',
         runtimeMode: input.runtimeMode || 'approval-required',
@@ -989,6 +1005,7 @@ function getPrivateVoiceWorkerKey(
         bridgePath,
         configuration.localThreadId,
         configuration.cwd,
+        configuration.filesystemScope,
         configuration.model,
         configuration.effort,
         configuration.runtimeMode,
@@ -1003,6 +1020,7 @@ function getPrivateVoiceConnectPayload(
 ): Record<string, unknown> {
     return {
         cwd: configuration.cwd,
+        filesystemScope: configuration.filesystemScope || undefined,
         localThreadId: privateThreadId,
         noSession: true,
         model: configuration.model,
@@ -1467,7 +1485,7 @@ export class ZyraPiRuntime extends EventEmitter {
         }
     }
 
-    async connect(thread: AssistantThread, cwd: string): Promise<void> {
+    async connect(thread: AssistantThread, cwd: string, filesystemScope?: AssistantChatScope | null): Promise<void> {
         const existingContext = this.getSessionContext(thread.id)
             || (thread.providerThreadId ? this.getSessionContext(thread.providerThreadId) : null)
         if (existingContext) {
@@ -1501,6 +1519,7 @@ export class ZyraPiRuntime extends EventEmitter {
             connectPromise: null,
             reconnectPromise: null,
             cwd,
+            filesystemScope: filesystemScope || null,
             model,
             thinking: isAssistantReasoningEffort(thread.thinking)
                 ? thread.thinking
@@ -1525,6 +1544,7 @@ export class ZyraPiRuntime extends EventEmitter {
             internalTextByItemId: new Map(),
             internalCompletedItemIds: new Set(),
             activeCompaction: null,
+            activeRetry: null,
             lastAssistantItemId: null,
             lastUsageTurnId: null,
             lastUsage: null,
@@ -1673,6 +1693,7 @@ export class ZyraPiRuntime extends EventEmitter {
         context.activeTurnId = turnId
         context.completedTurnIds.delete(turnId)
         context.terminalAssistantMessageOutcome = null
+        context.activeRetry = null
         context.assistantMessageSequence = 0
         context.activeAssistantItemId = null
         getUsageAccountedAssistantMessageIds(context).clear()
@@ -1859,6 +1880,7 @@ export class ZyraPiRuntime extends EventEmitter {
             internalTextByItemId: new Map(),
             internalCompletedItemIds: new Set(),
             activeCompaction: null,
+            activeRetry: null,
             lastAssistantItemId: null,
             lastUsageTurnId: input.taskId,
             lastUsage: null,
@@ -2269,6 +2291,7 @@ export class ZyraPiRuntime extends EventEmitter {
             try {
                 result = await context.worker.request('connect', {
                     cwd: context.cwd,
+                    filesystemScope: context.filesystemScope || undefined,
                     localThreadId: context.localThreadId,
                     threadId: requestedThreadId,
                     providerThreadId: requestedThreadId,
@@ -2399,24 +2422,65 @@ export class ZyraPiRuntime extends EventEmitter {
 
     private reconnectDetachedSession(context: ZyraSessionContext): void {
         if (context.reconnectPromise) return
+        const retryTurnId = context.activeTurnId
         const pending = (async () => {
-            let attempt = 0
-            while (this.getSessionContext(context.localThreadId) === context) {
+            let lastError = 'Network connection unavailable.'
+            for (let attempt = 1; attempt <= ZYRA_RETRY_MAX_ATTEMPTS; attempt += 1) {
+                if (this.getSessionContext(context.localThreadId) !== context) return
+                if (retryTurnId) {
+                    this.handleZyraEvent(context, {
+                        type: 'auto_retry_start',
+                        attempt,
+                        maxAttempts: ZYRA_RETRY_MAX_ATTEMPTS,
+                        delayMs: Math.min(5_000, 250 * attempt),
+                        errorMessage: lastError,
+                        recoveryKind: 'network'
+                    }, { turnId: retryTurnId })
+                }
                 try {
                     await this.ensureConnected(context)
+                    if (retryTurnId) {
+                        this.handleZyraEvent(context, {
+                            type: 'auto_retry_end',
+                            success: true,
+                            attempt,
+                            recoveryKind: 'network'
+                        }, { turnId: retryTurnId })
+                    }
                     return
                 } catch (error) {
-                    attempt += 1
-                    if (attempt === 1 || attempt % 8 === 0) {
+                    lastError = error instanceof Error ? error.message : String(error || lastError)
+                    if (attempt === 1 || attempt === ZYRA_RETRY_MAX_ATTEMPTS) {
                         log.warn('[ZyraPiRuntime] Retrying canonical agent-server attachment', {
                             threadId: context.localThreadId,
-                            turnId: context.activeTurnId,
+                            turnId: retryTurnId,
                             attempt,
+                            maxAttempts: ZYRA_RETRY_MAX_ATTEMPTS,
                             error
                         })
                     }
-                    await new Promise((resolve) => setTimeout(resolve, Math.min(15_000, 250 * attempt)))
+                    if (attempt < ZYRA_RETRY_MAX_ATTEMPTS) {
+                        await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, 250 * attempt)))
+                    }
                 }
+            }
+            if (retryTurnId) {
+                this.handleZyraEvent(context, {
+                    type: 'auto_retry_end',
+                    success: false,
+                    attempt: ZYRA_RETRY_MAX_ATTEMPTS,
+                    finalError: lastError,
+                    recoveryKind: 'network'
+                }, { turnId: retryTurnId })
+                this.emitRuntime({
+                    eventId: randomUUID(),
+                    type: 'session.state.changed',
+                    createdAt: nowIso(),
+                    threadId: context.localThreadId,
+                    providerThreadId: context.providerThreadId,
+                    turnId: retryTurnId,
+                    payload: { state: 'error', error: 'Network issue', message: 'Network issue' }
+                })
             }
         })()
         context.reconnectPromise = pending
@@ -2484,6 +2548,7 @@ export class ZyraPiRuntime extends EventEmitter {
         ) {
             context.activeTurnId = observedTurnId
             context.terminalAssistantMessageOutcome = null
+            context.activeRetry = null
             context.assistantMessageSequence = 0
             context.activeAssistantItemId = null
             getUsageAccountedAssistantMessageIds(context).clear()
@@ -2513,12 +2578,18 @@ export class ZyraPiRuntime extends EventEmitter {
         }
         const turnId = observedTurnId || context.activeTurnId
 
-        if ((type === 'zyra_server_turn_completed' || type === 'agent_end') && turnId) {
+        if ((type === 'zyra_server_turn_completed' || (type === 'agent_end' && event['willRetry'] !== true)) && turnId) {
             if (context.completedTurnIds.has(turnId)) return
             const terminalMessageOutcome = context.terminalAssistantMessageOutcome?.turnId === turnId
                 ? context.terminalAssistantMessageOutcome
                 : null
-            const outcome = resolveZyraTerminalOutcome(type, event, terminalMessageOutcome)
+            const exhaustedNetworkRetry = type === 'agent_end'
+                && context.activeRetry?.turnId === turnId
+                && context.activeRetry.recoveryKind === 'network'
+                && context.activeRetry.attempt >= context.activeRetry.maxAttempts
+            const outcome = exhaustedNetworkRetry
+                ? 'interrupted'
+                : resolveZyraTerminalOutcome(type, event, terminalMessageOutcome)
             markTurnCompleted(context, turnId)
             this.completeAssistantText(context, turnId)
             this.emitRuntime({
@@ -2759,21 +2830,79 @@ export class ZyraPiRuntime extends EventEmitter {
         }
 
         if (type === 'auto_retry_start') {
+            const errorMessage = asString(event['errorMessage']) || ''
+            const recoveryKind = event['recoveryKind'] === 'network' || isAssistantTransportFailure(errorMessage)
+                ? 'network'
+                : 'provider'
+            const attempt = Math.max(1, Math.floor(Number(event['attempt']) || 1))
+            const maxAttempts = Math.max(attempt, Math.floor(Number(event['maxAttempts']) || ZYRA_RETRY_MAX_ATTEMPTS))
+            const retryTurnId = turnId || context.activeRetry?.turnId || null
+            const activityId = context.activeRetry?.turnId === retryTurnId
+                ? context.activeRetry.activityId
+                : `zyra-connection-recovery-${retryTurnId || context.providerThreadId}`
+            context.activeRetry = { activityId, turnId: retryTurnId, recoveryKind, attempt, maxAttempts }
             this.emitRuntime({
                 eventId: randomUUID(),
                 type: 'activity',
                 createdAt: nowIso(),
                 threadId: context.localThreadId,
                 providerThreadId: context.providerThreadId,
-                turnId: turnId || undefined,
+                turnId: retryTurnId || undefined,
                 payload: {
-                    kind: 'retry',
-                    summary: 'Retrying provider request',
-                    detail: asString(event['errorMessage']) || undefined,
+                    activityId,
+                    kind: recoveryKind === 'network' ? 'connection.recovery' : 'provider.recovery',
+                    summary: `${recoveryKind === 'network' ? 'Reconnecting' : 'Retrying'} ${attempt} of ${maxAttempts}`,
                     tone: 'warning',
-                    data: { attempt: event['attempt'], maxAttempts: event['maxAttempts'] }
+                    data: {
+                        category: 'connection-recovery',
+                        status: 'retrying',
+                        recoveryKind,
+                        attempt,
+                        maxAttempts,
+                        delayMs: Number(event['delayMs']) || 0,
+                        errorMessage
+                    }
                 }
             })
+            return
+        }
+
+        if (type === 'auto_retry_end') {
+            const lifecycle = context.activeRetry
+            const finalError = asString(event['finalError']) || ''
+            const recoveryKind = lifecycle?.recoveryKind
+                || (event['recoveryKind'] === 'network' || isAssistantTransportFailure(finalError) ? 'network' : 'provider')
+            const success = event['success'] === true
+            const retryTurnId = lifecycle?.turnId || turnId || null
+            const attempt = Math.max(1, Math.floor(Number(event['attempt']) || lifecycle?.attempt || 1))
+            const maxAttempts = Math.max(attempt, lifecycle?.maxAttempts || attempt)
+            const activityId = lifecycle?.activityId || `zyra-connection-recovery-${retryTurnId || context.providerThreadId}`
+            const summary = success
+                ? (recoveryKind === 'network' ? 'Reconnected' : 'Provider available')
+                : (recoveryKind === 'network' ? 'Paused · Network issue' : 'Paused · Provider unavailable')
+            this.emitRuntime({
+                eventId: randomUUID(),
+                type: 'activity',
+                createdAt: nowIso(),
+                threadId: context.localThreadId,
+                providerThreadId: context.providerThreadId,
+                turnId: retryTurnId || undefined,
+                payload: {
+                    activityId,
+                    kind: recoveryKind === 'network' ? 'connection.recovery' : 'provider.recovery',
+                    summary,
+                    tone: success ? 'tool' : 'warning',
+                    data: {
+                        category: 'connection-recovery',
+                        status: success ? 'recovered' : 'paused',
+                        recoveryKind,
+                        attempt,
+                        maxAttempts,
+                        errorMessage: finalError
+                    }
+                }
+            })
+            context.activeRetry = null
             return
         }
 

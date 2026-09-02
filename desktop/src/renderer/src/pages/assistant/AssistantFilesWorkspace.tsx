@@ -1,5 +1,6 @@
 import { Component, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { TriangleAlert } from 'lucide-react'
+import type { AssistantChatScopeRoot } from '@shared/assistant/contracts'
 import type { AssistantUtilityExplorerStateCapsule } from '@shared/assistant/utility-window'
 import FilePreviewModal from '@/components/ui/FilePreviewModal'
 import { useFilePreview, type UseFilePreviewReturn } from '@/components/ui/file-preview/useFilePreview'
@@ -11,41 +12,66 @@ import { captureProductEvent } from '@/lib/product-analytics'
 
 export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
     projectPath,
+    projectRoots = [],
     active = true,
     stateCapsule,
     onStateCapsuleChange,
     publishNavigatorToAppTitleBar = false
 }: {
     projectPath: string | null
+    projectRoots?: AssistantChatScopeRoot[]
     active?: boolean
     stateCapsule?: AssistantUtilityExplorerStateCapsule
     onStateCapsuleChange?: (capsule: AssistantUtilityExplorerStateCapsule) => void
     publishNavigatorToAppTitleBar?: boolean
 }) {
     const preview = useFilePreview()
+    const roots = useMemo(() => {
+        const scoped = projectRoots.filter((root, index, entries) => (
+            root.path && entries.findIndex((candidate) => candidate.path === root.path) === index
+        ))
+        if (!projectPath || scoped.some((root) => root.path === projectPath)) return scoped
+        return [{
+            id: `compatibility:${projectPath}`,
+            kind: 'associated-folder' as const,
+            path: projectPath,
+            label: projectPath.split(/[\\/]/).filter(Boolean).pop() || 'Working root',
+            access: 'read-write' as const
+        }, ...scoped]
+    }, [projectPath, projectRoots])
+    const [selectedRootPath, setSelectedRootPath] = useState(() => {
+        const hydrated = String(stateCapsule?.rootPath || '').trim()
+        return hydrated || projectPath || roots[0]?.path || ''
+    })
+    const activeProjectPath = roots.some((root) => root.path === selectedRootPath)
+        ? selectedRootPath
+        : projectPath || roots[0]?.path || null
+    const activeRoot = roots.find((root) => root.path === activeProjectPath) || null
+    const capsuleMatchesActiveRoot = !stateCapsule?.rootPath || stateCapsule.rootPath === activeProjectPath
     const modeOpenCapturedRef = useRef(false)
     const rootRef = useRef<HTMLElement | null>(null)
-    const initialNavigationState = useMemo<PreviewNavigationWorkspaceState>(() => ({
+    const initialNavigationState = useMemo<PreviewNavigationWorkspaceState>(() => capsuleMatchesActiveRoot ? ({
         currentFolderPath: stateCapsule?.currentFolderPath,
         expandedPathKeys: stateCapsule?.expandedPaths,
         selectedPath: stateCapsule?.selectedPath
-    }), [stateCapsule])
+    }) : ({}), [capsuleMatchesActiveRoot, stateCapsule])
     const [navigationState, setNavigationState] = useState<PreviewNavigationWorkspaceState>(initialNavigationState)
     const [scrollAnchor, setScrollAnchor] = useState(stateCapsule?.scrollAnchor)
     const [previewPresentation, setPreviewPresentation] = useState<FilePreviewPresentationState | null>(() => (
-        stateCapsule?.activePreview ? {
+        capsuleMatchesActiveRoot && stateCapsule?.activePreview ? {
             ...stateCapsule.activePreview,
             mode: stateCapsule.activePreview.mode || 'preview',
             expanded: stateCapsule.activePreview.expanded === true
         } : null
     ))
-    const hydrationKey = useMemo(() => stateCapsule ? JSON.stringify({
+    const hydrationKey = useMemo(() => capsuleMatchesActiveRoot && stateCapsule ? JSON.stringify({
+        root: stateCapsule.rootPath,
         folder: stateCapsule.currentFolderPath,
         expanded: stateCapsule.expandedPaths,
         selected: stateCapsule.selectedPath
-    }) : 'default', [stateCapsule])
+    }) : 'default', [capsuleMatchesActiveRoot, stateCapsule])
     const hydratedPreviewPathRef = useRef<string | null>(null)
-    const pendingHydrationRef = useRef(stateCapsule)
+    const pendingHydrationRef = useRef(capsuleMatchesActiveRoot ? stateCapsule : undefined)
     const openPreviewRef = useRef(preview.openPreview)
     const openPreviewInNewTabRef = useRef(preview.openPreviewInNewTab)
     openPreviewRef.current = preview.openPreview
@@ -71,16 +97,16 @@ export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
     )
 
     useEffect(() => {
-        pendingHydrationRef.current = stateCapsule
-        const requested = stateCapsule?.activePreview
+        pendingHydrationRef.current = capsuleMatchesActiveRoot ? stateCapsule : undefined
+        const requested = capsuleMatchesActiveRoot ? stateCapsule?.activePreview : undefined
         if (!requested || hydratedPreviewPathRef.current === requested.path || preview.previewFile?.path === requested.path) return
         hydratedPreviewPathRef.current = requested.path
         void preview.openPreview({ name: requested.name, path: requested.path }, requested.extension)
-    }, [preview.openPreview, preview.previewFile?.path, stateCapsule?.activePreview])
+    }, [capsuleMatchesActiveRoot, preview.openPreview, preview.previewFile?.path, stateCapsule])
 
     useEffect(() => {
-        restoreAssistantUtilityScrollAnchor(rootRef.current, stateCapsule?.scrollAnchor)
-    }, [stateCapsule])
+        restoreAssistantUtilityScrollAnchor(rootRef.current, capsuleMatchesActiveRoot ? stateCapsule?.scrollAnchor : undefined)
+    }, [capsuleMatchesActiveRoot, stateCapsule])
 
     useEffect(() => {
         const pendingHydration = pendingHydrationRef.current
@@ -106,13 +132,14 @@ export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
         onStateCapsuleChange?.({
             version: 1,
             workspace: 'explorer',
+            rootPath: activeProjectPath || undefined,
             currentFolderPath: navigationState.currentFolderPath,
             expandedPaths: navigationState.expandedPathKeys,
             selectedPath: activePreview?.path || navigationState.selectedPath,
             activePreview,
             scrollAnchor
         })
-    }, [navigationState, onStateCapsuleChange, preview.previewFile, previewPresentation, scrollAnchor])
+    }, [activeProjectPath, navigationState, onStateCapsuleChange, preview.previewFile, previewPresentation, scrollAnchor])
 
     useEffect(() => {
         if (!preview.previewFile) setPreviewPresentation(null)
@@ -125,12 +152,37 @@ export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
                 const anchor = captureAssistantUtilityScrollAnchor(event)
                 if (anchor) setScrollAnchor(anchor)
             }}
-            className="assistant-files-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[color-mix(in_srgb,var(--color-bg)_96%,black)]"
+            className="assistant-files-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--color-bg)_96%,black)]"
             aria-label="Files workspace"
         >
+            {roots.length > 1 ? (
+                <header className="flex h-9 shrink-0 items-center border-b border-white/[0.06] px-2">
+                    <select
+                        value={activeProjectPath || ''}
+                        onChange={(event) => {
+                            pendingHydrationRef.current = undefined
+                            hydratedPreviewPathRef.current = null
+                            setSelectedRootPath(event.target.value)
+                            setNavigationState({})
+                            setScrollAnchor(undefined)
+                            setPreviewPresentation(null)
+                            preview.closePreview()
+                        }}
+                        className="h-7 min-w-0 max-w-full rounded-md border border-[var(--surface-divider)] bg-[var(--surface-panel)] px-2 text-[10px] text-sparkle-text-secondary outline-none focus:border-[var(--accent-primary)]/45"
+                        aria-label="Files root"
+                    >
+                        {roots.map((root) => (
+                            <option key={root.id} value={root.path}>
+                                {root.label}{root.access === 'read-only' ? ' · Read only' : ''}
+                            </option>
+                        ))}
+                    </select>
+                </header>
+            ) : null}
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
             <AssistantExplorerWorkspace
-                key={`${projectPath || 'detached'}:${hydrationKey}`}
-                projectPath={projectPath}
+                key={`${activeProjectPath || 'detached'}:${hydrationKey}`}
+                projectPath={activeProjectPath}
                 onOpenPreview={handleOpenPreview}
                 onOpenPreviewInNewTab={handleOpenPreviewInNewTab}
                 initialWorkspaceState={initialNavigationState}
@@ -149,7 +201,8 @@ export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
                         size={preview.previewSize}
                         previewBytes={preview.previewBytes}
                         modifiedAt={preview.previewModifiedAt}
-                        projectPath={projectPath || undefined}
+                        projectPath={activeProjectPath || undefined}
+                        readOnly={activeRoot?.access === 'read-only'}
                         active={active}
                         chromeContext="workspace"
                         publishNavigatorToAppTitleBar={publishNavigatorToAppTitleBar}
@@ -168,6 +221,7 @@ export const AssistantFilesWorkspace = memo(function AssistantFilesWorkspace({
                     />
                 </FilesPreviewBoundary>
             ) : null}
+            </div>
         </section>
     )
 })

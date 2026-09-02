@@ -6,7 +6,7 @@ export function createComputerControlTool(options = {}) {
   return defineTool({
     name: "computer_control",
     label: "Computer control",
-    description: "Observe and control only an explicitly selected ordinary Windows application window through the desktop permission broker. The chat permission mode applies here too: Full access issues routine grants automatically; Supervised, Auto review, and Edits only ask in chat. Critical side effects always pause in chat.",
+    description: "Open, observe, and control one ordinary Windows application through the desktop permission broker. Use open_app when the requested app is not running, otherwise start with list_windows. For the app the user requested, call request_grant with its windowToken; this selects that exact window and requests access in one step. Full access issues routine grants automatically. Supervised, Auto review, and Edits only ask in chat. Critical side effects always pause in chat.",
     parameters: computerControlSchema,
     execute: async (_toolCallId, input = {}, signal) => {
       const normalized = normalizeControlToolInput(input);
@@ -36,7 +36,7 @@ export function createComputerControlTool(options = {}) {
 }
 
 function toBridgeOperation(input) {
-  if (["list_windows", "request_grant", "observe", "release"].includes(input.operation)) return input;
+  if (["open_app", "list_windows", "request_grant", "observe", "release"].includes(input.operation)) return input;
   return {
     operation: "act",
     version: 1,
@@ -61,7 +61,22 @@ function toBridgeOperation(input) {
 }
 
 function formatControlResult(operation, result) {
-  if (operation === "list_windows") return `Selectable Windows application windows: ${Array.isArray(result.windows) ? result.windows.length : 0}`;
+  if (operation === "list_windows") {
+    const windows = Array.isArray(result.windows) ? result.windows : [];
+    const available = windows.filter((entry) => entry && typeof entry === "object" && !entry.blocked);
+    if (available.length === 0) return "No controllable ordinary Windows application windows are currently available.";
+    return [
+      `Controllable Windows applications (${available.length}). Use request_grant with the windowToken for the app the user requested:`,
+      ...available.slice(0, 32).map((entry, index) => {
+        const application = String(entry.applicationName || "Unknown application").slice(0, 128);
+        const target = entry.targetId
+          ? `targetId: ${String(entry.targetId).slice(0, 256)}`
+          : `windowToken: ${String(entry.windowToken || "").slice(0, 512)}`;
+        return `- ${application} window ${index + 1} — ${target}`;
+      }),
+      "Window titles stay private until access to the selected target is granted.",
+    ].join("\n");
+  }
   if (operation === "request_grant") return result.pending ? "Control grant is waiting for approval in chat." : "Control grant issued.";
   if (operation === "release") return "Control grant released.";
   if (result.observation) return `Computer ${operation} completed at revision ${result.observation.revision}.`;

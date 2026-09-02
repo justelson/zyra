@@ -2,14 +2,17 @@ import { ipcRenderer, webUtils } from 'electron'
 import type {
     AssistantApprovalResponseInput,
     AssistantApprovePendingPlaygroundLabRequestInput,
+    AssistantAssociateProjectFolderInput,
     AssistantAttachSessionToPlaygroundLabInput,
     AssistantClearLogsInput,
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
+    AssistantCreateProjectInput,
     AssistantCreateSessionInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantDeletePlaygroundLabInput,
     AssistantDeleteMessageInput,
+    AssistantDismissProjectCandidateInput,
     AssistantEventStreamPayload,
     AssistantGetHistoryPageInput,
     AssistantGetHistoryAroundMessageInput,
@@ -21,6 +24,7 @@ import type {
     AssistantRealtimeVoiceEvent,
     AssistantRedeemAccountResetInput,
     AssistantResolveClipboardAttachmentInput,
+    AssistantRemoveProjectFolderInput,
     AssistantSearchChatsInput,
     AssistantSearchTurnsInput,
     AssistantSendPromptOptions,
@@ -29,7 +33,9 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetSessionProjectInput,
     AssistantTranscribeVoiceInput,
+    AssistantUpdateProjectInput,
     AssistantUserInputResponseInput,
     FleetOperationInput
 } from '../../shared/assistant/contracts'
@@ -53,6 +59,17 @@ export function createAssistantAdapter() {
                 ipcRenderer.invoke(ASSISTANT_IPC.redeemAccountReset, input),
             getSessionTurnUsage: (input?: { sessionId?: string }) => ipcRenderer.invoke(ASSISTANT_IPC.getSessionTurnUsage, input),
             listModels: (forceRefresh = false) => ipcRenderer.invoke(ASSISTANT_IPC.listModels, forceRefresh),
+            listProjects: () => ipcRenderer.invoke(ASSISTANT_IPC.listProjects),
+            createProject: (input: AssistantCreateProjectInput, candidateId?: string) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.createProject, input, candidateId),
+            associateProjectFolder: (input: AssistantAssociateProjectFolderInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.associateProjectFolder, input),
+            removeProjectFolder: (input: AssistantRemoveProjectFolderInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.removeProjectFolder, input),
+            updateProject: (input: AssistantUpdateProjectInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.updateProject, input),
+            dismissProjectCandidate: (input: AssistantDismissProjectCandidateInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.dismissProjectCandidate, input),
             listPromptResources: (projectPath?: string | null, forceRefresh = false) =>
                 ipcRenderer.invoke(ASSISTANT_IPC.listPromptResources, projectPath, forceRefresh),
             getSkillSourceOverview: (projectPath?: string | null) =>
@@ -78,6 +95,8 @@ export function createAssistantAdapter() {
             deleteSession: (sessionId: string) => ipcRenderer.invoke(ASSISTANT_IPC.deleteSession, sessionId),
             deleteMessage: (input: AssistantDeleteMessageInput) => ipcRenderer.invoke(ASSISTANT_IPC.deleteMessage, input),
             clearLogs: (input?: AssistantClearLogsInput) => ipcRenderer.invoke(ASSISTANT_IPC.clearLogs, input),
+            setSessionProject: (sessionId: string, input: AssistantSetSessionProjectInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.setSessionProject, sessionId, input),
             setSessionProjectPath: (sessionId: string, projectPath: string | null) =>
                 ipcRenderer.invoke(ASSISTANT_IPC.setSessionProjectPath, sessionId, projectPath),
             setPlaygroundRoot: (input: AssistantSetPlaygroundRootInput) =>

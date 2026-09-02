@@ -317,6 +317,12 @@ export function createBrowserAssistantBridgeAdapter(): DevScopeApi['assistant'] 
         redeemAccountReset: remoteAssistantMethod('redeemAccountReset'),
         getSessionTurnUsage: remoteAssistantMethod('getSessionTurnUsage'),
         listModels: remoteAssistantMethod('listModels'),
+        listProjects: remoteAssistantMethod('listProjects'),
+        createProject: remoteAssistantMethod('createProject'),
+        associateProjectFolder: remoteAssistantMethod('associateProjectFolder'),
+        removeProjectFolder: remoteAssistantMethod('removeProjectFolder'),
+        updateProject: remoteAssistantMethod('updateProject'),
+        dismissProjectCandidate: remoteAssistantMethod('dismissProjectCandidate'),
         listPromptResources: async () => ({
             success: false,
             error: 'Commands and skills are available only in trusted Zyra Desktop windows.'
@@ -348,6 +354,7 @@ export function createBrowserAssistantBridgeAdapter(): DevScopeApi['assistant'] 
         deleteSession: remoteAssistantMethod('deleteSession'),
         deleteMessage: remoteAssistantMethod('deleteMessage'),
         clearLogs: remoteAssistantMethod('clearLogs'),
+        setSessionProject: remoteAssistantMethod('setSessionProject'),
         setSessionProjectPath: remoteAssistantMethod('setSessionProjectPath'),
         setPlaygroundRoot: remoteAssistantMethod('setPlaygroundRoot'),
         createPlaygroundLab: remoteAssistantMethod('createPlaygroundLab'),

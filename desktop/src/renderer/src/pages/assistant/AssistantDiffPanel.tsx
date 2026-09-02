@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type TransitionEvent as ReactTransitionEvent, type UIEvent } from 'react'
 import { Bot, FileDiff, Files, Globe2, Library, LoaderCircle, MessageSquareText, PanelRight, ShieldAlert, SquareTerminal, TriangleAlert, Volume2 } from 'lucide-react'
-import type { FleetSnapshot } from '@shared/assistant/contracts'
+import type { AssistantChatScopeRoot, FleetSnapshot } from '@shared/assistant/contracts'
 import type { AssistantFilesShellLaunchRequest } from '@shared/assistant/files-shell-launch-route'
 import type { ControlStateSnapshot, ControlWorkspaceSnapshot } from '@shared/agent-control/contracts'
 import type { BrowserSurfaceOpenRequest } from '@shared/agent-control/protocol'
@@ -124,6 +124,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     selectedTurnId: string | null
     selectedDiff: AssistantDiffTarget | null
     projectPath: string | null
+    projectRoots: AssistantChatScopeRoot[]
     filesShellLaunchRequest: AssistantFilesShellLaunchRequest | null
     onFilesShellLaunchRequestHandled: (requestId: string) => void
     fleetSnapshot: FleetSnapshot | null
@@ -155,6 +156,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         selectedTurnId,
         selectedDiff,
         projectPath,
+        projectRoots,
         filesShellLaunchRequest,
         onFilesShellLaunchRequestHandled,
         fleetSnapshot,
@@ -1025,6 +1027,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
             threadId,
             chatTitle,
             projectPath: projectPath || '',
+            projectRoots,
             workspace,
             title: browserTab?.title || tabs.find((tab) => tab.id === tabId)?.label || 'Zyra',
             colorIndex: Math.abs([...String(canonicalChatId || threadId)].reduce((hash, character) => ((hash << 5) - hash + character.charCodeAt(0)) | 0, 0)) % 8,
@@ -1040,7 +1043,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
             createdAt: now,
             updatedAt: now
         }
-    }, [browserTabs, canonicalChatId, chatTitle, ensureUtilityTabId, filesProjectPath, projectPath, readWorkspaceCapsule, resourceDrillDownDiff, resourceDrillDownTurnId, reviewTurnId, sessionId, tabs, terminalRuntimeId, threadId, visibleSelectedDiff, workspaceTabs])
+    }, [browserTabs, canonicalChatId, chatTitle, ensureUtilityTabId, filesProjectPath, projectPath, projectRoots, readWorkspaceCapsule, resourceDrillDownDiff, resourceDrillDownTurnId, reviewTurnId, sessionId, tabs, terminalRuntimeId, threadId, visibleSelectedDiff, workspaceTabs])
 
     const mainTabTearOff = useMemo(() => isElectronRendererRuntime() ? {
         begin: async (tabId: string, screenPoint: { x: number; y: number }, grabOffset: { x: number; y: number }): Promise<string | null> => {
@@ -1428,6 +1431,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                         <Suspense fallback={<PreviewTreeSkeleton />}>
                             <AssistantFilesWorkspace
                                 projectPath={filesProjectPath}
+                                projectRoots={projectRoots}
                                 active={open && activeWorkspaceTab?.kind === 'explorer'}
                                 publishNavigatorToAppTitleBar
                                 stateCapsule={explorerHydrationCapsule?.workspace === 'explorer' ? explorerHydrationCapsule : undefined}

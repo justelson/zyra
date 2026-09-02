@@ -29,6 +29,7 @@ Status vocabulary:
 - [ADR-0012: Use a derived FTS projection for local chat search](0012-use-a-derived-fts-projection-for-local-chat-search.md) — **Accepted and implemented.**
 - [ADR-0013: Use chat permissions and critical-only Full access escalation](0013-use-chat-permissions-and-critical-only-full-access-escalation.md) — **Superseded by ADR-0014.**
 - [ADR-0014: Share four permission modes across chat and control](0014-share-four-permission-modes-across-chat-and-control.md) — **Accepted and implemented.**
+- [ADR-0015: Use stable Projects and revisioned Chat scopes](0015-use-stable-projects-and-revisioned-chat-scopes.md) — **Accepted and implemented.**
 
 ## Format
 

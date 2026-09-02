@@ -1,7 +1,7 @@
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { isAssistantTransportFailure } from '@shared/assistant/transport-failure'
 
-export const MAX_ASSISTANT_RECONNECT_ATTEMPTS = 3
+export const MAX_ASSISTANT_RECONNECT_ATTEMPTS = 10
 
 export type AssistantRecoveryIssue = {
     key: string

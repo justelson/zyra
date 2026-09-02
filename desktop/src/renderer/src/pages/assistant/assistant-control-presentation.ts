@@ -10,6 +10,8 @@ export function controlTargetLabel(target: ControlTarget | undefined): string {
     if (target.kind === 'chrome-tab') {
         return target.origin ? `Chrome tab on ${hostLabel(target.origin) || target.origin}` : 'the selected Chrome tab'
     }
+    if (target.title?.trim()) return target.title.trim()
+    if (target.applicationName?.trim()) return target.applicationName.trim()
     return target.executableIdentity.split(/[\\/]/).at(-1) || 'the selected Windows app'
 }
 

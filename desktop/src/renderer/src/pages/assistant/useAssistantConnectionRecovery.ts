@@ -17,7 +17,15 @@ type AssistantConnectionRecoveryState = {
     sessionKey: string | null
 }
 
-const RECOVERY_BANNER_VISIBLE_AFTER_ATTEMPT = 1
+const RECOVERY_BANNER_VISIBLE_AFTER_ATTEMPT = 0
+
+export function getPausedAssistantRuntimeRecovery(activities: AssistantActivity[]): { attempt: number; maxAttempts: number } | null {
+    const activity = activities.find((entry) => entry.payload?.['category'] === 'connection-recovery')
+    if (!activity || activity.payload?.['status'] !== 'paused') return null
+    const attempt = Math.max(1, Math.floor(Number(activity.payload?.['attempt']) || 1))
+    const maxAttempts = Math.max(attempt, Math.floor(Number(activity.payload?.['maxAttempts']) || MAX_ASSISTANT_RECONNECT_ATTEMPTS))
+    return { attempt, maxAttempts }
+}
 
 function getReconnectDelayMs(attempt: number): number {
     return Math.min(5000, 700 + ((attempt - 1) * 500))
@@ -73,6 +81,10 @@ export function useAssistantConnectionRecovery(input: {
             activities
         })
     ), [activities, commandError, threadLastError])
+    const pausedRuntimeRecovery = useMemo(
+        () => getPausedAssistantRuntimeRecovery(activities),
+        [activities]
+    )
 
     const reconnectSessionKey = selectedSessionId
         ? `${selectedSessionId}:${activeThreadId || 'pending-thread'}`
@@ -179,6 +191,7 @@ export function useAssistantConnectionRecovery(input: {
         if (threadState === 'interrupted') return
         if (!shouldAutoReconnect) return
         if (state.phase === 'retrying' && state.sessionKey === reconnectSessionKey) return
+        if (pausedRuntimeRecovery) return
         if (exhaustedSessionKeysRef.current.has(reconnectSessionKey)) return
         void runReconnectCycle(selectedSessionId, reconnectSessionKey)
     }, [
@@ -186,6 +199,7 @@ export function useAssistantConnectionRecovery(input: {
         connected,
         deferUntilFirstPrompt,
         loading,
+        pausedRuntimeRecovery,
         shouldAutoReconnect,
         selectedSessionId,
         threadState,
@@ -204,11 +218,14 @@ export function useAssistantConnectionRecovery(input: {
         && state.attempt > RECOVERY_BANNER_VISIBLE_AFTER_ATTEMPT
     const showExhaustedRetryBanner = state.phase === 'exhausted'
         && reconnectIsForSelectedThread
+    const showRuntimePausedBanner = Boolean(pausedRuntimeRecovery && !connected && state.phase !== 'retrying')
+    const runtimeAttempt = pausedRuntimeRecovery?.attempt || 0
+    const runtimeMaxAttempts = pausedRuntimeRecovery?.maxAttempts || MAX_ASSISTANT_RECONNECT_ATTEMPTS
 
     const showBanner = Boolean(
         selectedSessionId
         && recoveryIssue
-        && (showRepeatedRetryBanner || showExhaustedRetryBanner)
+        && (showRepeatedRetryBanner || showExhaustedRetryBanner || showRuntimePausedBanner)
     )
 
     return {
@@ -216,8 +233,8 @@ export function useAssistantConnectionRecovery(input: {
         showBanner,
         reconnect,
         reconnectPending: state.phase === 'retrying',
-        reconnectAttempt: state.attempt,
-        reconnectMaxAttempts: state.maxAttempts,
-        reconnectExhausted: state.phase === 'exhausted'
+        reconnectAttempt: state.phase === 'idle' ? runtimeAttempt : state.attempt,
+        reconnectMaxAttempts: state.phase === 'idle' ? runtimeMaxAttempts : state.maxAttempts,
+        reconnectExhausted: state.phase === 'exhausted' || showRuntimePausedBanner
     }
 }

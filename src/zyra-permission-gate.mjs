@@ -49,7 +49,7 @@ function boundedJson(value, limit = 1800) {
 
 function collectPaths(input) {
   const values = [];
-  for (const key of ["path", "filePath", "targetPath", "sourcePath", "destinationPath"]) {
+  for (const key of ["path", "filePath", "folderPath", "rootPath", "directory", "cwd", "targetPath", "sourcePath", "destinationPath"]) {
     const value = stringValue(input[key]);
     if (value) values.push(value);
   }
@@ -67,23 +67,82 @@ function isSeparatelySupervisedControlTool(toolName) {
   return /(?:^|[._-])(browser|computer|control|workflow|agent)(?:[._-]|$)/.test(toolName);
 }
 
+function normalizeFilesystemRoots(options, project) {
+  const scope = asRecord(options.filesystemScope);
+  const roots = Array.isArray(scope.roots) ? scope.roots.flatMap((value) => {
+    const root = asRecord(value);
+    const rootPath = stringValue(root.path);
+    if (!rootPath) return [];
+    return [{
+      path: path.resolve(rootPath),
+      access: root.access === "read-only" ? "read-only" : "read-write",
+    }];
+  }) : [];
+  if (roots.length === 0) roots.push({ path: project, access: "read-write" });
+  return roots
+    .filter((root, index, entries) => entries.findIndex((candidate) => candidate.path.toLowerCase() === root.path.toLowerCase()) === index)
+    .sort((left, right) => right.path.length - left.path.length);
+}
+
+function filesystemRootForPath(value, project, roots) {
+  const candidate = path.resolve(project, value);
+  return roots.find((root) => !isPathOutsideProject(candidate, root.path)) || null;
+}
+
+function collectCommandPathHints(command) {
+  const values = [];
+  const tokens = String(command || "").match(/"[^"]+"|'[^']+'|[^\s;&|><]+/g) || [];
+  for (const tokenValue of tokens) {
+    const token = tokenValue.replace(/^["']|["'],?$/g, "").replace(/^[([]+|[),\]]+$/g, "");
+    if (
+      token === ".."
+      || /^\.\.[\\/]/.test(token)
+      || /^[a-z]:[\\/]/i.test(token)
+      || /^\\\\[^\\]/.test(token)
+      || /^~[\\/]/.test(token)
+    ) values.push(token);
+  }
+  return [...new Set(values)];
+}
+
+function commandHasUnboundedPathExpansion(command) {
+  return /(?:%userprofile%|%homedrive%|%homepath%|\$home\b|\$env:userprofile\b|\$env:homedrive\b)/i.test(String(command || ""));
+}
+
+function isConservativelyReadOnlyCommand(command) {
+  const normalized = String(command || "").trim().toLowerCase();
+  if (!normalized || /(?:^|[^<])>(?:>|&)?/.test(normalized) || /[;&|\r\n]|\$\(|`/.test(normalized)) return false;
+  return /^(?:git\s+(?:status|diff|log|show|branch(?:\s+--show-current)?|rev-parse|ls-files)\b|(?:rg|grep|find|ls|dir|cat|type|more|head|tail|where|which|pwd|echo)\b|(?:get-content|get-childitem|get-item|select-string|test-path)\b)/i.test(normalized);
+}
+
 export function describeZyraToolPermission(event, options = {}) {
   const toolName = normalizeToolName(event?.toolName || event?.name);
-  if (!toolName || SAFE_TOOL_NAMES.has(toolName) || isSeparatelySupervisedControlTool(toolName)) return null;
+  if (!toolName || isSeparatelySupervisedControlTool(toolName)) return null;
 
   const input = asRecord(event?.input);
   const project = path.resolve(options.project || process.cwd());
-  const paths = collectPaths(input);
-  const outsideProject = paths.some((value) => isPathOutsideProject(value, project));
+  const explicitFilesystemScope = Array.isArray(asRecord(options.filesystemScope).roots);
+  const roots = normalizeFilesystemRoots(options, project);
   const command = toolName === "bash" || /(?:shell|terminal|exec|command)/.test(toolName)
     ? stringValue(input.command || input.cmd || input.script)
     : "";
+  const paths = [...new Set([...collectPaths(input), ...collectCommandPathHints(command)])];
+  const matchedRoots = paths.map((value) => filesystemRootForPath(value, project, roots));
+  const outsideProject = matchedRoots.some((root) => !root) || commandHasUnboundedPathExpansion(command);
   const requestType = toolName === "edit" || toolName === "write" || /(?:write|edit|patch|delete|move|rename|create)/.test(toolName)
     ? "file-change"
     : command
       ? "command"
       : "command";
+  const workingRoot = filesystemRootForPath(project, project, roots);
+  const readOnlyViolation = requestType === "file-change"
+    ? matchedRoots.some((root) => root?.access === "read-only")
+    : Boolean(command)
+      && !isConservativelyReadOnlyCommand(command)
+      && (workingRoot?.access === "read-only" || matchedRoots.some((root) => root?.access === "read-only"));
+  if (SAFE_TOOL_NAMES.has(toolName) && !outsideProject) return null;
   const scopeLabel = requestType === "file-change" ? "file changes" : toolName === "bash" ? "shell commands" : toolName;
+  const scopeKey = roots.map((root) => `${root.path.toLowerCase()}:${root.access}`).join("|");
 
   return {
     requestType,
@@ -93,7 +152,9 @@ export function describeZyraToolPermission(event, options = {}) {
     ...(paths.length > 0 ? { paths } : {}),
     toolName,
     outsideProject,
-    grantKey: `${requestType}:${toolName}:${project.toLowerCase()}`,
+    scopeViolation: explicitFilesystemScope && outsideProject,
+    readOnlyViolation: explicitFilesystemScope && readOnlyViolation,
+    grantKey: `${requestType}:${toolName}:${scopeKey}`,
     grantLabel: `Allow ${scopeLabel} for this chat`,
   };
 }
@@ -127,7 +188,20 @@ export function createZyraPermissionGateExtension(options = {}) {
   const handleToolCall = async (event) => {
     const permissionMode = getPermissionMode();
     const request = describeZyraToolPermission(event, options);
-    if (!request || sessionGrants.has(request.grantKey)) return undefined;
+    if (!request) return undefined;
+    if (request.scopeViolation) {
+      return {
+        block: true,
+        reason: `${request.toolName || "This tool"} requested a path outside this chat's filesystem scope.`,
+      };
+    }
+    if (request.readOnlyViolation) {
+      return {
+        block: true,
+        reason: `${request.toolName || "This tool"} requested a write inside a read-only Project folder.`,
+      };
+    }
+    if (sessionGrants.has(request.grantKey)) return undefined;
 
     if (permissionMode === "full-access") {
       if (!isPotentiallyCriticalZyraToolPermission(request)) return undefined;

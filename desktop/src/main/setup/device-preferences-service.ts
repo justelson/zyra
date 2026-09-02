@@ -337,6 +337,15 @@ export class DevicePreferencesService {
         })
     }
 
+    async getProjectDiscoveryRoots(): Promise<string[]> {
+        const record = await this.requireReadyRecord()
+        const primary = typeof record.shared.projectsFolder === 'string' ? record.shared.projectsFolder.trim() : ''
+        const additional = Array.isArray(record.shared.additionalFolders)
+            ? record.shared.additionalFolders.map((value) => String(value || '').trim()).filter(Boolean)
+            : []
+        return [...new Set([primary, ...additional].filter(Boolean))]
+    }
+
     async getNewChatWebDefaults(): Promise<{ webSearch: boolean; webFetch: boolean }> {
         const record = await this.requireReadyRecord()
         return {

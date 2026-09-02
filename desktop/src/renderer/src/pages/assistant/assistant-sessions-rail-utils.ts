@@ -1,7 +1,7 @@
 import type { AssistantPlaygroundState, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import type { DevScopeResult } from '@shared/contracts/devscope-api'
 import { isGenericUserFolderPath } from '@shared/projects/project-path-classification'
-import { getAssistantThreadPhase } from '@/lib/assistant/selectors'
+import { getAssistantThreadPhase, isAssistantThreadActivelyWorking } from '@/lib/assistant/selectors'
 import { getCachedProjectDetails, primeProjectDetailsCache } from '@/lib/projectViewCache'
 import { retainAssistantProjectPresentation } from './assistant-project-presentation-memory'
 import type {
@@ -175,6 +175,36 @@ export function resolveAssistantThreadStatusPill(
 
     const phase = getAssistantThreadPhase(thread)
     const latestTurn = thread.latestTurn
+    const attentionPending = phase.key === 'waiting-approval' || phase.key === 'waiting-input'
+    if (!attentionPending && latestTurn?.state === 'error') {
+        return {
+            label: 'Failed',
+            colorClass: 'text-red-300',
+            dotClass: 'bg-red-400',
+            badgeClass: 'bg-red-500/[0.12] text-red-100',
+            pulse: false,
+            showLabel: true
+        }
+    }
+    if (!attentionPending && latestTurn?.state === 'interrupted') {
+        return {
+            label: 'Stopped',
+            colorClass: 'text-sparkle-text-muted',
+            dotClass: 'bg-sparkle-text-muted/55',
+            pulse: false,
+            showLabel: false
+        }
+    }
+    if (!attentionPending && isAssistantThreadActivelyWorking(thread) && phase.key !== 'background') {
+        return {
+            label: 'Working',
+            colorClass: 'text-sky-400',
+            dotClass: 'bg-sky-400',
+            badgeClass: 'bg-sky-500/[0.12] text-sky-100',
+            pulse: true,
+            showLabel: true
+        }
+    }
 
     switch (phase.key) {
         case 'starting':
@@ -249,10 +279,10 @@ export function resolveAssistantThreadStatusPill(
             return resolveAssistantThreadRecencyPill(thread, isActiveThread, recencyTierByThreadId)
         case 'error':
             return {
-                label: 'Failed',
-                colorClass: 'text-red-300',
-                dotClass: 'bg-red-400',
-                badgeClass: 'bg-red-500/[0.12] text-red-100',
+                label: 'Connection issue',
+                colorClass: 'text-amber-300',
+                dotClass: 'bg-amber-400',
+                badgeClass: 'bg-amber-500/[0.12] text-amber-100',
                 pulse: false,
                 showLabel: true
             }
@@ -611,7 +641,7 @@ export function groupSessionsByProject(
     for (const session of sessions) {
         const normalizedPath = resolveSessionProjectPath(session)
         const projectPresentation = resolveAssistantProjectPresentation(normalizedPath, projectIconOverrides)
-        const key = getProjectKey(normalizedPath)
+        const key = session.projectId ? `project:${session.projectId}` : getProjectKey(normalizedPath)
         const sessionUpdatedAt = getSessionLastActivityAt(session)
         const existing = groups.get(key)
         if (!existing) {

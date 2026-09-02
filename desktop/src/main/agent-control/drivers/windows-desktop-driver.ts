@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomBytes, randomUUID } from 'crypto'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, statSync } from 'fs'
 import { createConnection, type Socket } from 'net'
 import { join, resolve } from 'path'
 import { app } from 'electron'
@@ -13,15 +13,19 @@ import type { AgentControlDriver, DriverActionContext, DriverObservationOptions 
 type PendingRpc = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 type SidecarTarget = { windowToken: string; processId: number; executableIdentity: string; applicationName: string; title: string; processStartTime: number }
 
+const SIDECAR_IDLE_TIMEOUT_MS = 15_000
+
 export class WindowsDesktopDriver implements AgentControlDriver {
     readonly kind = 'windows-window' as const
     private child: ChildProcessWithoutNullStreams | null = null
     private socket: Socket | null = null
     private pipeName = ''
-    private secret = ''
-    private sidecarSessionId = ''
+    private readonly secret = randomBytes(32).toString('base64url')
+    private readonly sidecarSessionId = `windows-sidecar:${randomUUID()}`
     private receiveBuffer = ''
     private readonly pending = new Map<string, PendingRpc>()
+    private readonly retainedTargetIds = new Set<string>()
+    private idleTimer: NodeJS.Timeout | null = null
     private lastDisconnectReason: string | undefined
     private startPromise: Promise<void> | null = null
 
@@ -40,6 +44,13 @@ export class WindowsDesktopDriver implements AgentControlDriver {
         })) : []
     }
 
+    async openApp(application: string, signal?: AbortSignal): Promise<{ applicationName: string }> {
+        const result = await this.request('open_app', { application }, signal, 10_000) as { applicationName?: unknown }
+        const applicationName = stringValue(result.applicationName, 256)
+        if (!applicationName) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows did not return the registered application name.')
+        return { applicationName }
+    }
+
     async selectWindow(windowToken: string) {
         const selected = await this.request('select_window', { windowToken }) as SidecarTarget
         return {
@@ -49,7 +60,9 @@ export class WindowsDesktopDriver implements AgentControlDriver {
                 sidecarSessionId: this.sidecarSessionId,
                 processId: Number(selected.processId),
                 windowToken: String(selected.windowToken),
-                executableIdentity: String(selected.executableIdentity)
+                executableIdentity: String(selected.executableIdentity),
+                applicationName: String(selected.applicationName || '').slice(0, 256) || undefined,
+                title: String(selected.title || '').slice(0, 512) || undefined
             }
         }
     }
@@ -92,30 +105,74 @@ export class WindowsDesktopDriver implements AgentControlDriver {
         return { changed: result.changed !== false }
     }
 
-    async release(_target: RegisteredControlTarget): Promise<void> {
-        // The sidecar retains no grant. Target identity remains selectable until broker removal.
+    readScreenshot(screenshotRef: string) {
+        const artifactId = /^control-artifact:([a-f0-9]{32})$/i.exec(screenshotRef)?.[1]
+        if (!artifactId) return undefined
+        const file = join(this.artifactDirectory, `${artifactId}.jpg`)
+        try {
+            const bytes = statSync(file).size
+            if (bytes < 1 || bytes > CONTROL_BOUNDS.maxScreenshotBytes) return undefined
+            return { data: readFileSync(file).toString('base64'), mimeType: 'image/jpeg' as const, bytes }
+        } catch {
+            return undefined
+        }
+    }
+
+    retainTarget(target: RegisteredControlTarget): void {
+        this.retainedTargetIds.add(target.target.targetId)
+        this.clearIdleTimer()
+    }
+
+    release(target: RegisteredControlTarget): void {
+        this.retainedTargetIds.delete(target.target.targetId)
+        if (this.retainedTargetIds.size === 0) this.disposeProcess('task-complete')
+    }
+
+    releaseIdle(): void {
+        if (this.retainedTargetIds.size === 0) this.disposeProcess('turn-complete')
     }
 
     async emergencyStop(): Promise<void> {
+        this.retainedTargetIds.clear()
         await this.request('emergency_stop', {}, undefined, 2_000).catch(() => undefined)
         this.disposeProcess('emergency-stop')
     }
 
     async dispose(): Promise<void> {
+        this.retainedTargetIds.clear()
         this.disposeProcess('disposed')
     }
 
     health() {
         if (process.platform !== 'win32') return { state: 'unavailable' as const, lastDisconnectReason: 'windows-only' }
-        return { state: this.child && this.socket ? 'ready' as const : 'disconnected' as const, lastDisconnectReason: this.lastDisconnectReason }
+        try {
+            resolveSidecarLaunch()
+            return { state: 'ready' as const, lastDisconnectReason: this.lastDisconnectReason }
+        } catch (error) {
+            return { state: 'unavailable' as const, lastDisconnectReason: error instanceof Error ? error.message : 'sidecar-unavailable' }
+        }
+    }
+
+    isTargetCurrent(target: RegisteredControlTarget): boolean {
+        return target.target.kind === 'windows-window'
+            && target.target.sidecarSessionId === this.sidecarSessionId
     }
 
     private async request(method: string, parameters: Record<string, unknown>, signal?: AbortSignal, timeoutMs: number = CONTROL_BOUNDS.defaultActionTimeoutMs): Promise<unknown> {
         await this.ensureStarted()
-        if (!this.socket?.writable) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows sidecar pipe is unavailable.', { retryable: true })
+        this.clearIdleTimer()
+        try {
+            return await this.sendRequest(method, parameters, signal, timeoutMs)
+        } finally {
+            this.scheduleIdleStop()
+        }
+    }
+
+    private sendRequest(method: string, parameters: Record<string, unknown>, signal?: AbortSignal, timeoutMs: number = CONTROL_BOUNDS.defaultActionTimeoutMs): Promise<unknown> {
+        if (!this.socket?.writable) return Promise.reject(new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows sidecar pipe is unavailable.', { retryable: true }))
         const id = `sidecar-request:${randomUUID()}`
         const message = JSON.stringify({ id, method, params: parameters, auth: this.secret, version: 1 })
-        if (Buffer.byteLength(message) > CONTROL_BOUNDS.maxBridgeMessageBytes) throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Windows sidecar request exceeds 512 KiB.')
+        if (Buffer.byteLength(message) > CONTROL_BOUNDS.maxBridgeMessageBytes) return Promise.reject(new AgentControlError('CONTROL_VALIDATION_ERROR', 'Windows sidecar request exceeds 512 KiB.'))
         return new Promise((resolveRequest, rejectRequest) => {
             const timer = setTimeout(() => {
                 this.pending.delete(id)
@@ -153,8 +210,6 @@ export class WindowsDesktopDriver implements AgentControlDriver {
     private async start(): Promise<void> {
         this.disposeProcess('restart')
         this.pipeName = `zyra-computer-use-${process.pid}-${randomUUID()}`
-        this.secret = randomBytes(32).toString('base64url')
-        this.sidecarSessionId = `windows-sidecar:${randomUUID()}`
         const launch = resolveSidecarLaunch()
         this.child = spawn(launch.command, [...launch.args, '--pipe', this.pipeName, '--artifacts', this.artifactDirectory], {
             windowsHide: true,
@@ -185,7 +240,7 @@ export class WindowsDesktopDriver implements AgentControlDriver {
         this.socket.on('close', () => this.disposeProcess('pipe-closed', false))
         this.socket.on('error', (error) => this.disposeProcess(`pipe-error:${error.message}`, false))
         this.lastDisconnectReason = undefined
-        await this.request('health', {}, undefined, 3_000)
+        await this.sendRequest('health', {}, undefined, 3_000)
     }
 
     private handleData(chunk: string): void {
@@ -215,8 +270,21 @@ export class WindowsDesktopDriver implements AgentControlDriver {
         }
     }
 
+    private scheduleIdleStop(): void {
+        this.clearIdleTimer()
+        if (this.retainedTargetIds.size > 0 || !this.child) return
+        this.idleTimer = setTimeout(() => this.disposeProcess('idle'), SIDECAR_IDLE_TIMEOUT_MS)
+        this.idleTimer.unref?.()
+    }
+
+    private clearIdleTimer(): void {
+        if (this.idleTimer) clearTimeout(this.idleTimer)
+        this.idleTimer = null
+    }
+
     private disposeProcess(reason: string, terminate = true): void {
-        this.lastDisconnectReason = reason
+        this.clearIdleTimer()
+        this.lastDisconnectReason = ['idle', 'task-complete'].includes(reason) ? undefined : reason
         const socket = this.socket
         const child = this.child
         this.socket = null

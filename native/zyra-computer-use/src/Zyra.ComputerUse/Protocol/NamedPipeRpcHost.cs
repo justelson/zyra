@@ -18,6 +18,7 @@ public sealed class NamedPipeRpcHost
     private readonly string _pipeName;
     private readonly string _authSecret;
     private readonly WindowRegistry _windows;
+    private readonly RegisteredAppLauncher _appLauncher = new();
     private readonly UiAutomationProvider _uia = new();
     private readonly InputProvider _input = new();
     private readonly WindowsGraphicsCaptureProvider _capture;
@@ -84,6 +85,7 @@ public sealed class NamedPipeRpcHost
             object result = request.Method switch
             {
                 "health" => new { state = "ready", processId = Environment.ProcessId, protocolVersion = 1 },
+                "open_app" => OpenApp(ReadString(request.Parameters, "application")),
                 "list_windows" => new { windows = _windows.ListVisibleWindows() },
                 "select_window" => SelectWindow(ReadString(request.Parameters, "windowToken")),
                 "observe" => Observe(request.Parameters),
@@ -97,6 +99,12 @@ public sealed class NamedPipeRpcHost
         {
             return new RpcResponse(request.Id, false, Error: new RpcError(ErrorCode(error), Limit(error.Message, 512), error is IOException or TimeoutException));
         }
+    }
+
+    private object OpenApp(string application)
+    {
+        var opened = _appLauncher.Open(application);
+        return new { applicationName = opened.Name };
     }
 
     private object SelectWindow(string token)

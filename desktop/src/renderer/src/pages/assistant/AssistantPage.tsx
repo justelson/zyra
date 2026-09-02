@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import type { AssistantActivity, AssistantMessage, AssistantSession, AssistantTurnDetail, FleetSnapshot } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantChatScopeRoot, AssistantMessage, AssistantSession, AssistantTurnDetail, FleetSnapshot } from '@shared/assistant/contracts'
 import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reconciliation'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
@@ -43,6 +43,7 @@ function areAssistantPageShellSelectionsEqual(left: AssistantPageShellSelection,
 
 const EMPTY_ASSISTANT_MESSAGES: AssistantMessage[] = []
 const EMPTY_ASSISTANT_ACTIVITIES: AssistantActivity[] = []
+const EMPTY_ASSISTANT_PROJECT_ROOTS: AssistantChatScopeRoot[] = []
 const createAssistantDiffPanelModule = async () => ({
     default: (await import('./AssistantDiffPanel')).AssistantDiffPanel
 })
@@ -61,6 +62,7 @@ type AssistantDiffSourceSelection = {
     messages: AssistantMessage[]
     activities: AssistantActivity[]
     projectRootPath: string | null
+    projectRoots: AssistantChatScopeRoot[]
     activeTurnId: string | null
     fleetSnapshot: FleetSnapshot | null
 }
@@ -72,6 +74,7 @@ function areAssistantDiffSourceSelectionsEqual(left: AssistantDiffSourceSelectio
         && left.messages === right.messages
         && left.activities === right.activities
         && left.projectRootPath === right.projectRootPath
+        && left.projectRoots === right.projectRoots
         && left.activeTurnId === right.activeTurnId
         && left.fleetSnapshot === right.fleetSnapshot
 }
@@ -177,7 +180,8 @@ export default function AssistantPage() {
             chatTitle: selectedSession?.title || 'Untitled chat',
             messages: hideRowsForSelection ? EMPTY_ASSISTANT_MESSAGES : activeThread?.messages || EMPTY_ASSISTANT_MESSAGES,
             activities: hideRowsForSelection ? EMPTY_ASSISTANT_ACTIVITIES : activeThread?.activities || EMPTY_ASSISTANT_ACTIVITIES,
-            projectRootPath: selectedSession?.projectPath || activeThread?.cwd || null,
+            projectRootPath: selectedSession?.workingRoot || selectedSession?.projectPath || activeThread?.cwd || null,
+            projectRoots: selectedSession?.chatScope?.roots || EMPTY_ASSISTANT_PROJECT_ROOTS,
             activeTurnId: activeThread?.latestTurn?.state === 'running' ? activeThread.latestTurn.id : null,
             fleetSnapshot: activeThread ? state.snapshot.fleetByThreadId[activeThread.id] || null : null
         }
@@ -614,6 +618,7 @@ export default function AssistantPage() {
                                     selectedTurnId={effectiveDiffTurnId}
                                     selectedDiff={selectedDiff}
                                     projectPath={diffSource.projectRootPath}
+                                    projectRoots={diffSource.projectRoots}
                                     filesShellLaunchRequest={filesShellLaunchRequest}
                                     onFilesShellLaunchRequestHandled={handleFilesShellLaunchRequestHandled}
                                     fleetSnapshot={diffSource.fleetSnapshot}

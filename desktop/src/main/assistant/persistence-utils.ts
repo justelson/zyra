@@ -4,6 +4,7 @@ import type {
     AssistantSession,
     AssistantSnapshot
 } from '../../shared/assistant/contracts'
+import { initializeAssistantProjectSchema } from './assistant-project-persistence'
 
 export interface AssistantPersistenceRecord {
     version: number
@@ -312,6 +313,7 @@ export function initializeAssistantPersistenceSchema(db: SqlDatabase): void {
         CREATE INDEX IF NOT EXISTS idx_assistant_workflow_calls_agent ON assistant_workflow_calls(agent_run_id);
         CREATE INDEX IF NOT EXISTS idx_assistant_artifacts_root ON assistant_agent_artifacts(root_thread_id, created_at DESC);
     `)
+    initializeAssistantProjectSchema(db)
     ensureTableColumn(db, 'assistant_sessions', 'mode', `TEXT NOT NULL DEFAULT 'work'`)
     ensureTableColumn(db, 'assistant_sessions', 'playground_lab_id', 'TEXT')
     ensureTableColumn(db, 'assistant_sessions', 'pending_lab_request_json', 'TEXT')

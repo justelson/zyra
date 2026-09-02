@@ -63,7 +63,7 @@ export async function connectAssistantSession(deps: AssistantServiceActionDeps, 
         : getSelectedSession(snapshot)
     if (!session) throw new Error('Assistant session not found.')
     const thread = requireActiveThread(session)
-    await deps.runtime.connect(thread, deps.getSessionRuntimeCwd(session, thread))
+    await deps.runtime.connect(thread, deps.getSessionRuntimeCwd(session, thread), session.chatScope)
     return { success: true as const, threadId: thread.id }
 }
 
@@ -551,7 +551,7 @@ export async function sendAssistantPromptAction(
             deps.appendEvent('thread.message.user', occurredAt, { threadId: thread.id, message: userMessage }, session.id, thread.id)
         }
         if (!hasLiveRuntimeSession) {
-            await deps.runtime.connect({ ...thread, ...updatedThreadPatch }, runtimeCwd)
+            await deps.runtime.connect({ ...thread, ...updatedThreadPatch }, runtimeCwd, session.chatScope)
         }
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             model: options?.model,
@@ -650,6 +650,7 @@ export async function respondAssistantUserInputAction(
         runtime: deps.runtime,
         thread: target.thread,
         cwd: deps.getSessionRuntimeCwd(target.session, target.thread),
+        chatScope: target.session.chatScope,
         requestId: input.requestId,
         answers: input.answers
     })

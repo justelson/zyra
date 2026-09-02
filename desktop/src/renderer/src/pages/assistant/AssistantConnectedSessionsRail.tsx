@@ -14,6 +14,7 @@ import { isAssistantDraftSession } from './assistant-sessions-rail-utils'
 import { buildAssistantChatRoute } from './assistant-chat-route'
 import { createAssistantChatAndNavigate } from './create-assistant-chat-and-navigate'
 import { useAgentControlState } from './useAgentControlState'
+import { useAssistantProjectCatalog } from './useAssistantProjectCatalog'
 
 export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSessionsRail(props: {
     collapsed: boolean
@@ -37,6 +38,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
     const navigate = useNavigate()
     const { settings } = useSettings()
     const controlState = useAgentControlState()
+    const projectCatalogState = useAssistantProjectCatalog()
     const pendingControlThreadIds = useMemo(() => new Set([
         ...(controlState?.pendingGrants || []),
         ...(controlState?.pendingActionApprovals || [])
@@ -76,7 +78,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
         navigate(buildAssistantChatRoute(input.sessionId, input.threadId))
     }, [navigate, railController.selectThread])
 
-    const handleCreateProjectChat = useCallback(async (projectPath?: string) => {
+    const handleCreateProjectChat = useCallback(async (projectPath?: string, projectId?: string) => {
         if (creatingProjectChatRef.current) return
         try {
             creatingProjectChatRef.current = true
@@ -85,7 +87,12 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
                 const result = await createAssistantChatAndNavigate(
                     railController,
                     navigate,
-                    { mode: 'work', projectPath: trimmedProjectPath }
+                    {
+                        mode: 'work',
+                        projectPath: trimmedProjectPath,
+                        projectId,
+                        workingRoot: trimmedProjectPath
+                    }
                 )
                 if (!result.success) {
                     onShowToast({ message: result.error || 'Could not create chat in project.', tone: 'error' })
@@ -111,6 +118,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
             hoverPreviewEnabled={settings.sidebarHoverPreviewEnabled}
             agentInboxEnabled={settings.assistantAgentInboxSidebarEnabled}
             projectIconOverrides={settings.projectIconOverrides}
+            projects={projectCatalogState.catalog.projects}
             sessions={railController.snapshot.sessions}
             activeSessionId={railController.activeSessionId}
             activeThreadId={railController.activeThreadId}

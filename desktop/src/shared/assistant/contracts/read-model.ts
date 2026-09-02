@@ -1,5 +1,6 @@
 import type { FileChangeKind } from './file-change'
 import type { FleetSnapshot } from './fleet'
+import type { AssistantChatScope } from './project'
 import type {
     AssistantApprovalDecision,
     AssistantApprovalRequestType,
@@ -41,6 +42,8 @@ export interface AssistantActivity {
     summary: string
     detail?: string
     turnId: string | null
+    /** Present only when this activity is authoritative evidence that the whole turn ended. */
+    turnTerminalOutcome?: 'failed' | 'interrupted'
     timelineSequence?: number
     createdAt: string
     payload?: Record<string, unknown>
@@ -382,7 +385,11 @@ export interface AssistantSession {
     title: string
     titleGenerating?: boolean
     mode: AssistantSessionMode
+    /** Compatibility projection of workingRoot for legacy runtime and canonical-chat integrations. */
     projectPath: string | null
+    projectId?: string | null
+    workingRoot?: string | null
+    chatScope?: AssistantChatScope | null
     playgroundLabId: string | null
     pendingLabRequest: AssistantPlaygroundPendingLabRequest | null
     archived: boolean

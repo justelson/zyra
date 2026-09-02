@@ -77,10 +77,12 @@ export type AgentControlBridgeOperation =
     | { operation: 'open_external'; targetId: string; grantId: string; url?: string }
     | { operation: 'set_tab_layout'; primaryTargetId: string; secondaryTargetId?: string }
     | { operation: 'resize_inspector'; targetId: string; width: number }
-    | { operation: 'list_windows' }
+    | { operation: 'list_windows'; query?: string }
+    | { operation: 'open_app'; application: string }
     | {
         operation: 'request_grant'
-        targetId: string
+        targetId?: string
+        windowToken?: string
         capabilities: ControlCapability[]
         durationMs?: number
         maxActions?: number

@@ -3,6 +3,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 import { normalizeAgentSurfaceTool } from "./agent-surface.mjs";
+import { classifyRecoveryError } from "./network-recovery.mjs";
 import { AgentControlBridgeClient } from "./agent-control/bridge-client.mjs";
 import { startTemporaryBrowserRelay } from "./agent-control/temporary-browser-relay.mjs";
 import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./agent-server/canonical-message-ledger.mjs";
@@ -215,6 +216,7 @@ async function handleConnect(payload) {
   const requestedThreadId = payload.threadId || payload.providerThreadId || undefined;
   const createRuntime = (overrides = {}) => sdk.createZyraSession({
     project: payload.cwd,
+    filesystemScope: payload.filesystemScope,
     session: requestedThreadId,
     noSession: Boolean(payload.noSession),
     model: payload.model,
@@ -370,12 +372,28 @@ function normalizeEvent(event, modelContextWindow) {
     return { type, title: stringValue(event.title) };
   }
 
+  if (type === "agent_end") {
+    return { type, willRetry: event.willRetry === true };
+  }
+
   if (type === "auto_retry_start") {
+    const errorMessage = stringValue(event.errorMessage);
     return {
       type,
       attempt: numberValue(event.attempt),
       maxAttempts: numberValue(event.maxAttempts),
-      errorMessage: stringValue(event.errorMessage),
+      delayMs: numberValue(event.delayMs),
+      errorMessage,
+      recoveryKind: classifyRecoveryError(errorMessage),
+    };
+  }
+
+  if (type === "auto_retry_end") {
+    return {
+      type,
+      success: event.success === true,
+      attempt: numberValue(event.attempt),
+      finalError: stringValue(event.finalError),
     };
   }
 

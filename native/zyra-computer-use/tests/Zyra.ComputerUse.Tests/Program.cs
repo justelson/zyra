@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Zyra.ComputerUse.Protocol;
 using Zyra.ComputerUse.Security;
+using Zyra.ComputerUse.Windows;
 
 const string Secret = "0123456789abcdef0123456789abcdef";
 var failures = new List<string>();
@@ -88,11 +89,30 @@ await Check("window selection rejects stale opaque tokens", async () =>
     Equal(false, response.Ok);
     Equal("STALE_TARGET", response.Error?.Code);
 });
+await Check("registered app resolution prefers an exact display name", () =>
+{
+    var apps = new[] { new RegisteredApplication("Calculator", "calculator-id"), new RegisteredApplication("Calculator Plus", "calculator-plus-id") };
+    Equal("calculator-id", RegisteredAppLauncher.Resolve("Calculator", apps).CatalogId);
+    return Task.CompletedTask;
+});
+await Check("registered app resolution accepts one unambiguous prefix", () =>
+{
+    var apps = new[] { new RegisteredApplication("Calculator", "calculator-id"), new RegisteredApplication("Notepad", "notepad-id") };
+    Equal("calculator-id", RegisteredAppLauncher.Resolve("Calc", apps).CatalogId);
+    return Task.CompletedTask;
+});
+await Check("registered app resolution rejects ambiguous names", () =>
+{
+    var apps = new[] { new RegisteredApplication("Visual Studio", "vs-id"), new RegisteredApplication("Visual Studio Code", "code-id") };
+    try { RegisteredAppLauncher.Resolve("Visual", apps); }
+    catch (InvalidDataException) { return Task.CompletedTask; }
+    throw new InvalidOperationException("Ambiguous app search was accepted.");
+});
 
 if (failures.Count > 0)
 {
     foreach (var failure in failures) Console.Error.WriteLine($"FAIL: {failure}");
     return 1;
 }
-Console.WriteLine("Zyra computer-use deterministic tests passed (8 checks).");
+Console.WriteLine("Zyra computer-use deterministic tests passed (11 checks).");
 return 0;

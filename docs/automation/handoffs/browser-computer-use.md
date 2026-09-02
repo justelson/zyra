@@ -13,7 +13,7 @@ This branch delivers the shared agent-control protocol, main-process authority b
 - Versioned JS/TypeScript contracts with a canonical wire fixture and equivalence test.
 - Explicit capabilities, short-lived grants, action limits, origin/application scopes, strict child-principal attenuation, current observation revisions, per-target action queues, bounded payloads, and structured errors.
 - Main-owned trusted target registry. Renderer-supplied Electron IDs are association hints only and cannot mint authority.
-- Bounded redacted audit persistence; observations, grants, element references, typed text, and pairing credentials are not persisted.
+- Bounded redacted audit persistence; grants, raw observation payloads, typed text, and pairing credentials are not copied into broker persistence. Bounded redacted observations remain in the calling Chat's tool transcript as the next-action feedback.
 - Side-effect heuristics fail closed, unknown side-effect labels are rejected, and model control cannot type into password fields.
 
 ### Integrated Zyra Browser
@@ -35,14 +35,16 @@ This branch delivers the shared agent-control protocol, main-process authority b
 ### Windows computer use
 
 - Dependency-free `.NET 8` sidecar communicates over an authenticated current-user named pipe with bounded, correlated RPC.
+- `computer_open_app` resolves one registered Windows Start app by display name. It rejects ambiguous or sensitive matches and accepts no paths, arguments, files, URLs, or model-supplied protocols.
 - Window selection returns opaque tokens; every operation revalidates handle, process start identity, executable identity, process integrity, and blocked-application policy.
 - UI Automation provides bounded semantic observations and actions. Absolute input is limited to selected-window bounds and blocked across privilege boundaries.
 - Capture is limited to the selected window and returns opaque bounded artifacts.
-- Sidecar startup is lazy, authentication is per launch, crash/disconnect revokes authority, and emergency stop clears observations, queues, grants, and screenshot artifacts.
+- Sidecar startup is lazy. The process remains only for an active pending/approved feedback loop, exits on task release or turn completion, and uses a short idle timeout for abandoned enumeration. Crash/disconnect revokes authority, and Emergency Stop clears observations, queues, grants, and screenshot artifacts.
 
 ### Product and runtime wiring
 
-- `browser_control` and `computer_control` are registered through the existing Pi runtime and use correlated duplex desktop bridge RPC.
+- Browser control and deferred verb-named Windows tools are registered through the existing Pi runtime and use correlated duplex desktop bridge RPC.
+- Root sessions initially advertise one lightweight `tool_search`; matching computer tasks load `computer_open_app`, `computer_list_windows`, `computer_request_access`, `computer_observe`, verb-specific action tools, and `computer_release` for that turn. This client-side deferred loading is used because the current Pi custom-tool adapter does not expose OpenAI's native `defer_loading` field.
 - Non-desktop/TUI use fails closed with `CONTROL_CAPABILITY_UNAVAILABLE`; it never hangs waiting for a bridge that does not exist.
 - Inspector → Control includes pending grant approval, active targets/grants, revocation, Chrome pairing, Windows target selection, audit summaries, driver health, and emergency stop.
 - `Ctrl+Alt+Escape` is registered as the global emergency shortcut on Windows; visible stop controls remain available if registration is unavailable.

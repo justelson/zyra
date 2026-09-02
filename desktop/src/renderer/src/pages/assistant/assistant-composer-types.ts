@@ -85,10 +85,14 @@ export type AssistantComposerProps = {
     onZyraProfileChange?: (profile: 'default' | 'builder') => void
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
+    projectId?: string | null
     projectPath?: string | null
-    projectChoices?: Array<{ path: string; label: string }>
+    projectName?: string | null
+    projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
+    detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean
-    onSelectProject?: (projectPath: string | null) => Promise<void> | void
+    onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
+    onImportDetectedProject?: (candidateId: string) => Promise<void> | void
     onChooseProjectFolder?: () => Promise<void> | void
     acceptBrowserAnnotations?: boolean
     compact?: boolean

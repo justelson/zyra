@@ -604,10 +604,14 @@ export function AssistantComposerView({
                 <div ref={controller.composerRootRef} className="pointer-events-auto relative z-40">
                     {controller.placement === 'center' && controller.onSelectProject && controller.onChooseProjectFolder ? (
                         <AssistantNewChatProjectChip
+                            projectId={controller.projectId || null}
                             projectPath={controller.projectPath || null}
+                            projectName={controller.projectName || null}
                             projectChoices={controller.projectChoices}
+                            detectedProjectChoices={controller.detectedProjectChoices}
                             disabled={controller.projectContextDisabled}
                             onSelectProject={controller.onSelectProject}
+                            onImportDetectedProject={controller.onImportDetectedProject}
                             onChooseFolder={controller.onChooseProjectFolder}
                         />
                     ) : null}

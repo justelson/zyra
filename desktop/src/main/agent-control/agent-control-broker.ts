@@ -483,6 +483,7 @@ export class AgentControlBroker extends EventEmitter {
             allowedExecutableIdentities,
             screenshots: capabilities.includes('observe.screenshot')
         })
+        this.retainTarget(target.targetId)
         if (!options.silent) {
             this.audit.append({
                 eventType: 'grant.requested', principal, targetId: target.targetId, targetKind: target.kind,
@@ -534,6 +535,7 @@ export class AgentControlBroker extends EventEmitter {
             })
             this.changed()
             this.pendingGrantWaiters.get(requestId)?.reject(controlError)
+            this.releaseTargetIfIdle(pending.targetId)
             throw controlError
         }
         this.grants.removePending(requestId)
@@ -556,8 +558,9 @@ export class AgentControlBroker extends EventEmitter {
         })
         this.changed()
         this.pendingGrantWaiters.get(normalizedRequestId)?.reject(
-            new AgentControlError('CONTROL_CANCELLED', 'The user declined the Browser control request.')
+            new AgentControlError('CONTROL_CANCELLED', 'The user declined the control request.')
         )
+        this.releaseTargetIfIdle(pending.targetId)
     }
 
     approvePendingAction(requestId: string): void {
@@ -623,6 +626,7 @@ export class AgentControlBroker extends EventEmitter {
             if (consumedGrant.state === 'consumed') {
                 registered.driver.releaseInputFocus?.(registered)
                 this.clearCursorIfNoActiveGrant(targetId)
+                this.releaseTargetIfIdle(targetId)
             }
             this.audit.append({
                 eventType: 'observation', principal, targetId, targetKind: registered.target.kind, grantId,
@@ -683,6 +687,7 @@ export class AgentControlBroker extends EventEmitter {
                 if (consumedGrant.state === 'consumed') {
                     registered.driver.releaseInputFocus?.(registered)
                     this.clearCursorIfNoActiveGrant(request.targetId)
+                    this.releaseTargetIfIdle(request.targetId)
                 }
                 this.audit.append({
                     eventType: 'action', principal, targetId: request.targetId, targetKind: registered.target.kind,
@@ -782,6 +787,7 @@ export class AgentControlBroker extends EventEmitter {
                     if (consumed.state === 'consumed') {
                         registered.driver.releaseInputFocus?.(registered)
                         this.clearCursorIfNoActiveGrant(request.targetId)
+                        this.releaseTargetIfIdle(request.targetId)
                     }
                     const decision = this.interactionArbiter.decide(request.targetId, interactionCheckpoint, request.stage)
                     if (decision.disposition === 'pause') {
@@ -802,6 +808,7 @@ export class AgentControlBroker extends EventEmitter {
                 if (consumed.state === 'consumed') {
                     registered.driver.releaseInputFocus?.(registered)
                     this.clearCursorIfNoActiveGrant(request.targetId)
+                    this.releaseTargetIfIdle(request.targetId)
                 }
                 if (pauseDecision) {
                     this.pausedPlans.set(planId, { planId, request, principal, completedSteps, pausedAt: new Date().toISOString() })
@@ -867,6 +874,7 @@ export class AgentControlBroker extends EventEmitter {
             eventType: 'grant.revoked', principal: grant.principal, targetId: grant.targetId,
             grantId: grant.grantId, outcome: 'cancelled', message: 'Control grant revoked.', redactions: []
         })
+        this.releaseTargetIfIdle(grant.targetId)
         this.changed()
     }
 
@@ -890,6 +898,8 @@ export class AgentControlBroker extends EventEmitter {
             })
             this.pendingGrantWaiters.get(request.requestId)?.reject(new AgentControlError('CONTROL_CANCELLED', reason))
         }
+        for (const targetId of new Set([...revoked, ...pending].map((entry) => entry.targetId))) this.releaseTargetIfIdle(targetId)
+        for (const driver of this.options.drivers || []) void driver.releaseIdle?.()
         const pendingActions = [...this.pendingActionApprovals.values()].filter((request) => sameControlPrincipal(request.principal, principal))
         for (const request of pendingActions) this.cancelPendingActionApproval(request.requestId, reason)
         if (revoked.length || pending.length || pendingActions.length) this.changed()
@@ -936,21 +946,74 @@ export class AgentControlBroker extends EventEmitter {
         this.changed()
     }
 
-    async listWindows(): Promise<ControlWindowCandidate[]> {
+    async listWindows(queryValue?: string): Promise<ControlWindowCandidate[]> {
         const driver = this.options.drivers?.find((entry) => entry.kind === 'windows-window')
         if (!driver?.listWindows) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows computer use is unavailable.')
-        return driver.listWindows()
+        const query = String(queryValue || '').trim().toLocaleLowerCase('en-US')
+        if (query.length > 128) throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Windows application search is too long.')
+        const selectedTargets = this.targets.list('windows-window')
+        return (await driver.listWindows()).filter((candidate) => (
+            !query
+            || candidate.applicationName.toLocaleLowerCase('en-US').includes(query)
+            || candidate.title.toLocaleLowerCase('en-US').includes(query)
+        )).map((candidate) => {
+            const selected = selectedTargets.find((entry) => (
+                entry.driver === driver
+                && entry.driver.isTargetCurrent?.(entry) !== false
+                && entry.target.kind === 'windows-window'
+                && entry.target.windowToken === candidate.windowToken
+                && entry.target.processId === candidate.processId
+                && entry.target.executableIdentity === candidate.executableIdentity
+            ))
+            return selected ? { ...candidate, targetId: selected.target.targetId } : candidate
+        })
+    }
+
+    async openWindowsApp(principal: ControlPrincipal, applicationValue: string, signal?: AbortSignal): Promise<{ applicationName: string; windows: ControlWindowCandidate[] }> {
+        const driver = this.options.drivers?.find((entry) => entry.kind === 'windows-window')
+        if (!driver?.openApp) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Opening registered Windows applications is unavailable.')
+        const application = String(applicationValue || '').trim()
+        if (!application || application.length > 128 || /[\u0000-\u001f\u007f]/u.test(application)) {
+            throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'A registered application name between 1 and 128 characters is required.')
+        }
+        const opened = await driver.openApp(application, signal)
+        const queries = [...new Set([opened.applicationName, application])]
+        let windows: ControlWindowCandidate[] = []
+        for (let attempt = 0; attempt < 30 && windows.length === 0; attempt += 1) {
+            if (signal?.aborted) throw new AgentControlError('CONTROL_CANCELLED', 'Opening the Windows application was cancelled.')
+            for (const query of queries) {
+                windows = await this.listWindows(query)
+                if (windows.length > 0) break
+            }
+            if (windows.length === 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+        }
+        this.audit.append({
+            eventType: 'target', principal,
+            outcome: 'completed', message: 'A query-resolved registered Windows application was opened.',
+            redactions: ['application-name']
+        })
+        return { applicationName: opened.applicationName, windows }
     }
 
     async selectWindow(windowToken: string): Promise<ControlTarget> {
         const driver = this.options.drivers?.find((entry) => entry.kind === 'windows-window')
         if (!driver?.selectWindow) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows computer use is unavailable.')
         const selected = await driver.selectWindow(assertControlIdentifier(windowToken, 'windowToken'))
+        const existing = this.targets.list('windows-window').find((entry) => (
+            entry.target.kind === 'windows-window'
+            && entry.target.sidecarSessionId === selected.target.sidecarSessionId
+            && entry.target.windowToken === selected.target.windowToken
+            && entry.target.processId === selected.target.processId
+            && entry.target.executableIdentity === selected.target.executableIdentity
+        ))
+        if (existing) return existing.target
         const target: ControlTarget = { ...selected.target, targetId: this.targets.createTargetId('windows-window') }
         return this.registerTarget({ target, driver, trustedIdentity: selected.trustedIdentity })
     }
 
     state(ownerWebContentsId?: number): ControlStateSnapshot {
+        const expiredGrants = this.grants.expire()
+        for (const targetId of new Set(expiredGrants.map((grant) => grant.targetId))) this.releaseTargetIfIdle(targetId)
         const grants = this.grants.list()
         return {
             version: 1,
@@ -1103,9 +1166,23 @@ export class AgentControlBroker extends EventEmitter {
             }
             case 'list_windows':
                 if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot enumerate or select Windows targets.')
-                return { windows: await this.listWindows() }
+                return { windows: await this.listWindows(operation.query) }
+            case 'open_app':
+                if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot open Windows applications.')
+                return await this.openWindowsApp(principal, operation.application, signal)
             case 'request_grant': {
-                const requestedTarget = this.targets.get(operation.targetId).target
+                if (operation.targetId && operation.windowToken) {
+                    throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'A control request must identify one existing target or one Windows candidate.')
+                }
+                let requestedTarget: ControlTarget
+                if (operation.windowToken) {
+                    if (principal.type !== 'root') {
+                        throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot select Windows targets.')
+                    }
+                    requestedTarget = await this.selectWindow(assertControlIdentifier(operation.windowToken, 'windowToken'))
+                } else {
+                    requestedTarget = this.targets.get(assertControlIdentifier(operation.targetId, 'targetId')).target
+                }
                 if (principal.type === 'agent' && requestedTarget.kind !== 'zyra-browser') {
                     throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents may request only an integrated Zyra Browser tab. Chrome and Windows require root delegation.')
                 }
@@ -1119,7 +1196,7 @@ export class AgentControlBroker extends EventEmitter {
                 )
                 const request = this.requestGrant({
                     principal,
-                    targetId: operation.targetId,
+                    targetId: requestedTarget.targetId,
                     capabilities: operation.capabilities,
                     durationMs: operation.durationMs,
                     maxActions: operation.maxActions,
@@ -1261,6 +1338,19 @@ export class AgentControlBroker extends EventEmitter {
                 { retryable: true, freshRevision: currentRevision || undefined }
             )
         }
+    }
+
+    private retainTarget(targetId: string): void {
+        const registered = this.targets.list().find((entry) => entry.target.targetId === targetId)
+        registered?.driver.retainTarget?.(registered)
+    }
+
+    private releaseTargetIfIdle(targetId: string): void {
+        const hasGrant = this.grants.list().some((grant) => grant.targetId === targetId && grant.state === 'active')
+        const hasPending = this.grants.listPending().some((request) => request.targetId === targetId)
+        if (hasGrant || hasPending) return
+        const registered = this.targets.list().find((entry) => entry.target.targetId === targetId)
+        if (registered) void registered.driver.release?.(registered)
     }
 
     private clearCursorIfNoActiveGrant(targetId: string): void {
@@ -1426,11 +1516,12 @@ export class AgentControlBroker extends EventEmitter {
                 if (pending) {
                     this.audit.append({
                         eventType: 'grant.revoked', principal: pending.principal, targetId: pending.targetId,
-                        outcome: 'cancelled', message: 'Browser control approval wait was cancelled.', redactions: []
+                        outcome: 'cancelled', message: 'Control approval wait was cancelled.', redactions: []
                     })
+                    this.releaseTargetIfIdle(pending.targetId)
                     this.changed()
                 }
-                finish(reject, new AgentControlError('CONTROL_CANCELLED', 'Browser control approval was cancelled.'))
+                finish(reject, new AgentControlError('CONTROL_CANCELLED', 'Control approval was cancelled.'))
             }
             this.pendingGrantWaiters.set(requestId, {
                 resolve: (grant) => finish(resolve, grant),

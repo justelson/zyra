@@ -40,6 +40,7 @@ export function FilePreviewModal({
     previewBytes,
     modifiedAt,
     projectPath,
+    readOnly = false,
     shellMode = 'modal',
     active = true,
     chromeContext,
@@ -63,7 +64,7 @@ export function FilePreviewModal({
     const isCsv = file.type === 'csv'
     const isHtml = file.type === 'html'
     const previewModeEnabled = file.type === 'md' || file.type === 'csv' || file.type === 'html'
-    const canEdit = isEditableFileType(file.type)
+    const canEdit = !readOnly && isEditableFileType(file.type)
     const defaultMode: 'preview' | 'edit' = !previewModeEnabled && canEdit
         ? 'edit'
         : canEdit ? settings.filePreviewDefaultMode : 'preview'
@@ -102,9 +103,9 @@ export function FilePreviewModal({
     const defaultLeftPanelOpen = navigatorInitiallyAvailable
         && (hasNavigationSidebarOverride || navigatorRequested || settings.filePreviewFullscreenShowLeftPanel)
     const defaultRightPanelOpen = initialMode === 'edit' && settings.filePreviewFullscreenShowRightPanel
-    const canRunPython = file.type === 'code'
+    const canRunPython = !readOnly && file.type === 'code'
         && (file.language === 'python' || /\.py$/i.test(file.name) || /\.py$/i.test(file.path))
-    const canUsePreviewTerminal = Boolean(projectPath || file.path)
+    const canUsePreviewTerminal = !readOnly && Boolean(projectPath || file.path)
     const resolvedPreviewTabs = useMemo(
         () => (previewTabs && previewTabs.length > 0 ? previewTabs : [{ id: file.path || file.name, file }]),
         [file, previewTabs]

@@ -26,15 +26,18 @@ import { handleMemoryGetOverview } from './handlers/memory-handlers'
 import {
     handleAssistantApprovePendingPlaygroundLabRequest,
     handleAssistantArchiveSession,
+    handleAssistantAssociateProjectFolder,
     handleAssistantAttachSessionToPlaygroundLab,
     handleAssistantAgentAction,
     handleAssistantBootstrap,
     handleAssistantClearLogs,
     handleAssistantConnect,
     handleAssistantCreatePlaygroundLab,
+    handleAssistantCreateProject,
     handleAssistantCreateSession,
     handleAssistantDeletePlaygroundLab,
     handleAssistantDeleteMessage,
+    handleAssistantDismissProjectCandidate,
     handleAssistantDeleteSession,
     handleAssistantDeclinePendingPlaygroundLabRequest,
     handleAssistantDisconnect,
@@ -54,10 +57,12 @@ import {
     handleAssistantInterruptTurn,
     handleAssistantIngestRealtimeVoiceEvent,
     handleAssistantListModels,
+    handleAssistantListProjects,
     handleAssistantListPromptResources,
     handleAssistantNewThread,
     handleAssistantPersistClipboardImage,
     handleAssistantRedeemAccountReset,
+    handleAssistantRemoveProjectFolder,
     handleAssistantResolveClipboardAttachment,
     handleAssistantRegenerateSessionTitle,
     handleAssistantRenameSession,
@@ -69,6 +74,7 @@ import {
     handleAssistantSubscribeRealtimeVoice,
     handleAssistantTranscribeVoice,
     handleAssistantUnsubscribeRealtimeVoice,
+    handleAssistantUpdateProject,
     handleAssistantUpdateSkillSourceSettings,
     handleAssistantWorkflowAction,
     handleAssistantSearchChats,
@@ -77,6 +83,7 @@ import {
     handleAssistantSelectThread,
     handleAssistantSendPrompt,
     handleAssistantSetPlaygroundRoot,
+    handleAssistantSetSessionProject,
     handleAssistantSetSessionProjectPath,
     handleAssistantSubscribe,
     handleAssistantUnsubscribe
@@ -363,6 +370,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.redeemAccountReset, requireCompletedSetup(handleAssistantRedeemAccountReset))
     ipcMain.handle(ASSISTANT_IPC.getSessionTurnUsage, requireCompletedSetup(handleAssistantGetSessionTurnUsage))
     ipcMain.handle(ASSISTANT_IPC.listModels, requireCompletedSetup(handleAssistantListModels))
+    ipcMain.handle(ASSISTANT_IPC.listProjects, requireCompletedSetup(handleAssistantListProjects))
+    ipcMain.handle(ASSISTANT_IPC.createProject, requireCompletedSetup(handleAssistantCreateProject))
+    ipcMain.handle(ASSISTANT_IPC.associateProjectFolder, requireCompletedSetup(handleAssistantAssociateProjectFolder))
+    ipcMain.handle(ASSISTANT_IPC.removeProjectFolder, requireCompletedSetup(handleAssistantRemoveProjectFolder))
+    ipcMain.handle(ASSISTANT_IPC.updateProject, requireCompletedSetup(handleAssistantUpdateProject))
+    ipcMain.handle(ASSISTANT_IPC.dismissProjectCandidate, requireCompletedSetup(handleAssistantDismissProjectCandidate))
     ipcMain.handle(ASSISTANT_IPC.listPromptResources, requireCompletedSetup(handleAssistantListPromptResources))
     ipcMain.handle(ASSISTANT_IPC.getSkillSourceOverview, requireCompletedSetup(handleAssistantGetSkillSourceOverview))
     ipcMain.handle(ASSISTANT_IPC.updateSkillSourceSettings, requireCompletedSetup(handleAssistantUpdateSkillSourceSettings))
@@ -385,6 +398,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.deleteSession, requireCompletedSetup(handleAssistantDeleteSession))
     ipcMain.handle(ASSISTANT_IPC.deleteMessage, requireCompletedSetup(handleAssistantDeleteMessage))
     ipcMain.handle(ASSISTANT_IPC.clearLogs, requireCompletedSetup(handleAssistantClearLogs))
+    ipcMain.handle(ASSISTANT_IPC.setSessionProject, requireCompletedSetup(handleAssistantSetSessionProject))
     ipcMain.handle(ASSISTANT_IPC.setSessionProjectPath, requireCompletedSetup(handleAssistantSetSessionProjectPath))
     ipcMain.handle(ASSISTANT_IPC.setPlaygroundRoot, requireCompletedSetup(handleAssistantSetPlaygroundRoot))
     ipcMain.handle(ASSISTANT_IPC.createPlaygroundLab, requireCompletedSetup(handleAssistantCreatePlaygroundLab))

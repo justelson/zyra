@@ -1223,12 +1223,17 @@ assert.match(
 )
 assert.match(
     assistantServiceSource,
-    /prepareVoicePrimaryWorker\(connected\.thread\.id, projectCwd, executionConfiguration\)[\s\S]{0,500}startVoice\(/u,
+    /prepareVoicePrimaryWorker\([\s\S]{0,240}connected\.session\.chatScope[\s\S]{0,160}executionConfiguration[\s\S]{0,500}startVoice\(/u,
     'the chat-scoped primary-agent worker must still prepare while realtime Voice signaling is in flight as a fallback'
 )
 assert.match(
+    zyraRuntimeSource,
+    /filesystemScope: configuration\.filesystemScope \|\| undefined/u,
+    'private Voice primary workers inherit the revisioned Chat filesystem scope'
+)
+assert.match(
     assistantServiceSource,
-    /const historyPreload = record\.thread\.providerThreadId[\s\S]{0,900}runtime\.connect[\s\S]{0,900}if \(historyPreload\) await historyPreload/u,
+    /const historyPreload = record\.thread\.providerThreadId[\s\S]{0,1200}runtime\.connect[\s\S]{0,1200}if \(historyPreload\) await historyPreload/u,
     'cold Voice overlaps canonical history hydration with the already-required Assistant connection'
 )
 assert.match(

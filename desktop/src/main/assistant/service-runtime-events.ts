@@ -711,7 +711,11 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 updatedAt: event.createdAt
             }
         }, eventSession.id, eventThreadId)
-        if (event.turnId && event.payload.message && !modelNotice) {
+        const hasConnectionRecoveryActivity = Boolean(event.turnId && existingThread.activities.some((activity) => (
+            activity.turnId === event.turnId
+            && activity.payload?.['category'] === 'connection-recovery'
+        )))
+        if (event.turnId && event.payload.message && !modelNotice && !hasConnectionRecoveryActivity) {
             deps.appendEvent('thread.activity.appended', event.createdAt, {
                 threadId: eventThreadId,
                 activity: {

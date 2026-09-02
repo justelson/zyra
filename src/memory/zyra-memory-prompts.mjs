@@ -17,7 +17,7 @@ export function renderMemoryContextPrompt({ root, summaryRelativePath, summaryEx
 export function renderConsolidationInstructions({ prep, paths, globalAgentFiles = [] } = {}) {
   const agentList = globalAgentFiles.length
     ? globalAgentFiles.map((file) => `- ${file}`).join("\n")
-    : "- No AGENTS.md files were discovered.";
+    : "- No AGENTS.md or AGENTS.override.md files were discovered.";
 
   return `Consolidate Zyra memory using the staged Codex-style memory workspace.
 
@@ -53,7 +53,7 @@ Phase 2 - consolidate selected inputs:
 Memory workspace:
 - ${paths.root}
 
-AGENTS.md guidance files:
+Project instruction files:
 ${agentList}
 
 End with a short report: stage-1 output written, handbook sections changed, summary changed, and anything that needs more evidence.`;

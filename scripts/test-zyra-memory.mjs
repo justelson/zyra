@@ -32,7 +32,7 @@ import {
 } from "../src/zyra-memory.mjs";
 import { createMemoryController } from "../src/memory/zyra-memory-controller.mjs";
 import { readMemoryStateFile, writeMemoryStateFile } from "../src/memory/zyra-memory-state.mjs";
-import { runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
+import { findProjectInstructionFiles, runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
 
 function withTempRoot(fn) {
   const root = mkdtempSync(path.join(os.tmpdir(), "zyra-memory-"));
@@ -41,6 +41,25 @@ function withTempRoot(fn) {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function runProjectInstructionDiscoveryRegression() {
+  withTempRoot((root) => {
+    const project = path.join(root, "project");
+    const nested = path.join(project, "src");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(root, "AGENTS.md"), "root shared\n", "utf8");
+    writeFileSync(path.join(project, "AGENTS.md"), "project shared\n", "utf8");
+    writeFileSync(path.join(project, "AGENTS.override.md"), "project local\n", "utf8");
+    writeFileSync(path.join(nested, "AGENTS.md"), "nested shared\n", "utf8");
+
+    const discovered = findProjectInstructionFiles(nested);
+    assert.equal(discovered.includes(path.join(project, "AGENTS.md")), false);
+    assert.deepEqual(discovered.slice(-2), [
+      path.join(project, "AGENTS.override.md"),
+      path.join(nested, "AGENTS.md"),
+    ]);
+  });
 }
 
 async function withTempRootAsync(fn) {
@@ -917,6 +936,7 @@ function runPhase2LockAndRetentionRegression() {
 }
 
 runWorkspaceBootstrapRegression();
+runProjectInstructionDiscoveryRegression();
 runMemoryStateRuntimeRegression();
 runMemoryStatePendingTempRecoveryRegression();
 runMemoryStateLiveTempIsolationRegression();

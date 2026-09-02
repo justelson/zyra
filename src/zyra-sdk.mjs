@@ -2005,7 +2005,7 @@ function projectPreferencesFile(project) {
 }
 
 export function buildZyraConsolidationPrompt(runtime) {
-  return buildConsolidationPrompt({ ...runtime, root: defaults.dataRoot }, findProjectMemoryFiles(runtime.project));
+  return buildConsolidationPrompt({ ...runtime, root: defaults.dataRoot }, findProjectInstructionFiles(runtime.project));
 }
 
 export async function runZyraMemoryConsolidation(runtime, options = {}) {
@@ -2522,7 +2522,7 @@ export function checkSetup() {
 }
 
 function injectProjectMemory(session, project) {
-  const files = findProjectMemoryFiles(project);
+  const files = findProjectInstructionFiles(project);
   if (!files.length) return [];
 
   const sections = [];
@@ -2550,13 +2550,15 @@ function injectActiveProfile(session, profile, project = defaults.project) {
   upsertSystemPromptBlock(session, ZYRA_PROFILE_MARKER, buildProfilePrompt(profile, project));
 }
 
-function findProjectMemoryFiles(project) {
+export function findProjectInstructionFiles(project) {
   const files = [];
   let current = path.resolve(project);
   const root = path.parse(current).root;
   while (true) {
-    const candidate = path.join(current, "AGENTS.md");
-    if (existsSync(candidate)) files.unshift(candidate);
+    const override = path.join(current, "AGENTS.override.md");
+    const shared = path.join(current, "AGENTS.md");
+    if (existsSync(override)) files.unshift(override);
+    else if (existsSync(shared)) files.unshift(shared);
     if (current === root) break;
     current = path.dirname(current);
   }

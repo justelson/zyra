@@ -25,12 +25,14 @@ import {
     loadAssistantSettings,
     loadBrowserControlSettings,
     loadConnectionsSettings,
+    loadDataPrivacySettings,
     loadDiagnosticsSettings,
     loadFilesEditorSettings,
     loadGeneralSettings,
     loadMemorySettings,
     loadProjectsSettings,
     loadProviderSettings,
+    loadSettingsOverview,
     loadSettingsShell,
     loadSkillsSettings,
     loadSourceControlSettings,
@@ -42,6 +44,7 @@ const loadAssistantRoute = () => import('./pages/Assistant')
 const Assistant = lazy(loadAssistantRoute)
 const InstructorVoiceLab = lazy(() => import('./pages/assistant/InstructorVoiceLab'))
 const SettingsShell = lazy(loadSettingsShell)
+const SettingsOverview = lazy(loadSettingsOverview)
 const GeneralSettings = lazy(loadGeneralSettings)
 const AppearanceSettings = lazy(loadAppearanceSettings)
 const VoiceSettings = lazy(loadVoiceSettings)
@@ -58,6 +61,7 @@ const ProjectsSettings = lazy(loadProjectsSettings)
 const MemorySettings = lazy(loadMemorySettings)
 const ArchivedChatsSettings = lazy(loadArchivedChatsSettings)
 const LogsSettings = lazy(loadDiagnosticsSettings)
+const DataPrivacySettings = lazy(loadDataPrivacySettings)
 const AboutSettings = lazy(loadAboutSettings)
 const AssistantBrowserPopupWindow = lazy(() => import('./pages/assistant/AssistantBrowserPopupWindow').then((module) => ({ default: module.AssistantBrowserPopupWindow })))
 const AssistantUtilityWindow = lazy(() => import('./pages/assistant/utility/AssistantUtilityWindow').then((module) => ({ default: module.AssistantUtilityWindow })))
@@ -140,32 +144,52 @@ function MainContent() {
                     <Route path="/assistant/instructor" element={<InstructorVoiceLab />} />
                     <Route path="/assistant/*" element={<AssistantRoute />} />
                     <Route path="/settings" element={<SettingsShell />}>
-                        <Route index element={<Navigate to="general" replace />} />
-                        <Route path="general" element={<GeneralSettings />} />
-                        <Route path="appearance" element={<AppearanceSettings />} />
-                        <Route path="account" element={<AccountSettings />} />
-                        <Route path="assistant" element={<AssistantSettings />} />
-                        <Route path="skills" element={<SkillsSettings />} />
-                        <Route path="voice" element={<VoiceSettings />} />
-                        <Route path="connections" element={<ConnectionsSettings />} />
-                        <Route path="browser-control" element={<BrowserControlSettings />} />
-                        <Route path="files-editor" element={<FilesEditorSettings />} />
-                        <Route path="terminal-runtime" element={<TerminalRuntimeSettings />} />
-                        <Route path="providers" element={<AISettings />} />
-                        <Route path="source-control" element={<GitSettings />} />
-                        <Route path="projects" element={<ProjectsSettings />} />
-                        <Route path="memory" element={<MemorySettings />} />
-                        <Route path="diagnostics" element={<LogsSettings />} />
-                        <Route path="beta" element={<Navigate to="../projects" replace />} />
-                        <Route path="archived" element={<ArchivedChatsSettings />} />
+                        <Route index element={<Navigate to="/settings/app" replace />} />
+                        <Route path="app" element={<SettingsOverview />} />
+                        <Route path="account" element={<SettingsOverview />} />
+                        <Route path="assistant" element={<SettingsOverview />} />
+                        <Route path="workspace" element={<SettingsOverview />} />
+                        <Route path="data" element={<SettingsOverview />} />
+                        <Route path="app/general" element={<GeneralSettings />} />
+                        <Route path="app/appearance" element={<AppearanceSettings />} />
+                        <Route path="account/openai" element={<AccountSettings />} />
+                        <Route path="account/devices" element={<ConnectionsSettings />} />
+                        <Route path="assistant/defaults" element={<AssistantSettings />} />
+                        <Route path="assistant/skills" element={<SkillsSettings />} />
+                        <Route path="assistant/voice" element={<VoiceSettings />} />
+                        <Route path="assistant/providers" element={<AISettings />} />
+                        <Route path="workspace/browser" element={<BrowserControlSettings />} />
+                        <Route path="workspace/files" element={<FilesEditorSettings />} />
+                        <Route path="workspace/terminal" element={<TerminalRuntimeSettings />} />
+                        <Route path="workspace/projects" element={<ProjectsSettings />} />
+                        <Route path="workspace/source-control" element={<GitSettings />} />
+                        <Route path="data/privacy" element={<DataPrivacySettings />} />
+                        <Route path="data/memory" element={<MemorySettings />} />
+                        <Route path="data/archived" element={<ArchivedChatsSettings />} />
+                        <Route path="data/diagnostics" element={<LogsSettings />} />
                         <Route path="about" element={<AboutSettings />} />
-                        <Route path="chat" element={<Navigate to="../assistant" replace />} />
-                        <Route path="behavior" element={<Navigate to="../general" replace />} />
-                        <Route path="ai" element={<Navigate to="../providers" replace />} />
-                        <Route path="git" element={<Navigate to="../source-control" replace />} />
-                        <Route path="explorer" element={<Navigate to="../projects" replace />} />
-                        <Route path="logs" element={<Navigate to="../diagnostics" replace />} />
-                        <Route path="*" element={<Navigate to="general" replace />} />
+                        <Route path="general" element={<Navigate to="/settings/app/general" replace />} />
+                        <Route path="appearance" element={<Navigate to="/settings/app/appearance" replace />} />
+                        <Route path="connections" element={<Navigate to="/settings/account/devices" replace />} />
+                        <Route path="skills" element={<Navigate to="/settings/assistant/skills" replace />} />
+                        <Route path="voice" element={<Navigate to="/settings/assistant/voice" replace />} />
+                        <Route path="browser-control" element={<Navigate to="/settings/workspace/browser" replace />} />
+                        <Route path="files-editor" element={<Navigate to="/settings/workspace/files" replace />} />
+                        <Route path="terminal-runtime" element={<Navigate to="/settings/workspace/terminal" replace />} />
+                        <Route path="providers" element={<Navigate to="/settings/assistant/providers" replace />} />
+                        <Route path="source-control" element={<Navigate to="/settings/workspace/source-control" replace />} />
+                        <Route path="projects" element={<Navigate to="/settings/workspace/projects" replace />} />
+                        <Route path="memory" element={<Navigate to="/settings/data/memory" replace />} />
+                        <Route path="diagnostics" element={<Navigate to="/settings/data/diagnostics" replace />} />
+                        <Route path="archived" element={<Navigate to="/settings/data/archived" replace />} />
+                        <Route path="beta" element={<Navigate to="/settings/workspace/projects" replace />} />
+                        <Route path="chat" element={<Navigate to="/settings/assistant/defaults" replace />} />
+                        <Route path="behavior" element={<Navigate to="/settings/app/general" replace />} />
+                        <Route path="ai" element={<Navigate to="/settings/assistant/providers" replace />} />
+                        <Route path="git" element={<Navigate to="/settings/workspace/source-control" replace />} />
+                        <Route path="explorer" element={<Navigate to="/settings/workspace/projects" replace />} />
+                        <Route path="logs" element={<Navigate to="/settings/data/diagnostics" replace />} />
+                        <Route path="*" element={<Navigate to="/settings" replace />} />
                     </Route>
 
                     <Route path="/home" element={<Navigate to="/assistant" replace />} />

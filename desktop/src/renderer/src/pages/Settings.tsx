@@ -3,8 +3,6 @@ import { useSettings } from '@/lib/settings'
 import { useOnboarding } from '@/lib/onboarding'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
-import { getDesktopAnalyticsStatus, onDesktopAnalyticsStatusChange, setDesktopAnalyticsEnabled } from '@/lib/product-analytics'
-import type { AnalyticsStatus } from '@shared/analytics/contracts'
 import {
     SettingsButton,
     SettingsNotice,
@@ -25,34 +23,11 @@ registerSettingsCacheClearer('settings-startup', () => {
 })
 
 export default function GeneralSettings() {
-    const { settings, updateSettings, clearCache } = useSettings()
+    const { settings, updateSettings } = useSettings()
     const onboarding = useOnboarding()
     const desktopHost = isElectronRendererRuntime()
     const [startupStatus, setStartupStatus] = useState<string | null>(null)
     const [setupReviewError, setSetupReviewError] = useState<string | null>(null)
-    const [analyticsStatus, setAnalyticsStatus] = useState<AnalyticsStatus | null>(null)
-    const [analyticsError, setAnalyticsError] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (!desktopHost) return
-        let mounted = true
-        const refresh = () => {
-            void getDesktopAnalyticsStatus().then((status) => {
-                if (mounted) setAnalyticsStatus(status)
-            }).catch(() => undefined)
-        }
-        const handleVisibility = () => { if (document.visibilityState === 'visible') refresh() }
-        const unsubscribe = onDesktopAnalyticsStatusChange((status) => { if (mounted) setAnalyticsStatus(status) })
-        window.addEventListener('focus', refresh)
-        document.addEventListener('visibilitychange', handleVisibility)
-        refresh()
-        return () => {
-            mounted = false
-            unsubscribe()
-            window.removeEventListener('focus', refresh)
-            document.removeEventListener('visibilitychange', handleVisibility)
-        }
-    }, [desktopHost])
 
     useEffect(() => {
         if (!desktopHost) return
@@ -100,17 +75,6 @@ export default function GeneralSettings() {
         }
     }
 
-    const setAnalyticsEnabled = async (enabled: boolean) => {
-        setAnalyticsError(null)
-        try {
-            const status = await setDesktopAnalyticsEnabled(enabled)
-            if (!status) throw new Error('Analytics settings are unavailable.')
-            setAnalyticsStatus(status)
-        } catch (error) {
-            setAnalyticsError(error instanceof Error ? error.message : 'Could not update analytics.')
-        }
-    }
-
     const setStartup = async (openAtLogin: boolean, openAsHidden: boolean) => {
         try {
             const result = await window.devscope.setStartupSettings({ openAtLogin, openAsHidden })
@@ -126,7 +90,7 @@ export default function GeneralSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="General" backTo="/settings/app" backLabel="App">
             {desktopHost ? (
                 <SettingsSection title="Desktop host">
                     <SettingsRow
@@ -137,7 +101,7 @@ export default function GeneralSettings() {
                         statusTitle={startupStatus && startupStatus !== 'Saved' ? startupStatus : undefined}
                         control={<SettingsSwitch checked={settings.startWithWindows} onCheckedChange={(checked) => void setStartup(checked, checked ? settings.startMinimized : false)} label="Open Zyra at login" />}
                     />
-                    {settings.startWithWindows ? <SettingsRow title="Start hidden" description="Start Zyra in the background. Open Zyra again whenever you want to show the window." control={<SettingsSwitch checked={settings.startMinimized} onCheckedChange={(checked) => void setStartup(true, checked)} label="Start Zyra hidden" />} /> : null}
+                    <SettingsRow title="Start hidden" description="Start Zyra in the background. Open Zyra again whenever you want to show the window." control={<SettingsSwitch checked={settings.startWithWindows && settings.startMinimized} disabled={!settings.startWithWindows} onCheckedChange={(checked) => void setStartup(true, checked)} label="Start Zyra hidden" />} />
                 </SettingsSection>
             ) : (
                 <SettingsSection title="Desktop host">
@@ -164,35 +128,6 @@ export default function GeneralSettings() {
                 </SettingsSection>
             ) : null}
 
-            <SettingsSection title="Privacy">
-                {desktopHost ? (
-                    <>
-                        <SettingsRow
-                            title="Share product analytics"
-                            description="Send coarse feature outcomes and performance timings. Zyra never includes prompts, responses, files, paths, URLs, account identity, terminal content, or raw errors."
-                            status={analyticsStatus?.enabled ? 'Ready' : analyticsStatus?.requested ? 'Needs setup' : 'Off'}
-                            statusTone={analyticsStatus?.enabled ? 'ready' : analyticsStatus?.requested ? 'warning' : 'muted'}
-                            control={(
-                                <SettingsSwitch
-                                    checked={analyticsStatus?.requested === true}
-                                    disabled={!analyticsStatus || !analyticsStatus.canChangeEnabled}
-                                    onCheckedChange={(enabled) => void setAnalyticsEnabled(enabled)}
-                                    label="Share product analytics"
-                                />
-                            )}
-                        />
-                        {analyticsStatus?.enabledSource === 'environment' ? <SettingsNotice tone="neutral">Your environment controls this setting.</SettingsNotice> : null}
-                        {analyticsStatus?.requested && !analyticsStatus.enabled ? <SettingsNotice tone="warning">Analytics will stay off until this device has a valid PostHog project key and approved HTTPS host.</SettingsNotice> : null}
-                        {analyticsError ? <SettingsNotice tone="error">{analyticsError}</SettingsNotice> : null}
-                    </>
-                ) : (
-                    <SettingsNotice tone="neutral">Open Zyra Desktop on this computer to review product analytics.</SettingsNotice>
-                )}
-            </SettingsSection>
-
-            <SettingsSection title="Local maintenance">
-                <SettingsRow title="Cached UI data" description="Clear non-setting renderer caches. Canonical transcripts, retained workspaces, settings, and project files are preserved." control={<SettingsButton onClick={clearCache}>Clear cache</SettingsButton>} />
-            </SettingsSection>
         </SettingsPageContainer>
     )
 }

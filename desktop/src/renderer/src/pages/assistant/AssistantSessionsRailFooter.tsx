@@ -14,8 +14,8 @@ export function AssistantSessionsRailFooter(props: {
         <div className={cn('mt-auto shrink-0 border-t border-white/10 pt-2', compact ? 'px-0' : 'px-0')}>
             <button
                 type="button"
-                onPointerEnter={() => preloadSettingsRoute('/settings/general')}
-                onFocus={() => preloadSettingsRoute('/settings/general')}
+                onPointerEnter={() => preloadSettingsRoute('/settings')}
+                onFocus={() => preloadSettingsRoute('/settings')}
                 onClick={() => navigate('/settings')}
                 className="group flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] leading-none text-sparkle-text-secondary transition-colors hover:bg-white/[0.035] hover:text-sparkle-text"
             >

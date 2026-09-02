@@ -79,7 +79,7 @@ export default function TerminalRuntimeSettings() {
     const runtimeById = useMemo(() => new Map(runtimes.map((runtime) => [runtime.id, runtime])), [runtimes])
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Terminal & runtime" backTo="/settings/workspace" backLabel="Workspace">
             <SettingsSection title="Terminal">
                 <SettingsRow
                     title="Default shell"

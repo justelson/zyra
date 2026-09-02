@@ -12,10 +12,17 @@ import {
     readAssistantBubblePreviewPinned,
     writeAssistantBubblePreviewPinned
 } from '../assistant/assistant-sidebar-preview-state'
-import { findSettingsNavigationItem, SETTINGS_NAVIGATION_GROUPS, type SettingsNavigationItem } from './settings-navigation'
+import {
+    findSettingsDestination,
+    findSettingsNavigationItem,
+    SETTINGS_DESTINATIONS,
+    SETTINGS_NAVIGATION_GROUPS,
+    settingsNavigationItemMatchesPath,
+    type SettingsDestination
+} from './settings-navigation'
 import { preloadSettingsRoute } from './settings-route-loaders'
 import {
-    findSettingsSearchTargets,
+    findAllSettingsSearchMatches,
     getSettingsSearchTarget,
     isSettingsSearchTargetId,
     type SettingsSearchTarget
@@ -29,26 +36,32 @@ function clampSidebarWidth(width: number) {
     return Math.max(SETTINGS_SIDEBAR_MIN_WIDTH, Math.min(SETTINGS_SIDEBAR_MAX_WIDTH, Math.round(width || 322)))
 }
 
-function settingsPageMatches(item: SettingsNavigationItem, query: string): boolean {
-    const tokens = query.split(/\s+/).filter(Boolean)
-    const haystack = `${item.label} ${item.description} ${item.keywords || ''}`.toLowerCase()
-    return tokens.every((token) => haystack.includes(token))
+type SettingsSearchResultGroup = {
+    destination: SettingsDestination
+    pageMatched: boolean
+    targets: SettingsSearchTarget[]
 }
 
-function groupSettingsSearchTargets(targets: SettingsSearchTarget[]): Array<{ section: string; targets: SettingsSearchTarget[] }> {
-    const groups = new Map<string, SettingsSearchTarget[]>()
-    for (const target of targets) {
-        const entries = groups.get(target.section) || []
-        entries.push(target)
-        groups.set(target.section, entries)
+function groupSettingsSearchMatches(query: string): SettingsSearchResultGroup[] {
+    const groups = new Map<string, SettingsSearchResultGroup>()
+    for (const match of findAllSettingsSearchMatches(query)) {
+        const group = groups.get(match.destination.id) || {
+            destination: match.destination,
+            pageMatched: false,
+            targets: []
+        }
+        if (match.target) {
+            if (!group.targets.some((target) => target.targetId === match.target?.targetId)) group.targets.push(match.target)
+        } else {
+            group.pageMatched = true
+        }
+        groups.set(match.destination.id, group)
     }
-    return [...groups].map(([section, entries]) => ({ section, targets: entries }))
+    return [...groups.values()]
 }
 
 type AnalyticsSettingsSection = NonNullable<AnalyticsEventPropertiesMap['zyra_v1_workspace_ui']['section']>
-const analyticsSettingsSections = new Set(SETTINGS_NAVIGATION_GROUPS.flatMap((group) => (
-    group.items.map((item) => item.id.replaceAll('-', '_'))
-)))
+const analyticsSettingsSections = new Set(SETTINGS_DESTINATIONS.map((destination) => destination.id.replaceAll('-', '_')))
 
 function analyticsSettingsSection(value: string): AnalyticsSettingsSection {
     const normalized = value.replaceAll('-', '_')
@@ -85,31 +98,24 @@ export default function SettingsShell() {
     const [previewOpen, setPreviewOpen] = useState(previewPinned)
     const normalizedQuery = query.trim().toLowerCase()
     const activeItem = findSettingsNavigationItem(location.pathname)
+    const activeDestination = findSettingsDestination(location.pathname)
+    const activeAnalyticsId = activeDestination?.id || null
     useEffect(() => {
-        captureProductEventOnce(`settings:${activeItem.id}`, {
+        if (!activeAnalyticsId) return
+        captureProductEventOnce(`settings:${activeAnalyticsId}`, {
             event: 'zyra_v1_workspace_ui',
-            properties: { action: 'settings_section', section: analyticsSettingsSection(activeItem.id) }
+            properties: { action: 'settings_section', section: analyticsSettingsSection(activeAnalyticsId) }
         })
-    }, [activeItem.id])
+    }, [activeAnalyticsId])
 
     const requestedSearchTarget = useMemo(() => {
         const value = new URLSearchParams(location.search).get('setting') || ''
         return isSettingsSearchTargetId(value) ? value : null
     }, [location.search])
-    const searchMatchesByPage = useMemo<Record<string, SettingsSearchTarget[]>>(() => {
-        if (!normalizedQuery) return {}
-        return Object.fromEntries(SETTINGS_NAVIGATION_GROUPS.flatMap((group) => (
-            group.items.map((item) => [item.id, findSettingsSearchTargets(item.id, normalizedQuery)] as const)
-        )))
-    }, [normalizedQuery])
-    const visibleGroups = useMemo(() => SETTINGS_NAVIGATION_GROUPS
-        .map((group) => ({
-            ...group,
-            items: normalizedQuery
-                ? group.items.filter((item) => settingsPageMatches(item, normalizedQuery) || searchMatchesByPage[item.id]?.length > 0)
-                : group.items
-        }))
-        .filter((group) => group.items.length > 0), [normalizedQuery, searchMatchesByPage])
+    const searchResultGroups = useMemo(
+        () => normalizedQuery ? groupSettingsSearchMatches(normalizedQuery) : [],
+        [normalizedQuery]
+    )
 
     useLayoutEffect(() => {
         if (requestedSearchTarget) return
@@ -123,7 +129,9 @@ export default function SettingsShell() {
         if (!requestedSearchTarget) return
         const scrollContainer = contentScrollRef.current
         if (!scrollContainer) return
-        const searchTarget = getSettingsSearchTarget(activeItem.id, requestedSearchTarget)
+        const searchTarget = activeDestination
+            ? getSettingsSearchTarget(activeDestination.id, requestedSearchTarget)
+            : null
         const fallbackTargetId = searchTarget?.sectionTargetId || null
         let frameId = 0
         let clearTimer = 0
@@ -161,7 +169,7 @@ export default function SettingsShell() {
             observer?.disconnect()
             highlighted?.classList.remove('zyra-settings-search-target')
         }
-    }, [activeItem.id, location.key, requestedSearchTarget, settings.accessibilityReduceMotion])
+    }, [activeDestination, location.key, requestedSearchTarget, settings.accessibilityReduceMotion])
 
     useEffect(() => {
         const toggleSidebar = () => updateSettings({ sidebarCollapsed: !settings.sidebarCollapsed })
@@ -401,85 +409,98 @@ export default function SettingsShell() {
                 </div>
 
                 <nav className="settings-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3" aria-label="Settings sections">
-                    {visibleGroups.length ? visibleGroups.map((group) => (
-                        <div key={group.id} className="mb-3 last:mb-0">
-                            <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--settings-text-faint)]">
-                                {group.label}
-                            </div>
-                            <div className="space-y-0.5">
-                                {group.items.map((item) => {
-                                    const Icon = item.icon
-                                    const isActive = location.pathname === item.to
-                                        || location.pathname.startsWith(`${item.to}/`)
-                                        || item.legacyPaths?.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
-                                    const resultGroups = normalizedQuery
-                                        ? groupSettingsSearchTargets(searchMatchesByPage[item.id] || [])
-                                        : []
+                    {normalizedQuery ? (
+                        searchResultGroups.length ? (
+                            <div className="space-y-3 pb-2 pt-1">
+                                {searchResultGroups.map((resultGroup) => {
+                                    const { destination } = resultGroup
+                                    const Icon = destination.icon
+                                    const destinationActive = activeDestination?.id === destination.id
                                     return (
-                                        <div key={item.id}>
-                                            <NavLink
-                                                to={item.to}
-                                                aria-current={isActive ? 'page' : undefined}
-                                                onPointerEnter={() => preloadSettingsRoute(item.to)}
-                                                onPointerDown={() => preloadSettingsRoute(item.to)}
-                                                onFocus={() => preloadSettingsRoute(item.to)}
-                                                className={cn(
-                                                    'group flex min-h-8 items-center gap-2 rounded-md px-2 text-[12px] transition-colors duration-100',
-                                                    isActive
-                                                        ? 'bg-[var(--settings-nav-active)] font-medium text-[var(--settings-text)]'
-                                                        : 'text-[var(--settings-text-secondary)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]'
-                                                )}
+                                        <div key={destination.id}>
+                                            <Link
+                                                to={destination.to}
+                                                onPointerEnter={() => preloadSettingsRoute(destination.to)}
+                                                onPointerDown={() => preloadSettingsRoute(destination.to)}
+                                                onFocus={() => preloadSettingsRoute(destination.to)}
+                                                className="group flex min-h-7 items-center gap-2 rounded-md px-2 text-[11px] font-medium text-[var(--settings-text-muted)] transition-colors hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]"
                                             >
-                                                <Icon
-                                                    size={14}
-                                                    strokeWidth={isActive ? 1.9 : 1.7}
-                                                    className={cn('shrink-0 transition-colors', isActive ? 'text-[var(--settings-text-secondary)]' : 'text-[var(--settings-text-faint)] group-hover:text-[var(--settings-text-secondary)]')}
-                                                />
-                                                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                                {resultGroups.length > 0 ? <span className="font-mono text-[9px] font-normal tabular-nums text-[var(--settings-text-faint)]">{resultGroups.reduce((count, resultGroup) => count + resultGroup.targets.length, 0)}</span> : null}
-                                            </NavLink>
-                                            {resultGroups.length > 0 ? (
-                                                <div className="ml-[15px] border-l border-[var(--settings-divider)] pb-1 pl-2 pt-0.5" role="group" aria-label={`${item.label} setting results`}>
-                                                    {resultGroups.map((resultGroup) => (
-                                                        <div key={resultGroup.section} className="pb-1 last:pb-0">
-                                                            <div className="px-2 pb-0.5 pt-1 text-[9px] font-medium text-[var(--settings-text-faint)]">{resultGroup.section}</div>
-                                                            <div className="space-y-px">
-                                                                {resultGroup.targets.map((target) => {
-                                                                    const targetActive = isActive && requestedSearchTarget === target.targetId
-                                                                    return (
-                                                                        <Link
-                                                                            key={`${target.section}:${target.label}`}
-                                                                            to={`${item.to}?setting=${encodeURIComponent(target.targetId)}`}
-                                                                            state={{ settingsSearchRequest: target.targetId }}
-                                                                            onPointerEnter={() => preloadSettingsRoute(item.to)}
-                                                                            onPointerDown={() => preloadSettingsRoute(item.to)}
-                                                                            onFocus={() => preloadSettingsRoute(item.to)}
-                                                                            aria-current={targetActive ? 'location' : undefined}
-                                                                            className={cn(
-                                                                                'group/result flex min-h-7 items-center gap-2 rounded-md px-2 py-1 text-[11px] leading-4 transition-colors',
-                                                                                targetActive
-                                                                                    ? 'bg-[var(--settings-nav-active)] font-medium text-[var(--settings-text)]'
-                                                                                    : 'text-[var(--settings-text-muted)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]'
-                                                                            )}
-                                                                        >
-                                                                            <span className={cn('size-1 shrink-0 rounded-full bg-[var(--settings-text-faint)]', targetActive && 'bg-[var(--accent-primary)]')} />
-                                                                            <span className="min-w-0 flex-1 truncate">{target.label}</span>
-                                                                        </Link>
-                                                                    )
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : null}
+                                                <Icon size={14} strokeWidth={1.7} className="shrink-0 text-[var(--settings-text-faint)] group-hover:text-[var(--settings-text-secondary)]" />
+                                                <span className="min-w-0 flex-1 truncate">{destination.label}</span>
+                                            </Link>
+                                            <div className="ml-6 mt-0.5 space-y-px" role="group" aria-label={`${destination.label} results`}>
+                                                {resultGroup.targets.map((target) => {
+                                                    const targetActive = destinationActive && requestedSearchTarget === target.targetId
+                                                    return (
+                                                        <Link
+                                                            key={`${target.section}:${target.targetId}`}
+                                                            to={`${destination.to}?setting=${encodeURIComponent(target.targetId)}`}
+                                                            state={{ settingsSearchRequest: target.targetId }}
+                                                            onPointerEnter={() => preloadSettingsRoute(destination.to)}
+                                                            onPointerDown={() => preloadSettingsRoute(destination.to)}
+                                                            onFocus={() => preloadSettingsRoute(destination.to)}
+                                                            aria-current={targetActive ? 'location' : undefined}
+                                                            className={cn(
+                                                                'block min-h-7 rounded-md px-2 py-1 text-[11px] leading-5 transition-colors',
+                                                                targetActive
+                                                                    ? 'bg-[var(--settings-nav-active)] font-medium text-[var(--settings-text)]'
+                                                                    : 'text-[var(--settings-text)] hover:bg-[var(--settings-nav-hover)]'
+                                                            )}
+                                                        >
+                                                            <span className="block min-w-0 truncate">{target.label}</span>
+                                                        </Link>
+                                                    )
+                                                })}
+                                                {resultGroup.targets.length === 0 && resultGroup.pageMatched ? (
+                                                    <Link
+                                                        to={destination.to}
+                                                        className="block min-h-7 truncate rounded-md px-2 py-1 text-[11px] leading-5 text-[var(--settings-text-secondary)] transition-colors hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]"
+                                                    >
+                                                        {destination.description}
+                                                    </Link>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     )
                                 })}
                             </div>
+                        ) : (
+                            <div className="px-2 py-6 text-center text-[12px] text-[var(--settings-text-muted)]">No matching settings</div>
+                        )
+                    ) : SETTINGS_NAVIGATION_GROUPS.map((group) => (
+                        <div key={group.id} className="mb-3 last:mb-0">
+                            {group.label ? <div className="px-2 pb-1 pt-1 text-[10px] font-semibold text-[var(--settings-text-faint)]">{group.label}</div> : null}
+                            <div className="space-y-0.5">
+                                {group.items.map((item) => {
+                                    const Icon = item.icon
+                                    const isActive = settingsNavigationItemMatchesPath(item, location.pathname)
+                                    return (
+                                        <NavLink
+                                            key={item.id}
+                                            to={item.to}
+                                            aria-current={isActive ? 'page' : undefined}
+                                            onPointerEnter={() => preloadSettingsRoute(item.to)}
+                                            onPointerDown={() => preloadSettingsRoute(item.to)}
+                                            onFocus={() => preloadSettingsRoute(item.to)}
+                                            className={cn(
+                                                'group flex min-h-8 items-center gap-2 rounded-md px-2 text-[12px] transition-colors duration-100',
+                                                isActive
+                                                    ? 'bg-[var(--settings-nav-active)] font-medium text-[var(--settings-text)]'
+                                                    : 'text-[var(--settings-text-secondary)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]'
+                                            )}
+                                        >
+                                            <Icon
+                                                size={14}
+                                                strokeWidth={isActive ? 1.9 : 1.7}
+                                                className={cn('shrink-0 transition-colors', isActive ? 'text-[var(--settings-text-secondary)]' : 'text-[var(--settings-text-faint)] group-hover:text-[var(--settings-text-secondary)]')}
+                                            />
+                                            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                        </NavLink>
+                                    )
+                                })}
+                            </div>
                         </div>
-                    )) : (
-                        <div className="px-2 py-6 text-center text-[12px] text-[var(--settings-text-muted)]">No matching sections</div>
-                    )}
+                    ))}
                 </nav>
 
                 <div className="mx-2 mt-auto shrink-0 border-t border-[var(--surface-divider)] pb-2.5 pt-2">
@@ -509,7 +530,7 @@ export default function SettingsShell() {
             </div>
 
             <section ref={contentScrollRef} className="settings-content-scrollbar min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--settings-bg)]" aria-labelledby="settings-active-page-title">
-                <h2 id="settings-active-page-title" className="sr-only">{activeItem.label}</h2>
+                <h2 id="settings-active-page-title" className="sr-only">{activeDestination?.label || activeItem.label}</h2>
                 <Suspense fallback={<SettingsRouteFallback />}>
                     <Outlet />
                 </Suspense>

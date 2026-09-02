@@ -141,7 +141,7 @@
       "retention": "90 days",
       "properties": {
         "action": { "type": "enum", "values": ["agent_inbox_disclosure", "workspace_select", "settings_section", "theme_mode", "accessibility_toggle"] },
-        "section": { "type": "enum", "values": ["general", "appearance", "account", "connections", "assistant", "skills", "voice", "browser_control", "files_editor", "terminal_runtime", "providers", "projects", "source_control", "memory", "archived", "diagnostics", "about", "unknown"] },
+        "section": { "type": "enum", "values": ["general", "appearance", "account", "connections", "assistant", "skills", "voice", "browser_control", "files_editor", "terminal_runtime", "providers", "projects", "source_control", "privacy", "memory", "archived", "diagnostics", "about", "unknown"] },
         "workspace": { "type": "enum", "values": ["chat", "browser", "files", "terminal", "agents", "resources", "diff", "unknown"] },
         "theme_mode": { "type": "enum", "values": ["system", "light", "dark", "unknown"] },
         "enabled": { "type": "boolean" }

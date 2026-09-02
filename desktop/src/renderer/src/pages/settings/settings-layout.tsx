@@ -1,16 +1,36 @@
 import { createContext, useContext, useEffect } from 'react'
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
-import { Undo2, X } from 'lucide-react'
+import { ChevronLeft, Undo2, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { createSettingsRowTargetId, createSettingsSectionTargetId } from './settings-search'
 
 const SettingsSearchSectionContext = createContext<string | null>(null)
 
-export function SettingsPageContainer({ children, className }: { children: ReactNode; className?: string }) {
+export function SettingsPageContainer({ children, className, title, backTo, backLabel }: {
+    children: ReactNode
+    className?: string
+    title?: string
+    backTo?: string
+    backLabel?: string
+}) {
     return (
         <div className="zyra-settings-page-container flex w-full min-w-0 justify-center px-5 pb-16 pt-8 sm:px-10 sm:pt-10">
-            <div className={cn('zyra-settings-page-column flex w-full max-w-[680px] flex-col gap-10', className)}>{children}</div>
+            <div className={cn('zyra-settings-page-column flex w-full max-w-[680px] flex-col', title ? 'gap-8' : 'gap-10', className)}>
+                {title ? (
+                    <header className="px-0.5">
+                        {backTo ? (
+                            <Link to={backTo} className="mb-2 inline-flex h-6 items-center gap-0.5 text-[11px] font-medium text-[var(--settings-text-muted)] transition-colors hover:text-[var(--settings-text)]">
+                                <ChevronLeft size={13} strokeWidth={1.8} />
+                                {backLabel || 'Settings'}
+                            </Link>
+                        ) : null}
+                        <h1 className="text-[24px] font-medium tracking-[-0.025em] text-[var(--settings-text)]">{title}</h1>
+                    </header>
+                ) : null}
+                {children}
+            </div>
         </div>
     )
 }
@@ -63,7 +83,7 @@ export function SettingsStatusPill({ label, tone = 'muted', title }: {
     )
 }
 
-export function SettingsRow({ title, description, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
+export function SettingsRow({ title, description, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, searchTargetId: explicitSearchTargetId, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
     title: ReactNode
     description: ReactNode
     status?: ReactNode
@@ -72,9 +92,10 @@ export function SettingsRow({ title, description, status, statusTone = 'muted', 
     resetAction?: ReactNode
     control?: ReactNode
     children?: ReactNode
+    searchTargetId?: string
 }) {
     const sectionTitle = useContext(SettingsSearchSectionContext)
-    const searchTargetId = typeof title === 'string' ? createSettingsRowTargetId(sectionTitle, title) : null
+    const searchTargetId = explicitSearchTargetId || (typeof title === 'string' ? createSettingsRowTargetId(sectionTitle, title) : null)
     return (
         <div
             {...props}
@@ -216,20 +237,22 @@ export function SettingsDialog({ open, title, description, children, footer, cla
     )
 }
 
-export function SettingsSegmented<T extends string>({ value, options, onChange, label }: {
+export function SettingsSegmented<T extends string>({ value, options, onChange, label, disabled = false }: {
     value: T
     options: ReadonlyArray<{ value: T; label: string }>
     onChange: (value: T) => void
     label: string
+    disabled?: boolean
 }) {
     return (
-        <div className="inline-flex rounded-md border border-[var(--settings-border)] bg-[var(--settings-control)] p-0.5" role="group" aria-label={label}>
+        <div className={cn('inline-flex rounded-md border border-[var(--settings-border)] bg-[var(--settings-control)] p-0.5', disabled && 'opacity-55')} role="group" aria-label={label} aria-disabled={disabled || undefined}>
             {options.map((option) => (
                 <button
                     key={option.value}
                     type="button"
+                    disabled={disabled}
                     onClick={() => onChange(option.value)}
-                    className={cn('h-6 rounded px-2 text-[11px] font-medium transition-colors', value === option.value ? 'bg-[var(--settings-active)] text-[var(--settings-text)]' : 'text-[var(--settings-text-muted)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]')}
+                    className={cn('h-6 rounded px-2 text-[11px] font-medium transition-colors disabled:cursor-not-allowed', value === option.value ? 'bg-[var(--settings-active)] text-[var(--settings-text)]' : 'text-[var(--settings-text-muted)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]')}
                 >
                     {option.label}
                 </button>

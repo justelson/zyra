@@ -9,6 +9,7 @@ import {
     SettingsRow,
     SettingsSection
 } from './settings-layout'
+import { createSettingsRowTargetId } from './settings-search'
 
 const MEMORY_OVERVIEW_TTL_MS = 15_000
 let cachedMemoryOverview: ZyraMemoryOverview | null = null
@@ -111,7 +112,7 @@ export default function MemorySettings() {
     )
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Memory" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Memory" headerAction={<SettingsButton variant="ghost" onClick={() => void load(true)} disabled={state.status === 'loading'}><RefreshCw size={12} className={state.status === 'loading' ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 {state.status === 'error' ? <SettingsNotice tone="error">{state.error}</SettingsNotice> : null}
                 <SettingsRow title="Zyra root" description="Local root used by the active Zyra installation." status={overview?.rootPath || 'Loading…'} statusTone={overview ? 'muted' : 'info'} control={overview ? copyButton(overview.rootPath, 'Zyra root') : null} />
@@ -135,7 +136,7 @@ export default function MemorySettings() {
 
             {selectedLayer ? (
                 <SettingsSection title={selectedLayer.title}>
-                    <SettingsRow title="File content" description="Read-only view of the selected local memory layer.">
+                    <SettingsRow searchTargetId={createSettingsRowTargetId('Layers', 'File content')} title="File content" description="Read-only view of the selected local memory layer.">
                         <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border-t border-[var(--settings-border)] py-4 font-mono text-[12px] leading-relaxed text-sparkle-text-secondary">{selectedLayer.content || 'This memory layer is empty.'}</pre>
                     </SettingsRow>
                 </SettingsSection>

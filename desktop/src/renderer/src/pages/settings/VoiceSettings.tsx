@@ -30,7 +30,7 @@ export default function VoiceSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Voice" backTo="/settings/assistant" backLabel="Assistant">
             <SettingsSection title="Instructor Voice Lab" headerAction={<SettingsButton variant="ghost" onClick={() => navigate('/assistant/instructor')}>Open Voice Lab</SettingsButton>}>
                 <SettingsRow
                     title="Voice"

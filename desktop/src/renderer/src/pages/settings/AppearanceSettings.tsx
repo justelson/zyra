@@ -5,6 +5,8 @@ import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
 import {
     APPEARANCE_CODE_FONTS,
     APPEARANCE_UI_FONTS,
+    DEFAULT_APPEARANCE_DARK_THEME,
+    DEFAULT_APPEARANCE_LIGHT_THEME,
     DEFAULT_APPEARANCE_UI_FONT,
     THEMES,
     getAppearanceLocalFontFamily,
@@ -77,8 +79,8 @@ export default function AppearanceSettings() {
     const [fontManagerTarget, setFontManagerTarget] = useState<'ui' | 'code' | null>(null)
     const [managedFonts, setManagedFonts] = useState<DevScopeManagedFont[]>(() => cachedManagedFonts || [])
     const baseSelectedTheme = THEMES.find((theme) => theme.id === settings.theme) || THEMES[0]
-    const defaultLightTheme = THEMES.find((theme) => theme.id === 'light') || THEMES[0]
-    const defaultDarkTheme = THEMES.find((theme) => theme.id === 'dark') || THEMES[0]
+    const defaultLightTheme = THEMES.find((theme) => theme.id === DEFAULT_APPEARANCE_LIGHT_THEME) || THEMES[0]
+    const defaultDarkTheme = THEMES.find((theme) => theme.id === DEFAULT_APPEARANCE_DARK_THEME) || THEMES[0]
     const selectedLightTheme = THEMES.find((theme) => theme.id === settings.appearanceLightTheme) || defaultLightTheme
     const selectedDarkTheme = THEMES.find((theme) => theme.id === settings.appearanceDarkTheme) || defaultDarkTheme
     const customThemeActive = settings.appearanceCustomThemeActive
@@ -103,8 +105,8 @@ export default function AppearanceSettings() {
     }
 
     const paletteChanged = settings.appearanceThemeMode !== 'system'
-        || settings.appearanceLightTheme !== 'light'
-        || settings.appearanceDarkTheme !== 'dark'
+        || settings.appearanceLightTheme !== DEFAULT_APPEARANCE_LIGHT_THEME
+        || settings.appearanceDarkTheme !== DEFAULT_APPEARANCE_DARK_THEME
         || settings.appearanceCustomThemeActive
         || settings.appearanceUiFont !== DEFAULT_APPEARANCE_UI_FONT
         || settings.appearanceCodeFont !== 'system-mono'
@@ -192,8 +194,8 @@ export default function AppearanceSettings() {
     }
 
     const resetTheme = () => {
-        const appearanceLightTheme: LightTheme = 'light'
-        const appearanceDarkTheme: DarkTheme = 'dark'
+        const appearanceLightTheme: LightTheme = DEFAULT_APPEARANCE_LIGHT_THEME
+        const appearanceDarkTheme: DarkTheme = DEFAULT_APPEARANCE_DARK_THEME
         const theme = resolveAppearanceTheme('system', appearanceLightTheme, appearanceDarkTheme)
         updateSettings({
             appearanceThemeMode: 'system',
@@ -208,10 +210,7 @@ export default function AppearanceSettings() {
     }
 
     return (
-        <SettingsPageContainer className="!max-w-[780px] !gap-8">
-            <header className="px-0.5">
-                <h1 className="text-[24px] font-medium tracking-[-0.025em] text-[var(--settings-text)]">Appearance</h1>
-            </header>
+        <SettingsPageContainer className="!max-w-[780px]" title="Appearance" backTo="/settings/app" backLabel="App">
 
             <section
                 className="space-y-4"

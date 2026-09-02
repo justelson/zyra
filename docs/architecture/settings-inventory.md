@@ -27,7 +27,7 @@ Settings controls must have a verified consumer. A persisted field with no behav
 | Skill source preferences | `~/.zyra/skill-sources.json` | enabled compatible folders, source priority, per-name conflict choices | Keep main-owned, bounded, atomic, and available only to trusted Desktop renderers. Existing sessions apply changes through `/reload`; new sessions load them at startup. |
 | Secrets | currently mixed into `devscope-settings` | Groq and Gemini API keys | Migrate to encrypted main-process storage in a separately reviewed security change. Never put new secrets in renderer storage. |
 | Product analytics | Desktop main and CLI state directories | explicit enable flag, PostHog project key, approved host, random installation ID, bounded queue | Keep outside renderer settings. Desktop exposes only the enable toggle and redacted readiness status; environment values may override persisted configuration. |
-| Permission memory | `zyra:browser-control-approval-preferences:v1` | remembered Browser-control sites and capabilities | Manage under Browser & Control. Keep bounded, inspectable, and revocable. |
+| Retired permission memory | legacy `zyra:browser-control-approval-preferences:v1` | unused remembered Browser-control sites and capabilities | Remove during migration. The selected chat mode owns routine grant approval; no per-site permission policy remains. |
 | Continuity state | several bounded `localStorage` records | Browser tabs, terminal groups, composer drafts, active project views, panel widths | Keep outside Settings. Add reset/clear actions where useful. |
 | Cache and acknowledgement state | local storage and main-process files | recent projects, project view cache, skipped update, seen update success | Keep outside the settings schema; expose narrow maintenance actions. |
 
@@ -77,7 +77,6 @@ These are candidates for the typed desktop settings store because a real behavio
 - Assistant terminal font size, cursor blink, and scrollback.
 - Browser workspace restoration policy.
 - Voice Lab voice, output modality, and instructions.
-- Full-access warning suppression, with a visible reset action.
 
 These require source-to-render verification before controls are added.
 
@@ -99,7 +98,6 @@ Settings may provide **Reset layout**, **Clear retained Browser workspaces**, or
 
 Settings should make the following existing behavior discoverable:
 
-- Count and revoke remembered Browser-control sites.
 - Enable or disable Google search suggestions while typing.
 - Enable or disable the default-off built-in Ghostery ad blocker; the first passive ad detection may offer the same persistent choice in Browser.
 - Choose Off, the 45-image included nature pack, or optional Unsplash BYOK for New Tab backgrounds; category, rotation, and pinning remain in the focused background picker.
@@ -130,33 +128,18 @@ The runtime already persists these under an explicit project root:
 
 A Desktop project-settings editor must read and write these through a bounded backend contract. Global Desktop defaults and project overrides must be visually distinct. Project trust is security-sensitive and requires an explicit confirmation path.
 
-## Proposed navigation
+## Current navigation
 
-### Application
+The Settings home and sidebar expose six major destinations. Detailed controls stay one level deeper:
 
-- General
-- Appearance
+- **App** — General and Appearance.
+- **Account & connections** — OpenAI account and Device connections.
+- **Assistant** — Defaults, Skills, Voice, and AI providers.
+- **Workspace** — Browser, Files & editor, Terminal & runtime, Projects, and Source control.
+- **Data & privacy** — Privacy & maintenance, Memory, Archived chats, and Diagnostics.
+- **About & updates** — version, updates, terminal command, license, and project links.
 
-### Work
-
-- Assistant
-- Voice
-- Browser & Control
-- Files & Editor
-- Terminal & Runtime
-
-### Projects
-
-- Projects & Explorer
-- Source Control
-- Providers
-
-### Data and system
-
-- Memory & Data
-- Archived Chats
-- Diagnostics
-- About & Updates
+The sidebar search and app-wide Cmd/Ctrl+K palette use the same complete setting inventory. A setting result resolves to its detail route and stable row target rather than stopping at the category landing page.
 
 Read-only account status, memory inspection, archives, diagnostics, and About are management surfaces within Settings; they are not persisted preference fields.
 
@@ -165,17 +148,18 @@ Read-only account status, memory inspection, archives, diagnostics, and About ar
 Implemented in the audited Settings pass:
 
 - Settings navigation and content now use the same `zyra-sidebar-surface` token layer as the chat rail.
-- One grouped route registry owns sidebar labels, legacy-path matching, and title-bar labels.
+- One route registry owns the six-category hierarchy, detail destinations, legacy-path matching, search routing, and title-bar labels.
 - Legacy Beta navigation now redirects to Projects & Explorer.
 - Dead settings and unmounted duplicate page components were removed.
 - Chat-rail collapse now uses the typed Settings store instead of a second local-storage owner.
-- Editor, CSV, diff, terminal, Browser-restoration, Voice Lab, product-profile, and full-access-warning preferences are discoverable and connected to their real consumers.
-- Browser profile maintenance, retained-workspace clearing, and remembered-control revocation are exposed as bounded actions.
+- Editor, CSV, diff, terminal, Browser-restoration, Voice Lab, product-profile, and four-mode assistant permission preferences are discoverable and connected to their real consumers.
+- Browser profile maintenance and retained-workspace clearing are exposed as bounded actions. Permission decisions remain chat-owned and are not remembered per site.
 - Global last-composer preferences were migrated into Settings and removed; per-chat composer state remains per chat.
 - The settings loader now validates and bounds persisted strings, paths, arrays, records, numbers, enum values, and theme/accent selections.
 - Cache clearing now targets recent-project and project-view caches instead of accidentally deleting rail-order continuity state.
 - Final consumer review confirmed Windows startup remains main/OS-owned, reduced motion applies through the provider-owned body class, and `assistantUsageDisplayMode` recalculates rendered rate-limit percentages and labels.
-- General > Privacy exposes the main-owned product analytics enable toggle and redacted readiness. Project keys and capture hosts stay outside the device preference schema and never enter renderer persistence.
+- Data & privacy > Privacy & maintenance exposes the main-owned product analytics enable toggle and redacted readiness. Project keys and capture hosts stay outside the device preference schema and never enter renderer persistence.
+- Setup asks about anonymous diagnostics only on the final review step, using one off-by-default toggle with the full privacy boundary behind an information affordance.
 - `desktop/scripts/test-settings-contract.ts` covers malformed persistence and legacy migrations.
 
 Still requiring a separately reviewed change:

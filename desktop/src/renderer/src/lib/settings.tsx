@@ -222,6 +222,9 @@ export function getThemePresetAccent(theme: Theme): AccentColor {
     return ACCENT_COLORS.find((accent) => accent.name === definition.accentColor) || ACCENT_COLORS[0]
 }
 
+export const DEFAULT_APPEARANCE_LIGHT_THEME: LightTheme = 'paper-light'
+export const DEFAULT_APPEARANCE_DARK_THEME: DarkTheme = 'vercel'
+
 export interface Settings {
     settingsSchemaVersion: 4
     theme: Theme
@@ -320,16 +323,16 @@ export interface Settings {
 
 const DEFAULT_SETTINGS: Settings = {
     settingsSchemaVersion: 4,
-    theme: 'dark',
+    theme: DEFAULT_APPEARANCE_DARK_THEME,
     appearanceThemeMode: 'system',
-    appearanceLightTheme: 'light',
-    appearanceDarkTheme: 'dark',
+    appearanceLightTheme: DEFAULT_APPEARANCE_LIGHT_THEME,
+    appearanceDarkTheme: DEFAULT_APPEARANCE_DARK_THEME,
     appearanceResolvedMode: 'dark',
     appearanceCustomTheme: null,
     appearanceCustomThemeActive: false,
     appearanceUiFont: DEFAULT_APPEARANCE_UI_FONT,
     appearanceCodeFont: 'system-mono',
-    accentColor: ACCENT_COLORS[0],
+    accentColor: getThemePresetAccent(DEFAULT_APPEARANCE_DARK_THEME),
     compactMode: false,
     sidebarCollapsed: false,
     sidebarHoverPreviewEnabled: true,

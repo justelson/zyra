@@ -41,7 +41,8 @@ function getAppNavEntryKey(entry: AppNavEntry) {
 
 function getContextualTitleParts(pathname: string) {
     if (pathname.startsWith('/settings')) {
-        return ['Settings', findSettingsNavigationItem(pathname).label]
+        const section = findSettingsNavigationItem(pathname)
+        return section.id === 'home' ? ['Settings'] : ['Settings', section.label]
     }
     if (pathname === '/assistant/instructor') return ['Instructor Voice Lab']
     return []

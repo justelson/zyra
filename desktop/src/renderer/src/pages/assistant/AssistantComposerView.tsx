@@ -907,7 +907,7 @@ export function AssistantComposerView({
                 variant="info"
                 onConfirm={() => {
                     setShowBrowserSpeechFallbackModal(false)
-                    navigate('/settings/account?highlight=transcription')
+                    navigate('/settings/assistant/defaults?setting=settings-row-voice-transcription-transcription-engine')
                 }}
                 onCancel={() => setShowBrowserSpeechFallbackModal(false)}
             />

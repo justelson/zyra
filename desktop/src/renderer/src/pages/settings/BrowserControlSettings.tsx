@@ -83,7 +83,7 @@ export default function BrowserControlSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Browser" backTo="/settings/workspace" backLabel="Workspace">
             <SettingsSection title="Browser workspace">
                 {integratedBrowserAvailable ? (
                     <>

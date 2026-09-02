@@ -94,7 +94,7 @@ export default function AISettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="AI providers" backTo="/settings/assistant" backLabel="Assistant">
             <SettingsSection title="Providers">
                 <SettingsRow
                     title="Default Git AI provider"

@@ -754,7 +754,7 @@ async function testRendererAndCredentialBoundaries() {
   const analyticsPreload = await source("desktop/src/preload/analytics.ts");
   const setupHandlers = await source("desktop/src/main/ipc/handlers/setup-handlers.ts");
   const mainProcess = await source("desktop/src/main/index.ts");
-  const generalSettings = await source("desktop/src/renderer/src/pages/Settings.tsx");
+  const privacySettings = await source("desktop/src/renderer/src/pages/settings/DataPrivacySettings.tsx");
   const onboardingFlow = await source("desktop/src/renderer/src/onboarding/OnboardingFlow.tsx");
   const browserViewManager = await source("desktop/src/main/browser-view-manager.ts");
   const browserPopupManager = await source("desktop/src/main/browser-popup-manager.ts");
@@ -782,7 +782,7 @@ async function testRendererAndCredentialBoundaries() {
   assert.match(setupHandlers, /subscribeStatus\(\(status\) => broadcast\(ANALYTICS_IPC\.statusChanged, status\)\)/);
   assert.match(analyticsPreload, /onStatusChange:[\s\S]*ANALYTICS_IPC\.statusChanged/);
   assert.match(rendererAnalytics, /onDesktopAnalyticsStatusChange/);
-  assert.match(generalSettings, /onDesktopAnalyticsStatusChange[\s\S]*window\.addEventListener\('focus', refresh\)/);
+  assert.match(privacySettings, /onDesktopAnalyticsStatusChange[\s\S]*window\.addEventListener\('focus', refresh\)/);
   assert.match(onboardingFlow, /onDesktopAnalyticsStatusChange[\s\S]*window\.addEventListener\('focus', refresh\)/);
   assert.match(cliAnalytics, /existsSync\(path\.join\(repositoryRoot, "\.git"\)\)[\s\S]*withBundledReleaseAnalyticsConfig/);
   assert.match(cliAnalytics, /preferencePath:[\s\S]*requireExplicitPreference: true/);

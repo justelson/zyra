@@ -10,6 +10,7 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { buildRateLimitCards, formatFetchedAt, formatPlan } from './assistant-account-rate-limits'
 import { AccountResetCreditsSection } from './AccountResetCreditsSection'
 import { invalidateSettingsModels, loadSettingsModels } from './settings-model-catalog-cache'
+import { createSettingsRowTargetId } from './settings-search'
 import {
     SettingsButton,
     SettingsDialog,
@@ -352,7 +353,7 @@ export default function AccountSettings() {
     const connectionBusy = connectionAction !== null
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="OpenAI account" backTo="/settings/account" backLabel="Account & connections">
             <SettingsSection
                 title="OpenAI connections"
                 headerAction={desktopHost ? (
@@ -428,31 +429,33 @@ export default function AccountSettings() {
             <SettingsSection title="Usage limits">
                 {overview?.usageError ? <SettingsNotice tone="warning">Usage could not be refreshed: {overview.usageError}</SettingsNotice> : null}
                 <SettingsRow title="Usage display" description="Show the amount remaining or already used in each limit window." control={<SettingsSegmented value={settings.assistantUsageDisplayMode} options={[{ value: 'remaining', label: 'Remaining' }, { value: 'used', label: 'Used' }]} onChange={(assistantUsageDisplayMode) => updateSettings({ assistantUsageDisplayMode })} label="Usage display" />} />
-                {initialAccountLoading ? (
-                    <SettingsRow
-                        title="Usage windows"
-                        description="Checking the current ChatGPT usage limits."
-                        status="Checking"
-                        statusTone="muted"
-                        control={<RefreshCw size={13} className="animate-spin motion-reduce:animate-none text-[var(--settings-text-muted)]" />}
-                    />
-                ) : usageCards.map((card) => (
-                    <SettingsRow
-                        key={card.id}
-                        title={`${card.bucketLabel} · ${card.durationLabel}`}
-                        description={`${card.resetSummary} · synced ${formatFetchedAt(overview?.fetchedAt)}`}
-                        status={card.resetAbsolute}
-                        control={(
-                            <div className="w-full sm:w-44">
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-sparkle-text-muted"><span>{card.percentLabel}</span><span>{Math.round(card.percent)}%</span></div>
-                                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--settings-track)]"><div className={cn('h-full rounded-full bg-[var(--accent-primary)]')} style={{ width: `${card.percent}%` }} /></div>
-                            </div>
-                        )}
-                    />
-                ))}
-                {overview && !overview.usageError && usageCards.length === 0 ? (
-                    <SettingsRow title="Usage windows" description="No usage-limit windows were returned by ChatGPT for this account." status="Unavailable" statusTone="muted" />
-                ) : null}
+                <div data-settings-search-target={createSettingsRowTargetId('Usage limits', 'Usage windows')} tabIndex={-1}>
+                    {initialAccountLoading ? (
+                        <SettingsRow
+                            title="Usage windows"
+                            description="Checking the current ChatGPT usage limits."
+                            status="Checking"
+                            statusTone="muted"
+                            control={<RefreshCw size={13} className="animate-spin motion-reduce:animate-none text-[var(--settings-text-muted)]" />}
+                        />
+                    ) : usageCards.map((card) => (
+                        <SettingsRow
+                            key={card.id}
+                            title={`${card.bucketLabel} · ${card.durationLabel}`}
+                            description={`${card.resetSummary} · synced ${formatFetchedAt(overview?.fetchedAt)}`}
+                            status={card.resetAbsolute}
+                            control={(
+                                <div className="w-full sm:w-44">
+                                    <div className="mb-1 flex items-center justify-between text-[11px] text-sparkle-text-muted"><span>{card.percentLabel}</span><span>{Math.round(card.percent)}%</span></div>
+                                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--settings-track)]"><div className={cn('h-full rounded-full bg-[var(--accent-primary)]')} style={{ width: `${card.percent}%` }} /></div>
+                                </div>
+                            )}
+                        />
+                    ))}
+                    {overview && !overview.usageError && usageCards.length === 0 ? (
+                        <SettingsRow title="Usage windows" description="No usage-limit windows were returned by ChatGPT for this account." status="Unavailable" statusTone="muted" />
+                    ) : null}
+                </div>
             </SettingsSection>
 
             <AccountResetCreditsSection

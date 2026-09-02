@@ -57,7 +57,7 @@ export default function ArchivedChatsSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Archived chats" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Archive">
                 <SettingsRow title="Archived chats" description="Hidden canonical chats that remain intact until restored or explicitly deleted." control={<span className="font-mono text-xs tabular-nums text-sparkle-text-secondary">{archivedSessions.length}</span>} />
                 <SettingsRow title="Search" description="Filter by title, project path, or canonical chat ID." control={<SettingsInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search archive" aria-label="Search archived chats" />} />

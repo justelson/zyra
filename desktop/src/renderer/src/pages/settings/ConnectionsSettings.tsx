@@ -54,7 +54,7 @@ export default function ConnectionsSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Device connections" backTo="/settings/account" backLabel="Account & connections">
             <SettingsSection title="This device">
                 <SettingsRow
                     title="Zyra in your browser"

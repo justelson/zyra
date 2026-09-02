@@ -1,3 +1,5 @@
+import { SETTINGS_DESTINATIONS, type SettingsDestination } from './settings-navigation'
+
 export type SettingsSearchTarget = {
     label: string
     section: string
@@ -37,6 +39,11 @@ function rows(section: string, labels: string[], keywords: Record<string, string
     return labels.map((label) => row(section, label, keywords[label] || ''))
 }
 
+function sectionTarget(section: string, label: string, keywords = ''): SettingsSearchTarget {
+    const sectionTargetId = createSettingsSectionTargetId(section)
+    return { label, section, targetId: sectionTargetId, sectionTargetId, keywords }
+}
+
 export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsSearchTarget[]>> = {
     general: [
         ...rows('Desktop host', ['Open at login', 'Start hidden'], {
@@ -48,15 +55,15 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Sidebar hover preview': 'sidebar minimized collapsed hover edge bubble peek',
             'Agent Inbox sidebar': 'sidebar active work recent settled'
         }),
-        row('Setup', 'Review device setup', 'onboarding openai chatgpt appearance projects review'),
-        row('Privacy', 'Share product analytics', 'privacy posthog anonymous usage diagnostics opt in'),
+        row('Setup', 'Review device setup', 'onboarding openai chatgpt appearance projects review')
+    ],
+    privacy: [
+        row('Privacy', 'Share product analytics', 'privacy posthog anonymous usage diagnostics opt in consent'),
         row('Local maintenance', 'Cached UI data', 'clear cache renderer local maintenance')
     ],
     appearance: [
         row('Theme', 'Appearance mode', 'system default windows light dark'),
-        row('Theme', 'Light and dark themes', 'theme pair palettes variants halves catalog'),
-        row('Theme', 'Light theme', 'day bright paper dawn latte snow mist palette'),
-        row('Theme', 'Dark theme', 'night midnight graphite forest ocean palette'),
+        row('Theme', 'Light and dark themes', 'theme pair palettes variants halves catalog light day bright paper dawn latte snow mist dark night midnight graphite forest ocean'),
         row('Theme', 'Custom theme', 'edit saved custom colors typography copy values'),
         row('Theme', 'Accent preset', 'accent colors palette'),
         row('Theme', 'Accent primary', 'accent color hex'),
@@ -96,13 +103,13 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Trusted devices', 'Other devices', 'phone computer pair pairing remote lan tailscale revoke')
     ],
     assistant: [
-        ...rows('Assistant defaults', ['Model', 'Chat title model', 'Refresh chat titles', 'Zyra profile', 'Permission mode', 'Full-access warning', 'Reasoning effort', 'Fast service tier', 'Web access', 'Busy send behavior', 'Default prompt'], {
+        ...rows('Assistant defaults', ['Model', 'Chat title model', 'Refresh chat titles', 'Title refresh interval', 'Zyra profile', 'Permission mode', 'Reasoning effort', 'Fast service tier', 'Web access', 'Busy send behavior', 'Default prompt'], {
             Model: 'default ai model chat',
             'Chat title model': 'name naming generation luna utility',
             'Refresh chat titles': 'automatic regenerate rename interval turns cost recent prompts final responses',
+            'Title refresh interval': 'automatic regenerate rename completed turns minimum',
             'Zyra profile': 'default builder instructions profile',
-            'Permission mode': 'supervised approval full access security',
-            'Full-access warning': 'confirmation suppressed restore',
+            'Permission mode': 'supervised auto review edits only approval full access browser chrome computer security',
             'Reasoning effort': 'thinking depth high low max',
             'Fast service tier': 'priority fast provider',
             'Web access': 'search fetch pages internet tools new chat default',
@@ -113,11 +120,10 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Reasoning summaries': 'auto detailed concise readable thoughts chain of thought progress',
             'Context limit': 'window tokens automatic compaction compact summarize 128k 200k 256k 320k 372k'
         }),
-        ...rows('Output and history', ['Assistant output', 'Open live tool output', 'Reconnect on startup', 'Preload history on open', 'Cross-surface status', 'Canonical diagnostics'], {
+        ...rows('Output and history', ['Assistant output', 'Open live tool output', 'Reconnect on startup', 'Cross-surface status', 'Canonical diagnostics'], {
             'Assistant output': 'stream chunks token text response',
             'Open live tool output': 'expanded minimized collapsed closed command terminal animation',
             'Reconnect on startup': 'connect selected chat launch',
-            'Preload history on open': 'older messages pagination prefetch',
             'Cross-surface status': 'desktop browser active status',
             'Canonical diagnostics': 'worker replay sequence debug'
         }),
@@ -137,7 +143,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Shared agents': 'global agents skills shared folder',
             Pi: 'pi coding agent skills'
         }),
-        row('Name conflicts', 'Overlapping names', 'duplicate collision choose preferred winner resolve'),
+        row('Name conflicts', 'Overlapping names', 'duplicate collision choose preferred winner resolve', 'Overlapping names'),
         row('When changes apply', 'New chats', 'reload existing active agent')
     ],
     voice: rows('Instructor Voice Lab', ['Voice', 'Output', 'Instructions'], {
@@ -146,27 +152,27 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         Instructions: 'voice prompt behavior'
     }),
     'browser-control': [
-        ...rows('Browser workspace', ['Restore Browser tabs', 'Google search suggestions', 'Built-in ad blocking', 'New Tab backgrounds', 'Background behavior', 'Retained workspaces', 'Browser history', 'Cache', 'Cookies and sign-ins', 'Local Browser profile'], {
+        ...rows('Browser workspace', ['Restore Browser tabs', 'Website sign-ins', 'Google search suggestions', 'Built-in ad blocking', 'New Tab backgrounds', 'Background behavior', 'Retained workspaces', 'Browser history', 'Temporary cache', 'Sign out of websites', 'Reset Browser profile'], {
             'Restore Browser tabs': 'reopen retained workspace',
+            'Website sign-ins': 'cookies authentication sessions saved local profile',
             'Google search suggestions': 'autocomplete predictions privacy google typed query',
             'Built-in ad blocking': 'ads trackers ghostery easylist privacy shields',
             'New Tab backgrounds': 'nature images wallpaper unsplash byok categories attribution',
             'Background behavior': 'new tab image rotate shuffle change each tab lock fixed selection',
             'Retained workspaces': 'saved tabs clear layouts',
             'Browser history': 'visited addresses omnibox suggestions recent clear',
-            Cache: 'downloaded page resources clear',
-            'Cookies and sign-ins': 'authentication sessions clear logout',
-            'Local Browser profile': 'permissions site data clear'
-        }),
-        row('Remembered Browser control', 'Remembered approvals', 'browser control permission sites origins revoke grants', 'Remembered Browser control')
+            'Temporary cache': 'downloaded page resources clear',
+            'Sign out of websites': 'cookies authentication sessions clear logout',
+            'Reset Browser profile': 'permissions history cache cookies site data clear'
+        })
     ],
     'files-editor': [
-        ...rows('File preview', ['Open fullscreen', 'Default mode', 'Python run target', 'Fullscreen left panel', 'Fullscreen right panel', 'Explorer file names'], {
+        ...rows('File preview', ['Open fullscreen', 'Default mode', 'Python run target', 'Fullscreen left panel', 'Fullscreen Edit Inspector', 'Explorer file names'], {
             'Open fullscreen': 'preview full screen',
             'Default mode': 'preview edit initial',
             'Python run target': 'terminal output play',
             'Fullscreen left panel': 'navigation preview',
-            'Fullscreen right panel': 'information preview',
+            'Fullscreen Edit Inspector': 'right panel information preview edit mode',
             'Explorer file names': 'wrap horizontal'
         }),
         ...rows('Editor defaults', ['Word wrap', 'Minimap', 'Font size', 'CSV colors', 'Diff layout'], {
@@ -200,7 +206,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
     projects: [
         ...rows('Project roots', ['Main projects folder', 'Additional roots'], {
             'Main projects folder': 'root discovery choose folder',
-            'Additional roots': 'secondary root add folder discovery'
+            'Additional roots': 'secondary configured root add remove folder discovery'
         }),
         ...rows('Indexing', ['Configured roots', 'Persistence', 'Traversal boundary'], {
             'Configured roots': 'project index eligible folders',
@@ -243,8 +249,8 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Sessions directory': 'canonical records path',
             'Runtime defaults': 'model thinking level'
         }),
-        row('Layers', 'Memory layers', 'profile facts preferences project context files', 'Layers'),
-        row('Recommended prompts', 'Recommended prompts', 'suggested memory setup prompts', 'Recommended prompts')
+        sectionTarget('Layers', 'Memory layers', 'profile facts preferences project context files'),
+        sectionTarget('Recommended prompts', 'Recommended prompts', 'suggested memory setup prompts')
     ],
     archived: rows('Archive', ['Archived chats', 'Search'], {
         'Archived chats': 'hidden conversations restore delete count',
@@ -264,6 +270,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Application stack': 'electron react typescript',
             License: 'mit source code'
         }),
+        row('Terminal', 'zyra command', 'install remove bundled tui terminal path'),
         ...rows('Updates', ['Update status', 'Available version', 'Downloaded version', 'Download progress', 'Skipped version', 'Update actions', 'Defer this update'], {
             'Update status': 'check updater service',
             'Available version': 'release offered',
@@ -316,6 +323,47 @@ export function findSettingsSearchTargets(pageId: string, rawQuery: string): Set
 
 export function getSettingsSearchTarget(pageId: string, targetId: string): SettingsSearchTarget | null {
     return SETTINGS_SEARCH_TARGETS[pageId]?.find((target) => target.targetId === targetId) || null
+}
+
+export type SettingsSearchMatch = {
+    destination: SettingsDestination
+    target: SettingsSearchTarget | null
+    score: number
+}
+
+function destinationMatchScore(destination: SettingsDestination, query: string, tokens: string[]): number | null {
+    const label = normalizeSearchText(destination.label)
+    const description = normalizeSearchText(destination.description)
+    const keywords = normalizeSearchText(destination.keywords)
+    const haystack = `${label} ${description} ${keywords}`
+    if (!tokens.every((token) => haystack.includes(token))) return null
+    if (label === query) return 0
+    if (label.startsWith(query)) return 1
+    if (label.includes(query)) return 2
+    return 6
+}
+
+export function findAllSettingsSearchMatches(rawQuery: string): SettingsSearchMatch[] {
+    const query = normalizeSearchText(rawQuery)
+    if (!query) return []
+    const tokens = query.split(/\s+/).filter(Boolean)
+    const matches: SettingsSearchMatch[] = []
+
+    for (const destination of SETTINGS_DESTINATIONS) {
+        const pageScore = destinationMatchScore(destination, query, tokens)
+        if (pageScore !== null) matches.push({ destination, target: null, score: pageScore })
+        for (const target of SETTINGS_SEARCH_TARGETS[destination.id] || []) {
+            const score = matchScore(target, query, tokens)
+            if (score !== null) matches.push({ destination, target, score })
+        }
+    }
+
+    return matches.sort((left, right) => (
+        left.score - right.score
+        || Number(left.target === null) - Number(right.target === null)
+        || left.destination.label.localeCompare(right.destination.label)
+        || (left.target?.label || '').localeCompare(right.target?.label || '')
+    ))
 }
 
 export function isSettingsSearchTargetId(value: string): boolean {

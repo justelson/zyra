@@ -12,7 +12,7 @@ export default function FilesEditorSettings() {
     const { settings, updateSettings } = useSettings()
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Files & editor" backTo="/settings/workspace" backLabel="Workspace">
             <SettingsSection title="File preview">
                 <SettingsRow title="Open fullscreen" description="Open new file previews in fullscreen mode." control={<SettingsSwitch checked={settings.filePreviewOpenInFullscreen} onCheckedChange={(filePreviewOpenInFullscreen) => updateSettings({ filePreviewOpenInFullscreen })} label="Open file previews fullscreen" />} />
                 <SettingsRow title="Default mode" description="Choose the initial mode for newly opened files." control={<SettingsSegmented value={settings.filePreviewDefaultMode} options={[{ value: 'preview', label: 'Preview' }, { value: 'edit', label: 'Edit' }]} onChange={(filePreviewDefaultMode) => updateSettings({ filePreviewDefaultMode })} label="File preview mode" />} />

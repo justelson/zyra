@@ -8,7 +8,8 @@ import {
     getThemePresetAccent,
     loadSettings
 } from '../src/renderer/src/lib/settings'
-import { createSettingsRowTargetId, findSettingsSearchTargets } from '../src/renderer/src/pages/settings/settings-search'
+import { SETTINGS_SEARCH_TARGETS, createSettingsRowTargetId, findAllSettingsSearchMatches, findSettingsSearchTargets } from '../src/renderer/src/pages/settings/settings-search'
+import { SETTINGS_DESTINATIONS, SETTINGS_NAVIGATION_ITEMS, findSettingsNavigationItem } from '../src/renderer/src/pages/settings/settings-navigation'
 
 class MemoryStorage implements Storage {
     private readonly values = new Map<string, string>()
@@ -28,6 +29,12 @@ assert.ok(LIGHT_THEMES.length >= 24, 'Appearance must offer a broad light-theme 
 assert.ok(DARK_THEMES.length >= 24, 'Appearance must retain the full dark-theme catalog')
 assert.ok(LIGHT_THEMES.every((theme) => getThemeAppearance(theme.id) === 'light'))
 assert.ok(DARK_THEMES.every((theme) => getThemeAppearance(theme.id) === 'dark'))
+assert.equal(SETTINGS_NAVIGATION_ITEMS.length, 6, 'Settings navigation exposes only the six useful categories')
+for (const destination of SETTINGS_DESTINATIONS) {
+    assert.equal(findSettingsNavigationItem(destination.to).id, destination.categoryId, `${destination.label} must resolve to its parent category`)
+    assert.ok((SETTINGS_SEARCH_TARGETS[destination.id] || []).length > 0, `${destination.label} must contribute controls to app-wide search`)
+    assert.equal(new Set((SETTINGS_SEARCH_TARGETS[destination.id] || []).map((target) => target.targetId)).size, (SETTINGS_SEARCH_TARGETS[destination.id] || []).length, `${destination.label} search targets must be unique`)
+}
 
 storage.setItem('devscope-settings', JSON.stringify({
     theme: 'hostile-theme',
@@ -50,10 +57,10 @@ storage.setItem('devscope-settings', JSON.stringify({
 }))
 
 const sanitized = loadSettings()
-assert.equal(sanitized.theme, 'dark')
+assert.equal(sanitized.theme, 'vercel')
 assert.equal(sanitized.appearanceThemeMode, 'dark', 'legacy explicit themes must retain their visual mode')
-assert.equal(sanitized.appearanceLightTheme, 'light')
-assert.equal(sanitized.appearanceDarkTheme, 'dark')
+assert.equal(sanitized.appearanceLightTheme, 'paper-light')
+assert.equal(sanitized.appearanceDarkTheme, 'vercel')
 assert.equal(sanitized.appearanceResolvedMode, 'dark')
 assert.equal(sanitized.appearanceCustomTheme, null)
 assert.equal(sanitized.appearanceCustomThemeActive, false)
@@ -97,12 +104,22 @@ assert.equal(loadSettings().assistantHistoryPrefetch, true, 'an explicit schema 
 storage.clear()
 storage.setItem('devscope-settings', JSON.stringify({ settingsSchemaVersion: 4 }))
 const freshV4Settings = loadSettings()
-assert.equal(freshV4Settings.appearanceLightTheme, 'light')
-assert.equal(freshV4Settings.appearanceDarkTheme, 'dark')
+assert.equal(freshV4Settings.appearanceLightTheme, 'paper-light', 'new installs use Paper for light mode')
+assert.equal(freshV4Settings.appearanceDarkTheme, 'vercel', 'new installs use Vercel for dark mode')
+assert.equal(freshV4Settings.theme, 'vercel', 'headless system mode resolves the new dark default')
 assert.equal(freshV4Settings.appearanceUiFont, 'bricolage', 'new installs use Bricolage Grotesque as the interface default')
 assert.equal(freshV4Settings.assistantToolOutputDefaultMode, 'minimized', 'new installs keep live tool responses closed by default')
 assert.equal(freshV4Settings.assistantDefaultWebSearch, true, 'new installs enable web search by default')
 assert.equal(freshV4Settings.assistantDefaultWebFetch, true, 'new installs enable page fetching by default')
+const existingClassicPair = loadSettings({
+    settingsSchemaVersion: 4,
+    appearanceThemeMode: 'dark',
+    appearanceLightTheme: 'light',
+    appearanceDarkTheme: 'dark'
+})
+assert.equal(existingClassicPair.appearanceLightTheme, 'light', 'saved light-theme choices must not migrate to Paper')
+assert.equal(existingClassicPair.appearanceDarkTheme, 'dark', 'saved dark-theme choices must not migrate to Vercel')
+assert.equal(existingClassicPair.theme, 'dark', 'the saved active theme remains authoritative')
 
 storage.clear()
 storage.setItem('devscope-settings', JSON.stringify({ settingsSchemaVersion: 4, assistantDefaultWebSearch: false, assistantDefaultWebFetch: false }))
@@ -288,14 +305,19 @@ assert.match(settingsLayoutSource, /data-settings-search-target=\{searchTargetId
 
 const appearanceFontTargets = findSettingsSearchTargets('appearance', 'font').map((target) => target.label)
 assert.deepEqual(appearanceFontTargets.slice(0, 2), ['UI font', 'Code font'], 'Settings search must return matching sub-options within a page')
-assert.equal(findSettingsSearchTargets('appearance', 'paper')[0]?.label, 'Light theme', 'light palette search must reach the light catalog')
-assert.equal(findSettingsSearchTargets('appearance', 'midnight')[0]?.label, 'Dark theme', 'dark palette search must reach the dark catalog')
+assert.equal(findSettingsSearchTargets('appearance', 'paper')[0]?.label, 'Light and dark themes', 'light palette search must reach the stable paired selector')
+assert.equal(findSettingsSearchTargets('appearance', 'midnight')[0]?.label, 'Light and dark themes', 'dark palette search must reach the stable paired selector')
 assert.equal(findSettingsSearchTargets('terminal-runtime', 'font size')[0]?.targetId, createSettingsRowTargetId('Terminal', 'Font size'), 'search results must identify the exact section-aware row target')
 assert.equal(findSettingsSearchTargets('connections', 'phone')[0]?.label, 'Other devices', 'Settings keywords must locate future-facing device controls')
 assert.equal(findSettingsSearchTargets('assistant', 'web access')[0]?.label, 'Web access', 'Settings search must locate the web default after it leaves onboarding')
 assert.equal(findSettingsSearchTargets('assistant', 'luna')[0]?.label, 'Chat title model', 'Settings search must locate the independent chat-title model')
 assert.equal(findSettingsSearchTargets('assistant', 'detailed reasoning')[0]?.label, 'Reasoning summaries', 'Settings search must locate readable reasoning controls')
 assert.equal(findSettingsSearchTargets('assistant', '256k')[0]?.label, 'Context limit', 'Settings search must locate the real automatic-compaction boundary')
+const globalSettingsMatches = findAllSettingsSearchMatches('font size')
+assert.ok(globalSettingsMatches.some((match) => match.destination.id === 'files-editor' && match.target?.label === 'Font size'), 'app-wide search must include the editor font setting')
+assert.ok(globalSettingsMatches.some((match) => match.destination.id === 'terminal-runtime' && match.target?.label === 'Font size'), 'app-wide search must include the terminal font setting')
+assert.equal(findAllSettingsSearchMatches('256k')[0]?.destination.to, '/settings/assistant/defaults', 'app-wide settings search must use the direct nested destination')
+assert.equal(findAllSettingsSearchMatches('anonymous diagnostics')[0]?.destination.to, '/settings/data/privacy', 'privacy controls must be globally searchable')
 
 const settingsShellSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/settings/SettingsShell.tsx'), 'utf8')
 assert.match(
@@ -311,12 +333,16 @@ assert.match(settingsShellSource, /schedulePreviewClose\(ASSISTANT_SIDEBAR_COLLA
 assert.match(settingsShellSource, /aria-label=\{previewPinned \? 'Unpin bubble sidebar' : 'Pin bubble sidebar'\}/, 'the Settings bubble should expose the shared pin control')
 assert.match(settingsShellSource, /aria-label="Expand sidebar"/, 'the Settings bubble should expose the shared expand control')
 assert.match(settingsShellSource, /mx-2 mt-auto shrink-0 border-t border-\[var\(--surface-divider\)\] pb-2\.5 pt-2/, 'Back to chats should use the same inset divider as Settings in the chat sidebar')
-assert.match(settingsShellSource, /groupSettingsSearchTargets\(searchMatchesByPage\[item\.id\]/, 'Settings search must render matched sub-options beneath their page')
-assert.match(settingsShellSource, /to=\{`\$\{item\.to\}\?setting=\$\{encodeURIComponent\(target\.targetId\)\}`\}/, 'sub-option results must navigate to an exact setting target')
+assert.match(settingsShellSource, /groupSettingsSearchMatches\(normalizedQuery\)/, 'Settings search must group exact matches beneath their destination')
+assert.match(settingsShellSource, /to=\{`\$\{destination\.to\}\?setting=\$\{encodeURIComponent\(target\.targetId\)\}`\}/, 'sub-option results must navigate to an exact setting target')
+assert.doesNotMatch(settingsShellSource, /resultGroups\.reduce|rounded-full bg-\[var\(--settings-text-faint\)\]/, 'Settings search must keep the flat reference hierarchy instead of counts and tree bullets')
 assert.match(settingsShellSource, /target\.scrollIntoView\(\{[\s\S]{0,140}block: 'center'/, 'an exact Settings result must scroll its target into view')
 assert.match(settingsShellSource, /target\.classList\.add\('zyra-settings-search-target'\)/, 'the selected setting must receive a visible arrival highlight')
 
 const assistantSettingsSource = readFileSync(resolve(import.meta.dir, '../src/renderer/src/pages/settings/AssistantSettings.tsx'), 'utf8')
+for (const mode of ['approval-required', 'auto-review', 'edits-only', 'full-access']) {
+    assert.match(assistantSettingsSource, new RegExp(`<option value="${mode}">`), `Assistant Settings must expose ${mode}`)
+}
 assert.match(
     assistantSettingsSource,
     /title="Chat title model"[\s\S]{0,520}updateSettings\(\{ assistantTitleModel: event\.target\.value \}\)/,
@@ -420,9 +446,9 @@ assert.match(skillsSettingsSource, /function updateConflictPreference[\s\S]{0,52
 assert.match(skillsSettingsSource, /title="Resolve skill names"[\s\S]{0,2600}updateConflictPreference/, 'overlapping skill names must expose an explicit per-name source choice')
 assert.match(settingsShellSource, /<Suspense fallback=\{<SettingsRouteFallback \/>\}>[\s\S]{0,100}<Outlet \/>/, 'first-visit page loading must preserve the Settings sidebar and shell')
 assert.match(settingsShellSource, /onPointerEnter=\{\(\) => preloadSettingsRoute\(item\.to\)\}[\s\S]{0,160}onFocus=\{\(\) => preloadSettingsRoute\(item\.to\)\}/, 'Settings destinations must preload from mouse and keyboard intent')
-assert.match(settingsRouteLoadersSource, /'\/settings\/account': loadAccountSettings[\s\S]*'\/settings\/about': loadAboutSettings/, 'every Settings destination must participate in intent preloading')
-assert.match(settingsNavigationSource, /label: 'Connections'[\s\S]{0,260}to: '\/settings\/connections'/, 'Connections must be a real top-level Settings destination')
-assert.match(appSource, /<Route path="connections" element=\{<ConnectionsSettings \/>\}/, 'the Connections destination must render the real connection page')
+assert.match(settingsRouteLoadersSource, /'\/settings\/account\/openai': loadAccountSettings[\s\S]*'\/settings\/about': loadAboutSettings/, 'every Settings detail destination must participate in intent preloading')
+assert.match(settingsNavigationSource, /label: 'Device connections'[\s\S]{0,260}to: '\/settings\/account\/devices'/, 'Device connections must live beneath the Account category')
+assert.match(appSource, /<Route path="account\/devices" element=\{<ConnectionsSettings \/>\}/, 'the device connection detail route must render the real connection page')
 assert.match(connectionsSettingsSource, /copyToClipboard\(BROWSER_CLIENT_HOST_ORIGIN\)/, 'Connections must expose a working local-browser Copy link action')
 assert.match(connectionsSettingsSource, /openBrowserPreviewExternal\(BROWSER_CLIENT_HOST_ORIGIN\)/, 'Connections must expose a working Desktop Open action')
 assert.match(connectionsSettingsSource, /title="Connection scope"[\s\S]{0,220}status="Local only"/, 'Connections must state the real loopback-only access boundary')

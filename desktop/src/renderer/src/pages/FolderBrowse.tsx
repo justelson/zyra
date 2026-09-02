@@ -51,7 +51,7 @@ export default function FolderBrowsePage({ mode = 'projects' }: FolderBrowseProp
     const emptyStateDescription = isExplorerMode
         ? "Zyra could not resolve your home folder. Choose a custom Explorer root in settings."
         : 'Set up a projects folder in settings to browse your projects.'
-    const settingsRoute = isExplorerMode ? '/settings/explorer' : '/settings/projects'
+    const settingsRoute = '/settings/workspace/projects'
     const settingsButtonLabel = isExplorerMode ? 'Open Explorer Settings' : 'Configure Projects Folder'
     const browseRootPath = isExplorerMode
         ? resolveExplorerHomePath(settings.explorerHomePath, defaultExplorerHomePath)
@@ -499,7 +499,7 @@ export default function FolderBrowsePage({ mode = 'projects' }: FolderBrowseProp
                 onCopyPath={actions.handleCopyPath}
                 copiedPath={actions.copiedPath}
                 onOpenStats={(key) => statsModalController.setStatsModal(key)}
-                onOpenProjectsSettings={isExplorerMode ? undefined : () => navigate('/settings/projects')}
+                onOpenProjectsSettings={isExplorerMode ? undefined : () => navigate('/settings/workspace/projects')}
                 onRefresh={() => { void loadContents(true) }}
                 onCreateFile={(presetExtension) => actions.handleCreateInCurrentFolder('file', presetExtension)}
                 onCreateFolder={() => actions.handleCreateInCurrentFolder('directory')}

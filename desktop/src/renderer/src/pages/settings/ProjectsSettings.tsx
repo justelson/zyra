@@ -63,7 +63,7 @@ export default function ProjectsSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Projects" backTo="/settings/workspace" backLabel="Workspace">
             <SettingsSection title="Project roots">
                 <SettingsRow
                     title="Main projects folder"

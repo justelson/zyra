@@ -71,7 +71,7 @@ export default function AboutSettings() {
         : `Electron ${runtime.electronVersion || 'unknown'} · ${runtime.architecture}`
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="About & updates">
             <SettingsSection title="About Zyra">
                 <SettingsRow title="Version" description="Unified Zyra version reported by this Desktop host." control={<span className="font-mono text-xs font-medium text-sparkle-text-secondary">{displayVersion}</span>} />
                 <SettingsRow title="Package version" description="Lockstep repository and Desktop package version." control={<span className="font-mono text-xs text-sparkle-text-secondary">{packageVersion}</span>} />
@@ -96,16 +96,16 @@ export default function AboutSettings() {
                 {updateState?.disabledReason ? <SettingsNotice tone="warning">{updateState.disabledReason}</SettingsNotice> : null}
                 {updateStatus === 'error' && updateState?.message ? <SettingsNotice tone="error">{updateState.message}</SettingsNotice> : null}
                 <SettingsRow title="Update status" description="Current state of the desktop update service." status={checkedAtLabel} control={<span className="text-xs font-medium text-sparkle-text-secondary">{updateSummary}</span>} />
-                {availableVersion ? <SettingsRow title="Available version" description="Version currently offered by the configured release channel." control={<span className="font-mono text-xs font-medium text-sparkle-text-secondary">{availableVersion}</span>} /> : null}
-                {downloadedVersion ? <SettingsRow title="Downloaded version" description="Update package ready to install after restart." control={<span className="font-mono text-xs font-medium text-sparkle-text-secondary">{downloadedVersion}</span>} /> : null}
-                {updateStatus === 'downloading' ? <SettingsRow title="Download progress" description="Signed update package currently being downloaded." control={<span className="font-mono text-xs font-medium text-sparkle-text-secondary">{updateState?.downloadPercent == null ? 'In progress' : `${Math.round(updateState.downloadPercent)}%`}</span>} /> : null}
-                {skippedVersion ? <SettingsRow title="Skipped version" description="This version will remain hidden until the skip is cleared." control={<div className="flex items-center gap-2"><span className="font-mono text-xs text-sparkle-text-secondary">{skippedVersion}</span><SettingsButton variant="ghost" onClick={clearSkippedVersion}>Clear skip</SettingsButton></div>} /> : null}
+                <SettingsRow title="Available version" description="Version currently offered by the configured release channel." status={availableVersion ? undefined : 'None'} statusTone="muted" control={availableVersion ? <span className="font-mono text-xs font-medium text-sparkle-text-secondary">{availableVersion}</span> : null} />
+                <SettingsRow title="Downloaded version" description="Update package ready to install after restart." status={downloadedVersion ? undefined : 'None'} statusTone="muted" control={downloadedVersion ? <span className="font-mono text-xs font-medium text-sparkle-text-secondary">{downloadedVersion}</span> : null} />
+                <SettingsRow title="Download progress" description="Signed update package currently being downloaded." status={updateStatus === 'downloading' ? undefined : 'Inactive'} statusTone="muted" control={updateStatus === 'downloading' ? <span className="font-mono text-xs font-medium text-sparkle-text-secondary">{updateState?.downloadPercent == null ? 'In progress' : `${Math.round(updateState.downloadPercent)}%`}</span> : null} />
+                <SettingsRow title="Skipped version" description="This version will remain hidden until the skip is cleared." status={skippedVersion ? undefined : 'None'} statusTone="muted" control={skippedVersion ? <div className="flex items-center gap-2"><span className="font-mono text-xs text-sparkle-text-secondary">{skippedVersion}</span><SettingsButton variant="ghost" onClick={clearSkippedVersion}>Clear skip</SettingsButton></div> : null} />
                 <SettingsRow
                     title="Update actions"
                     description="Check, download, and install through the signed desktop update flow."
                     control={<div className="flex flex-wrap justify-end gap-1"><SettingsButton onClick={() => { clearSkippedVersion(); void checkForUpdates() }} disabled={busy || !updatesEnabled || updateStatus === 'checking'}><RefreshCw size={12} className={pendingAction === 'check' ? 'animate-spin' : ''} />Check</SettingsButton><SettingsButton onClick={() => void downloadUpdate()} disabled={busy || updateStatus !== 'available'}><Download size={12} />Download</SettingsButton><SettingsButton variant="accent" onClick={() => void installUpdate()} disabled={busy || updateStatus !== 'downloaded'}><Rocket size={12} />Restart to install</SettingsButton></div>}
                 />
-                {updateStatus === 'available' ? <SettingsRow title="Defer this update" description="Postpone the prompt or skip the offered version." control={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={remindLater}>Remind later</SettingsButton><SettingsButton variant="ghost" onClick={skipAvailableVersion}>Skip version</SettingsButton></div>} /> : null}
+                <SettingsRow title="Defer this update" description="Postpone the prompt or skip the offered version." control={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={remindLater} disabled={updateStatus !== 'available'}>Remind later</SettingsButton><SettingsButton variant="ghost" onClick={skipAvailableVersion} disabled={updateStatus !== 'available'}>Skip version</SettingsButton></div>} />
             </SettingsSection>
 
             <SettingsSection title="Links">

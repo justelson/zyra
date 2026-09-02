@@ -20,6 +20,7 @@ import {
     SettingsSelect,
     SettingsSwitch
 } from './settings-layout'
+import { createSettingsRowTargetId } from './settings-search'
 
 let cachedOverview: AssistantSkillSourceOverviewPayload | null = null
 let cachedOverviewAt = 0
@@ -197,7 +198,7 @@ export default function SkillsSettings() {
 
     if (!desktopHost) {
         return (
-            <SettingsPageContainer>
+            <SettingsPageContainer title="Skills" backTo="/settings/assistant" backLabel="Assistant">
                 <SettingsSection title="Skill sources">
                     <SettingsNotice>Open Zyra Desktop to manage local skill folders.</SettingsNotice>
                 </SettingsSection>
@@ -206,7 +207,7 @@ export default function SkillsSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Skills" backTo="/settings/assistant" backLabel="Assistant">
             <SettingsSection
                 title="Skill sources"
                 headerAction={(
@@ -296,6 +297,7 @@ export default function SkillsSettings() {
 
             <SettingsSection title="Name conflicts">
                 <SettingsRow
+                    searchTargetId={createSettingsRowTargetId('Name conflicts', 'Overlapping names')}
                     title={conflicts.length ? `${conflicts.length} overlapping ${conflicts.length === 1 ? 'name' : 'names'}` : 'No overlapping names'}
                     description={conflicts.length
                         ? 'Source priority already chooses a winner. Review only the names you want to override.'

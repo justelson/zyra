@@ -113,7 +113,7 @@ export default function LogsSettings() {
     }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Diagnostics" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Diagnostics" headerAction={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={() => void loadLogs(true)} disabled={loading}><RefreshCw size={12} className={loading ? 'animate-spin' : ''} />Refresh</SettingsButton><SettingsButton variant="ghost" onClick={() => void copyText('visible', filteredLogs.map(formatLogEntry).join('\n\n====================\n\n'))} disabled={filteredLogs.length === 0}>{copiedKey === 'visible' ? <Check size={12} /> : <Copy size={12} />}Copy visible</SettingsButton></div>}>
                 {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
                 <SettingsRow title="AI debug logs" description="Local provider requests and responses retained for Git AI troubleshooting." control={<span className="font-mono text-xs tabular-nums text-sparkle-text-secondary">{logs.length}</span>} />

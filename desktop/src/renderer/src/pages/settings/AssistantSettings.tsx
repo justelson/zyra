@@ -122,7 +122,7 @@ export default function AssistantSettings() {
                         : { label: 'Checking', tone: 'muted' }
 
     return (
-        <SettingsPageContainer>
+        <SettingsPageContainer title="Defaults" backTo="/settings/assistant" backLabel="Assistant">
             <SettingsSection title="Assistant defaults" headerAction={<SettingsButton variant="ghost" onClick={() => void loadModels(true)} disabled={modelsLoading}><RefreshCw size={12} className={modelsLoading ? 'animate-spin' : ''} />Models</SettingsButton>}>
                 <SettingsRow
                     title="Model"
@@ -232,28 +232,21 @@ export default function AssistantSettings() {
 
             <SettingsSection title="Voice transcription">
                 <SettingsRow title="Voice input" description="Enable speech-to-text in assistant composers." control={<SettingsSwitch checked={settings.assistantTranscriptionEnabled} onCheckedChange={(assistantTranscriptionEnabled) => updateSettings({ assistantTranscriptionEnabled })} label="Enable voice input" />} />
-                {settings.assistantTranscriptionEnabled ? (
-                    <>
-                        <SettingsRow title="Transcription engine" description="Use live browser dictation or send a recorded voice note to ChatGPT." control={<SettingsSegmented value={settings.assistantTranscriptionEngine} options={[{ value: 'browser', label: 'Browser' }, { value: 'codex', label: 'ChatGPT' }]} onChange={(assistantTranscriptionEngine) => updateSettings({ assistantTranscriptionEngine })} label="Transcription engine" />} />
-                        {settings.assistantTranscriptionEngine === 'codex' ? (
-                            <SettingsRow
-                                title="ChatGPT transcription"
-                                description="Records one bounded voice note and transcribes it using the ChatGPT account connected through Pi."
-                                status={chatGptVoiceStatus.label}
-                                statusTone={chatGptVoiceStatus.tone}
-                                statusTitle={chatGptVoiceStatus.title}
-                                control={<SettingsButton variant="ghost" onClick={() => void loadTranscriptionState()} disabled={transcriptionStateLoading}><RefreshCw size={12} className={transcriptionStateLoading ? 'animate-spin motion-reduce:animate-none' : ''} />Refresh status</SettingsButton>}
-                            />
-                        ) : (
-                            <SettingsRow
-                                title="Browser dictation"
-                                description="Uses Chromium's live speech-recognition service when this runtime provides it."
-                                status={browserSpeechAvailable ? 'Available' : 'Unavailable'}
-                                statusTone={browserSpeechAvailable ? 'ready' : 'warning'}
-                            />
-                        )}
-                    </>
-                ) : null}
+                <SettingsRow title="Transcription engine" description="Use live browser dictation or send a recorded voice note to ChatGPT." control={<SettingsSegmented value={settings.assistantTranscriptionEngine} options={[{ value: 'browser', label: 'Browser' }, { value: 'codex', label: 'ChatGPT' }]} onChange={(assistantTranscriptionEngine) => updateSettings({ assistantTranscriptionEngine })} label="Transcription engine" disabled={!settings.assistantTranscriptionEnabled} />} />
+                <SettingsRow
+                    title="ChatGPT transcription"
+                    description="Records one bounded voice note and transcribes it using the ChatGPT account connected through Pi."
+                    status={chatGptVoiceStatus.label}
+                    statusTone={chatGptVoiceStatus.tone}
+                    statusTitle={chatGptVoiceStatus.title}
+                    control={<SettingsButton variant="ghost" onClick={() => void loadTranscriptionState()} disabled={!settings.assistantTranscriptionEnabled || settings.assistantTranscriptionEngine !== 'codex' || transcriptionStateLoading}><RefreshCw size={12} className={transcriptionStateLoading ? 'animate-spin motion-reduce:animate-none' : ''} />Refresh status</SettingsButton>}
+                />
+                <SettingsRow
+                    title="Browser dictation"
+                    description="Uses Chromium's live speech-recognition service when this runtime provides it."
+                    status={browserSpeechAvailable ? 'Available' : 'Unavailable'}
+                    statusTone={browserSpeechAvailable ? 'ready' : 'warning'}
+                />
             </SettingsSection>
 
             <SettingsDialog

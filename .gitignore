@@ -5,6 +5,12 @@ shims/
 .zyra/
 .zyra-worktrees/
 .coord/
+/.agents/
+/.codex/
+/AGENTS.override.md
+/AGENTS.local.md
+/docs.local/
+/.release/
 tmp/
 output/
 document.readyState
@@ -22,7 +28,7 @@ __pycache__/
 /zyra-random-work-notes.docx
 
 # Private local exports, derived analysis, and profile/memory material
-resources/*
+/resources/
 
 apps/*/node_modules/
 apps/*/dist/
@@ -53,6 +59,3 @@ _last_compaction.md
 # Local import/normalization helpers for private exports
 tools/import-*.mjs
 tools/normalize-*.mjs
-
-# Old planning artifacts, not part of the current CLI push
-docs/*-plan.md

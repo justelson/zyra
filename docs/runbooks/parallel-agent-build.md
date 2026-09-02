@@ -174,13 +174,13 @@ Special merge rules:
 Builder A writes and commits:
 
 ```text
-docs/handoffs/subagents-workflows.md
+docs/automation/handoffs/subagents-workflows.md
 ```
 
 Builder B writes and commits:
 
 ```text
-docs/handoffs/browser-computer-use.md
+docs/automation/handoffs/browser-computer-use.md
 ```
 
 Each handoff contains:
@@ -282,7 +282,7 @@ It then:
 12. Runs the privacy check.
 13. Runs the desktop production build because the integration is structurally broad.
 14. Runs isolated live smoke tests without terminating a user-owned process.
-15. Writes and commits `docs/handoffs/agent-platform-integration.md`.
+15. Writes and commits `docs/automation/handoffs/agent-platform-integration.md`.
 
 Integrator C must not merge to `master`, push, publish, package an installer for distribution, delete feature branches, delete worktrees, or rewrite history.
 

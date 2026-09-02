@@ -40,7 +40,7 @@ Commit coherent checkpoints and all final work. Finish with a clean worktree.
 Write and commit:
 
 ```text
-docs/handoffs/browser-computer-use.md
+docs/automation/handoffs/browser-computer-use.md
 ```
 
 Include commits, behavior, files, protocols, package/installer changes, shared-file collision notes, dependencies, exact tests/results, manual checks, security/privacy review, limitations, and integration guidance.

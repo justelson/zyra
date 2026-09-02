@@ -50,7 +50,7 @@ Commit all merge resolution, integration code, tests, regenerated lockfiles, and
 Write and commit:
 
 ```text
-docs/handoffs/agent-platform-integration.md
+docs/automation/handoffs/agent-platform-integration.md
 ```
 
 Include merge commits, semantic conflict resolutions, final architecture, migrations, dependencies, exact test/build results, manual smoke results, remaining limitations, and release instructions.

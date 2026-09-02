@@ -1,6 +1,6 @@
 # Zyra Documentation
 
-This directory separates current user/developer guidance from architecture records, implementation plans, handoffs, research, and historical agent briefs.
+This directory contains public, durable guidance, architecture records, implementation contracts, and automation records. One-off plans, research, handoffs, QA evidence, and working prompts belong in ignored `docs.local/`.
 
 Status words used below:
 
@@ -24,6 +24,7 @@ Status words used below:
 
 - [Agent server](architecture/agent-server.md) — **Current.** Shared server authority, persistence, and client flow.
 - [Canonical chat integrity](architecture/canonical-chat-integrity.md) — **Current.** Cross-client identity, indexed history, metadata, recovery, and migration safety.
+- [Local chat search ADR](adr/0012-use-a-derived-fts-projection-for-local-chat-search.md) — **Accepted and implemented.** Canonical eligibility, FTS5 projection ownership, worker isolation, bounded fallback, and exact-message navigation.
 - [Agent surfaces](architecture/agent-surface.md) — **Current.** Desktop/TUI semantic projection boundaries.
 - [Assistant browser](architecture/assistant-browser.md) — **Current.** Integrated Electron Browser ownership and visual-control architecture.
 - [Local browser client](architecture/local-browser-client.md) — **Current.** Same-device Chrome runtime, transport, security, and capability boundary.
@@ -45,39 +46,17 @@ Status words used below:
 - [Subagents and workflows](implementations/subagents-workflows.md) — **Historical.** Original fleet/workflow implementation plan.
 - [Windows isolated computer use](implementations/windows-isolated-computer-use.md) — **Historical.** Windows sidecar implementation record.
 
-## Handoffs
+## Automation inputs and records
 
-- [V1 local browser client](handoffs/2026-08-09-jake-v1-local-browser.md) — **Current.** Jake’s same-device browser branch merge and validation record.
-- [Agent-platform integration](handoffs/agent-platform-integration.md) — **Historical.** Integration checkpoint merged into the main line.
-- [Browser/computer use](handoffs/browser-computer-use.md) — **Historical.** Builder transfer record.
-- [Chat performance](handoffs/chat-performance.md) — **Historical.** End-to-end performance implementation handoff.
-- [Desktop root migration](handoffs/desktop-root-migration.md) — **Superseded.** Pre-migration instructions; the active application now lives under `desktop/`.
-- [File-change streaming specification](handoffs/file-change-streaming-spec.html) — **Historical.** Agent execution contract and acceptance evidence.
-- [In-app visual browser control](handoffs/in-app-visual-browser-control.md) — **Historical.** Visual browser implementation handoff.
-- [Subagents/workflows](handoffs/subagents-workflows.md) — **Historical.** Builder completion record.
-- [V1 Voice core merge handoff](handoffs/v1-voice-core-merge-handoff.md) — **Current.** Mike's merge boundary, evidence, and remaining production integration gates.
-
-## Plans
-
-- [File-change streaming](plans/file-change-streaming.html) — **Historical.** Research and implementation rationale paired with the archived handoff.
-- [Ultra orchestration](plans/ultra-orchestration.html) — **Draft.** Forward-looking orchestration exploration, not current runtime policy.
-
-## Research
-
-- [Codex capability research](research/codex-capability.html) — **Historical.** Capability comparison and adoption research.
-- [Codex-inspired UI map](research/codex-inspired-ui-map.md) — **Historical.** UI comparison and evidence map.
-- [DevScope chat-history rail](research/devscope-chat-history-rail.html) — **Historical.** Rail behavior comparison report.
-
-## Internal agent documentation
-
-- [Agent-platform integrator](agent-prompts/agent-platform-integrator.md) — **Current.** Internal coordinator input referenced by automation scripts.
-- [Browser/computer-use builder](agent-prompts/browser-computer-use-builder.md) — **Current.** Internal builder input referenced by automation scripts.
-- [Subagents/workflows builder](agent-prompts/subagents-workflows-builder.md) — **Current.** Internal builder input referenced by automation scripts.
-- [Archived chat-app end-to-end goal](agent-prompts/archive/chat-app-end-to-end-goal.md) — **Historical.** Recovered one-off root brief; several paths predate `desktop/`.
+- [Agent-platform integrator prompt](../scripts/automation/prompts/agent-platform-integrator.md) — **Current.** Coordinator-owned dispatch input.
+- [Browser/computer-use builder prompt](../scripts/automation/prompts/browser-computer-use-builder.md) — **Current.** Builder dispatch input.
+- [Subagents/workflows builder prompt](../scripts/automation/prompts/subagents-workflows-builder.md) — **Current.** Builder dispatch input.
+- [Automation handoffs](automation/handoffs/) — **Historical.** Public records required by the branch-validation workflow.
 
 ## Conventions
 
 - Keep maintained how-to material in `guides/` and source-of-truth security policy in `security/`.
 - Keep architecture separate from implementation evidence and forward plans.
-- Move completed one-off execution briefs to an `archive/` directory instead of leaving them at repository root.
+- Move one-off execution briefs, plans, research, handoffs, and local design evidence to ignored `docs.local/`.
+- Keep automation-owned public prompts under `scripts/automation/prompts/` and automation-required committed records under `docs/automation/`.
 - Do not commit generated build output, local sessions, private exports, or credentials as documentation.

@@ -1,6 +1,6 @@
 # Zyra Repository Map
 
-**Status: Current — 2026-07-30.** This map covers only the Zyra repository. It distinguishes committed product source from generated, private, compatibility, and historical local material.
+**Status: Current — 2026-08-31.** This map covers only the Zyra repository. It distinguishes committed product source from generated, private, compatibility, and local working material.
 
 ## Committed product and support surfaces
 
@@ -14,10 +14,10 @@
 | `workflows/` | Built-in sandboxed workflow definitions. | Tracked; discovered by the workflow registry. | Keep. |
 | `prompts/` | Public Zyra system prompt, inspection prompt, and profile overlays. | Tracked; loaded by CLI startup/profile code and packaged by `package.json`. | Keep. |
 | `bin/` | Published/local CLI entry point. | Tracked; root `bin` metadata and scripts invoke `bin/zyra.mjs`. | Keep. |
-| `scripts/` | Regression checks, automation, release helper, and maintenance entry points. | Tracked; referenced by `package.json`. | Keep; generated outputs belong outside this directory. |
-| `docs/` | Current guides plus architecture, decision records, implementation, research, runbook, handoff, and internal-agent records. | Tracked; indexed by `docs/README.md`. | Keep organized by document role. |
+| `scripts/` | Regression checks, automation prompts, release helpers, and maintenance entry points. | Tracked; referenced by `package.json` and automation entry points. | Keep source public; generated outputs belong outside this directory and development scripts do not ship in the runtime package. |
+| `docs/` | Current guides, architecture, decision records, implementation contracts, runbooks, and automation-required records. | Tracked; indexed by `docs/README.md`. | Keep durable public material only. |
 | `.github/` | Public issue and pull-request contribution templates. | Tracked; consumed by GitHub contribution flows. | Keep templates aligned with repository privacy and architecture rules. |
-| Root launch/config files | `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `RELEASE.md`, manifests, lockfiles, installers, and shell launchers. | Tracked; required for development, licensing, installation, and package metadata. | Keep at repository root. |
+| Root launch/config files | `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `RELEASE.md`, manifests, lockfiles, installers, and shell launchers. | Tracked; required for development, licensing, installation, and package metadata. | Keep at repository root. `AGENTS.md` is source guidance and is not part of the runtime package. |
 
 ## Local, ignored, or generated surfaces
 
@@ -25,10 +25,14 @@
 |---|---|---|---|
 | `node_modules/`, `desktop/node_modules/` | Generated dependencies. | Ignored and installed from lockfiles. | Keep locally when needed; never commit. |
 | `.zyra/`, `desktop/.zyra/` | Private local sessions, memory, preferences, and handoffs. | Explicitly ignored; privacy checks reject local/private material. | Keep private and local. |
+| `docs.local/` | One-off prompts, plans, research, handoffs, QA evidence, and working notes. | Explicitly ignored; no runtime consumer. | Keep locally when useful; distill durable conclusions into public docs. |
+| `AGENTS.override.md` | Machine-local repository instructions. | Explicitly ignored; Codex gives it precedence over `AGENTS.md`. | Keep local and make it retain the shared `AGENTS.md` contract. |
+| `.agents/`, `.codex/` | Machine-specific agent configuration and caches. | Explicitly ignored; public Zyra agent definitions live in `agents/`. | Keep local unless a separate shared configuration is intentionally designed. |
 | `.zyra-worktrees/` | Registered temporary Git worktrees. | Ignored; branch/worktree metadata proves their purpose. | Remove a worktree only after ancestry and cleanliness checks. |
 | `.coord/` | Autonomous-run coordination state. | Ignored; no production import/package reference. | Local-only historical run state; remove only after its run is accepted. |
 | `.playwright-cli/`, `desktop/.playwright-cli/` | Browser automation state and captures. | Ignored; referenced only by test/migration documentation. | Generated test state; safe to recreate. |
 | `dist/` | Root release archives and checksums. | Ignored; release tooling is the source. | Generated release output. Preserve intentionally retained archives; do not package as source. |
+| `.release/` | Root release-job logs, fetched artifacts, and extracted helper dependencies. | Ignored; release workflows can recreate the contents. | Keep only while investigating a release, then remove through a bounded cleanup. |
 | `desktop/out/`, `desktop/dist/`, `desktop/release/` | Electron compile/package output. | Ignored and recreated by Desktop scripts. | Generated; remove exact copies when cleaning. |
 | `desktop/.release/` | Deterministic package-input staging for `zyra-runtime` and the Windows-only self-contained sidecar. | Ignored; rebuilt from tracked source and lockfiles by `desktop/scripts/release/prepare-release-resources.mjs`. | Never commit; validate before packaging. |
 | `output/` | Screenshots and report render output. | Ignored; no runtime consumer. | Generated review evidence; retain or remove by explicit review. |

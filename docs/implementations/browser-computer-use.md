@@ -1282,7 +1282,7 @@ The builder must:
 - Diagnose failures and continue.
 - Commit coherent checkpoints.
 - Finish with a clean feature worktree.
-- Write `docs/handoffs/browser-computer-use.md` containing commits, exact tests/results, package or installer changes, manual checks, collision notes, and limitations.
+- Write `docs/automation/handoffs/browser-computer-use.md` containing commits, exact tests/results, package or installer changes, manual checks, collision notes, and limitations.
 
 The builder asks only when continuing requires:
 

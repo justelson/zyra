@@ -835,5 +835,15 @@ async function source(relativePath) {
 async function gitFilesUnder(prefix) {
   const { execFile } = await import("node:child_process");
   const output = await new Promise((resolve, reject) => execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard", prefix || "."], { cwd: root, encoding: "utf8" }, (error, stdout) => error ? reject(error) : resolve(stdout)));
-  return String(output).split(/\r?\n/).filter(Boolean).filter((file) => !/\.(png|jpe?g|gif|webp|ico|icns|zip|sqlite|lockb|woff2?)$/i.test(file));
+  const candidates = String(output).split(/\r?\n/).filter(Boolean).filter((file) => !/\.(png|jpe?g|gif|webp|ico|icns|zip|sqlite|lockb|woff2?)$/i.test(file));
+  const existing = await Promise.all(candidates.map(async (file) => {
+    try {
+      await stat(path.join(root, file));
+      return file;
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+  }));
+  return existing.filter(Boolean);
 }

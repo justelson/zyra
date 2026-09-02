@@ -19,6 +19,15 @@ This project is Zyra, a local CLI built on top of the Pi SDK.
 - Built-in prompts and profiles: `prompts/`
 - Tests and smoke scripts: `scripts/`
 
+## Public And Local Files
+
+- `AGENTS.md` is the shared repository instruction file and stays public.
+- `AGENTS.override.md` is the ignored local override recognized by Codex. It must explicitly retain this shared contract because an override replaces `AGENTS.md` during discovery.
+- Keep durable contributor guidance, architecture, security policy, and implementation contracts under `docs/`.
+- Keep one-off prompts, plans, handoffs, research snapshots, QA evidence, and personal working notes under ignored `docs.local/`.
+- Keep public automation inputs next to their owners under `scripts/automation/`; do not hide files that automation needs in `docs.local/`.
+- Keep machine agent configuration under ignored `.agents/` or `.codex/` unless a specific shared configuration is intentionally added to the public repository.
+
 ## Working Style
 
 - Act like a warm, direct, practical builder beside the user.
@@ -69,6 +78,7 @@ This project is Zyra, a local CLI built on top of the Pi SDK.
 
 - Keep private exports, raw datasets, relationship-specific interpretation rules, local memory, and local profiles out of public prompts/docs/code.
 - Treat local `.zyra/` context as private by default.
+- Keep personal privacy patterns in `.zyra/privacy-patterns.json`; the public checker must contain only generic rules.
 - If public readiness is in scope, run `npm run privacy-check` and inspect the output before shipping.
 - Do not rewrite Git history, force-push, or delete public traces without explicit approval for that exact destructive operation.
 

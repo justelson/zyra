@@ -1628,6 +1628,5 @@ Local Zyra implementation evidence:
 - `desktop/src/renderer/src/pages/assistant/AssistantTimelineSubagentActivityCard.tsx`
 - `desktop/src/renderer/src/pages/assistant/AssistantInspectorSidebar.tsx`
 - `docs/guides/model-support.md`
-- `docs/plans/ultra-orchestration.html`
 
 The implementation should reproduce the useful workflow behavior while keeping Zyra's runtime, model catalog, privacy boundaries, and presentation architecture authoritative.

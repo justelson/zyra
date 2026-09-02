@@ -40,7 +40,7 @@ Commit coherent checkpoints and all final work. Finish with a clean worktree.
 Write and commit:
 
 ```text
-docs/handoffs/subagents-workflows.md
+docs/automation/handoffs/subagents-workflows.md
 ```
 
 Include commits, behavior, files, migrations, shared-file collision notes, dependencies, exact tests/results, manual checks, security/privacy review, limitations, and integration guidance.

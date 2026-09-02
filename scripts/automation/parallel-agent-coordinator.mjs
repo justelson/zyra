@@ -217,7 +217,7 @@ function runIntegrator(prompt, attempt) {
 }
 
 function buildIntegrationPrompt(attempt, validation) {
-  const brief = '@docs/agent-prompts/agent-platform-integrator.md'
+  const brief = '@scripts/automation/prompts/agent-platform-integrator.md'
   const runbook = '@docs/runbooks/parallel-agent-build.md'
   const fleetPlan = '@docs/implementations/subagents-workflows.md'
   const controlPlan = '@docs/implementations/browser-computer-use.md'

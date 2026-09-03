@@ -1,6 +1,8 @@
-import type { AssistantInteractionMode, AssistantModelInfo, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
+import type { AssistantChatScopeRoot, AssistantInteractionMode, AssistantModelInfo, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantBusyMessageMode } from '@/lib/settings'
+
+export type AssistantComposerProjectRoot = AssistantChatScopeRoot
 
 export type ComposerContextFile = {
     id: string
@@ -88,6 +90,7 @@ export type AssistantComposerProps = {
     projectId?: string | null
     projectPath?: string | null
     projectName?: string | null
+    projectRoots?: AssistantComposerProjectRoot[]
     projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
     detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean

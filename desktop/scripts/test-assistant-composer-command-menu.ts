@@ -12,6 +12,12 @@ import {
     resolveAssistantComposerCommandMenuIndex
 } from '../src/renderer/src/pages/assistant/assistant-composer-command-menu'
 import {
+    buildAssistantComposerFileSearchItems,
+    findAssistantComposerIncludeToken,
+    removeAssistantComposerIncludeToken
+} from '../src/renderer/src/pages/assistant/assistant-composer-file-search'
+import { resolveAssistantComposerMenuScrollTop } from '../src/renderer/src/pages/assistant/assistant-composer-menu-scroll'
+import {
     listAssistantDesktopSlashCommandResources,
     parseAssistantDesktopSlashCommand,
     resolveAssistantDesktopSlashCommandAction
@@ -53,6 +59,8 @@ assert.equal(resolveAssistantComposerCommandMenuIndex(4, 'ArrowDown', 5), 0, 'Ar
 assert.equal(resolveAssistantComposerCommandMenuIndex(0, 'ArrowUp', 5), 4, 'ArrowUp wraps to the last command')
 assert.equal(resolveAssistantComposerCommandMenuIndex(20, 'ArrowUp', 5), 3, 'stale command indexes normalize before moving')
 assert.equal(resolveAssistantComposerCommandMenuIndex(0, 'ArrowDown', 0), 0)
+assert.equal(resolveAssistantComposerMenuScrollTop({ scrollTop: 40, viewportHeight: 120, contentHeight: 400, itemTop: 70, itemHeight: 28 }), null, 'a visible active row does not move the list')
+assert.equal(resolveAssistantComposerMenuScrollTop({ scrollTop: 40, viewportHeight: 120, contentHeight: 400, itemTop: 170, itemHeight: 28 }), 84, 'an active row below the viewport moves by the minimum required distance')
 
 const allItems = buildAssistantComposerCommandItems(resources, '')
 for (const commandName of ['/yolo', '/auto', '/edits', '/safe', '/include', '/review']) {
@@ -68,6 +76,26 @@ assert.deepEqual(
     ['/auto', '/edits', '/include', '/safe', '/usage', '/yolo'],
     'built-in commands remain available while resource discovery is loading or unavailable'
 )
+
+const embeddedItems = buildAssistantComposerCommandItems(resources, '', { allowStartOnlyCommands: false })
+for (const commandName of ['/yolo', '/auto', '/edits', '/safe', '/usage']) {
+    assert.equal(embeddedItems.some((item) => item.label === commandName), false, `${commandName} is hidden inside prompt prose`)
+}
+assert.equal(embeddedItems.some((item) => item.label === '/include'), true, '/include remains available inside prompt prose')
+assert.equal(embeddedItems.some((item) => item.label === '/skill:release-check'), true, 'skills remain available inside prompt prose')
+
+const includeToken = findAssistantComposerIncludeToken('Review /include src/com', 23)
+assert.deepEqual(includeToken, { start: 7, end: 23, query: 'src/com' })
+assert.deepEqual(removeAssistantComposerIncludeToken('Review /include src/com next', includeToken!), { text: 'Review next', cursor: 7 })
+
+const duplicateFileItems = buildAssistantComposerFileSearchItems([
+    { path: 'C:/main/src/index.ts', rootPath: 'C:/main', parentPath: 'C:/main/src', relativePath: 'src/index.ts', name: 'index.ts', type: 'file', extension: 'ts', isHidden: false, isProject: false, markers: [], frameworks: [], depth: 2 },
+    { path: 'C:/docs/index.ts', rootPath: 'C:/docs', parentPath: 'C:/docs', relativePath: 'index.ts', name: 'index.ts', type: 'file', extension: 'ts', isHidden: false, isProject: false, markers: [], frameworks: [], depth: 1 }
+], [
+    { id: 'main', kind: 'project-home', path: 'C:/main', label: 'Main', access: 'read-write' },
+    { id: 'docs', kind: 'associated-folder', path: 'C:/docs', label: 'Docs', access: 'read-only' }
+])
+assert.deepEqual(duplicateFileItems.map((item) => [item.rootLabel, item.showRootLabel]), [['Main', true], ['Docs', true]], 'duplicate filenames identify their Chat-scoped root')
 
 const command = buildAssistantComposerCommandItems(resources, 'rev')[0]
 assert.equal(command.value, '/review')
@@ -121,10 +149,16 @@ assert.deepEqual(
     { type: 'usage-visibility', visible: null },
     '/usage toggles the current Desktop preference when no argument is supplied'
 )
-assert.deepEqual(
-    resolveAssistantDesktopSlashCommandAction(parseAssistantDesktopSlashCommand('/usage sideways')!),
-    { type: 'error', message: 'Use /usage on or /usage off.' }
-)
+assert.deepEqual(parseAssistantDesktopSlashCommand('/yolo fix the failing test'), {
+    name: 'yolo', argument: '', remainingPrompt: 'fix the failing test'
+}, 'a leading runtime command applies before the prompt that follows it')
+assert.deepEqual(parseAssistantDesktopSlashCommand('/usage on explain this'), {
+    name: 'usage', argument: 'on', remainingPrompt: 'explain this'
+}, 'a leading usage command can update the UI before sending the remaining prompt')
+assert.deepEqual(parseAssistantDesktopSlashCommand('/usage explain this'), {
+    name: 'usage', argument: '', remainingPrompt: 'explain this'
+}, 'usage without an explicit setting toggles before the remaining prompt')
+assert.equal(parseAssistantDesktopSlashCommand('Please /usage on'), null, 'Desktop UI commands do not execute inside prompt prose')
 assert.equal(parseAssistantDesktopSlashCommand('/review this'), null, 'custom commands continue through the model-backed prompt route')
 
 const usagePreferenceValues = new Map<string, string>()
@@ -159,6 +193,10 @@ const composerSectionsSource = readFileSync(new URL('../src/renderer/src/pages/a
 const contextIndicatorSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerContextIndicator.tsx', import.meta.url), 'utf8')
 const rendererStylesSource = readFileSync(new URL('../src/renderer/src/index.css', import.meta.url), 'utf8')
 const commandMenuSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerCommandMenu.tsx', import.meta.url), 'utf8')
+const fileMenuSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantComposerFileMenu.tsx', import.meta.url), 'utf8')
+const fileSearchSource = readFileSync(new URL('../src/renderer/src/pages/assistant/useAssistantComposerFileSearch.ts', import.meta.url), 'utf8')
+const menuScrollSource = readFileSync(new URL('../src/renderer/src/pages/assistant/assistant-composer-menu-scroll.ts', import.meta.url), 'utf8')
+const conversationPaneSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantConversationPane.tsx', import.meta.url), 'utf8')
 const handlersSource = readFileSync(new URL('../src/renderer/src/pages/assistant/assistant-composer-handlers.ts', import.meta.url), 'utf8')
 const browserAdapterSource = readFileSync(new URL('../src/renderer/src/lib/browser-assistant-bridge-adapter.ts', import.meta.url), 'utf8')
 const mainPromptResourcesSource = readFileSync(new URL('../src/main/assistant/prompt-resources.ts', import.meta.url), 'utf8')
@@ -166,11 +204,17 @@ assert.match(composerSource, /aria-expanded=\{showSlashMenu\}/, 'the textarea ex
 assert.match(composerSource, /aria-activedescendant=/, 'keyboard selection exposes the active option to assistive technology')
 assert.match(composerSource, /resolveAssistantComposerCommandMenuIndex/, 'composer command arrows use bounded wraparound navigation')
 assert.match(composerSource, /if \(!slashToken \|\| commandActivationPendingRef\.current\) return[\s\S]*commandActivationPendingRef\.current = true/, 'Enter, Tab, and click activation must single-flight before applying a slash item')
-assert.match(commandMenuSource, /scrollIntoView\(\{ block: 'nearest' \}\)/, 'composer command arrows keep the active row visible')
-assert.match(commandMenuSource, /lookaheadItem/, 'down-arrow navigation scrolls one row ahead before the active row reaches the composer overlap')
+assert.doesNotMatch(commandMenuSource, /scrollIntoView|lookaheadItem/, 'command navigation has no competing document-scroll calls')
+assert.match(menuScrollSource, /nextTop === null[\s\S]*scrollTo\(\{ top: nextTop, behavior:/, 'the menu stays still for visible rows and smoothly follows rows that leave the viewport')
+assert.match(commandMenuSource, /movementX === 0 && event\.movementY === 0/, 'scrolling beneath a stationary pointer cannot pull keyboard highlight backward')
 assert.match(commandMenuSource, /scroll-pb-10[\s\S]*pb-10/, 'the slash menu reserves a full row below its last option')
-assert.match(commandMenuSource, /onMouseMove=\{\(\) => onActiveIndexChange\(index\)\}/, 'a stationary pointer cannot override keyboard selection while commands scroll')
+assert.match(fileMenuSource, /FileEntryIcon/, 'include results use the existing file icon language')
+assert.match(fileMenuSource, /item\.showRootLabel/, 'conflicting filenames show their source folder')
+assert.match(fileSearchSource, /searchIndexedPaths\([\s\S]*roots:/, 'include search uses the indexed revisioned Chat roots')
+assert.match(conversationPaneSource, /selectedSession\?\.chatScope\?\.roots[\s\S]*projectRoots=\{composerProjectRoots\}/, 'existing Chats keep their captured folder revision in include search')
 assert.match(handlersSource, /resolveAssistantDesktopSlashCommandAction\(desktopCommand\)/, 'typed built-ins execute before model dispatch')
+assert.match(handlersSource, /runtimeModeForSend = action\.mode[\s\S]*prompt = desktopCommand\.remainingPrompt[\s\S]*runtimeMode: runtimeModeForSend/, 'a leading UI command applies before the remaining prompt is dispatched')
+assert.match(composerSource, /controller\.upsertAttachment[\s\S]*removeAssistantComposerIncludeToken/, 'selecting an indexed file consumes the inline include command and adds real composer context')
 assert.match(handlersSource, /setAssistantComposerUsageVisibility\(action\.visible\)/, 'the usage command changes only the Desktop composer preference')
 assert.match(contextIndicatorSource, /subscribeAssistantComposerUsageVisibility/, 'the mounted usage indicator follows slash-command preference changes')
 assert.match(contextIndicatorSource, /data-visible=\{visible\}/, 'the usage ring stays mounted so its exit animation can complete')

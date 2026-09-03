@@ -26,6 +26,7 @@ import { AssistantNewChatProjectChip } from './AssistantNewChatProjectChip'
 import { AssistantComposerContextIndicator } from './AssistantComposerContextIndicator'
 import { AssistantBusySendSplitButton } from './AssistantBusySendSplitButton'
 import { AssistantComposerCommandMenu } from './AssistantComposerCommandMenu'
+import { AssistantComposerFileMenu } from './AssistantComposerFileMenu'
 import { ComposerAttachmentsShelf, ComposerFooterControls, ComposerMentionMenu, ComposerRealtimeVoiceButton, ComposerSendButton, ComposerVoiceButton } from './AssistantComposerSections'
 import { formatAssistantModelLabel } from './assistant-model-labels'
 import {
@@ -37,6 +38,7 @@ import type { AssistantComposerController } from './useAssistantComposerControll
 import { deriveAssistantComposerViewState, shouldShowComposerRealtimeVoicePrimaryAction } from './assistant-composer-view-state'
 import { buildAssistantVoiceExecutionConfiguration } from './assistant-voice-execution-configuration'
 import {
+    createAttachmentId,
     getContentTypeTag,
     getContextFileMeta,
     isPastedTextAttachment,
@@ -47,9 +49,17 @@ import {
     buildAssistantComposerCommandItems,
     findAssistantComposerSlashToken,
     getAssistantComposerCommandOptionId,
+    isAssistantComposerSlashTokenAtDraftStart,
     resolveAssistantComposerCommandMenuIndex,
     type AssistantComposerCommandItem
 } from './assistant-composer-command-menu'
+import {
+    findAssistantComposerIncludeToken,
+    getAssistantComposerFileOptionId,
+    removeAssistantComposerIncludeToken,
+    type AssistantComposerFileSearchItem
+} from './assistant-composer-file-search'
+import { useAssistantComposerFileSearch } from './useAssistantComposerFileSearch'
 
 const PROMPT_RESOURCE_CACHE_TTL_MS = 30_000
 const PROMPT_RESOURCE_CACHE_MAX_PROJECTS = 24
@@ -169,12 +179,36 @@ export function AssistantComposerView({
         () => findAssistantComposerSlashToken(controller.text, controller.composerCursor),
         [controller.composerCursor, controller.text]
     )
-    const commandItems = useMemo(
-        () => buildAssistantComposerCommandItems(promptResources, slashToken?.query || ''),
-        [promptResources, slashToken?.query]
+    const includeToken = useMemo(
+        () => findAssistantComposerIncludeToken(controller.text, controller.composerCursor),
+        [controller.composerCursor, controller.text]
     )
+    const commandItems = useMemo(
+        () => buildAssistantComposerCommandItems(promptResources, slashToken?.query || '', {
+            allowStartOnlyCommands: slashToken
+                ? isAssistantComposerSlashTokenAtDraftStart(controller.text, slashToken)
+                : true
+        }),
+        [controller.text, promptResources, slashToken]
+    )
+    const fileSearchRoots = useMemo(() => controller.projectRoots.length > 0
+        ? controller.projectRoots
+        : controller.projectPath ? [{
+            id: `working-root:${controller.projectPath}`,
+            kind: 'project-home' as const,
+            path: controller.projectPath,
+            label: controller.projectName || controller.projectPath.split(/[\\/]/).filter(Boolean).at(-1) || 'Project',
+            access: 'read-write' as const
+        }] : [], [controller.projectName, controller.projectPath, controller.projectRoots])
+    const fileSearch = useAssistantComposerFileSearch({
+        active: Boolean(includeToken),
+        query: includeToken?.query || '',
+        roots: fileSearchRoots
+    })
+    const fileMenuActive = Boolean(includeToken)
+    const activeMenuItemCount = fileMenuActive ? fileSearch.items.length : commandItems.length
     const showSlashMenu = Boolean(
-        slashToken
+        (includeToken || slashToken)
         && !slashMenuDismissed
         && !showCodexRecorder
         && !capabilities.inputDisabled
@@ -208,15 +242,15 @@ export function AssistantComposerView({
     useEffect(() => {
         commandActivationPendingRef.current = false
         setActiveCommandIndex(0)
-    }, [slashToken?.query])
+    }, [fileMenuActive, includeToken?.query, slashToken?.query])
 
     useEffect(() => {
-        if (commandItems.length === 0) {
+        if (activeMenuItemCount === 0) {
             setActiveCommandIndex(0)
             return
         }
-        setActiveCommandIndex((current) => Math.min(current, commandItems.length - 1))
-    }, [commandItems.length])
+        setActiveCommandIndex((current) => Math.min(current, activeMenuItemCount - 1))
+    }, [activeMenuItemCount])
 
     useEffect(() => {
         if (showSlashMenu) {
@@ -372,6 +406,30 @@ export function AssistantComposerView({
         }
     }, [controller, slashToken])
 
+    const selectFileItem = useCallback((item: AssistantComposerFileSearchItem) => {
+        if (!includeToken || commandActivationPendingRef.current) return
+        commandActivationPendingRef.current = true
+        const meta = getContextFileMeta({ path: item.path, name: item.name })
+        controller.upsertAttachment({
+            id: createAttachmentId(),
+            path: item.path,
+            name: item.name,
+            kind: meta.category === 'image' ? 'image' : meta.category === 'code' ? 'code' : 'file',
+            source: 'manual',
+            animateIn: true
+        })
+        const next = removeAssistantComposerIncludeToken(controller.text, includeToken)
+        controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
+        controller.setText(next.text)
+        controller.setComposerCursor(next.cursor)
+        if (controller.historyCursor != null) controller.setHistoryCursor(null)
+        window.requestAnimationFrame(() => {
+            const textarea = controller.textareaRef.current
+            textarea?.focus()
+            textarea?.setSelectionRange(next.cursor, next.cursor)
+        })
+    }, [controller, includeToken])
+
     const handleComposerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         if (!showSlashMenu) {
             controller.handleKeyDown(event)
@@ -380,12 +438,12 @@ export function AssistantComposerView({
 
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
-            if (commandItems.length > 0) {
+            if (activeMenuItemCount > 0) {
                 const direction = event.key === 'ArrowDown' ? 'ArrowDown' : 'ArrowUp'
                 setActiveCommandIndex((current) => resolveAssistantComposerCommandMenuIndex(
                     current,
                     direction,
-                    commandItems.length
+                    activeMenuItemCount
                 ))
             }
             return
@@ -393,8 +451,13 @@ export function AssistantComposerView({
 
         if (event.key === 'Enter' || event.key === 'Tab') {
             event.preventDefault()
-            const selected = commandItems[activeCommandIndex]
-            if (selected) selectCommandItem(selected)
+            if (fileMenuActive) {
+                const selectedFile = fileSearch.items[activeCommandIndex]
+                if (selectedFile) selectFileItem(selectedFile)
+            } else {
+                const selectedCommand = commandItems[activeCommandIndex]
+                if (selectedCommand) selectCommandItem(selectedCommand)
+            }
             return
         }
 
@@ -405,7 +468,7 @@ export function AssistantComposerView({
         }
 
         controller.handleKeyDown(event)
-    }, [activeCommandIndex, commandItems, controller, selectCommandItem, showSlashMenu])
+    }, [activeCommandIndex, activeMenuItemCount, commandItems, controller, fileMenuActive, fileSearch.items, selectCommandItem, selectFileItem, showSlashMenu])
 
     return (
         <>
@@ -431,15 +494,29 @@ export function AssistantComposerView({
                                             : 'translate-y-4 opacity-0 blur-[1px]'
                                     )}
                                 >
-                                    <AssistantComposerCommandMenu
-                                        menuId={commandMenuId}
-                                        items={commandItems}
-                                        activeIndex={activeCommandIndex}
-                                        loading={promptResourcesLoading}
-                                        error={promptResourcesError}
-                                        onActiveIndexChange={setActiveCommandIndex}
-                                        onSelect={selectCommandItem}
-                                    />
+                                    {fileMenuActive ? (
+                                        <AssistantComposerFileMenu
+                                            menuId={commandMenuId}
+                                            items={fileSearch.items}
+                                            activeIndex={activeCommandIndex}
+                                            query={includeToken?.query || ''}
+                                            loading={fileSearch.loading}
+                                            error={fileSearch.error}
+                                            iconTheme={iconTheme}
+                                            onActiveIndexChange={setActiveCommandIndex}
+                                            onSelect={selectFileItem}
+                                        />
+                                    ) : (
+                                        <AssistantComposerCommandMenu
+                                            menuId={commandMenuId}
+                                            items={commandItems}
+                                            activeIndex={activeCommandIndex}
+                                            loading={promptResourcesLoading}
+                                            error={promptResourcesError}
+                                            onActiveIndexChange={setActiveCommandIndex}
+                                            onSelect={selectCommandItem}
+                                        />
+                                    )}
                                 </AnimatedHeight>
                             ) : (
                                 <>
@@ -734,8 +811,12 @@ export function AssistantComposerView({
                                         aria-haspopup="listbox"
                                         aria-expanded={showSlashMenu}
                                         aria-controls={showSlashMenu ? commandMenuId : undefined}
-                                        aria-activedescendant={showSlashMenu && commandItems[activeCommandIndex]
-                                            ? getAssistantComposerCommandOptionId(commandMenuId, commandItems[activeCommandIndex].id)
+                                        aria-activedescendant={showSlashMenu
+                                            ? fileMenuActive && fileSearch.items[activeCommandIndex]
+                                                ? getAssistantComposerFileOptionId(commandMenuId, fileSearch.items[activeCommandIndex].id)
+                                                : commandItems[activeCommandIndex]
+                                                    ? getAssistantComposerCommandOptionId(commandMenuId, commandItems[activeCommandIndex].id)
+                                                    : undefined
                                             : undefined}
                                         spellCheck={!hasInlineMentionOverlay}
                                         className={cn(

@@ -11,7 +11,7 @@ import { AssistantPendingTerminalAccessPanel, getPendingTerminalAccessRequest } 
 import { AssistantPendingUserInputPanel } from './AssistantPendingUserInputPanel'
 import { deriveAssistantComposerDisabledReason } from './assistant-composer-capabilities'
 import { ASSISTANT_COMPOSER_OVERLAY_TOP_PADDING_PX } from './assistant-pane-layout'
-import type { AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
+import type { AssistantComposerProjectRoot, AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
 import { useAssistantComposerPlacementMotion } from './useAssistantComposerPlacementMotion'
 
 export const AssistantConversationComposerPane = memo(function AssistantConversationComposerPane(props: {
@@ -42,6 +42,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     selectedProjectId?: string | null
     selectedProjectPath: string | null
     selectedProjectName?: string | null
+    projectRoots?: AssistantComposerProjectRoot[]
     projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
     detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean
@@ -230,6 +231,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         projectId={props.selectedProjectId}
                         projectPath={props.selectedProjectPath}
                         projectName={props.selectedProjectName}
+                        projectRoots={props.projectRoots}
                         projectChoices={props.projectChoices}
                         detectedProjectChoices={props.detectedProjectChoices}
                         projectContextDisabled={props.projectContextDisabled}

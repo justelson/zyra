@@ -11,13 +11,14 @@ export const SLASH_COMMANDS = [
     { command: '/auto', description: 'Switch this thread to automatic review.' },
     { command: '/edits', description: 'Allow project edits and ask before other actions.' },
     { command: '/safe', description: 'Switch this thread back to supervised access.' },
-    { command: '/include', description: 'Add a file path to the composer context shelf.' },
+    { command: '/include', description: 'Search project files and add one to the context shelf.' },
     { command: '/usage', description: 'Show or hide context usage in the Desktop composer.' }
 ] as const
 
 export type AssistantDesktopSlashCommand = {
     name: 'yolo' | 'auto' | 'edits' | 'safe' | 'include' | 'usage'
     argument: string
+    remainingPrompt: string
 }
 
 export function listAssistantDesktopSlashCommandResources() {
@@ -29,11 +30,18 @@ export function listAssistantDesktopSlashCommandResources() {
 }
 
 export function parseAssistantDesktopSlashCommand(value: string): AssistantDesktopSlashCommand | null {
-    const match = String(value || '').trim().match(/^\/(yolo|auto|edits|safe|include|usage)(?:\s+([\s\S]*))?$/i)
+    const match = String(value || '').trimStart().match(/^\/(yolo|auto|edits|safe|include|usage)(?=$|\s)(?:\s+([\s\S]*))?$/i)
     if (!match) return null
+    const name = match[1].toLowerCase() as AssistantDesktopSlashCommand['name']
+    const tail = String(match[2] || '').trim()
+    if (name === 'include') return { name, argument: tail, remainingPrompt: '' }
+    if (name !== 'usage') return { name, argument: '', remainingPrompt: tail }
+
+    const usageArgument = tail.match(/^(on|off|show|hide)(?:\s+([\s\S]*))?$/i)
     return {
-        name: match[1].toLowerCase() as AssistantDesktopSlashCommand['name'],
-        argument: String(match[2] || '').trim()
+        name,
+        argument: usageArgument?.[1]?.toLowerCase() || '',
+        remainingPrompt: String(usageArgument?.[2] ?? tail).trim()
     }
 }
 

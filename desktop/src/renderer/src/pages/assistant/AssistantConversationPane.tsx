@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AssistantApprovalDecision, AssistantMessage, AssistantProposedPlan, AssistantSession, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
+import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessage, AssistantProposedPlan, AssistantSession, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reconciliation'
 import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
 import { useSettings, type AssistantProductProfile } from '@/lib/settings'
@@ -235,6 +235,42 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                 rootLabel: `${folder.label}${folder.access === 'read-only' ? ' · Read only' : ''}`
             }))
         ]), [projectCatalogState.catalog.projects])
+    const composerProjectRoots = useMemo<AssistantChatScopeRoot[]>(() => {
+        if (!isCreatingFreshChat) {
+            const revisionedRoots = controller.selectedSession?.chatScope?.roots || []
+            if (revisionedRoots.length > 0) return revisionedRoots
+            return displayProjectPath ? [{
+                id: `working-root:${displayProjectPath}`,
+                kind: 'project-home',
+                path: displayProjectPath,
+                label: displayProjectName || latestProjectLabel,
+                access: 'read-write'
+            }] : []
+        }
+        if (!selectedProjectRecord) return displayProjectPath ? [{
+            id: `working-root:${displayProjectPath}`,
+            kind: 'project-home',
+            path: displayProjectPath,
+            label: displayProjectName || latestProjectLabel,
+            access: 'read-write'
+        }] : []
+        return [
+            {
+                id: `project-home:${selectedProjectRecord.id}`,
+                kind: 'project-home',
+                path: selectedProjectRecord.homePath,
+                label: selectedProjectRecord.name,
+                access: 'read-write'
+            },
+            ...selectedProjectRecord.folders.filter((folder) => folder.available).map((folder) => ({
+                id: folder.folderId,
+                kind: 'associated-folder' as const,
+                path: folder.path,
+                label: folder.label,
+                access: folder.access
+            }))
+        ]
+    }, [controller.selectedSession?.chatScope?.roots, displayProjectName, displayProjectPath, isCreatingFreshChat, latestProjectLabel, selectedProjectRecord])
     const detectedProjectChoices = useMemo(() => projectCatalogState.catalog.candidates
         .filter((candidate) => candidate.status === 'pending')
         .map((candidate) => ({ id: candidate.id, path: candidate.path, label: candidate.suggestedName })),
@@ -1169,6 +1205,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         selectedProjectId={displayProjectId}
                         selectedProjectPath={displayProjectPath || null}
                         selectedProjectName={displayProjectName}
+                        projectRoots={composerProjectRoots}
                         projectChoices={composerIsCentered ? newChatProjectChoices : undefined}
                         detectedProjectChoices={composerIsCentered ? detectedProjectChoices : undefined}
                         projectContextDisabled={newChatHandoffActive || projectDirectoryLocked || controller.commandPending || projectCatalogState.loading}

@@ -12,6 +12,7 @@ export type AssistantComposerCommandItem = {
     description: string
     kind: 'command' | 'skill'
     scope: AssistantPromptResourceScope
+    placement: 'start' | 'anywhere'
 }
 
 export type AssistantComposerSlashToken = {
@@ -49,9 +50,16 @@ export function findAssistantComposerSlashToken(text: string, cursor: number): A
     }
 }
 
+const START_ONLY_DESKTOP_COMMANDS = new Set(['yolo', 'auto', 'edits', 'safe', 'usage'])
+
+export function isAssistantComposerSlashTokenAtDraftStart(text: string, token: AssistantComposerSlashToken): boolean {
+    return text.slice(0, token.start).trim().length === 0
+}
+
 export function buildAssistantComposerCommandItems(
     resources: AssistantPromptResourcesPayload | null,
-    query: string
+    query: string,
+    options: { allowStartOnlyCommands?: boolean } = {}
 ): AssistantComposerCommandItem[] {
     const normalizedQuery = query.trim().toLowerCase()
     const commandsByName = new Map<string, AssistantPromptCommandResource>(listAssistantDesktopSlashCommandResources()
@@ -65,7 +73,8 @@ export function buildAssistantComposerCommandItems(
         label: `/${command.name}`,
         description: command.description,
         kind: 'command' as const,
-        scope: command.scope
+        scope: command.scope,
+        placement: START_ONLY_DESKTOP_COMMANDS.has(command.name) ? 'start' as const : 'anywhere' as const
     }))
     const skills = (resources?.skills || []).map((skill) => ({
         id: `skill:${skill.scope}:${skill.name}`,
@@ -73,11 +82,13 @@ export function buildAssistantComposerCommandItems(
         label: `/skill:${skill.name}`,
         description: skill.description,
         kind: 'skill' as const,
-        scope: skill.scope
+        scope: skill.scope,
+        placement: 'anywhere' as const
     }))
 
     return [...commands, ...skills]
         .filter((item) => {
+            if (options.allowStartOnlyCommands === false && item.placement === 'start') return false
             if (!normalizedQuery) return true
             const haystack = `${item.label.slice(1)} ${item.description} ${item.scope}`.toLowerCase()
             return normalizedQuery.split(/\s+/).every((part) => haystack.includes(part))

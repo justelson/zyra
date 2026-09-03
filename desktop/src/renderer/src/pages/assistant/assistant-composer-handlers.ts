@@ -269,7 +269,8 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     const submitPrompt = async (dispatchMode: 'immediate' | 'queue' | 'force') => {
-        const prompt = replaceInlineMentionTokensWithLabels(text, inlineMentionTags).trim()
+        let prompt = replaceInlineMentionTokensWithLabels(text, inlineMentionTags).trim()
+        let runtimeModeForSend = selectedRuntimeMode
         const desktopCommand = parseAssistantDesktopSlashCommand(prompt)
         if (desktopCommand) {
             const action = resolveAssistantDesktopSlashCommandAction(desktopCommand)
@@ -277,7 +278,10 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
                 onBlockedSend?.(action.message)
                 return
             }
-            if (action.type === 'runtime-mode') setSelectedRuntimeMode(action.mode)
+            if (action.type === 'runtime-mode') {
+                runtimeModeForSend = action.mode
+                setSelectedRuntimeMode(action.mode)
+            }
             if (action.type === 'usage-visibility') setAssistantComposerUsageVisibility(action.visible)
             if (action.type === 'include') {
                 upsertAttachment({
@@ -289,13 +293,16 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
                     animateIn: true
                 })
             }
-            setText('')
-            setInlineMentionTags([])
-            setHistoryCursor(null)
-            setDraftBeforeHistory('')
-            setComposerCursor(0)
-            restoreComposerFocus()
-            return
+            prompt = desktopCommand.remainingPrompt
+            if (!prompt) {
+                setText('')
+                setInlineMentionTags([])
+                setHistoryCursor(null)
+                setDraftBeforeHistory('')
+                setComposerCursor(0)
+                restoreComposerFocus()
+                return
+            }
         }
         const inlineMentionFiles: ComposerContextFile[] = inlineMentionTags.map((tag) => {
             const meta = getContextFileMeta({ path: tag.path, name: tag.label })
@@ -328,7 +335,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         restoreComposerFocus()
         const success = await onSend(prompt, contextFilesForSend, {
             model: selectedModel || undefined,
-            runtimeMode: selectedRuntimeMode,
+            runtimeMode: runtimeModeForSend,
             interactionMode: selectedInteractionMode,
             effort: selectedEffort,
             serviceTier: fastModeEnabled ? 'fast' : undefined,
@@ -528,6 +535,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     return {
+        upsertAttachment,
         removeAttachment,
         applyMentionCandidate,
         attachFile,

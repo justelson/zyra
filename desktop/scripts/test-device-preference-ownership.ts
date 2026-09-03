@@ -26,6 +26,7 @@ try {
         assistantTitleModel: 'openai-codex/gpt-5.6-luna',
         assistantReasoningSummary: 'detailed',
         assistantContextCompactionThresholdTokens: 256_000,
+        assistantChatDisplayMode: 'detailed',
         browserViewMode: 'grid',
         startWithWindows: true,
         groqApiKey: 'must-not-migrate',
@@ -40,7 +41,7 @@ try {
         assistantReasoningSummary: 'detailed',
         assistantContextCompactionThresholdTokens: 256_000
     })
-    assert.deepEqual(partitioned.surface, { browserViewMode: 'grid' })
+    assert.deepEqual(partitioned.surface, { assistantChatDisplayMode: 'detailed', browserViewMode: 'grid' })
     assert.equal(getDevicePreferenceOwnership('startWithWindows'), 'os')
     assert.equal(getDevicePreferenceOwnership('groqApiKey'), 'secret')
     assert.equal(sanitizeDevicePreferenceValue('appearanceLightTheme', 'forest'), undefined, 'dark themes cannot enter the light half')
@@ -52,6 +53,8 @@ try {
     assert.equal(sanitizeDevicePreferenceValue('assistantReasoningSummary', 'detailed'), 'detailed')
     assert.equal(sanitizeDevicePreferenceValue('assistantDefaultRuntimeMode', 'auto-review'), 'auto-review')
     assert.equal(sanitizeDevicePreferenceValue('assistantDefaultRuntimeMode', 'edits-only'), 'edits-only')
+    assert.equal(sanitizeDevicePreferenceValue('assistantChatDisplayMode', 'detailed'), 'detailed')
+    assert.equal(sanitizeDevicePreferenceValue('assistantChatDisplayMode', 'dense'), undefined)
     assert.equal(sanitizeDevicePreferenceValue('assistantContextCompactionThresholdTokens', 500_000), 372_000, 'context limits clamp below the 400k model ceiling')
 
     const allOwned = new Set([...SHARED_DEVICE_PREFERENCE_KEYS, ...SURFACE_DEVICE_PREFERENCE_KEYS])
@@ -97,6 +100,7 @@ try {
             assistantDefaultWebSearch: false,
             assistantDefaultWebFetch: true,
             browserViewMode: 'grid',
+            assistantChatDisplayMode: 'detailed',
             assistantAutoReconnect: false,
             startWithWindows: true,
             groqApiKey: 'secret-groq',
@@ -108,6 +112,7 @@ try {
     assert.equal(desktop.settings.appearanceLightTheme, 'paper-light')
     assert.equal(desktop.settings.appearanceDarkTheme, 'forest')
     assert.equal(desktop.settings.browserViewMode, 'grid')
+    assert.equal(desktop.settings.assistantChatDisplayMode, 'detailed')
     assert.equal(desktop.settings.assistantAutoReconnect, false)
     assert.equal('startWithWindows' in desktop.settings, false)
     assert.equal('groqApiKey' in desktop.settings, false)
@@ -118,6 +123,7 @@ try {
     assert.equal(browser.settings.appearanceDarkTheme, 'forest', 'the selected dark half must sync across surfaces')
     assert.equal(browser.settings.assistantDefaultWebSearch, false)
     assert.equal('browserViewMode' in browser.settings, false, 'Desktop layout must not overwrite browser layout')
+    assert.equal('assistantChatDisplayMode' in browser.settings, false, 'Desktop conversation density must not overwrite the browser surface')
     assert.equal('assistantAutoReconnect' in browser.settings, false, 'surface reconnect behavior must remain local')
 
     const updated = await service.update({

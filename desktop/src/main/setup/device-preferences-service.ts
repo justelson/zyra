@@ -98,6 +98,7 @@ const ENUMS: Record<string, ReadonlySet<string>> = {
     assistantUsageDisplayMode: new Set(['remaining', 'used']),
     assistantTextStreamingMode: new Set(['stream', 'chunks']),
     assistantToolOutputDefaultMode: new Set(['expanded', 'minimized']),
+    assistantChatDisplayMode: new Set(['minimal', 'detailed']),
     assistantTranscriptionEngine: new Set(['browser', 'codex']),
     assistantBrowserNewTabBackgroundMode: new Set(['off', 'built-in', 'unsplash']),
     assistantBrowserNewTabBackgroundCategory: new Set(['all', 'forest-paths', 'mountain-highs', 'ocean-moods', 'desert-dreams', 'water-in-motion', 'wildflower-party', 'animal-cameos', 'ice-aurora', 'earth-above']),

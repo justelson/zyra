@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Gauge, Loader2, RotateCcw, Tras
 import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import type { ComposerContextFile } from './assistant-composer-types'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
-import type { AssistantTextStreamingMode } from '@/lib/settings'
+import type { AssistantChatDisplayMode, AssistantTextStreamingMode } from '@/lib/settings'
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { getFileUrl } from '@/components/ui/file-preview/utils'
@@ -526,6 +526,7 @@ export const TimelineMessage = memo(({
     turnUsage = null,
     deleting = false,
     assistantTextStreamingMode = 'stream',
+    displayMode = 'detailed',
     compactLiveNarration = false,
     onRequestDelete,
     onOpenFilePath = undefined,
@@ -541,6 +542,7 @@ export const TimelineMessage = memo(({
     turnUsage?: AssistantSessionTurnUsageEntry | null
     deleting?: boolean
     assistantTextStreamingMode?: AssistantTextStreamingMode
+    displayMode?: AssistantChatDisplayMode
     compactLiveNarration?: boolean
     onRequestDelete?: (message: AssistantMessage) => void
     onOpenFilePath?: (filePath: string) => Promise<void> | void
@@ -554,6 +556,7 @@ export const TimelineMessage = memo(({
     onLinkNotice?: (message: string, tone: 'info' | 'error') => void
 }) => {
     const isAssistant = message.role === 'assistant'
+    const minimal = displayMode === 'minimal'
     const copyValue = message.text || ''
     const parsedUserMessage = useMemo(
         () => message.role === 'user' ? parseUserMessageAttachments(message.text || '') : { body: message.text || '', attachments: [] },
@@ -670,7 +673,10 @@ export const TimelineMessage = memo(({
         if (!renderedAssistantText.trim() && !presentationActive) return null
 
         return (
-            <div className={cn('group max-w-4xl py-1', compactLiveNarration && 'py-0.5')}>
+            <div
+                className={cn('group group/assistant-message max-w-4xl', compactLiveNarration ? 'py-0.5' : minimal ? 'py-0.5' : 'py-1')}
+                data-assistant-message-surface={displayMode}
+            >
                 {compactLiveNarration ? (
                     presentationActive ? (
                         <div className="block w-full rounded-sm text-left">
@@ -731,7 +737,10 @@ export const TimelineMessage = memo(({
                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
                     />
                 )}
-                {!compactLiveNarration ? <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sparkle-text-muted">
+                {!compactLiveNarration ? <div className={cn(
+                    'mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sparkle-text-muted transition-opacity',
+                    minimal && 'opacity-0 focus-within:opacity-100 group-hover/assistant-message:opacity-100'
+                )}>
                     <span>{formatAssistantDateTime(message.updatedAt)}</span>
                     {assistantElapsed ? <span className="text-sparkle-text">| {assistantElapsed}</span> : null}
                     {isLastAssistantInTurn && assistantCopyValue.trim() ? (
@@ -762,9 +771,13 @@ export const TimelineMessage = memo(({
     }
 
     return (
-        <div className="ml-auto flex flex-col items-end py-1">
-            <div className="group relative max-w-[36rem]">
-                <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-2.5">
+        <div className={cn('group/user-message ml-auto flex flex-col items-end', minimal ? 'max-w-[80%] py-0.5' : 'py-1')} data-assistant-message-surface={displayMode}>
+            <div className={cn('group relative', minimal ? 'max-w-full' : 'max-w-[36rem]')}>
+                <div className={cn(
+                    minimal
+                        ? 'rounded-2xl bg-[var(--surface-hover)] px-3.5 py-2.5'
+                        : 'rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-2.5'
+                )}>
                     {parsedUserMessage.attachments.length > 0 ? (
                         <div
                             className={cn(
@@ -890,7 +903,10 @@ export const TimelineMessage = memo(({
                         <CollapsibleUserMessageBody content={parsedUserMessage.body} />
                     ) : null}
                 </div>
-                <div className="mt-2 flex items-center justify-between gap-3 px-1 opacity-100">
+                <div className={cn(
+                    'mt-2 flex items-center justify-between gap-3 px-1 transition-opacity',
+                    minimal ? 'opacity-0 focus-within:opacity-100 group-hover/user-message:opacity-100' : 'opacity-100'
+                )}>
                     <p className="text-[10px] text-sparkle-text-muted">{formatAssistantDateTime(message.updatedAt)}</p>
                     <div className="flex items-center gap-1">
                         <button type="button" onClick={async () => { try { await copyTextToClipboard(copyValue); setCopied(true); window.setTimeout(() => setCopied(false), 1600) } catch {} }} className={cn('rounded-md border p-1 transition-all', copied ? 'border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-300' : 'border-white/10 bg-white/[0.03] text-sparkle-text-muted hover:border-white/20 hover:text-sparkle-text')} title={copied ? 'Copied' : 'Copy message'}>{copied ? <Check size={12} /> : <Copy size={12} />}</button>
@@ -919,6 +935,7 @@ export const TimelineMessage = memo(({
         && prev.turnUsage?.completedAt === next.turnUsage?.completedAt
         && prev.deleting === next.deleting
         && prev.assistantTextStreamingMode === next.assistantTextStreamingMode
+        && prev.displayMode === next.displayMode
         && prev.onRequestDelete === next.onRequestDelete
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onOpenAttachmentPreview === next.onOpenAttachmentPreview

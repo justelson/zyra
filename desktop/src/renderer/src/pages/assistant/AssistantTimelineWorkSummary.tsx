@@ -1,6 +1,7 @@
 import { memo, startTransition, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
+import type { AssistantChatDisplayMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { formatWorkingTimer } from './assistant-timeline-helpers'
 import {
@@ -26,14 +27,24 @@ function writeWorkSummaryExpandedPreference(expanded: boolean): void {
     } catch {}
 }
 
-function formatWorkSummaryStatus(startedAt: string, completedAt: string | null, running: boolean): string {
+function formatWorkSummaryStatus(
+    startedAt: string,
+    completedAt: string | null,
+    running: boolean,
+    displayMode: AssistantChatDisplayMode,
+    actionCount: number
+): string {
     const elapsed = formatWorkingTimer(
         startedAt,
         running ? new Date().toISOString() : completedAt || new Date().toISOString()
     )
-    return elapsed
-        ? `${running ? 'Working' : 'Worked'} for ${elapsed}`
+    const duration = elapsed
+        ? displayMode === 'minimal'
+            ? `${running ? 'Working' : 'Worked'} ${elapsed}`
+            : `${running ? 'Working' : 'Worked'} for ${elapsed}`
         : running ? 'Working' : 'Worked'
+    if (displayMode === 'detailed' || actionCount < 1) return duration
+    return `${duration} · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}`
 }
 
 export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
@@ -42,6 +53,8 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     running = false,
     collapseForTerminalResponse = false,
     outcome = null,
+    displayMode = 'detailed',
+    actionCount = 0,
     revealContent = false,
     renderChildren
 }: {
@@ -50,6 +63,8 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     running?: boolean
     collapseForTerminalResponse?: boolean
     outcome?: 'completed' | 'interrupted' | 'failed' | 'no-response' | null
+    displayMode?: AssistantChatDisplayMode
+    actionCount?: number
     revealContent?: boolean
     renderChildren: () => ReactNode
 }) {
@@ -69,18 +84,19 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const contentRevealFrameRef = useRef<number | null>(null)
     const contentUnmountTimerRef = useRef<number | null>(null)
     const pendingExpansionAnchorRef = useRef<HTMLElement | null>(null)
-    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running)
+    const minimal = displayMode === 'minimal'
+    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running, displayMode, actionCount)
     useEffect(() => {
         const updateStatusText = () => {
             if (statusTextRef.current) {
-                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running)
+                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running, displayMode, actionCount)
             }
         }
         updateStatusText()
         if (!running) return
         const intervalId = window.setInterval(updateStatusText, 1000)
         return () => window.clearInterval(intervalId)
-    }, [completedAt, running, startedAt])
+    }, [actionCount, completedAt, displayMode, running, startedAt])
     const outcomeLabel = outcome === 'interrupted'
         ? 'Interrupted'
         : outcome === 'failed'
@@ -184,7 +200,11 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     }, [])
 
     return (
-        <div className="max-w-4xl py-0.5" data-assistant-work-summary-shell="true">
+        <div
+            className={cn('max-w-4xl', minimal ? 'py-0' : 'py-0.5')}
+            data-assistant-work-summary-shell="true"
+            data-assistant-work-summary-display={displayMode}
+        >
             <div className={cn(
                 'transition-[background-color,backdrop-filter] duration-150',
                 expanded && 'sticky top-0 z-10 bg-sparkle-bg/95 backdrop-blur-md'
@@ -195,7 +215,10 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                     onClick={() => setWorkExpanded(!expanded, triggerRef.current)}
                     aria-expanded={expanded}
                     aria-controls={panelId}
-                    className="group/work inline-flex min-h-7 items-center gap-1 rounded-sm pr-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                    className={cn(
+                        'group/work inline-flex min-h-7 items-center rounded-sm pr-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30',
+                        minimal ? 'gap-1.5' : 'gap-1'
+                    )}
                     title={expanded ? 'Hide work' : 'Show work'}
                 >
                     {running ? (
@@ -205,7 +228,10 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                             <span className="h-1 w-1 rounded-full bg-white/25 motion-safe:animate-pulse [animation-delay:400ms]" />
                         </span>
                     ) : null}
-                    <span ref={statusTextRef} className="shrink-0 text-[11px] font-medium text-white/32 transition-colors group-hover/work:text-white/48">
+                    <span ref={statusTextRef} className={cn(
+                        'shrink-0 text-[11px] font-medium transition-colors',
+                        minimal ? 'text-sparkle-text-muted/65 group-hover/work:text-sparkle-text-secondary' : 'text-white/32 group-hover/work:text-white/48'
+                    )}>
                         {statusText}
                     </span>
                     {outcomeLabel ? (
@@ -222,12 +248,12 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                         className={cn('shrink-0 text-white/20 transition-[transform,color] duration-[260ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover/work:text-white/35 motion-reduce:transition-none', expanded && 'rotate-90')}
                     />
                 </button>
-                <div className="h-px w-full bg-white/[0.07]" aria-hidden="true" />
+                {!minimal ? <div className="h-px w-full bg-white/[0.07]" aria-hidden="true" /> : null}
             </div>
             <div id={panelId}>
                 <AnimatedHeight isOpen={contentVisible} duration={WORK_SUMMARY_MOTION_MS} crispContent>
                     {contentMounted ? (
-                        <div className="pt-2">
+                        <div className={minimal ? 'pt-1' : 'pt-2'}>
                             {renderChildren()}
                         </div>
                     ) : null}

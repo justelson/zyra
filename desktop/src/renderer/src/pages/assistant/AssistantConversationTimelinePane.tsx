@@ -2,7 +2,7 @@ import { memo, useLayoutEffect, useRef, type RefObject } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
-import type { AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
+import type { AssistantChatDisplayMode, AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { LoadingSpinner } from '@/components/ui/LoadingState'
 import { cn } from '@/lib/utils'
 import { AssistantTimeline } from './AssistantTimeline'
@@ -34,6 +34,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     loadingChats: boolean
     assistantTextStreamingMode: AssistantTextStreamingMode
     assistantToolOutputDefaultMode: AssistantToolOutputDefaultMode
+    assistantChatDisplayMode: AssistantChatDisplayMode
     bottomComposerOverlayActive?: boolean
     contentInsetEndAdjustment?: number
     scrollButtonBottomOverride?: number
@@ -131,6 +132,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         loadingChats={props.loadingChats}
                         assistantTextStreamingMode={props.assistantTextStreamingMode}
                         assistantToolOutputDefaultMode={props.assistantToolOutputDefaultMode}
+                        assistantChatDisplayMode={props.assistantChatDisplayMode}
                         isConnecting={props.isConnecting}
                         contentInsetEndAdjustment={props.contentInsetEndAdjustment || 0}
                         hasOlder={props.hasOlder}

@@ -2333,3 +2333,45 @@ body.zyra-reduce-motion .zyra-settings-switch-thumb {
 .zyra-settings-topbar [class*='text-sparkle-text-muted'] {
   color: var(--settings-text-muted);
 }
+
+/* Minimal Assistant chat presentation. Conversation data and expanded details stay shared. */
+[data-assistant-chat-display='minimal'] [data-assistant-timeline-row-kind] {
+  padding-bottom: 0.5rem;
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-message-role='assistant'] {
+  padding-bottom: 1rem;
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-message-role='user'] {
+  padding-bottom: 0.75rem;
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-composer-frame='true'] {
+  border-color: color-mix(in srgb, var(--color-text) 9%, transparent);
+  background: color-mix(in srgb, var(--color-card) 94%, transparent);
+  box-shadow:
+    0 8px 28px color-mix(in srgb, var(--color-bg) 34%, transparent),
+    0 1px 0 color-mix(in srgb, var(--color-text) 4%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-composer-frame='true']:focus-within {
+  border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--surface-divider));
+  box-shadow:
+    0 10px 32px color-mix(in srgb, var(--color-bg) 38%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 5%, transparent);
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-composer-decoration='true'] {
+  opacity: 0.16;
+}
+
+[data-assistant-chat-display='minimal'] [data-assistant-new-chat-prompt='true'] {
+  max-width: 38rem;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: color-mix(in srgb, var(--color-text) 86%, transparent);
+}

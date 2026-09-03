@@ -84,6 +84,7 @@ export const SURFACE_DEVICE_PREFERENCE_KEYS = [
     'assistantUsageDisplayMode',
     'assistantTextStreamingMode',
     'assistantToolOutputDefaultMode',
+    'assistantChatDisplayMode',
     'assistantAutoReconnect',
     'assistantHistoryPrefetch',
     'assistantShowStatusDetails',

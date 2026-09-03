@@ -90,6 +90,7 @@ export type PullRequestChangeSource = 'unstaged' | 'staged' | 'local-commits' | 
 export type AssistantUsageDisplayMode = 'remaining' | 'used'
 export type AssistantTextStreamingMode = 'stream' | 'chunks'
 export type AssistantToolOutputDefaultMode = 'expanded' | 'minimized'
+export type AssistantChatDisplayMode = 'minimal' | 'detailed'
 export type AssistantDefaultRuntimeMode = AssistantRuntimeMode
 export type AssistantDefaultEffort = AssistantReasoningEffort
 export type AssistantReasoningSummary = AssistantReasoningSummaryMode
@@ -297,6 +298,7 @@ export interface Settings {
     assistantUsageDisplayMode: AssistantUsageDisplayMode
     assistantTextStreamingMode: AssistantTextStreamingMode
     assistantToolOutputDefaultMode: AssistantToolOutputDefaultMode
+    assistantChatDisplayMode: AssistantChatDisplayMode
     assistantDefaultModel: string
     assistantTitleModel: string
     assistantTitleAutoRegenerate: boolean
@@ -397,6 +399,7 @@ const DEFAULT_SETTINGS: Settings = {
     assistantUsageDisplayMode: 'remaining',
     assistantTextStreamingMode: 'stream',
     assistantToolOutputDefaultMode: 'minimized',
+    assistantChatDisplayMode: 'minimal',
     assistantDefaultModel: '',
     assistantTitleModel: DEFAULT_ASSISTANT_TITLE_MODEL,
     assistantTitleAutoRegenerate: false,
@@ -767,6 +770,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                     )
                     ? 'expanded'
                     : 'minimized',
+                assistantChatDisplayMode: candidate.assistantChatDisplayMode === 'detailed' ? 'detailed' : 'minimal',
                 assistantDefaultModel: sanitizeString(candidate.assistantDefaultModel, 256),
                 assistantTitleModel: sanitizeString(candidate.assistantTitleModel, 256) || DEFAULT_ASSISTANT_TITLE_MODEL,
                 assistantTitleAutoRegenerate: candidate.assistantTitleAutoRegenerate === true,

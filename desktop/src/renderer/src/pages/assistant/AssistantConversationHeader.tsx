@@ -1,6 +1,8 @@
 import { memo, useState } from 'react'
 import { Archive, Bot, Check, Copy, Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Pencil, Radio, SquarePen, Trash2 } from 'lucide-react'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
+import type { AssistantChatDisplayMode } from '@/lib/settings'
+import { cn } from '@/lib/utils'
 import { copyTextToClipboard } from './AssistantPageHelpers'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
@@ -8,6 +10,7 @@ import { AssistantTuiPresenceIndicator } from './AssistantTuiPresenceIndicator'
 import { hasAssistantTuiPresence } from './assistant-tui-presence'
 
 export const AssistantConversationHeader = memo(function AssistantConversationHeader(props: {
+    displayMode?: AssistantChatDisplayMode
     rightPanelOpen: boolean
     rightPanelMode: 'none' | 'details' | 'plan' | 'review'
     showRightSidebarToggle?: boolean
@@ -38,6 +41,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
     onShowToast?: (message: string, tone?: 'success' | 'error' | 'info') => void
 }) {
     const {
+        displayMode = 'detailed',
         selectedSessionTitle,
         titleGenerating = false,
         canonicalThreadId,
@@ -64,6 +68,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
         onShowToast
     } = props
     const [threadIdCopied, setThreadIdCopied] = useState(false)
+    const minimal = displayMode === 'minimal'
     const RightSidebarIcon = rightPanelOpen && rightPanelMode === 'review' ? PanelRightClose : PanelRightOpen
     const tuiOpen = showPresenceBadge && hasAssistantTuiPresence(canonicalPresence)
     const remoteSurfaces = [...new Set((canonicalPresence?.clients || [])
@@ -137,7 +142,10 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
     ]
 
     return (
-        <div className="drag-region flex h-full min-w-0 items-center px-3">
+        <div
+            className={cn('drag-region flex h-full min-w-0 items-center', minimal ? 'group/chat-header px-4' : 'px-3')}
+            data-assistant-conversation-header={displayMode}
+        >
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                 {selectedProjectPath ? (
                     <button
@@ -154,7 +162,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                 ) : null}
                 {selectedProjectPath ? <span className="shrink-0 px-0.5 text-[12px] text-sparkle-text-muted/35" aria-hidden="true">/</span> : null}
                 <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-                    <h2 className="min-w-0 max-w-[min(360px,35vw)] text-[12px] font-semibold leading-none text-sparkle-text/90">
+                    <h2 className={cn('min-w-0 max-w-[min(360px,35vw)] text-[12px] leading-none text-sparkle-text/90', minimal ? 'font-medium' : 'font-semibold')}>
                         <AssistantSessionTitleText title={selectedSessionTitle} generating={titleGenerating} reveal={false} />
                     </h2>
                     <FileActionsMenu
@@ -162,14 +170,20 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                         title="Chat actions"
                         triggerIcon={<MoreHorizontal size={14} className="rotate-90" />}
                         presentation="portal"
-                        buttonClassName="size-5 rounded-md border-transparent bg-transparent p-0 text-sparkle-text-muted hover:border-transparent hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                        buttonClassName={cn(
+                            'size-5 rounded-md border-transparent bg-transparent p-0 text-sparkle-text-muted hover:border-transparent hover:bg-[var(--surface-hover)] hover:text-sparkle-text',
+                            minimal && 'opacity-0 transition-opacity group-hover/chat-header:opacity-100 focus-visible:opacity-100'
+                        )}
                         openButtonClassName="rounded-md border-transparent bg-[var(--surface-hover)] p-0 text-sparkle-text"
                     />
                     {tuiOpen ? <AssistantTuiPresenceIndicator /> : null}
                 </div>
                 {activeThreadIsSubagent && activeThreadLabel ? (
                     <span
-                        className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-violet-400/20 bg-violet-500/[0.08] px-2 py-0.5 text-[9px] font-medium leading-none text-violet-100"
+                        className={cn(
+                            'inline-flex max-w-[180px] shrink-0 items-center gap-1 font-medium leading-none text-violet-100',
+                            minimal ? 'px-1 text-[10px] text-violet-200/65' : 'rounded-full border border-violet-400/20 bg-violet-500/[0.08] px-2 py-0.5 text-[9px]'
+                        )}
                         title={`Viewing subagent thread: ${activeThreadLabel}`}
                     >
                         <Bot size={9} />
@@ -178,7 +192,10 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                 ) : null}
                 {remotePresenceLabel ? (
                     <span
-                        className="inline-flex max-w-[160px] shrink-0 items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-500/[0.07] px-2 py-0.5 text-[9px] font-medium leading-none text-emerald-100"
+                        className={cn(
+                            'inline-flex max-w-[160px] shrink-0 items-center gap-1 font-medium leading-none text-emerald-100',
+                            minimal ? 'px-1 text-[10px] text-emerald-200/60' : 'rounded-full border border-emerald-400/20 bg-emerald-500/[0.07] px-2 py-0.5 text-[9px]'
+                        )}
                         title={`${remotePresenceLabel}. This surface shares the same canonical worker and transcript.`}
                     >
                         <Radio size={9} />

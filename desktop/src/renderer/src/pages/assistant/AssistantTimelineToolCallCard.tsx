@@ -8,7 +8,7 @@ import {
 } from '@shared/assistant/read-activity'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { getFileUrl } from '@/components/ui/file-preview/utils'
-import type { AssistantToolOutputDefaultMode } from '@/lib/settings'
+import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { formatAssistantDateTime } from '@/lib/assistant/selectors'
 import { extractFilePatch, scanPatchFileSummaries } from '@/lib/diffRendering'
@@ -67,6 +67,12 @@ function getStatusIconClassName(status: 'success' | 'running' | 'failed'): strin
     if (status === 'success') return 'border-[color-mix(in_srgb,var(--status-success)_28%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_11%,transparent)] text-[color-mix(in_srgb,var(--status-success)_72%,var(--color-text))]'
     if (status === 'running') return 'border-[color-mix(in_srgb,var(--status-warning)_30%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,transparent)] text-[color-mix(in_srgb,var(--status-warning)_72%,var(--color-text))]'
     return 'border-[color-mix(in_srgb,var(--status-danger)_28%,transparent)] bg-[color-mix(in_srgb,var(--status-danger)_11%,transparent)] text-[color-mix(in_srgb,var(--status-danger)_72%,var(--color-text))]'
+}
+
+function getMinimalStatusIconClassName(status: 'success' | 'running' | 'failed'): string {
+    if (status === 'running') return 'text-[color-mix(in_srgb,var(--status-warning)_68%,var(--color-text-muted))]'
+    if (status === 'failed') return 'text-[color-mix(in_srgb,var(--status-danger)_72%,var(--color-text-muted))]'
+    return 'text-sparkle-text-muted/55'
 }
 
 function getToolTextShimmerStyle(isRunning: boolean): React.CSSProperties | undefined {
@@ -229,6 +235,7 @@ function InlineDiffStats({ additions, deletions, className }: { additions: numbe
 
 export const TimelineToolCallCard = memo(({
     activity: sourceActivity,
+    displayMode = 'detailed',
     runningCommandCount = 0,
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
@@ -237,6 +244,7 @@ export const TimelineToolCallCard = memo(({
     onRevealActivity
 }: {
     activity: AssistantActivity
+    displayMode?: AssistantChatDisplayMode
     runningCommandCount?: number
     projectRootPath?: string | null
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
@@ -272,6 +280,7 @@ export const TimelineToolCallCard = memo(({
     const primaryValue = useMemo(() => getActivityCommand(activity), [activity])
     const title = useMemo(() => getActivityTitle(activity), [activity])
     const status = useMemo(() => getActivityStatus(activity), [activity])
+    const minimal = displayMode === 'minimal'
     const isCommandFollowUp = isCommandCheckpointActivity(activity)
     const relatedCommandActivityId = typeof activity.payload?.relatedCommandActivityId === 'string'
         ? activity.payload.relatedCommandActivityId.trim()
@@ -621,23 +630,34 @@ export const TimelineToolCallCard = memo(({
     return (
         <div
             id={getTimelineActivityDomId(activity.id)}
-            className="assistant-tool-call-card rounded-md px-2 py-1.5"
+            className={cn('assistant-tool-call-card', minimal ? 'px-0.5 py-0' : 'rounded-md px-2 py-1.5')}
+            data-assistant-tool-call={displayMode}
         >
             <button
                 type="button"
                 onClick={handlePrimaryAction}
                 title={opensRelatedCommand ? 'Go to original command' : undefined}
                 className={cn(
-                    'group relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg text-left transition-colors',
+                    'group relative flex w-full min-w-0 items-center overflow-hidden text-left transition-colors',
+                    minimal ? 'min-h-7 gap-1.5 rounded-md px-0.5' : 'gap-2 rounded-lg',
                     canExpandBody || opensRelatedCommand ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'
                 )}
             >
-                <span className={cn('relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border', getStatusIconClassName(status))}>
+                <span className={cn(
+                    'relative inline-flex shrink-0 items-center justify-center',
+                    minimal ? `h-6 w-6 ${getMinimalStatusIconClassName(status)}` : `h-5 w-5 rounded-md border ${getStatusIconClassName(status)}`
+                )}>
                     {getActivityIcon(activity)}
                 </span>
                 <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                        <p className={cn('min-w-0 flex-1 truncate font-mono text-[11px] leading-5', isTerminalLikeTool ? 'whitespace-nowrap text-[color-mix(in_srgb,var(--status-success)_44%,var(--color-text))]' : 'text-sparkle-text-secondary')}>
+                        <p className={cn(
+                            'min-w-0 flex-1 truncate',
+                            minimal ? 'text-[12px] leading-6' : 'font-mono text-[11px] leading-5',
+                            isTerminalLikeTool
+                                ? minimal ? 'whitespace-nowrap font-mono text-sparkle-text-secondary' : 'whitespace-nowrap font-mono text-[color-mix(in_srgb,var(--status-success)_44%,var(--color-text))]'
+                                : 'text-sparkle-text-secondary'
+                        )}>
                             <span className="inline-flex min-w-0 items-center gap-1.5">
                                 <span className="truncate" style={toolTextStyle}>{primaryLabel}</span>
                                 {readLineRangeLabel ? (
@@ -645,8 +665,17 @@ export const TimelineToolCallCard = memo(({
                                         {readLineRangeLabel}
                                     </span>
                                 ) : null}
-                                {activity.kind === 'file-change' ? <AssistantFileChangeStatusPill status={primaryPathChangeStatus} /> : null}
-                                {isCommandFollowUp ? (
+                                {activity.kind === 'file-change' ? (
+                                    <AssistantFileChangeStatusPill
+                                        status={primaryPathChangeStatus}
+                                        className={minimal ? 'h-4 min-w-4 rounded-sm !border-transparent !bg-transparent px-0 text-[9px]' : undefined}
+                                    />
+                                ) : null}
+                                {isCommandFollowUp ? minimal ? (
+                                    <span className="shrink-0 font-sans text-[10px] font-medium text-sparkle-text-muted">
+                                        · Follow-up {followUpStatusLabel.toLowerCase()}
+                                    </span>
+                                ) : (
                                     <>
                                         <span className="shrink-0 rounded-full border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1.5 py-0.5 font-sans text-[8px] font-semibold uppercase tracking-[0.12em] text-sparkle-text-muted">
                                             Follow-up
@@ -667,13 +696,17 @@ export const TimelineToolCallCard = memo(({
                         </p>
                         {diffStats && status !== 'failed' ? <InlineDiffStats additions={diffStats.additions} deletions={diffStats.deletions} className="shrink-0 gap-1.5" /> : null}
                         {completedWithoutOutput ? (
-                            <span className="hidden shrink-0 rounded-full bg-[var(--surface-hover)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-sparkle-text-muted sm:inline">
+                            <span className={cn(
+                                'shrink-0 text-[9px] font-medium text-sparkle-text-muted',
+                                minimal ? 'hidden sm:inline' : 'hidden rounded-full bg-[var(--surface-hover)] px-1.5 py-0.5 uppercase tracking-[0.12em] sm:inline'
+                            )}>
                                 no output
                             </span>
                         ) : null}
                         {isRead ? (
                             <span className={cn(
-                                'hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] sm:inline',
+                                'hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.14em]',
+                                !minimal && 'sm:inline',
                                 status === 'running'
                                     ? 'text-[color-mix(in_srgb,var(--status-warning)_60%,var(--color-text-secondary))]'
                                     : status === 'failed'
@@ -684,7 +717,8 @@ export const TimelineToolCallCard = memo(({
                             </span>
                         ) : isTerminalLikeTool ? (
                             <span className={cn(
-                                'w-14 shrink-0 text-right font-mono text-[9px] tabular-nums transition-colors',
+                                'shrink-0 text-right font-mono text-[9px] tabular-nums transition-colors',
+                                minimal ? 'w-auto' : 'w-14',
                                 status === 'running'
                                     ? 'text-[color-mix(in_srgb,var(--status-warning)_48%,var(--color-text-muted))]'
                                     : 'text-sparkle-text-muted group-hover:text-sparkle-text-secondary'
@@ -696,12 +730,12 @@ export const TimelineToolCallCard = memo(({
                                 {elapsed || ''}
                             </span>
                         ) : (
-                            <span className="hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] text-sparkle-text-muted sm:inline">
+                            <span className={cn('hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] text-sparkle-text-muted', !minimal && 'sm:inline')}>
                                 {title}{elapsed ? <span className="ml-1.5 normal-case tracking-normal text-sparkle-text-muted"> - {elapsed}</span> : null}
                             </span>
                         )}
                     </div>
-                    {!isRead && !isTerminalLikeTool && activity.kind !== 'file-change' ? (
+                    {!minimal && !isRead && !isTerminalLikeTool && activity.kind !== 'file-change' ? (
                         <p className="truncate text-[9px] font-medium uppercase tracking-[0.14em] text-sparkle-text-muted">{title}{elapsed ? <span className="ml-1.5 normal-case tracking-normal text-sparkle-text-muted"> - {elapsed}</span> : null}</p>
                     ) : null}
                 </div>
@@ -900,6 +934,7 @@ export const TimelineToolCallCard = memo(({
     )
 }, (prev, next) => {
     return prev.projectRootPath === next.projectRootPath
+        && prev.displayMode === next.displayMode
         && prev.runningCommandCount === next.runningCommandCount
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
         && prev.onOpenFilePath === next.onOpenFilePath

@@ -120,7 +120,8 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Reasoning summaries': 'auto detailed concise readable thoughts chain of thought progress',
             'Context limit': 'window tokens automatic compaction compact summarize 128k 200k 256k 320k 372k'
         }),
-        ...rows('Output and history', ['Assistant output', 'Open live tool output', 'Reconnect on startup', 'Cross-surface status', 'Canonical diagnostics'], {
+        ...rows('Output and history', ['Chat display', 'Assistant output', 'Open live tool output', 'Reconnect on startup', 'Cross-surface status', 'Canonical diagnostics'], {
+            'Chat display': 'minimal detailed quiet compact activity timeline conversation',
             'Assistant output': 'stream chunks token text response',
             'Open live tool output': 'expanded minimized collapsed closed command terminal animation',
             'Reconnect on startup': 'connect selected chat launch',

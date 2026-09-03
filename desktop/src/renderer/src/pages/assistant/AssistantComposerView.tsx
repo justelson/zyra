@@ -615,21 +615,26 @@ export function AssistantComposerView({
                             onChooseFolder={controller.onChooseProjectFolder}
                         />
                     ) : null}
-                    <div className={cn(
-                        'group relative overflow-visible border transition-[background-color,border-radius,box-shadow,min-height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                        showCodexRecorder ? 'rounded-full' : 'rounded-[18px]',
-                        controller.placement === 'bottom'
-                            ? 'border-white/[0.09] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_18px_54px_rgba(0,0,0,0.30),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.045),inset_0_-1px_0_rgba(0,0,0,0.18)] backdrop-blur-md'
-                            : 'border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--surface-floating)_94%,transparent)] shadow-[0_22px_68px_color-mix(in_srgb,var(--color-bg)_54%,transparent),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_4%,transparent)] backdrop-blur-[18px]'
-                    )}>
+                    <div
+                        className={cn(
+                            'group relative overflow-visible border transition-[background-color,border-radius,box-shadow,min-height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                            showCodexRecorder ? 'rounded-full' : 'rounded-[18px]',
+                            controller.placement === 'bottom'
+                                ? 'border-white/[0.09] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_18px_54px_rgba(0,0,0,0.30),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.045),inset_0_-1px_0_rgba(0,0,0,0.18)] backdrop-blur-md'
+                                : 'border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--surface-floating)_94%,transparent)] shadow-[0_22px_68px_color-mix(in_srgb,var(--color-bg)_54%,transparent),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_4%,transparent)] backdrop-blur-[18px]'
+                        )}
+                        data-assistant-composer-frame="true"
+                    >
                         {controller.placement === 'bottom' ? (
                             <>
                                 <div
                                     className="pointer-events-none absolute inset-0 rounded-[inherit] bg-[linear-gradient(116deg,rgba(255,255,255,0.04),rgba(255,255,255,0.014)_26%,transparent_58%)] opacity-55"
+                                    data-assistant-composer-decoration="true"
                                     aria-hidden="true"
                                 />
                                 <div
                                     className="pointer-events-none absolute inset-x-4 top-0 h-px rounded-full bg-white/[0.08]"
+                                    data-assistant-composer-decoration="true"
                                     aria-hidden="true"
                                 />
                             </>

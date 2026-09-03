@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
-import type { AssistantToolOutputDefaultMode } from '@/lib/settings'
+import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
 import {
@@ -68,6 +68,7 @@ function buildDisplayActivityList(activities: AssistantActivity[]): AssistantAct
 
 export const TimelineToolCallList = memo(({
     activities,
+    displayMode = 'detailed',
     runningCommandCount,
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
@@ -76,6 +77,7 @@ export const TimelineToolCallList = memo(({
     onRevealActivity
 }: {
     activities: AssistantActivity[]
+    displayMode?: AssistantChatDisplayMode
     runningCommandCount?: number
     projectRootPath?: string | null
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
@@ -89,13 +91,15 @@ export const TimelineToolCallList = memo(({
     const displayActivities = useMemo(() => buildDisplayActivityList(activities), [activities])
     const localRunningCommandCount = useMemo(() => countRunningCommandActivities(displayActivities), [displayActivities])
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
+    const minimal = displayMode === 'minimal'
     const containsSubagentActivities = useMemo(() => displayActivities.some((activity) => isSubagentActivity(activity)), [displayActivities])
     const header = useMemo(() => {
+        if (minimal) return `${displayActivities.length} ${displayActivities.length === 1 ? 'action' : 'actions'}`
         if (containsSubagentActivities) {
             return displayActivities.length > 1 ? `Subagent Activity (${displayActivities.length})` : 'Subagent Activity'
         }
         return displayActivities.length > 1 ? `Tool Calls (${displayActivities.length})` : 'Tool Calls'
-    }, [containsSubagentActivities, displayActivities.length])
+    }, [containsSubagentActivities, displayActivities.length, minimal])
     const hasMore = displayActivities.length > COLLAPSED_TOOL_CALL_COUNT
     const olderActivities = useMemo(
         () => hasMore ? displayActivities.slice(0, -COLLAPSED_TOOL_CALL_COUNT) : [],
@@ -131,6 +135,7 @@ export const TimelineToolCallList = memo(({
             ) : (
                 <TimelineToolCallCard
                     activity={activity}
+                    displayMode={displayMode}
                     runningCommandCount={activeRunningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={toolOutputDefaultMode}
@@ -141,27 +146,39 @@ export const TimelineToolCallList = memo(({
             )}
         </div>
     )
+    const showHeader = !minimal || displayActivities.length > 1
     return (
-        <div className="max-w-4xl py-2">
+        <div
+            className={cn('max-w-4xl', minimal ? 'py-0.5' : 'py-2')}
+            data-assistant-tool-call-list={displayMode}
+        >
             <div className={cn(
-                'overflow-hidden rounded-xl',
-                containsSubagentActivities
+                minimal ? 'overflow-visible' : 'overflow-hidden rounded-xl',
+                !minimal && (containsSubagentActivities
                     ? 'border border-[color-mix(in_srgb,var(--accent-primary)_18%,var(--surface-divider))] bg-[color-mix(in_srgb,var(--accent-primary)_4%,var(--color-card))]'
-                    : 'border border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--color-card)_58%,transparent)]'
+                    : 'border border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--color-card)_58%,transparent)]')
             )}>
-                <div className="flex items-center justify-between gap-2 px-2 pb-0 pt-1.5">
-                    <div className="text-[9px] font-medium uppercase tracking-[0.22em] text-sparkle-text-muted">{header}</div>
-                    {hasMore ? (
-                        <button
-                            type="button"
-                            onClick={toggleOlderActivities}
-                            className="rounded border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[9px] text-sparkle-text-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-text)_18%,transparent)] hover:bg-[var(--surface-active)] hover:text-sparkle-text-secondary"
-                            title={expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : 'Show all'}
-                        >
-                            {expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : `Show all ${displayActivities.length}`}
-                        </button>
-                    ) : null}
-                </div>
+                {showHeader ? (
+                    <div className={cn('flex items-center justify-between gap-2', minimal ? 'min-h-6 px-0.5' : 'px-2 pb-0 pt-1.5')}>
+                        <div className={cn(
+                            'font-medium text-sparkle-text-muted',
+                            minimal ? 'text-[10px]' : 'text-[9px] uppercase tracking-[0.22em]'
+                        )}>{header}</div>
+                        {hasMore ? (
+                            <button
+                                type="button"
+                                onClick={toggleOlderActivities}
+                                className={cn(
+                                    'transition-colors hover:text-sparkle-text-secondary',
+                                    minimal ? 'rounded-sm px-1 py-0.5 text-[10px] text-sparkle-text-muted' : 'rounded border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[9px] text-sparkle-text-muted hover:border-[color-mix(in_srgb,var(--color-text)_18%,transparent)] hover:bg-[var(--surface-active)]'
+                                )}
+                                title={expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : 'Show all'}
+                            >
+                                {expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : `Show all ${displayActivities.length}`}
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null}
                 <div>
                     <AnimatedHeight isOpen={expanded} duration={TOOL_CALL_DISCLOSURE_MS}>
                         {olderMounted ? <div>{olderActivities.map(renderActivity)}</div> : null}
@@ -173,6 +190,7 @@ export const TimelineToolCallList = memo(({
     )
 }, (prev, next) => {
     return prev.projectRootPath === next.projectRootPath
+        && prev.displayMode === next.displayMode
         && prev.runningCommandCount === next.runningCommandCount
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
         && prev.onOpenFilePath === next.onOpenFilePath

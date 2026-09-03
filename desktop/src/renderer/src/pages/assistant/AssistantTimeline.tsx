@@ -4,7 +4,7 @@ import type { LegendListRef } from '@legendapp/list/react'
 import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import { resolveAssistantMessageReferenceId } from '@shared/assistant/message-identity'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
-import type { AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
+import type { AssistantChatDisplayMode, AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { prewarmMarkdownRenders } from '@/components/ui/MarkdownRenderer'
 import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
@@ -50,6 +50,14 @@ import { useAssistantTimelineEntries } from './useAssistantTimelineEntries'
 
 const ASSISTANT_MARKDOWN_PREWARM_MAX_LENGTH = 32_000
 
+function countTimelineWorkActions(rows: TimelineRenderRow[]): number {
+    return rows.reduce((count, row) => {
+        if (row.kind === 'activity') return count + 1
+        if ('activities' in row) return count + row.activities.length
+        return count
+    }, 0)
+}
+
 type AssistantTimelineProps = {
     messages: AssistantMessage[]
     activities: AssistantActivity[]
@@ -73,6 +81,7 @@ type AssistantTimelineProps = {
     loadingChats?: boolean
     assistantTextStreamingMode?: AssistantTextStreamingMode
     assistantToolOutputDefaultMode?: AssistantToolOutputDefaultMode
+    assistantChatDisplayMode?: AssistantChatDisplayMode
     isConnecting?: boolean
     onRequestDeleteUserMessage?: (message: AssistantMessage) => void
     onImplementProposedPlan?: (plan: AssistantProposedPlan) => Promise<void> | void
@@ -121,6 +130,7 @@ function AssistantTimelineImpl({
     loadingChats = false,
     assistantTextStreamingMode = 'stream',
     assistantToolOutputDefaultMode = 'expanded',
+    assistantChatDisplayMode = 'detailed',
     isConnecting = false,
     onRequestDeleteUserMessage,
     onImplementProposedPlan,
@@ -339,6 +349,8 @@ function AssistantTimelineImpl({
                     running={row.running}
                     collapseForTerminalResponse={row.terminalResponseVisible}
                     outcome={row.outcome}
+                    displayMode={assistantChatDisplayMode}
+                    actionCount={countTimelineWorkActions(row.rows)}
                     revealContent={Boolean(focusMessageId && row.rows.some((nested) => nested.kind === 'message' && nested.message.id === focusMessageId))}
                     renderChildren={() => (
                         <div className="[&>*:last-child]:pb-0">
@@ -366,6 +378,7 @@ function AssistantTimelineImpl({
                 <TimelineToolCallList
                     key={row.id}
                     activities={row.activities.map((activity) => commandCheckpointDisplayById.get(activity.id) || activity)}
+                    displayMode={assistantChatDisplayMode}
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
@@ -388,6 +401,7 @@ function AssistantTimelineImpl({
                 <TimelineToolCallList
                     key={row.id}
                     activities={row.activities}
+                    displayMode={assistantChatDisplayMode}
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
@@ -414,6 +428,7 @@ function AssistantTimelineImpl({
                     <TimelineToolCallList
                         key={row.id}
                         activities={[commandCheckpointDisplayById.get(row.activity.id) || row.activity]}
+                        displayMode={assistantChatDisplayMode}
                         runningCommandCount={runningCommandCount}
                         projectRootPath={projectRootPath}
                         toolOutputDefaultMode={assistantToolOutputDefaultMode}
@@ -443,6 +458,7 @@ function AssistantTimelineImpl({
                 <TimelineToolCallList
                     key={row.id}
                     activities={[row.activity]}
+                    displayMode={assistantChatDisplayMode}
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
@@ -484,6 +500,7 @@ function AssistantTimelineImpl({
                     : null}
                 deleting={row.message.id === deletingMessageId}
                 assistantTextStreamingMode={assistantTextStreamingMode}
+                displayMode={assistantChatDisplayMode}
                 compactLiveNarration={options.compactLiveNarration}
                 onRequestDelete={row.message.role === 'user' ? onRequestDeleteUserMessage : undefined}
                 onOpenFilePath={row.message.role === 'user' ? onOpenFilePath : undefined}

@@ -85,6 +85,7 @@ assert.equal('scrollMode' in sanitized, false)
 assert.equal('betaSettingsEnabled' in sanitized, false)
 assert.equal(sanitized.settingsSchemaVersion, 4)
 assert.equal(sanitized.assistantToolOutputDefaultMode, 'expanded', 'existing installs preserve their prior live tool output behavior during schema migration')
+assert.equal(sanitized.assistantChatDisplayMode, 'minimal', 'the quiet conversation display is the default when no preference exists')
 assert.equal(sanitized.assistantHistoryPrefetch, false, 'older settings must not force an immediate second history page')
 
 storage.clear()
@@ -109,6 +110,7 @@ assert.equal(freshV4Settings.appearanceDarkTheme, 'vercel', 'new installs use Ve
 assert.equal(freshV4Settings.theme, 'vercel', 'headless system mode resolves the new dark default')
 assert.equal(freshV4Settings.appearanceUiFont, 'bricolage', 'new installs use Bricolage Grotesque as the interface default')
 assert.equal(freshV4Settings.assistantToolOutputDefaultMode, 'minimized', 'new installs keep live tool responses closed by default')
+assert.equal(freshV4Settings.assistantChatDisplayMode, 'minimal', 'new installs use the Minimal conversation display')
 assert.equal(freshV4Settings.assistantDefaultWebSearch, true, 'new installs enable web search by default')
 assert.equal(freshV4Settings.assistantDefaultWebFetch, true, 'new installs enable page fetching by default')
 const existingClassicPair = loadSettings({
@@ -174,6 +176,12 @@ assert.deepEqual(systemAfterOfflineSchemeChange.accentColor, getThemePresetAccen
 storage.clear()
 storage.setItem('devscope-settings', JSON.stringify({ settingsSchemaVersion: 4, assistantToolOutputDefaultMode: 'expanded' }))
 assert.equal(loadSettings().assistantToolOutputDefaultMode, 'expanded', 'the persisted setting can explicitly enable live tool expansion')
+
+storage.clear()
+storage.setItem('devscope-settings', JSON.stringify({ settingsSchemaVersion: 4, assistantChatDisplayMode: 'detailed' }))
+assert.equal(loadSettings().assistantChatDisplayMode, 'detailed', 'the current detailed conversation display remains selectable')
+storage.setItem('devscope-settings', JSON.stringify({ settingsSchemaVersion: 4, assistantChatDisplayMode: 'unknown' }))
+assert.equal(loadSettings().assistantChatDisplayMode, 'minimal', 'unknown display values fall back to Minimal')
 
 storage.clear()
 storage.setItem('devscope-settings', JSON.stringify({ assistantTranscriptionEngine: 'vosk' }))

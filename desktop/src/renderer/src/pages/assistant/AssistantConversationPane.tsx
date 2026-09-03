@@ -990,6 +990,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
     const titleBarContent = useMemo(() => !composerIsCentered ? (
         <AssistantConversationHeader
+            displayMode={settings.assistantChatDisplayMode}
             rightPanelOpen={props.rightPanelOpen}
             rightPanelMode={props.rightPanelMode}
             showRightSidebarToggle={props.showRightSidebarToggle}
@@ -1041,6 +1042,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         props.showRightSidebarToggle,
         selectedProjectTooltip,
         selectedSessionTitle,
+        settings.assistantChatDisplayMode,
         settings.assistantShowDiagnostics,
         settings.assistantShowStatusDetails
     ])
@@ -1049,7 +1051,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const effectiveInteractionMode = activeComposerConfiguration.interactionMode
 
     return (
-        <section className="assistant-conversation-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <section
+            className="assistant-conversation-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            data-assistant-chat-display={settings.assistantChatDisplayMode}
+        >
             <div className={cn(
                 'flex min-h-0 flex-1 flex-col transition-[filter,opacity] duration-200',
                 showChatOnboardingOverlay && 'pointer-events-none select-none blur-[2px] opacity-55'
@@ -1093,6 +1098,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             loadingChats={isLoadingSelectedChat}
                             assistantTextStreamingMode={settings.assistantTextStreamingMode}
                             assistantToolOutputDefaultMode={settings.assistantToolOutputDefaultMode}
+                            assistantChatDisplayMode={settings.assistantChatDisplayMode}
                             bottomComposerOverlayActive={bottomComposerOverlayActive}
                             contentInsetEndAdjustment={Math.max(
                                 effectiveComposerInsetEnd,

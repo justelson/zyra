@@ -144,5 +144,11 @@ await new Promise((resolve) => setTimeout(resolve, 1_700))
 assert.equal(expiringAccess.grant.state, 'expired', 'the broker expires idle grants without waiting for another read or action')
 assert.equal(windowsDriver.retainedTargetCount(), 0, 'expiry releases the retained Windows helper target')
 assert(broker.audit.list().some((event) => event.eventType === 'grant.expired' && event.grantId === expiringAccess.grant.grantId))
+const expiringRequestPromise = broker.handleToolOperation(principal, {
+    operation: 'request_grant', targetId: selectedWindow.targetId, capabilities: ['observe.structure'], durationMs: 1_000, maxActions: 2
+})
+await assert.rejects(expiringRequestPromise, /expired before approval/, 'pending grants expire and settle without relying on user input')
+assert.equal(broker.grants.listPending().length, 0)
+assert.equal(windowsDriver.retainedTargetCount(), 0, 'pending-grant expiry releases the Windows helper target')
 await broker.dispose()
 console.log('Agent control bounded bridge operations passed.')

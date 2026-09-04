@@ -74,7 +74,7 @@ Passed on Windows in this worktree:
 - `node native/zyra-computer-use/scripts/smoke-sidecar.mjs`
   - live owned WinForms target
 - `bun run --cwd desktop smoke:windows-control-overlay`
-  - recordable cursor, capture-protected full-display accent glow, scoped Escape registration, and grant teardown
+  - recordable cursor, capture-protected full-display accent glow, scoped Escape registration, idle/pending expiry, target-close tracking, and grant teardown
   - 10 UI Automation elements
   - selected-window capture
   - semantic typing

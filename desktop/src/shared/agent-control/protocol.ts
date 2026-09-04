@@ -4,6 +4,7 @@ import type {
     ControlObservationMode,
     ControlPlanRequest,
     ControlPrincipal,
+    ControlSemanticActionSequenceRequest,
     ControlSideEffectClass,
     DelegatedControlLeaseRequest
 } from './contracts'
@@ -80,6 +81,15 @@ export type AgentControlBridgeOperation =
     | { operation: 'list_windows'; query?: string }
     | { operation: 'open_app'; application: string }
     | {
+        operation: 'use_app'
+        application: string
+        capabilities: ControlCapability[]
+        durationMs?: number
+        maxActions?: number
+        requestId?: string
+        steps?: ControlSemanticActionSequenceRequest['steps']
+    }
+    | {
         operation: 'request_grant'
         targetId?: string
         windowToken?: string
@@ -91,6 +101,7 @@ export type AgentControlBridgeOperation =
     }
     | { operation: 'observe'; grantId: string; targetId: string; includeScreenshot?: boolean; mode?: ControlObservationMode }
     | ({ operation: 'act' } & ControlActionRequest)
+    | ({ operation: 'act_sequence' } & ControlSemanticActionSequenceRequest)
     | ({ operation: 'perform' } & ControlPlanRequest)
     | { operation: 'plan_status'; planId?: string }
     | { operation: 'resume_plan'; planId: string; disposition: 'continue-with-changes' | 'replan-from-here' }

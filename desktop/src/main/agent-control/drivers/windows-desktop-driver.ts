@@ -9,6 +9,8 @@ import { CONTROL_BOUNDS } from '../../../shared/agent-control/policy'
 import { AgentControlError } from '../control-errors'
 import type { RegisteredControlTarget } from '../target-registry'
 import type { AgentControlDriver, DriverActionContext, DriverObservationOptions } from './driver'
+import { resolveWindowsActionScreenPoint, resolveWindowsDragEndScreenPoint, translateWindowsPointerAction } from '../windows-control-geometry'
+import { selectExactWindowsCandidate } from '../windows-candidate-selection'
 
 type PendingRpc = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 type SidecarTarget = { windowToken: string; processId: number; executableIdentity: string; applicationName: string; title: string; processStartTime: number }
@@ -52,7 +54,11 @@ export class WindowsDesktopDriver implements AgentControlDriver {
     }
 
     async selectWindow(windowToken: string) {
-        const selected = await this.request('select_window', { windowToken }) as SidecarTarget
+        const selected = await selectExactWindowsCandidate<SidecarTarget>({
+            windowToken,
+            select: () => this.request('select_window', { windowToken }) as Promise<SidecarTarget>,
+            listCurrent: () => this.listWindows()
+        })
         return {
             trustedIdentity: selected,
             target: {
@@ -94,15 +100,56 @@ export class WindowsDesktopDriver implements AgentControlDriver {
         const trusted = target.trustedIdentity as SidecarTarget
         if (action.type === 'navigate' || action.type === 'select') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', `${action.type} is unavailable for Windows targets.`)
         if (action.type === 'wait') {
-            await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(action.timeoutMs, action.condition.type === 'delay' ? action.condition.durationMs : 100)))
+            await delay(Math.min(action.timeoutMs, action.condition.type === 'delay' ? action.condition.durationMs : 100), context.signal)
             return { changed: false }
         }
-        const result = await this.request('action', {
-            windowToken: trusted.windowToken,
-            revision: context.revision,
-            action
-        }, context.signal) as { changed?: boolean }
-        return { changed: result.changed !== false }
+        const point = resolveWindowsActionScreenPoint(action, context.previousObservation)
+        const dragEnd = resolveWindowsDragEndScreenPoint(action, context.previousObservation)
+        if (point) {
+            context.updateCursor?.({ ...point, coordinateSpace: 'screen', phase: 'moving', visible: true, durationMs: 120 })
+            await delay(70, context.signal)
+        }
+        const activePhase = action.type === 'click'
+            ? 'pressing' as const
+            : action.type === 'drag'
+                ? 'dragging' as const
+                : action.type === 'scroll'
+                    ? 'scrolling' as const
+                    : action.type === 'type' || action.type === 'key'
+                        ? 'typing' as const
+                        : 'idle' as const
+        const activePoint = dragEnd || point
+        if (activePoint || activePhase !== 'idle') {
+            context.updateCursor?.({ ...(activePoint || {}), coordinateSpace: 'screen', phase: activePhase, visible: true, durationMs: action.type === 'drag' ? action.durationMs || 300 : 0 })
+        }
+        try {
+            const result = await this.request('action', {
+                windowToken: trusted.windowToken,
+                revision: context.revision,
+                action: translateWindowsPointerAction(action, context.previousObservation)
+            }, context.signal) as { changed?: boolean }
+            if (point && action.type === 'click') await delay(45, context.signal)
+            return { changed: result.changed !== false }
+        } finally {
+            if (activePoint || activePhase !== 'idle') {
+                context.updateCursor?.({ ...(activePoint || {}), coordinateSpace: 'screen', phase: 'idle', visible: true, durationMs: 0 })
+            }
+        }
+    }
+
+    async getWindowBounds(target: RegisteredControlTarget): Promise<{ x: number; y: number; width: number; height: number }> {
+        const trusted = target.trustedIdentity as SidecarTarget
+        const result = await this.request('window_bounds', { windowToken: trusted.windowToken }, undefined, 2_000) as Record<string, unknown>
+        const bounds = {
+            x: Number(result.x),
+            y: Number(result.y),
+            width: Number(result.width),
+            height: Number(result.height)
+        }
+        if (!Object.values(bounds).every(Number.isFinite) || bounds.width < 1 || bounds.height < 1) {
+            throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows returned invalid selected-window overlay bounds.')
+        }
+        return bounds
     }
 
     readScreenshot(screenshotRef: string) {
@@ -347,6 +394,7 @@ function normalizeElements(value: unknown): ControlElement[] {
             role: stringValue(element.role, 128) || 'control',
             name: stringValue(element.name, 512) || undefined,
             value: stringValue(element.value, 2_048) || undefined,
+            description: stringValue(element.description, 2_048) || undefined,
             bounds: normalizeBounds(element.bounds),
             states: Array.isArray(element.states) ? element.states.map((item) => stringValue(item, 64)).filter(Boolean).slice(0, 24) : undefined,
             actions: Array.isArray(element.actions) ? element.actions.map((item) => stringValue(item, 64)).filter(Boolean).slice(0, 16) : undefined,
@@ -372,4 +420,21 @@ function normalizeTruncation(value: unknown) {
 
 function normalizeState(value: unknown): ControlObservation['targetState'] {
     return ['ready', 'navigating', 'detached', 'closed', 'blocked'].includes(String(value)) ? value as ControlObservation['targetState'] : 'ready'
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new AgentControlError('CONTROL_CANCELLED', 'Windows computer action was cancelled.')
+    await new Promise<void>((resolveDelay, rejectDelay) => {
+        const finish = () => {
+            signal?.removeEventListener('abort', abort)
+            resolveDelay()
+        }
+        const timer = setTimeout(finish, Math.max(0, ms))
+        const abort = () => {
+            clearTimeout(timer)
+            signal?.removeEventListener('abort', abort)
+            rejectDelay(new AgentControlError('CONTROL_CANCELLED', 'Windows computer action was cancelled.'))
+        }
+        signal?.addEventListener('abort', abort, { once: true })
+    })
 }

@@ -111,7 +111,7 @@ export type ControlPointerButton = 'left' | 'middle' | 'right'
 export type ControlAction =
     | { type: 'move'; x: number; y: number; durationMs?: number }
     | { type: 'click'; elementRef?: string; x?: number; y?: number; button?: ControlPointerButton; clickCount?: number; sideEffect?: ControlSideEffectClass }
-    | { type: 'drag'; fromX: number; fromY: number; toX: number; toY: number; durationMs?: number; button?: ControlPointerButton }
+    | { type: 'drag'; fromX: number; fromY: number; toX: number; toY: number; durationMs?: number; button?: ControlPointerButton; sideEffect?: ControlSideEffectClass }
     | { type: 'stroke'; points: Array<{ x: number; y: number }>; durationMs?: number; button?: ControlPointerButton }
     | { type: 'type'; elementRef?: string; x?: number; y?: number; text: string; replace?: boolean; sideEffect?: ControlSideEffectClass }
     | { type: 'key'; key: string; modifiers?: string[]; sideEffect?: ControlSideEffectClass }
@@ -151,6 +151,42 @@ export interface ControlActionResult {
     changed: boolean
     outcome: 'completed' | 'blocked' | 'cancelled'
 }
+
+export type ControlSemanticActionTarget = {
+    role?: string
+    name: string
+}
+
+export type ControlSemanticActionStep =
+    | ({ type: 'click'; sideEffect: 'none' } & ControlSemanticActionTarget)
+    | ({ type: 'type'; text: string; replace: boolean; sideEffect: 'none' } & ControlSemanticActionTarget)
+    | { type: 'key'; key: string; modifiers?: string[]; sideEffect: 'none' }
+    | { type: 'wait'; durationMs: number; sideEffect: 'none' }
+
+export interface ControlSemanticActionSequenceRequest {
+    version: 1
+    requestId: string
+    grantId: string
+    targetId: string
+    observationRevision: number
+    steps: ControlSemanticActionStep[]
+}
+
+export interface ControlSemanticActionSequenceResult {
+    version: 1
+    requestId: string
+    targetId: string
+    previousRevision: number
+    completedSteps: number
+    totalSteps: number
+    observation: ControlObservation
+    changed: boolean
+    outcome: 'completed'
+}
+
+export type ControlSemanticClickStep = Extract<ControlSemanticActionStep, { type: 'click' }>
+export type ControlSemanticClickSequenceRequest = ControlSemanticActionSequenceRequest
+export type ControlSemanticClickSequenceResult = ControlSemanticActionSequenceResult
 
 export type ControlObservationMode = 'visual' | 'structure' | 'both'
 
@@ -225,6 +261,7 @@ export type ControlCursorState = {
     actionType?: ControlAction['type']
     principal?: ControlPrincipal
     durationMs?: number
+    coordinateSpace?: 'target' | 'screen'
     updatedAt: string
 }
 

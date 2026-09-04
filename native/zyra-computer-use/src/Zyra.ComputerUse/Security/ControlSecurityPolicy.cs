@@ -8,7 +8,8 @@ public static class ControlSecurityPolicy
     private static readonly string[] BlockedNames =
     [
         "credential", "password", "keepass", "1password", "bitwarden", "wallet", "payment",
-        "securityhealth", "windowsdefender", "regedit", "taskmgr", "logonui", "consent", "lsass"
+        "securityhealth", "windowsdefender", "regedit", "taskmgr", "logonui", "consent", "lsass",
+        "zyra control cursor", "zyra control indicator"
     ];
 
     public static bool IsSensitiveApplicationText(string value) =>

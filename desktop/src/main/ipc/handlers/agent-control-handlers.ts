@@ -9,9 +9,10 @@ import {
 import { AgentControlError } from '../../agent-control/control-errors'
 import { bindTrustedBrowserTarget, getAgentControlBroker } from '../../agent-control'
 import { BrowserSurfaceHost } from '../../agent-control/browser-surface-host'
+import { isWindowsControlOverlayWindow } from '../../agent-control/windows-control-overlay'
 
 function isTrustedAssistantRenderer(window: BrowserWindow | null, mainWindow: BrowserWindow): boolean {
-    if (!window || window.isDestroyed()) return false
+    if (!window || window.isDestroyed() || isWindowsControlOverlayWindow(window)) return false
     if (window.id === mainWindow.id) return true
     try {
         const hash = new URL(window.webContents.getURL()).hash

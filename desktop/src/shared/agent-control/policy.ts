@@ -54,7 +54,7 @@ export const TARGET_CAPABILITIES: Record<ControlTarget['kind'], ReadonlySet<Cont
         'keyboard.type', 'keyboard.key', 'scroll', 'form.select', 'window.focus'
     ]),
     'windows-window': new Set([
-        'observe.structure', 'observe.screenshot', 'pointer.click', 'pointer.move',
+        'observe.structure', 'observe.screenshot', 'pointer.click', 'pointer.move', 'pointer.drag',
         'keyboard.type', 'keyboard.key', 'scroll', 'form.select', 'window.focus'
     ])
 }

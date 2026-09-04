@@ -578,15 +578,19 @@ release
 
 #### Deferred Windows computer tools
 
-Only `tool_search` is advertised before a computer task. A relevant search activates these verb-named tools for the current agent turn:
+`tool_search` is the default deferred entry point. An explicit natural-language computer-control request preloads the same bounded tool set before the first provider call; ambiguous requests still activate it through a relevant search. The tools unload at turn completion:
 
 ```text
+computer_use_app
 computer_open_app
 computer_list_windows
 computer_request_access
 computer_observe
 computer_focus
+computer_move
 computer_click
+computer_drag
+computer_sequence
 computer_type
 computer_key
 computer_scroll
@@ -594,7 +598,9 @@ computer_wait
 computer_release
 ```
 
-`computer_open_app` resolves a name only against Windows' registered Start apps. It accepts no executable path, command arguments, file, or URL and rejects ambiguous names. `computer_list_windows` requires an application query, returns only matching opaque candidates, and keeps ambient window titles out of the model transcript. Observations and every action return the bounded, redacted next observation directly in model-visible tool content. The tool set unloads at turn completion.
+`computer_use_app` is the common path. It reuses one exact running app or launches its registered Start app, selects that single match, requests the bounded Chat grant, and returns a structure observation in one provider round trip. When exact routine labels are already known, the call may also execute a bounded semantic sequence from its private initial observation and return only the final state. A role hint may be omitted when an exact name resolves to one unique non-sensitive control that supports the requested action. Multiple matching windows fail closed and fall back to `computer_open_app`, `computer_list_windows`, and exact candidate selection. No path, command argument, file, URL, ambient title list, or unrelated app is accepted. Requesting visual verification or coordinate work should include screenshot access in that first grant. A successful `computer_use_app` call replaces any older Windows grant held by the same root turn after the new exact grant exists, so multi-app handoffs do not need a release-only provider turn. Explicit release still ends control immediately. Final standalone release calls are unnecessary because turn completion revokes every remaining grant and unloads the tools.
+
+`computer_sequence` accepts up to 16 already-clear routine steps from that observation: exact role/name clicks, exact-field typing, a narrow editing/navigation key allowlist, and short waits. The broker resolves semantic targets uniquely, executes one step, captures and commits the next revision, then resolves the following step from that fresh observation. It stops before any missing, ambiguous, stale, sensitive, critical-looking, unauthorized, expired, or interrupted step. Only the initial and final compact observations enter model context; every internal action still passes capability, grant, revision, element, audit, action-count, and Emergency Stop checks. Critical actions remain on the individual canonical approval path.
 
 The Windows helper starts on the first computer operation, remains available for the active pending/approved feedback loop, exits immediately when the task releases its grant, and exits after a short idle timeout when enumeration is abandoned. It does not run continuously waiting for work.
 
@@ -719,6 +725,7 @@ A separate sidecar is preferred over an Electron ABI-bound native addon.
 - Use bounded JSON-RPC messages.
 - Enforce per-call deadlines and cancellation.
 - Kill the child process tree on broker disposal or emergency stop.
+- Preserve the short abandoned-enumeration timeout. If the helper exits while the provider is deciding, `selectWindow` privately refreshes the native registry once and retries only when the same HMAC-bound token is present. A closed, replaced, blocked, or identity-changed window still fails closed.
 - Sidecar never listens on a network socket.
 
 ### 12.2 Window selection
@@ -755,7 +762,7 @@ Actions prefer UIA patterns:
 - Scroll.
 - Focus.
 
-`SendInput` is fallback-only for equal-or-lower integrity targets and requires a current revision plus target focus verification.
+Physical input is fallback-only for equal-or-lower integrity targets and requires a current revision. Keyboard fallback requires exact-target focus verification. Coordinate move, click, and drag are translated from selected-window to screen coordinates, checked against current window bounds, and allowed only when `WindowFromPoint` still resolves to the exact selected top-level window; obscured or mispositioned input fails before mouse-down.
 
 ### 12.4 Capture
 
@@ -766,6 +773,15 @@ Use Windows Graphics Capture for selected-window screenshots.
 - Capture only the granted window.
 - Bound size and frequency.
 - Redact configured regions and sensitive controls when coordinates are reliable.
+
+### 12.5 Visible Windows control presence
+
+An active exact-window grant drives two main-process-owned, click-through Electron overlays:
+
+- A recordable synthetic Zyra cursor. The Windows driver derives its screen-space position from the latest revisioned UI Automation element bounds and publishes moving, pressing, typing, scrolling, and idle phases through the existing control cursor contract.
+- A capture-protected, full-display accent glow on the display containing the exact selected window. It keeps the center transparent and shows the exact granted app's local icon when available, `Zyra is using {application}`, and the active Emergency Stop key without entering model screenshots or control observations. Accent, density, and reduced-motion settings come from Zyra's device preferences.
+
+The main process revalidates exact-window availability and its containing display through the authenticated sidecar every 750 ms. It updates the overlay DOM only when the app label, stop key, appearance, display, or visibility changes. Plain `Escape` is registered globally only while a Windows grant is active; the permanent `Ctrl+Alt+Escape` shortcut remains the fallback. Overlay windows are non-focusable, ignore mouse input, are excluded from trusted Assistant renderer IPC, and are hidden before Emergency Stop revokes grants. Release, expiry, target closure, turn interruption, sidecar failure, and shutdown all remove the visual state and unregister plain Escape.
 - Store screenshots as short-lived local artifacts.
 - Return only opaque references through tools.
 
@@ -1246,6 +1262,19 @@ Default action timeout: <= 15 seconds
 - No installer publication.
 
 If an external Chrome or Windows UI test cannot run in the isolated environment, deterministic protocol and fake-driver coverage must still pass, and the exact manual check remains listed in the handoff. The builder continues all other work.
+
+### 20.7 Measured Windows path
+
+Live development benchmarks use the authenticated Assistant service and delete their temporary Chat, trace, event journal, and replay data afterward.
+
+| Scenario | Total | Provider | Tools | Computer calls | Observation text |
+|---|---:|---:|---:|---:|---:|
+| Historical broad baseline | 368.2 s | 347.3 s | 14.8 s | 21 | 204,711 chars |
+| One-call deterministic type/click/readback | 18.4 s | 15.7 s | 2.7 s | 1 | 1,759 chars |
+| One-call Calculator after final-state projection | 30.0 s | 22.5 s | 7.5 s | 1 | 1,894 chars |
+| Two-app Calculator-to-editor handoff | 89.9 s | 80.8 s | 9.1 s | 2 | 9,213 chars |
+
+Provider deliberation remains variable and is the largest latency source. The implementation therefore optimizes provider round trips: routine known steps can execute inside `computer_use_app`, completed sequences return changed/readback elements rather than every unchanged control, and a successful next-app grant replaces the prior Windows grant without a release-only call.
 
 ---
 

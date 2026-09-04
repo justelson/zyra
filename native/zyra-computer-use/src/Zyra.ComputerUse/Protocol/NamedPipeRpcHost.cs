@@ -88,6 +88,7 @@ public sealed class NamedPipeRpcHost
                 "open_app" => OpenApp(ReadString(request.Parameters, "application")),
                 "list_windows" => new { windows = _windows.ListVisibleWindows() },
                 "select_window" => SelectWindow(ReadString(request.Parameters, "windowToken")),
+                "window_bounds" => WindowBounds(ReadString(request.Parameters, "windowToken")),
                 "observe" => Observe(request.Parameters),
                 "action" => Act(request.Parameters),
                 "emergency_stop" => Stop(),
@@ -112,6 +113,16 @@ public sealed class NamedPipeRpcHost
         var window = _windows.Select(token);
         _input.Resume();
         return new SelectedWindow(token, window.ProcessId, window.ExecutableIdentity, window.ApplicationName, window.Title, window.ProcessStartTime);
+    }
+
+    private object WindowBounds(string token)
+    {
+        var window = _windows.Select(token);
+        if (!NativeMethods.GetWindowRect(window.Handle, out var rectangle)) throw new InvalidOperationException("Selected-window bounds are unavailable.");
+        var width = rectangle.Right - rectangle.Left;
+        var height = rectangle.Bottom - rectangle.Top;
+        if (width < 1 || height < 1) throw new InvalidOperationException("Selected-window bounds are empty.");
+        return new Bounds(rectangle.Left, rectangle.Top, width, height);
     }
 
     private object Observe(JsonElement parameters)
@@ -146,8 +157,12 @@ public sealed class NamedPipeRpcHost
                 throw new InvalidOperationException("The exact semantic action could not be completed. Observe the target again before acting.");
             switch (action.Type)
             {
+                case "move": _input.Move(window, action.X, action.Y); break;
+                case "click": _input.Click(window, action.X, action.Y, action.Button, action.ClickCount); break;
+                case "drag": _input.Drag(window, action.FromX, action.FromY, action.ToX, action.ToY, action.Button, action.DurationMs); break;
                 case "focus": _input.Focus(window); break;
-                case "key": _input.Key(window, action.Key ?? string.Empty); break;
+                case "type": _input.TypeText(window, action.Text ?? string.Empty); break;
+                case "key": _input.Key(window, action.Key ?? string.Empty, action.Modifiers); break;
                 case "scroll": _input.Scroll(window, action.DeltaY); break;
                 case "wait": Thread.Sleep(100); break;
                 default: throw new NotSupportedException("The sidecar action is not allowed.");
@@ -157,7 +172,8 @@ public sealed class NamedPipeRpcHost
     }
 
     public static bool CanUseWindowInputFallback(SidecarAction action) =>
-        action.ElementRef is null && action.Type is "focus" or "key" or "scroll" or "wait";
+        action.ElementRef is null && action.Type is "move" or "click" or "drag" or "focus" or "key" or "scroll" or "wait"
+        || action.ElementRef is not null && action.Type == "type" && !action.Replace;
 
     private object Stop()
     {

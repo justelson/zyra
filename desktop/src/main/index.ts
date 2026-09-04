@@ -23,7 +23,12 @@ import { BrowserClientRuntime } from './browser-client-runtime'
 import { configureUpdateAnalytics, disposeUpdater, initializeUpdater, registerUpdateWindow } from './update/manager'
 import { registerFileProtocol } from './file-protocol'
 import { configureBrowserActionAnalytics, configureBrowserPermissionAnalytics, flushGlobalBrowserProfileStorage, isSafeBrowserNavigationUrl } from './ipc/handlers/browser-preview-handlers'
-import { disposeAgentControlBroker, getAgentControlBroker } from './agent-control'
+import {
+    configureWindowsControlOverlayAppearance,
+    disposeAgentControlBroker,
+    getAgentControlBroker,
+    refreshWindowsControlOverlayAppearance
+} from './agent-control'
 import { trustedBrowserGuests } from './agent-control/trusted-guest-registry'
 import { resolveZyraWindowChromePolicy, type ZyraDesktopPlatform } from '../shared/platform-window-chrome'
 import {
@@ -95,6 +100,23 @@ applyRuntimeIdentity(runtimeIdentity)
 
 const launchStartedAt = performance.now()
 const setupServices = createDesktopSetupServices(app.getPath('userData'))
+configureWindowsControlOverlayAppearance(async () => {
+    const settings = (await setupServices.preferences.get({ surface: 'desktop' })).settings
+    const accent = settings.accentColor && typeof settings.accentColor === 'object' && !Array.isArray(settings.accentColor)
+        ? settings.accentColor as Record<string, unknown>
+        : {}
+    return {
+        accentPrimary: typeof accent.primary === 'string' ? accent.primary : undefined,
+        accentSecondary: typeof accent.secondary === 'string' ? accent.secondary : undefined,
+        reduceMotion: settings.accessibilityReduceMotion === true,
+        compact: settings.compactMode === true
+    }
+})
+setupServices.preferences.subscribe((event) => {
+    if (event.changedKeys.some((key) => ['accentColor', 'accessibilityReduceMotion', 'compactMode'].includes(key))) {
+        refreshWindowsControlOverlayAppearance()
+    }
+})
 configureProjectOpenAnalytics((projectPath, outcome) => captureProjectOpenAnalytics(projectPath, outcome))
 configureUpdateAnalytics((properties) => setupServices.analytics.capture({ event: 'zyra_v1_app_lifecycle', properties }))
 configureBrowserDownloadAnalytics((properties) => setupServices.analytics.capture({ event: 'zyra_v1_browser', properties }))
@@ -1047,7 +1069,8 @@ app.whenReady().then(async () => {
             resolveClipboardAttachment: resolveAssistantClipboardAttachment,
             getVoiceTranscriptionState: getCodexVoiceTranscriptionState,
             transcribeVoice: transcribeVoiceWithCodex,
-            isOnboardingComplete: () => setupServices.onboarding.isAccessAllowed()
+            isOnboardingComplete: () => setupServices.onboarding.isAccessAllowed(),
+            ...(is.dev ? { clientPort: 47_822 } : {})
         })
         browserClientRuntime = runtime
         void runtime.start().then((address) => {

@@ -11,12 +11,18 @@ if (!OperatingSystem.IsWindows())
 if (args.Contains("--test-window", StringComparer.Ordinal))
 {
     ApplicationConfiguration.Initialize();
-    using var form = new Form { Text = "Zyra Computer Use Smoke Target", Width = 520, Height = 260, StartPosition = FormStartPosition.CenterScreen };
+    using var form = new Form { Text = "Zyra Computer Use Smoke Target", Width = 520, Height = 290, StartPosition = FormStartPosition.CenterScreen };
     var input = new TextBox { Name = "SmokeInput", AccessibleName = "Smoke input", Left = 24, Top = 44, Width = 440 };
-    var button = new Button { Name = "SmokeButton", AccessibleName = "Apply smoke input", Text = "Apply", Left = 24, Top = 90, Width = 120 };
-    var output = new Label { Name = "SmokeOutput", AccessibleName = "Smoke output", Text = "Ready", Left = 24, Top = 136, Width = 440 };
-    button.Click += (_, _) => output.Text = input.Text;
-    form.Controls.AddRange([input, button, output]);
+    var readOnly = new TextBox { Name = "SmokeReadOnly", AccessibleName = "Read-only smoke value", Text = "Locked", ReadOnly = true, Left = 24, Top = 82, Width = 440 };
+    var button = new Button { Name = "SmokeButton", AccessibleName = "Apply smoke input", Text = "Apply", Left = 24, Top = 124, Width = 120 };
+    var output = new Label { Name = "SmokeOutput", AccessibleName = "Smoke output: Ready", AccessibleDescription = "Ready", Text = "Ready", Left = 24, Top = 170, Width = 440 };
+    button.Click += (_, _) =>
+    {
+        output.Text = input.Text;
+        output.AccessibleName = $"Smoke output: {input.Text}";
+        output.AccessibleDescription = input.Text;
+    };
+    form.Controls.AddRange([input, readOnly, button, output]);
     Application.Run(form);
     return 0;
 }

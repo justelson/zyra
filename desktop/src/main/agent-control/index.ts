@@ -8,12 +8,29 @@ import { WindowsDesktopDriver } from './drivers/windows-desktop-driver'
 import { ZyraBrowserDriver } from './drivers/zyra-browser-driver'
 import { trustedBrowserGuests } from './trusted-guest-registry'
 import { controlInteractionCategory } from './interaction-arbiter'
+import {
+    WindowsControlOverlayManager,
+    type WindowsControlOverlayAppearance
+} from './windows-control-overlay'
 
 let broker: AgentControlBroker | null = null
 let chromeDriver: ChromeExtensionDriver | null = null
 let browserDriver: ZyraBrowserDriver | null = null
 let trustedGuestUnsubscribe: (() => void) | null = null
+let windowsControlOverlay: WindowsControlOverlayManager | null = null
+let windowsControlOverlayAppearance: (() => WindowsControlOverlayAppearance | Promise<WindowsControlOverlayAppearance>) | undefined
 const browserTargetByGuestIdentity = new Map<string, string>()
+
+export function configureWindowsControlOverlayAppearance(
+    provider: () => WindowsControlOverlayAppearance | Promise<WindowsControlOverlayAppearance>
+): void {
+    windowsControlOverlayAppearance = provider
+    windowsControlOverlay?.refreshAppearance()
+}
+
+export function refreshWindowsControlOverlayAppearance(): void {
+    windowsControlOverlay?.refreshAppearance()
+}
 
 export function getAgentControlBroker(): AgentControlBroker {
     if (broker) return broker
@@ -25,6 +42,9 @@ export function getAgentControlBroker(): AgentControlBroker {
     chromeDriver = new ChromeExtensionDriver(pairing, join(artifactRoot, 'chrome'))
     const windowsDriver = new WindowsDesktopDriver(join(userData, 'agent-control', 'artifacts', 'windows'))
     broker = new AgentControlBroker({ userDataPath: userData, drivers: [browserDriver, chromeDriver, windowsDriver], pairing })
+    windowsControlOverlay = new WindowsControlOverlayManager(broker, {
+        loadAppearance: () => windowsControlOverlayAppearance?.() || {}
+    })
     chromeDriver.setRegistrationHandlers({
         register: ({ target, trustedIdentity }) => {
             const targetId = broker!.targets.createTargetId('chrome-tab')
@@ -123,5 +143,7 @@ export async function disposeAgentControlBroker(): Promise<void> {
     broker = null
     chromeDriver = null
     browserDriver = null
+    windowsControlOverlay?.dispose()
+    windowsControlOverlay = null
     await current?.dispose()
 }

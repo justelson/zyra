@@ -6,6 +6,8 @@ import {
     type ControlObservationMode,
     type ControlPlanRequest,
     type ControlPrincipal,
+    type ControlSemanticActionSequenceRequest,
+    type ControlSemanticActionStep,
     type ControlStageIntent
 } from './contracts'
 import { CONTROL_BOUNDS, isSafeControlUrl } from './policy'
@@ -88,6 +90,14 @@ function pointerCoordinate(value: unknown, label: string): number {
     return finiteNumber(value, label, 0, 100_000)
 }
 
+function keyboardModifier(value: unknown): string {
+    const modifier = boundedString(value, 'modifier', 24)
+    if (!['ctrl', 'control', 'shift', 'alt', 'win', 'windows', 'meta'].includes(modifier.toLowerCase())) {
+        fail('Key modifier is not in the bounded allowlist.')
+    }
+    return modifier
+}
+
 function boundedInteger(value: unknown, label: string, min: number, max: number): number {
     const number = finiteNumber(value, label, min, max)
     if (!Number.isSafeInteger(number)) fail(`${label} must be an integer.`)
@@ -127,7 +137,8 @@ export function assertControlAction(value: unknown): ControlAction {
                 toX: pointerCoordinate(action.toX, 'toX'),
                 toY: pointerCoordinate(action.toY, 'toY'),
                 durationMs: action.durationMs === undefined ? undefined : finiteNumber(action.durationMs, 'durationMs', 0, 5_000),
-                button: pointerButton(action.button)
+                button: pointerButton(action.button),
+                ...(sideEffect(action.sideEffect) ? { sideEffect: sideEffect(action.sideEffect) } : {})
             }
         case 'stroke': {
             if (!Array.isArray(action.points) || action.points.length < 2 || action.points.length > 512) {
@@ -161,7 +172,7 @@ export function assertControlAction(value: unknown): ControlAction {
             return {
                 type: 'key',
                 key: boundedString(action.key, 'key', 64),
-                modifiers: Array.isArray(action.modifiers) ? action.modifiers.slice(0, 8).map((entry) => boundedString(entry, 'modifier', 24)) : undefined,
+                modifiers: Array.isArray(action.modifiers) ? [...new Set(action.modifiers.slice(0, 8).map(keyboardModifier))].slice(0, 4) : undefined,
                 ...(sideEffect(action.sideEffect) ? { sideEffect: sideEffect(action.sideEffect) } : {})
             }
         case 'scroll': {
@@ -219,6 +230,95 @@ export function assertControlActionRequest(value: unknown): ControlActionRequest
         observationRevision: finiteNumber(request.observationRevision, 'observationRevision', 1, Number.MAX_SAFE_INTEGER),
         action: assertControlAction(request.action)
     }
+}
+
+export function assertControlSemanticActionSequenceRequest(value: unknown): ControlSemanticActionSequenceRequest {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Computer interaction sequence is invalid.')
+    const request = value as Record<string, unknown>
+    if (request.version !== 1) fail('Unsupported control protocol version.')
+    if (!Array.isArray(request.steps) || request.steps.length < 1 || request.steps.length > 16) {
+        fail('A computer interaction sequence requires 1 to 16 bounded steps.')
+    }
+    const steps = request.steps.map((step, index): ControlSemanticActionStep => {
+        if (!step || typeof step !== 'object' || Array.isArray(step)) fail(`Computer sequence step ${index + 1} is invalid.`)
+        const record = step as Record<string, unknown>
+        if (record.sideEffect !== 'none') fail(`Computer sequence step ${index + 1} must declare a routine side effect.`)
+        if (record.type === 'click') {
+            return {
+                type: 'click',
+                ...semanticActionTarget(record, index),
+                sideEffect: 'none'
+            }
+        }
+        if (record.type === 'type') {
+            if (typeof record.replace !== 'boolean') fail(`Computer sequence step ${index + 1} must declare whether typing replaces the field.`)
+            return {
+                type: 'type',
+                ...semanticActionTarget(record, index),
+                text: boundedString(record.text, `steps[${index}].text`, CONTROL_BOUNDS.maxTypedTextLength),
+                replace: record.replace,
+                sideEffect: 'none'
+            }
+        }
+        if (record.type === 'key') {
+            const key = boundedString(record.key, `steps[${index}].key`, 64)
+            const modifiers = Array.isArray(record.modifiers)
+                ? [...new Set(record.modifiers.slice(0, 8).map(keyboardModifier))].slice(0, 4)
+                : undefined
+            assertRoutineSequenceKey(key, modifiers, index)
+            return { type: 'key', key, modifiers, sideEffect: 'none' }
+        }
+        if (record.type === 'wait') {
+            return {
+                type: 'wait',
+                durationMs: finiteNumber(record.durationMs, `steps[${index}].durationMs`, 0, 2_000),
+                sideEffect: 'none'
+            }
+        }
+        return fail(`Computer sequence step ${index + 1} has an unsupported action.`)
+    })
+    const typedCharacters = steps.reduce((total, step) => total + (step.type === 'type' ? step.text.length : 0), 0)
+    if (typedCharacters > CONTROL_BOUNDS.maxTypedTextLength) fail('Computer interaction sequence typed text exceeds the bounded total.')
+    const waitDuration = steps.reduce((total, step) => total + (step.type === 'wait' ? step.durationMs : 0), 0)
+    if (waitDuration > 5_000) fail('Computer interaction sequence wait time exceeds five seconds.')
+    return {
+        version: 1,
+        requestId: assertControlIdentifier(request.requestId, 'requestId'),
+        grantId: assertControlIdentifier(request.grantId, 'grantId'),
+        targetId: assertControlIdentifier(request.targetId, 'targetId'),
+        observationRevision: finiteNumber(request.observationRevision, 'observationRevision', 1, Number.MAX_SAFE_INTEGER),
+        steps
+    }
+}
+
+export const assertControlSemanticClickSequenceRequest = assertControlSemanticActionSequenceRequest
+
+function semanticActionTarget(record: Record<string, unknown>, index: number): { role?: string; name: string } {
+    return {
+        ...(record.role === undefined ? {} : { role: boundedString(record.role, `steps[${index}].role`, 128) }),
+        name: boundedString(record.name, `steps[${index}].name`, 512)
+    }
+}
+
+function assertRoutineSequenceKey(key: string, modifiers: string[] | undefined, index: number): void {
+    const normalizedKey = key.toLowerCase()
+    const normalizedModifiers = (modifiers || []).map((modifier) => modifier.toLowerCase().replace('control', 'ctrl'))
+    if (normalizedModifiers.some((modifier) => modifier === 'alt' || modifier === 'win' || modifier === 'windows' || modifier === 'meta')) {
+        fail(`Computer sequence step ${index + 1} cannot use system or menu modifiers.`)
+    }
+    const navigationKeys = new Set(['tab', 'escape', 'home', 'end', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'])
+    const editingShortcuts = new Set(['a', 'z', 'y'])
+    const isNavigation = navigationKeys.has(normalizedKey)
+        && (normalizedKey === 'escape'
+            ? normalizedModifiers.length === 0
+            : normalizedKey === 'tab'
+                ? normalizedModifiers.every((modifier) => modifier === 'shift')
+                : normalizedModifiers.every((modifier) => modifier === 'ctrl' || modifier === 'shift'))
+    const isEditingShortcut = editingShortcuts.has(normalizedKey)
+        && normalizedModifiers.length > 0
+        && normalizedModifiers.every((modifier) => modifier === 'ctrl' || modifier === 'shift')
+        && normalizedModifiers.includes('ctrl')
+    if (!isNavigation && !isEditingShortcut) fail(`Computer sequence step ${index + 1} uses a key that requires an individual reviewed action.`)
 }
 
 function assertObservationMode(value: unknown): ControlObservationMode {

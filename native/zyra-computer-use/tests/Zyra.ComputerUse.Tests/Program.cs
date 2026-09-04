@@ -69,10 +69,14 @@ await Check("coalesced pipe requests receive independent responses", async () =>
     try { await serving; } catch (OperationCanceledException) { }
     client.Close();
 });
-await Check("exact semantic actions fail closed instead of typing into the focused control", () =>
+await Check("native input fallback stays bound to an exact editable control or the selected window", () =>
 {
     Equal(false, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("type", "window-element:1:2", "text", true, null, null, 0, 0, null)));
+    Equal(true, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("type", "window-element:1:2", "text", false, null, null, 0, 0, null)));
     Equal(false, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("click", "window-element:1:2", null, false, null, null, 0, 0, null)));
+    Equal(true, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("move", null, null, false, null, null, 0, 0, null, X: 20, Y: 30)));
+    Equal(true, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("click", null, null, false, null, null, 0, 0, null, X: 20, Y: 30)));
+    Equal(true, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("drag", null, null, false, null, null, 0, 0, null, FromX: 20, FromY: 30, ToX: 40, ToY: 50)));
     Equal(true, NamedPipeRpcHost.CanUseWindowInputFallback(new SidecarAction("key", null, null, false, "ENTER", null, 0, 0, null)));
     return Task.CompletedTask;
 });
@@ -80,6 +84,8 @@ await Check("sensitive application policy blocks credential, security, and payme
 {
     Equal(true, ControlSecurityPolicy.IsSensitiveApplicationText("Windows Credential Manager"));
     Equal(true, ControlSecurityPolicy.IsSensitiveApplicationText("Payment Wallet"));
+    Equal(true, ControlSecurityPolicy.IsSensitiveApplicationText("Zyra Control Cursor"));
+    Equal(true, ControlSecurityPolicy.IsSensitiveApplicationText("Zyra Control Indicator"));
     Equal(false, ControlSecurityPolicy.IsSensitiveApplicationText("Notepad"));
     return Task.CompletedTask;
 });
@@ -88,6 +94,17 @@ await Check("window selection rejects stale opaque tokens", async () =>
     var response = await Host().HandleAsync(Request("select_window", Secret, new { windowToken = "window-token:unknown" }));
     Equal(false, response.Ok);
     Equal("STALE_TARGET", response.Error?.Code);
+});
+await Check("hosted app enumeration removes transient CoreWindow companions", () =>
+{
+    var windows = WindowRegistry.CollapseHostedCompanions([
+        new WindowCandidate("frame", "Calculator", "ApplicationFrameHost", "ApplicationFrameWindow", "frame.exe", 1, false, null),
+        new WindowCandidate("core", "Calculator", "CalculatorApp", "Windows.UI.Core.CoreWindow", "calculator.exe", 2, false, null),
+        new WindowCandidate("other", "Notepad", "Notepad", "Notepad", "notepad.exe", 3, false, null)
+    ]);
+    Equal(2, windows.Length);
+    Equal(false, windows.Any(window => window.WindowToken == "core"));
+    return Task.CompletedTask;
 });
 await Check("registered app resolution prefers an exact display name", () =>
 {
@@ -114,5 +131,5 @@ if (failures.Count > 0)
     foreach (var failure in failures) Console.Error.WriteLine($"FAIL: {failure}");
     return 1;
 }
-Console.WriteLine("Zyra computer-use deterministic tests passed (11 checks).");
+Console.WriteLine("Zyra computer-use deterministic tests passed (12 checks).");
 return 0;

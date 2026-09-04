@@ -15,6 +15,8 @@ export class FakeControlDriver implements AgentControlDriver {
     constructor(kind: ControlTarget['kind'] = 'zyra-browser') {
         this.kind = kind
         this.elements.set('fixture:button', { elementRef: 'fixture:button', role: 'button', name: 'Continue', actions: ['click'] })
+        this.elements.set('fixture:apply', { elementRef: 'fixture:apply', role: 'button', name: 'Apply smoke input', actions: ['click'] })
+        this.elements.set('fixture:input', { elementRef: 'fixture:input', role: 'edit', name: 'Smoke input', value: '', actions: ['click', 'type'] })
         this.elements.set('fixture:password', { elementRef: 'fixture:password', role: 'password', name: 'Password', value: 'never-return-this', sensitive: true, actions: ['type'] })
     }
 
@@ -72,6 +74,7 @@ export class FakeControlDriver implements AgentControlDriver {
             origin: this.kind === 'windows-window' ? undefined : new URL(this.url).origin,
             viewport: { width: 800, height: 600, scale: 1 },
             elements: options.mode === 'visual' ? [] : [...this.elements.values()],
+            focusedElementRef: options.mode === 'visual' ? undefined : 'fixture:input',
             screenshotRef: options.includeScreenshot ? 'control-artifact:fixture' : undefined,
             redactions: []
         }

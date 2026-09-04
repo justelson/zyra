@@ -10,7 +10,8 @@ import { CONTROL_BOUNDS } from '../src/shared/agent-control/policy'
 import {
     assertControlActionRequest,
     assertControlCapabilities,
-    assertControlPrincipal
+    assertControlPrincipal,
+    assertControlSemanticActionSequenceRequest
 } from '../src/shared/agent-control/validation'
 
 const fixture = JSON.parse(await readFile(path.resolve('scripts/fixtures/agent-control-wire-v1.json'), 'utf8'))
@@ -26,6 +27,31 @@ assert.throws(() => assertControlCapabilities(['cookie.read']), /Unknown control
 assert.throws(() => assertControlActionRequest({ ...fixture.action, observationRevision: 0 }), /observationRevision/)
 assert.throws(() => assertControlActionRequest({ ...fixture.action, action: { type: 'navigate', url: 'file:///secret' } }), /HTTP and HTTPS/)
 assert.throws(() => assertControlActionRequest({ ...fixture.action, action: { type: 'click', elementRef: 'element:1:1', sideEffect: 'harmless-trust-me' } }), /Side-effect class/)
+assert.throws(() => assertControlActionRequest({ ...fixture.action, action: { type: 'key', key: 'Z', modifiers: ['hyper'] } }), /modifier.*allowlist/i)
+const drag = assertControlActionRequest({ ...fixture.action, action: { type: 'drag', fromX: 10, fromY: 20, toX: 30, toY: 40, sideEffect: 'account-change' } })
+assert.equal(drag.action.type === 'drag' ? drag.action.sideEffect : null, 'account-change')
+const routineSequence = assertControlSemanticActionSequenceRequest({
+    version: 1,
+    requestId: 'sequence:test',
+    grantId: 'grant:test',
+    targetId: 'target:test',
+    observationRevision: 2,
+    steps: [
+        { type: 'type', name: 'Name', text: 'seed', replace: true, sideEffect: 'none' },
+        { type: 'key', key: 'A', modifiers: ['Ctrl'], sideEffect: 'none' },
+        { type: 'type', role: 'edit', name: 'Name', text: 'replacement', replace: false, sideEffect: 'none' },
+        { type: 'wait', durationMs: 100, sideEffect: 'none' }
+    ]
+})
+assert.equal(routineSequence.steps.length, 4)
+assert.throws(() => assertControlSemanticActionSequenceRequest({
+    ...routineSequence,
+    steps: [{ type: 'key', key: 'S', modifiers: ['Ctrl'], sideEffect: 'none' }]
+}), /individual reviewed action/)
+assert.throws(() => assertControlSemanticActionSequenceRequest({
+    ...routineSequence,
+    steps: [{ type: 'type', text: 'append', replace: false, sideEffect: 'none' }]
+}), /name is invalid/)
 const focusedType = assertControlActionRequest({ ...fixture.action, action: { type: 'type', text: 'Canvas text' } })
 assert.equal(focusedType.action.type, 'type')
 assert.equal(focusedType.action.type === 'type' ? focusedType.action.elementRef : null, undefined, 'typing may use the page current focus without a DOM reference')

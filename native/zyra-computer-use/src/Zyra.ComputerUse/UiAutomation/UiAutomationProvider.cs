@@ -36,6 +36,7 @@ public sealed class UiAutomationProvider
                     role,
                     Limit(name, 512),
                     sensitive ? null : Limit(ReadSafeValue(element), 2048),
+                    sensitive ? null : Limit(current.HelpText, 2048),
                     ReadBounds(current.BoundingRectangle),
                     ReadStates(current),
                     ReadActions(element),
@@ -82,7 +83,9 @@ public sealed class UiAutomationProvider
                     return false;
                 case "type":
                     if (element.Current.IsPassword) throw new UnauthorizedAccessException("Model control cannot type into password fields.");
-                    if (TryPattern<ValuePattern>(element, ValuePattern.Pattern, out var value)) { value.SetValue(action.Text ?? string.Empty); return true; }
+                    if (action.Replace && TryPattern<ValuePattern>(element, ValuePattern.Pattern, out var value)) { value.SetValue(action.Text ?? string.Empty); return true; }
+                    element.SetFocus();
+                    if (!element.Current.HasKeyboardFocus) throw new InvalidOperationException("The exact editable control could not receive keyboard focus.");
                     return false;
                 case "focus":
                     element.SetFocus();
@@ -155,7 +158,7 @@ public sealed class UiAutomationProvider
     {
         var actions = new List<string>();
         if (element.TryGetCurrentPattern(InvokePattern.Pattern, out _) || element.TryGetCurrentPattern(TogglePattern.Pattern, out _) || element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)) actions.Add("click");
-        if (element.TryGetCurrentPattern(ValuePattern.Pattern, out _)) actions.Add("type");
+        if (TryPattern<ValuePattern>(element, ValuePattern.Pattern, out var value) && !value.Current.IsReadOnly) actions.Add("type");
         if (element.TryGetCurrentPattern(ScrollPattern.Pattern, out _)) actions.Add("scroll");
         return actions.ToArray();
     }

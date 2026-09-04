@@ -26,6 +26,7 @@ export type BrowserClientRuntimeDependencies = {
     getVoiceTranscriptionState: () => Promise<AssistantVoiceTranscriptionState>
     transcribeVoice: (input: AssistantTranscribeVoiceInput) => Promise<string>
     isOnboardingComplete: () => boolean
+    clientPort?: number
 }
 
 export class BrowserClientRuntime {
@@ -66,7 +67,7 @@ export class BrowserClientRuntime {
 
     private async startGeneration(generation: number): Promise<{ host: string; port: number; origin: string }> {
         const capability = randomBytes(32).toString('base64url')
-        const allowedOrigins = getBrowserClientHostOrigins()
+        const allowedOrigins = getBrowserClientHostOrigins(this.dependencies.clientPort)
         if (this.dependencies.rendererUrl) {
             for (const origin of getBrowserAssistantBridgeOrigins(this.dependencies.rendererUrl)) allowedOrigins.add(origin)
         }
@@ -94,6 +95,7 @@ export class BrowserClientRuntime {
 
         const clientHost = new BrowserClientHost({
             bridge: { ...bridgeAddress, capability },
+            ...(this.dependencies.clientPort ? { port: this.dependencies.clientPort } : {}),
             ...(this.dependencies.rendererUrl
                 ? { devRendererUrl: this.dependencies.rendererUrl }
                 : { staticRoot: this.dependencies.staticRoot })

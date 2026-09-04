@@ -13,6 +13,7 @@ import {
 import type { ControlCursorState } from '@shared/agent-control/contracts'
 import { cn } from '@/lib/utils'
 import { AssistantBrowserAgentCursor } from './AssistantBrowserAgentCursor'
+import { AssistantAgentUseOverlay } from './AssistantAgentUseOverlay'
 import {
     resolveAssistantBrowserViewportLayout,
     resizeAssistantBrowserViewport,
@@ -248,7 +249,7 @@ export function AssistantBrowserViewportFrame({
             ) : null}
             {visible ? (
                 <div className="pointer-events-none absolute z-[25] overflow-hidden" style={overlayStyle}>
-                    {controlled ? <div className="absolute inset-0 border border-cyan-300/35 shadow-[inset_0_0_20px_rgba(34,211,238,0.08)]" aria-label="Zyra-controlled Browser surface" /> : null}
+                    {controlled ? <AssistantAgentUseOverlay application="Browser" /> : null}
                     <AssistantBrowserAgentCursor cursor={cursor} scale={(layout.visibleWidth / Math.max(1, layout.width)) * zoomFactor} />
                 </div>
             ) : null}

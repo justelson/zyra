@@ -14,6 +14,8 @@ import type {
     ControlPlanRequest,
     ControlPlanResult,
     ControlPrincipal,
+    ControlSemanticActionSequenceResult,
+    ControlSemanticActionStep,
     ControlSideEffectClass,
     ControlStateSnapshot,
     ControlTarget,
@@ -28,6 +30,7 @@ import {
     assertControlActionRequest,
     assertControlCapabilities,
     assertControlPlanRequest,
+    assertControlSemanticActionSequenceRequest,
     assertControlIdentifier,
     assertControlPrincipal
 } from '../../shared/agent-control/validation'
@@ -112,6 +115,7 @@ export class AgentControlBroker extends EventEmitter {
         resolve: () => void
         reject: (error: AgentControlError) => void
     }>()
+    private readonly grantExpiryTimer: NodeJS.Timeout
 
     constructor(
         private readonly options: {
@@ -122,6 +126,10 @@ export class AgentControlBroker extends EventEmitter {
     ) {
         super()
         this.audit = new AuditStore(options.userDataPath)
+        this.grantExpiryTimer = setInterval(() => {
+            try { this.expireActiveGrants(true) } catch {}
+        }, 500)
+        this.grantExpiryTimer.unref?.()
     }
 
     setBrowserSurfaceController(controller: BrowserSurfaceController | null): void {
@@ -718,6 +726,68 @@ export class AgentControlBroker extends EventEmitter {
         }, signal)
     }
 
+    async semanticActionSequence(principal: ControlPrincipal, requestValue: unknown, signal?: AbortSignal): Promise<ControlSemanticActionSequenceResult> {
+        this.assertAlive()
+        const request = assertControlSemanticActionSequenceRequest(requestValue)
+        const grant = this.grants.requireRemaining(request.grantId, principal, request.steps.length)
+        if (grant.targetId !== request.targetId) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The grant is bound to another target.')
+        const registered = this.targets.get(request.targetId)
+        if (registered.target.kind !== 'windows-window') {
+            throw new AgentControlError('CONTROL_SCOPE_DENIED', 'Semantic action sequences support only explicitly granted Windows application windows.')
+        }
+        assertGrantSupportsTarget(grant, registered.target)
+
+        let revision = request.observationRevision
+        let observation = this.observations.requireRevision(request.targetId, revision)
+        let changed = false
+        let completedSteps = 0
+        for (const [index, step] of request.steps.entries()) {
+            let action: ControlAction
+            try {
+                action = resolveSemanticSequenceAction(step, observation, index)
+            } catch (error) {
+                const controlError = toAgentControlError(error)
+                throw new AgentControlError(
+                    controlError.code,
+                    `Computer interaction sequence stopped before step ${index + 1} after ${completedSteps} completed steps: ${controlError.message}`,
+                    { ...controlError.options, freshRevision: revision }
+                )
+            }
+            try {
+                const result = await this.act(principal, {
+                    version: 1,
+                    requestId: `${request.requestId}:step:${index + 1}`,
+                    grantId: request.grantId,
+                    targetId: request.targetId,
+                    observationRevision: revision,
+                    action
+                }, signal)
+                completedSteps += 1
+                changed = changed || result.changed
+                observation = result.observation
+                revision = observation.revision
+            } catch (error) {
+                const controlError = toAgentControlError(error)
+                throw new AgentControlError(
+                    controlError.code,
+                    `Computer interaction sequence stopped at step ${index + 1} after ${completedSteps} completed steps: ${controlError.message}`,
+                    { ...controlError.options, freshRevision: revision }
+                )
+            }
+        }
+        return {
+            version: 1,
+            requestId: request.requestId,
+            targetId: request.targetId,
+            previousRevision: request.observationRevision,
+            completedSteps,
+            totalSteps: request.steps.length,
+            observation,
+            changed,
+            outcome: 'completed'
+        }
+    }
+
     async perform(principal: ControlPrincipal, requestValue: unknown, signal?: AbortSignal): Promise<ControlPlanResult> {
         this.assertAlive()
         const request = assertControlPlanRequest(requestValue)
@@ -969,30 +1039,55 @@ export class AgentControlBroker extends EventEmitter {
         })
     }
 
-    async openWindowsApp(principal: ControlPrincipal, applicationValue: string, signal?: AbortSignal): Promise<{ applicationName: string; windows: ControlWindowCandidate[] }> {
+    async openWindowsApp(principal: ControlPrincipal, applicationValue: string, signal?: AbortSignal): Promise<{ applicationName: string; windows: ControlWindowCandidate[]; launched: boolean }> {
         const driver = this.options.drivers?.find((entry) => entry.kind === 'windows-window')
         if (!driver?.openApp) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Opening registered Windows applications is unavailable.')
         const application = String(applicationValue || '').trim()
         if (!application || application.length > 128 || /[\u0000-\u001f\u007f]/u.test(application)) {
             throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'A registered application name between 1 and 128 characters is required.')
         }
+        const existingWindows = (await this.listWindows(application)).filter((candidate) => (
+            candidate.applicationName.localeCompare(application, 'en-US', { sensitivity: 'accent' }) === 0
+            || candidate.title.localeCompare(application, 'en-US', { sensitivity: 'accent' }) === 0
+        ))
+        if (existingWindows.length > 0) {
+            this.audit.append({
+                eventType: 'target', principal,
+                outcome: 'completed', message: 'A running query-matched Windows application was reused without opening a duplicate window.',
+                redactions: ['application-name']
+            })
+            return { applicationName: application, windows: existingWindows, launched: false }
+        }
         const opened = await driver.openApp(application, signal)
         const queries = [...new Set([opened.applicationName, application])]
         let windows: ControlWindowCandidate[] = []
-        for (let attempt = 0; attempt < 30 && windows.length === 0; attempt += 1) {
+        let previousCandidateSet = ''
+        let stablePasses = 0
+        for (let attempt = 0; attempt < 30; attempt += 1) {
             if (signal?.aborted) throw new AgentControlError('CONTROL_CANCELLED', 'Opening the Windows application was cancelled.')
+            let current: ControlWindowCandidate[] = []
             for (const query of queries) {
-                windows = await this.listWindows(query)
-                if (windows.length > 0) break
+                current = await this.listWindows(query)
+                if (current.length > 0) break
             }
-            if (windows.length === 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+            const exactMatches = current.filter((candidate) => queries.some((query) => (
+                candidate.applicationName.localeCompare(query, 'en-US', { sensitivity: 'accent' }) === 0
+                || candidate.title.localeCompare(query, 'en-US', { sensitivity: 'accent' }) === 0
+            )))
+            if (exactMatches.length > 0) current = exactMatches
+            const candidateSet = current.map((candidate) => candidate.windowToken).sort().join('\n')
+            stablePasses = candidateSet.length > 0 && candidateSet === previousCandidateSet ? stablePasses + 1 : candidateSet.length > 0 ? 1 : 0
+            previousCandidateSet = candidateSet
+            windows = current
+            if (stablePasses >= 3) break
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
         }
         this.audit.append({
             eventType: 'target', principal,
-            outcome: 'completed', message: 'A query-resolved registered Windows application was opened.',
+            outcome: 'completed', message: 'A query-resolved registered Windows application was opened and its candidate set stabilized.',
             redactions: ['application-name']
         })
-        return { applicationName: opened.applicationName, windows }
+        return { applicationName: opened.applicationName, windows, launched: true }
     }
 
     async selectWindow(windowToken: string): Promise<ControlTarget> {
@@ -1012,8 +1107,7 @@ export class AgentControlBroker extends EventEmitter {
     }
 
     state(ownerWebContentsId?: number): ControlStateSnapshot {
-        const expiredGrants = this.grants.expire()
-        for (const targetId of new Set(expiredGrants.map((grant) => grant.targetId))) this.releaseTargetIfIdle(targetId)
+        this.expireActiveGrants(false)
         const grants = this.grants.list()
         return {
             version: 1,
@@ -1166,10 +1260,93 @@ export class AgentControlBroker extends EventEmitter {
             }
             case 'list_windows':
                 if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot enumerate or select Windows targets.')
+                if (!String(operation.query || '').trim()) {
+                    throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Windows tool search requires the application requested by the user.')
+                }
                 return { windows: await this.listWindows(operation.query) }
             case 'open_app':
                 if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot open Windows applications.')
                 return await this.openWindowsApp(principal, operation.application, signal)
+            case 'use_app': {
+                if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents cannot open or select Windows applications.')
+                const capabilities = assertControlCapabilities(operation.capabilities)
+                const requestedSequence = operation.steps?.length
+                    ? assertControlSemanticActionSequenceRequest({
+                        version: 1,
+                        requestId: operation.requestId || `use-app:${randomUUID()}`,
+                        grantId: 'control-grant:pending',
+                        targetId: 'control-target:pending',
+                        observationRevision: 1,
+                        steps: operation.steps
+                    })
+                    : null
+                const opened = await this.openWindowsApp(principal, operation.application, signal)
+                const candidates = opened.windows.filter((candidate) => !candidate.blocked)
+                if (candidates.length !== 1) {
+                    throw new AgentControlError(
+                        'CONTROL_TARGET_AMBIGUOUS',
+                        candidates.length === 0
+                            ? 'The requested registered app did not expose a controllable window.'
+                            : `The requested app has ${candidates.length} matching windows. Select one exact window before requesting access.`
+                    )
+                }
+                const result = await this.handleToolOperation(principal, {
+                    operation: 'request_grant',
+                    windowToken: candidates[0].windowToken,
+                    capabilities,
+                    durationMs: operation.durationMs,
+                    maxActions: operation.maxActions
+                }, signal, options)
+                const grant = result.grant as ControlGrant | undefined
+                if (!grant) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return its bounded grant.')
+                for (const previous of this.grants.listForPrincipal(principal)) {
+                    if (previous.grantId === grant.grantId || previous.state !== 'active') continue
+                    let previousTarget: ControlTarget
+                    try {
+                        previousTarget = this.targets.get(previous.targetId).target
+                    } catch {
+                        this.revokeGrant(previous.grantId, principal)
+                        continue
+                    }
+                    if (previousTarget.kind === 'windows-window') this.revokeGrant(previous.grantId, principal)
+                }
+                if (!requestedSequence) {
+                    return { ...result, applicationName: opened.applicationName, launched: opened.launched }
+                }
+                const observation = result.observation as ControlObservation | undefined
+                if (!observation) {
+                    this.revokeGrant(grant.grantId, principal)
+                    throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return the initial granted observation.')
+                }
+                let sequence: ControlSemanticActionSequenceResult
+                try {
+                    sequence = await this.semanticActionSequence(principal, {
+                        version: 1,
+                        requestId: requestedSequence.requestId,
+                        grantId: grant.grantId,
+                        targetId: grant.targetId,
+                        observationRevision: observation.revision,
+                        steps: requestedSequence.steps
+                    }, signal)
+                } catch (error) {
+                    this.revokeGrant(grant.grantId, principal)
+                    throw error
+                }
+                return {
+                    ...result,
+                    grant: this.grants.listForPrincipal(principal).find((entry) => entry.grantId === grant.grantId) || grant,
+                    observation: compactCompletedSequenceObservation(observation, sequence.observation),
+                    sequence: {
+                        previousRevision: sequence.previousRevision,
+                        completedSteps: sequence.completedSteps,
+                        totalSteps: sequence.totalSteps,
+                        changed: sequence.changed,
+                        outcome: sequence.outcome
+                    },
+                    applicationName: opened.applicationName,
+                    launched: opened.launched
+                }
+            }
             case 'request_grant': {
                 if (operation.targetId && operation.windowToken) {
                     throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'A control request must identify one existing target or one Windows candidate.')
@@ -1194,6 +1371,12 @@ export class AgentControlBroker extends EventEmitter {
                     options.permissionMode === 'full-access'
                     || (options.permissionMode === 'auto-review' && requestedTarget.kind === 'zyra-browser')
                 )
+                const completeGrant = async (request: ReturnType<AgentControlBroker['requestGrant']>, grant: ControlGrant) => {
+                    const observation = requestedTarget.kind === 'windows-window' && grant.capabilities.includes('observe.structure')
+                        ? await this.observe(principal, grant.grantId, requestedTarget.targetId, false, signal, 'structure')
+                        : undefined
+                    return { pending: false, request, grant, ...(observation ? { observation } : {}) }
+                }
                 const request = this.requestGrant({
                     principal,
                     targetId: requestedTarget.targetId,
@@ -1217,10 +1400,10 @@ export class AgentControlBroker extends EventEmitter {
                             ? 'Auto review issued a bounded in-app Browser grant.'
                             : 'Full access issued a bounded control grant.'
                     })
-                    return { pending: false, request, grant }
+                    return await completeGrant(request, grant)
                 }
                 const grant = await this.waitForPendingGrant(request.requestId, signal)
-                return { pending: false, request, grant }
+                return await completeGrant(request, grant)
             }
             case 'delegate_lease': {
                 if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Only the root agent may delegate a control lease.')
@@ -1259,6 +1442,9 @@ export class AgentControlBroker extends EventEmitter {
             }
             case 'act':
                 return await this.act(principal, operation, signal) as unknown as Record<string, unknown>
+            case 'act_sequence': {
+                return await this.semanticActionSequence(principal, operation, signal) as unknown as Record<string, unknown>
+            }
             case 'perform': {
                 const plan = await this.perform(principal, operation, signal)
                 const registered = this.targets.get(plan.targetId)
@@ -1534,10 +1720,34 @@ export class AgentControlBroker extends EventEmitter {
 
     async dispose(): Promise<void> {
         if (this.disposed) return
+        clearInterval(this.grantExpiryTimer)
         await this.emergencyStop('Application shutdown.')
         this.disposed = true
         await Promise.allSettled((this.options.drivers || []).map((driver) => Promise.resolve(driver.dispose?.())))
         this.removeAllListeners()
+    }
+
+    private expireActiveGrants(notify: boolean): void {
+        const expired = this.grants.expire()
+        if (!expired.length) return
+        for (const grant of expired) {
+            this.releaseInputFocus(grant.targetId)
+            this.clearCursorIfNoActiveGrant(grant.targetId)
+            for (const [planId, plan] of this.pausedPlans) {
+                if (plan.request.grantId === grant.grantId) this.pausedPlans.delete(planId)
+            }
+            for (const pending of [...this.pendingActionApprovals.values()]) {
+                if (pending.grantId === grant.grantId) this.cancelPendingActionApproval(pending.requestId, 'The control grant expired.')
+            }
+            let targetKind: ControlTarget['kind'] | undefined
+            try { targetKind = this.targets.get(grant.targetId).target.kind } catch {}
+            this.audit.append({
+                eventType: 'grant.expired', principal: grant.principal, targetId: grant.targetId,
+                targetKind, grantId: grant.grantId, outcome: 'cancelled', message: 'Control grant expired.', redactions: []
+            })
+            this.releaseTargetIfIdle(grant.targetId)
+        }
+        if (notify) this.changed()
     }
 
     private async runAgentInput<T>(targetId: string, operation: () => Promise<T>): Promise<T> {
@@ -1579,6 +1789,7 @@ export class AgentControlBroker extends EventEmitter {
             actionType,
             principal,
             durationMs: patch.durationMs ?? current?.durationMs,
+            coordinateSpace: patch.coordinateSpace ?? current?.coordinateSpace,
             updatedAt: new Date().toISOString()
         }
         this.cursors.set(targetId, cursor)
@@ -1691,6 +1902,91 @@ function assertActionInsideStageRegion(region: ControlPlanRequest['stage']['expe
     ))) {
         throw new AgentControlError('CONTROL_SCOPE_DENIED', 'A pointer step is outside the stage intent region.')
     }
+}
+
+function compactCompletedSequenceObservation(initial: ControlObservation, final: ControlObservation): ControlObservation {
+    const semanticIdentity = (element: ControlObservation['elements'][number]): string => {
+        const bounds = element.bounds
+        return bounds
+            ? `${element.role}\u0000${bounds.x},${bounds.y},${bounds.width},${bounds.height}`
+            : `${element.role}\u0000${element.name || ''}`
+    }
+    const initialElements = new Map(initial.elements.map((element) => [semanticIdentity(element), element]))
+    const selected = final.elements.filter((element) => {
+        const before = initialElements.get(semanticIdentity(element))
+        const actions = new Set(element.actions || [])
+        const readableOutput = !actions.has('click')
+            && !actions.has('type')
+            && !actions.has('select')
+            && Boolean(element.name || element.text || element.value || element.description)
+        const focused = element.elementRef === final.focusedElementRef
+        if (!before) return true
+        const changed = element.role !== before.role
+            || element.name !== before.name
+            || element.text !== before.text
+            || element.value !== before.value
+            || element.description !== before.description
+            || JSON.stringify(element.states || []) !== JSON.stringify(before.states || [])
+            || JSON.stringify(element.actions || []) !== JSON.stringify(before.actions || [])
+        return changed || readableOutput || focused
+    }).slice(0, 64)
+    return {
+        ...final,
+        elements: selected,
+        truncation: selected.length < (final.truncation?.totalElements ?? final.elements.length)
+            ? { totalElements: final.truncation?.totalElements ?? final.elements.length, returnedElements: selected.length }
+            : undefined
+    }
+}
+
+function resolveSemanticSequenceAction(
+    step: ControlSemanticActionStep,
+    observation: ControlObservation,
+    index: number
+): ControlAction {
+    if (step.type === 'wait') {
+        return {
+            type: 'wait',
+            condition: { type: 'delay', durationMs: step.durationMs },
+            timeoutMs: step.durationMs
+        }
+    }
+    if (step.type === 'key') {
+        return { type: 'key', key: step.key, modifiers: step.modifiers, sideEffect: step.sideEffect }
+    }
+    if (semanticActionMayHaveCriticalSideEffect(step.name)) {
+        throw new AgentControlError(
+            'CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED',
+            `${JSON.stringify(step.name)} must use an individual action with its canonical side-effect review.`,
+            { freshRevision: observation.revision }
+        )
+    }
+    const requiredAction = step.type === 'click' ? 'click' : 'type'
+    const role = step.role?.trim().toLocaleLowerCase('en-US')
+    const name = step.name.trim().toLocaleLowerCase('en-US')
+    const matches = observation.elements.filter((element) => (
+        !element.sensitive
+        && (element.actions || []).includes(requiredAction)
+        && (!role || element.role.trim().toLocaleLowerCase('en-US') === role)
+        && String(element.name || '').trim().toLocaleLowerCase('en-US') === name
+    ))
+    if (matches.length !== 1) {
+        const targetDescription = role
+            ? `${JSON.stringify(step.role)} named ${JSON.stringify(step.name)}`
+            : `actionable control named ${JSON.stringify(step.name)}`
+        throw new AgentControlError(
+            'CONTROL_TARGET_BLOCKED',
+            `Expected one exact ${targetDescription} for step ${index + 1}, found ${matches.length}.`,
+            { freshRevision: observation.revision }
+        )
+    }
+    return step.type === 'click'
+        ? { type: 'click', elementRef: matches[0].elementRef, sideEffect: step.sideEffect }
+        : { type: 'type', elementRef: matches[0].elementRef, text: step.text, replace: step.replace, sideEffect: step.sideEffect }
+}
+
+function semanticActionMayHaveCriticalSideEffect(nameValue: string): boolean {
+    return /\b(?:accept terms|agree|buy|checkout|create account|delete|erase|install|log[ -]?in|pay|place order|post|publish|purchase|remove account|send|sign[ -]?in|submit|uninstall|upload)\b/i.test(nameValue)
 }
 
 function sameControlPrincipal(left: ControlPrincipal, right: ControlPrincipal): boolean {

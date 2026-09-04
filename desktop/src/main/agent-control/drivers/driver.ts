@@ -45,4 +45,5 @@ export interface AgentControlDriver {
     listWindows?(): Promise<ControlWindowCandidate[]>
     openApp?(application: string, signal?: AbortSignal): Promise<{ applicationName: string }>
     selectWindow?(windowToken: string): Promise<{ trustedIdentity: unknown; target: Omit<Extract<ControlTarget, { kind: 'windows-window' }>, 'targetId'> }>
+    getWindowBounds?(target: RegisteredControlTarget): Promise<{ x: number; y: number; width: number; height: number }>
 }

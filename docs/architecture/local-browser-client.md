@@ -6,11 +6,13 @@ Status: **Current for V1 same-device access.** LAN, Tailscale, and public HTTPS 
 
 Zyra Desktop remains the local execution host. Chrome is a presentation and control client for the same persisted projects, chats, agents, files, Git operations, terminals, approvals, and settings APIs.
 
-The V1 browser URL is:
+The production V1 browser URL is:
 
 ```text
 http://127.0.0.1:47821/
 ```
+
+Source development uses `http://127.0.0.1:47822/` so an installed production Desktop and the dev Desktop never contend for the same browser-client host.
 
 The same link is available in **Settings → Connections**, with Open and Copy link actions.
 
@@ -27,7 +29,7 @@ Chrome
   -> existing main-process IPC handlers and execution services
 ```
 
-Production serves the existing built renderer from `out/renderer`. Development uses the same stable client origin and proxies renderer assets to the Electron Vite server. The renderer installs the browser adapters only when Electron's preload API is absent.
+Production serves the existing built renderer from `out/renderer`. Development uses its isolated stable client origin and proxies renderer assets to the Electron Vite server. The renderer installs the browser adapters only when Electron's preload API is absent.
 
 The private bridge capability is generated for each Desktop process and is never included in browser JavaScript. The stable host injects it while proxying same-origin requests. The existing descriptor remains available to the development Vite proxy.
 

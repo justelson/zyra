@@ -1,13 +1,10 @@
-import {
-    hasCachedSessionSelection,
-    type CachedHydratedThreadState
-} from './session-hydration-cache'
+import type { CachedHydratedThreadState } from './session-hydration-cache'
 import {
     deriveAssistantRuntimeStatus,
     type AssistantStoreState
 } from './assistant-store-runtime'
 import { mergeAssistantShellSnapshot } from './assistant-history-state'
-import { prepareAssistantWarmSelection } from './assistant-warm-selection'
+import { hasAssistantWarmSelection, prepareAssistantWarmSelection } from './assistant-warm-selection'
 
 type SetAssistantStoreState = (
     nextState:
@@ -117,15 +114,17 @@ export async function selectAssistantStoreSession(
             })
         }
         if (context.getState().selectionRequestId === selectionRequestId) {
-            const cacheMatchesLatestShell = hasCachedSessionSelection(
-                context.getState().snapshot,
+            const current = context.getState()
+            const warmSelectionMatchesLatestShell = hasAssistantWarmSelection({
+                snapshot: current.snapshot,
                 sessionId,
-                targetThreadId,
-                context.hydratedThreadCache
-            )
+                threadId: targetThreadId,
+                hydratedThreadCache: context.hydratedThreadCache,
+                historyByThreadId: current.historyByThreadId
+            })
             await context.requestSessionHydration(sessionId, targetThreadId, {
-                force: !cacheMatchesLatestShell,
-                resetLoadedRange: !cacheMatchesLatestShell
+                force: !warmSelectionMatchesLatestShell,
+                resetLoadedRange: !warmSelectionMatchesLatestShell
             })
         }
 

@@ -459,8 +459,8 @@ try {
     assert.equal(coreSource.includes('current.selectionRequestSessionId'), true, 'delayed domain events preserve the newest local chat selection')
     assert.equal(coreSource.includes('previousState.snapshot.sessions !== mergedState.snapshot.sessions'), true, 'selection-only snapshots skip full hydrated-thread cache scans')
     assert.equal(coreSource.includes('resetLoadedRange ? undefined : current.historyByThreadId[threadId]'), true, 'authoritative refresh can preserve a validated loaded range while still replacing uncached shells')
-    assert.equal(sessionSelectionSource.includes('force: !cacheMatchesLatestShell'), true, 'session switching trusts a cache that still matches the authoritative shell')
-    assert.equal(sessionSelectionSource.includes('resetLoadedRange: !cacheMatchesLatestShell'), true, 'session switching resets the visible range only when authoritative history changed')
+    assert.equal(sessionSelectionSource.includes('force: !warmSelectionMatchesLatestShell'), true, 'session switching trusts revision-matched retained history as well as the fallback preview cache')
+    assert.equal(sessionSelectionSource.includes('resetLoadedRange: !warmSelectionMatchesLatestShell'), true, 'session switching resets the visible range only when neither retained history nor the fallback preview matches')
     assert.equal(coreSource.includes('dematerializeAssistantHistories(applied.snapshot, runningThreadIds)'), true, 'inactive cached chats do not remain materialized in the live renderer snapshot')
     assert.equal(hydrationCacheSource.includes('if (remainsMaterialized) continue'), true, 'the active long thread is not rescanned into a duplicate cache on every timeline event')
     const threadSelectionSource = coreSource.split('async selectThread')[1]?.split('async deletePlaygroundLab')[0] || ''
@@ -553,48 +553,96 @@ try {
             }))
         })
     }
+    const oversizedRetainedHistory = {
+        threadId: oversizedThread.id,
+        messages: oversizedThread.messages,
+        activities: oversizedThread.activities,
+        proposedPlans: oversizedThread.proposedPlans,
+        pageInfo: {
+            oldestCursor: 'retained-oldest-cursor',
+            newestCursor: null,
+            hasOlder: true,
+            hasNewer: false,
+            turnCount: oversizedThread.messages.filter((message) => message.role === 'user').length
+        },
+        initialLoading: false,
+        loadingOlder: false,
+        loadingNewer: false,
+        loadOlderError: null,
+        loadNewerError: null,
+        fullyLoaded: false,
+        lastUsedAt: Date.now() - 60_000,
+        shellRevision: getAssistantThreadHydrationRevision(oversizedThread)
+    }
     const oversizedWarmSelection = prepareAssistantWarmSelection({
         snapshot: oversizedShell,
         sessionId: oversizedSession.id,
         threadId: oversizedThread.id,
         hydratedThreadCache: new Map(),
-        historyByThreadId: {
-            [oversizedThread.id]: {
-                threadId: oversizedThread.id,
-                messages: oversizedThread.messages,
-                activities: oversizedThread.activities,
-                proposedPlans: oversizedThread.proposedPlans,
-                pageInfo: {
-                    oldestCursor: null,
-                    newestCursor: null,
-                    hasOlder: false,
-                    hasNewer: false,
-                    turnCount: oversizedThread.messages.filter((message) => message.role === 'user').length
-                },
-                initialLoading: false,
-                loadingOlder: false,
-                loadingNewer: false,
-                loadOlderError: null,
-                loadNewerError: null,
-                fullyLoaded: true,
-                lastUsedAt: Date.now(),
-                shellRevision: getAssistantThreadHydrationRevision(oversizedThread)
-            }
-        }
+        historyByThreadId: { [oversizedThread.id]: oversizedRetainedHistory }
     })
     const warmOversizedThread = oversizedWarmSelection.snapshot.sessions
         .find((entry) => entry.id === oversizedSession.id)!.threads[0]!
     const warmOversizedHistory = oversizedWarmSelection.historyByThreadId[oversizedThread.id]!
-    assert.equal(
-        warmOversizedThread.messages.length + warmOversizedThread.activities.length + warmOversizedThread.proposedPlans.length <= HYDRATED_THREAD_CACHE_MAX_TIMELINE_RECORDS + 2,
-        true,
-        'a retained long chat is bounded before its first React render even when no duplicate hydrated cache exists'
-    )
-    assert.equal(warmOversizedHistory.messages, warmOversizedThread.messages, 'the paging state matches the bounded rows shown in the first frame')
-    assert.equal(warmOversizedHistory.activities, warmOversizedThread.activities, 'the retained activity cursor cannot describe rows omitted from the visible window')
-    assert.equal(warmOversizedHistory.pageInfo.hasOlder, true, 'discarded retained rows remain reachable through normal upward pagination')
-    assert.ok(warmOversizedHistory.pageInfo.oldestCursor, 'the bounded warm window records a real older-page cursor')
-    assert.equal(warmOversizedHistory.fullyLoaded, false, 'a bounded warm window never claims the full chat is resident')
+    assert.equal(warmOversizedThread.messages, oversizedRetainedHistory.messages, 'switching back restores every message already loaded for that chat')
+    assert.equal(warmOversizedThread.activities, oversizedRetainedHistory.activities, 'switching back restores every activity already loaded for that chat')
+    assert.equal(warmOversizedHistory.messages, oversizedRetainedHistory.messages, 'chat switching cannot replace the retained paging window with a preview-sized copy')
+    assert.equal(warmOversizedHistory.activities, oversizedRetainedHistory.activities)
+    assert.equal(warmOversizedHistory.pageInfo, oversizedRetainedHistory.pageInfo, 'chat switching preserves the complete paging boundary')
+    assert.ok(warmOversizedHistory.lastUsedAt > oversizedRetainedHistory.lastUsedAt, 'reopening a retained chat refreshes its cache age')
+
+    let retainedSwitchState = {
+        ...state,
+        snapshot: { ...oversizedShell, selectedSessionId: 'a' },
+        historyByThreadId: { [oversizedThread.id]: oversizedRetainedHistory },
+        selectionTransitionKey: null,
+        selectionHydrationKey: null,
+        selectionRequestId: 0,
+        selectionRequestSessionId: null
+    } as unknown as AssistantStoreState
+    const retainedSwitchHydrationCalls: Array<{ force: boolean; resetLoadedRange: boolean }> = []
+    const originalSelectSession = (globalThis as any).window.devscope.assistant.selectSession
+    ;(globalThis as any).window.devscope.assistant.selectSession = async (sessionId: string) => ({
+        success: true as const,
+        sessionId,
+        snapshot: { ...oversizedShell, selectedSessionId: sessionId },
+        status: {
+            available: true,
+            connected: true,
+            selectedSessionId: sessionId,
+            activeThreadId: oversizedThread.id,
+            state: 'ready' as const,
+            reason: null
+        }
+    })
+    try {
+        const retainedSwitch = selectAssistantStoreSession({
+            state: retainedSwitchState,
+            hydratedThreadCache: new Map(),
+            getState: () => retainedSwitchState,
+            setState: (nextState) => {
+                const partial = typeof nextState === 'function' ? nextState(retainedSwitchState) : nextState
+                retainedSwitchState = { ...retainedSwitchState, ...partial }
+            },
+            requestSessionHydration: async (_sessionId, _threadId, options) => {
+                retainedSwitchHydrationCalls.push({
+                    force: options?.force === true,
+                    resetLoadedRange: options?.resetLoadedRange === true
+                })
+            }
+        }, oversizedSession.id)
+        const immediateRetainedThread = retainedSwitchState.snapshot.sessions
+            .find((entry) => entry.id === oversizedSession.id)!.threads[0]!
+        assert.equal(immediateRetainedThread.messages, oversizedRetainedHistory.messages, 'the click task paints the retained timeline without shrinking it first')
+        await retainedSwitch
+        assert.deepEqual(
+            retainedSwitchHydrationCalls,
+            [{ force: false, resetLoadedRange: false }],
+            'a revision-matched retained timeline cannot trigger a forced newest-page replacement'
+        )
+    } finally {
+        ;(globalThis as any).window.devscope.assistant.selectSession = originalSelectSession
+    }
 
     const staleCache = new Map(hydratedThreadCache)
     const staleSessionB = state.snapshot.sessions.find((entry) => entry.id === 'b')!

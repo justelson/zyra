@@ -27,7 +27,6 @@ import { assistantStreamPresentation } from './assistant-stream-presentation'
 import { rendererVisibility } from '../renderer-visibility'
 import {
     cacheHydratedThreads,
-    hasCachedSessionSelection,
     type CachedHydratedThreadState
 } from './session-hydration-cache'
 import { deriveAssistantRuntimeStatus, INITIAL_ASSISTANT_RUNTIME_STATUS, type AssistantStoreState } from './assistant-store-runtime'
@@ -35,7 +34,7 @@ import { shouldAutoReconnectAssistantOnStartup } from './assistant-runtime-prefe
 import { getAssistantThreadHydrationRevision } from './assistant-thread-hydration-revision'
 import { runAssistantStoreAction } from './assistant-store-action-runner'
 import { selectAssistantStoreSession } from './assistant-store-session-selection'
-import { prepareAssistantWarmSelection } from './assistant-warm-selection'
+import { hasAssistantWarmSelection, prepareAssistantWarmSelection } from './assistant-warm-selection'
 import { preserveAssistantClientRoute } from './assistant-client-route'
 import {
     isPristineAssistantSession,
@@ -794,18 +793,19 @@ export class AssistantStore {
                 })
             }
             if (this.state.selectionRequestId === selectionRequestId) {
-                const cacheMatchesLatestShell = hasCachedSessionSelection(
-                    this.state.snapshot,
-                    input.sessionId,
-                    input.threadId,
-                    this.hydratedThreadCache
-                )
+                const warmSelectionMatchesLatestShell = hasAssistantWarmSelection({
+                    snapshot: this.state.snapshot,
+                    sessionId: input.sessionId,
+                    threadId: input.threadId,
+                    hydratedThreadCache: this.hydratedThreadCache,
+                    historyByThreadId: this.state.historyByThreadId
+                })
                 await this.requestSessionHydration(
                     input.sessionId,
                     input.threadId,
                     0,
-                    !cacheMatchesLatestShell,
-                    !cacheMatchesLatestShell
+                    !warmSelectionMatchesLatestShell,
+                    !warmSelectionMatchesLatestShell
                 )
             }
             return result

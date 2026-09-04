@@ -528,6 +528,7 @@ export const TimelineMessage = memo(({
     assistantTextStreamingMode = 'stream',
     displayMode = 'detailed',
     compactLiveNarration = false,
+    inlineWorkNarration = false,
     onRequestDelete,
     onOpenFilePath = undefined,
     onOpenAttachmentPreview = undefined,
@@ -544,6 +545,7 @@ export const TimelineMessage = memo(({
     assistantTextStreamingMode?: AssistantTextStreamingMode
     displayMode?: AssistantChatDisplayMode
     compactLiveNarration?: boolean
+    inlineWorkNarration?: boolean
     onRequestDelete?: (message: AssistantMessage) => void
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onOpenAttachmentPreview?: (
@@ -674,10 +676,32 @@ export const TimelineMessage = memo(({
 
         return (
             <div
-                className={cn('group group/assistant-message max-w-4xl', compactLiveNarration ? 'py-0.5' : minimal ? 'py-0.5' : 'py-1')}
+                className={cn('group group/assistant-message max-w-4xl', compactLiveNarration || inlineWorkNarration ? 'py-0.5' : minimal ? 'py-0.5' : 'py-1')}
                 data-assistant-message-surface={displayMode}
+                data-assistant-inline-work-narration={inlineWorkNarration ? 'true' : undefined}
             >
-                {compactLiveNarration ? (
+                {inlineWorkNarration ? (
+                    presentationActive ? (
+                        <StreamingAssistantMarkdown
+                            content={renderedAssistantText || ' '}
+                            cacheKey={`${message.id}:inline-work-stream`}
+                            filePath={filePath || undefined}
+                            onInternalLinkClick={onInternalLinkClick}
+                            onLinkNotice={onLinkNotice}
+                            className="assistant-live-narration-muted text-[11px] leading-5 [overflow-wrap:anywhere] [&_p]:mb-0 [&_li]:leading-5"
+                        />
+                    ) : (
+                        <CompletedAssistantMarkdown
+                            content={renderedAssistantText}
+                            cacheKey={`${message.id}:${message.updatedAt}:inline-work:${renderedAssistantText.length}`}
+                            deferInitialRender={streamedMessageRef.current}
+                            filePath={filePath || undefined}
+                            onInternalLinkClick={onInternalLinkClick}
+                            onLinkNotice={onLinkNotice}
+                            className="text-[11px] leading-5 text-sparkle-text-muted/80 [overflow-wrap:anywhere] [&_p]:mb-0 [&_li]:leading-5"
+                        />
+                    )
+                ) : compactLiveNarration ? (
                     presentationActive ? (
                         <div className="block w-full rounded-sm text-left">
                             <div className="line-clamp-3 [overflow-wrap:anywhere]">
@@ -737,7 +761,7 @@ export const TimelineMessage = memo(({
                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
                     />
                 )}
-                {!compactLiveNarration ? <div
+                {!compactLiveNarration && !inlineWorkNarration ? <div
                     className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sparkle-text-muted"
                     data-assistant-message-metadata={displayMode}
                 >

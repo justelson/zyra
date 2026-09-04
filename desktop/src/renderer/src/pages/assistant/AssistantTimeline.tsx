@@ -47,7 +47,6 @@ import {
 } from './assistant-timeline-helpers'
 import { stripProposedPlanBlocks } from './assistant-proposed-plan'
 import { groupTimelineRowsIntoWorkSummaries } from './assistant-turn-work'
-import { buildAssistantWorkSteps, shouldInheritAssistantWorkStepTitle } from './assistant-work-steps'
 import { useAssistantTimelineEntries } from './useAssistantTimelineEntries'
 
 const ASSISTANT_MARKDOWN_PREWARM_MAX_LENGTH = 32_000
@@ -58,6 +57,20 @@ function countTimelineWorkActions(rows: TimelineRenderRow[]): number {
         if ('activities' in row) return count + row.activities.length
         return count
     }, 0)
+}
+
+function revealTimelineActivityElement(target: HTMLElement): void {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+    target.animate(
+        [
+            { backgroundColor: 'rgba(93, 228, 199, 0)', boxShadow: '0 0 0 0 rgba(93, 228, 199, 0)' },
+            { backgroundColor: 'rgba(93, 228, 199, 0.13)', boxShadow: '0 0 0 1px rgba(93, 228, 199, 0.28)' },
+            { backgroundColor: 'rgba(93, 228, 199, 0)', boxShadow: '0 0 0 0 rgba(93, 228, 199, 0)' }
+        ],
+        { duration: reduceMotion ? 1 : 1350, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+    )
+    target.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
 }
 
 type AssistantTimelineProps = {
@@ -200,17 +213,17 @@ function AssistantTimelineImpl({
     const revealActivityInDom = useCallback((activityId: string): boolean => {
         const target = document.getElementById(getTimelineActivityDomId(activityId))
         if (!target) return false
-        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
-        target.animate(
-            [
-                { backgroundColor: 'rgba(93, 228, 199, 0)', boxShadow: '0 0 0 0 rgba(93, 228, 199, 0)' },
-                { backgroundColor: 'rgba(93, 228, 199, 0.13)', boxShadow: '0 0 0 1px rgba(93, 228, 199, 0.28)' },
-                { backgroundColor: 'rgba(93, 228, 199, 0)', boxShadow: '0 0 0 0 rgba(93, 228, 199, 0)' }
-            ],
-            { duration: reduceMotion ? 1 : 1350, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
-        )
-        target.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+        const actionBatch = target.closest<HTMLElement>('[data-assistant-action-batch="true"]')
+        const actionBatchTrigger = actionBatch?.querySelector<HTMLButtonElement>('[data-assistant-action-batch-trigger="true"]')
+        if (actionBatchTrigger?.getAttribute('aria-expanded') === 'false') {
+            actionBatchTrigger.click()
+            window.setTimeout(() => {
+                const revealedTarget = document.getElementById(getTimelineActivityDomId(activityId))
+                if (revealedTarget) revealTimelineActivityElement(revealedTarget)
+            }, 230)
+            return true
+        }
+        revealTimelineActivityElement(target)
         return true
     }, [])
     const revealActivity = useCallback((activityId: string) => {
@@ -346,7 +359,7 @@ function AssistantTimelineImpl({
 
     const renderRow = (
         row: TimelineDisplayRow,
-        options: { compactLiveNarration?: boolean; liveNarration?: boolean; purposeTitle?: string | null } = {}
+        options: { compactLiveNarration?: boolean; liveNarration?: boolean; inlineWorkNarration?: boolean } = {}
     ): ReactNode => {
         if (row.kind === 'turn-work-summary') {
             return (
@@ -362,22 +375,14 @@ function AssistantTimelineImpl({
                     hasWork={row.rows.length > 0}
                     revealContent={Boolean(focusMessageId && row.rows.some((nested) => nested.kind === 'message' && nested.message.id === focusMessageId))}
                     renderChildren={() => (
-                        <div className="[&>*:last-child]:pb-0" data-assistant-work-steps="true">
-                            {buildAssistantWorkSteps(row.rows).map((step) => {
-                                const inheritTitle = shouldInheritAssistantWorkStepTitle(step)
-                                return (
-                                    <section key={step.id} className="pb-3 last:pb-0" data-assistant-work-step={step.id}>
-                                        {step.title && !inheritTitle ? (
-                                            <p className="mb-1.5 px-1 text-[11px] font-medium leading-5 text-sparkle-text-secondary">{step.title}</p>
-                                        ) : null}
-                                        {step.rows.map((workRow) => renderRowContainer(
-                                            workRow,
-                                            renderRow(workRow, { purposeTitle: inheritTitle ? step.title : null }),
-                                            true
-                                        ))}
-                                    </section>
-                                )
-                            })}
+                        <div className="[&>*:last-child]:pb-0" data-assistant-work-sequence="chronological">
+                            {row.rows.map((workRow) => renderRowContainer(
+                                workRow,
+                                renderRow(workRow, {
+                                    inlineWorkNarration: workRow.kind === 'message' && workRow.message.role === 'assistant'
+                                }),
+                                true
+                            ))}
                         </div>
                     )}
                 />
@@ -405,7 +410,6 @@ function AssistantTimelineImpl({
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
-                    purposeTitle={options.purposeTitle}
                     onOpenFilePath={onOpenFilePath}
                     onOpenUrl={onOpenInternalLink}
                     onViewDiff={onViewDiff}
@@ -429,7 +433,6 @@ function AssistantTimelineImpl({
                             runningCommandCount={runningCommandCount}
                             projectRootPath={projectRootPath}
                             toolOutputDefaultMode={assistantToolOutputDefaultMode}
-                            purposeTitle={options.purposeTitle}
                             onOpenFilePath={onOpenFilePath}
                             onOpenUrl={onOpenInternalLink}
                             onViewDiff={onViewDiff}
@@ -467,7 +470,6 @@ function AssistantTimelineImpl({
                         runningCommandCount={runningCommandCount}
                         projectRootPath={projectRootPath}
                         toolOutputDefaultMode={assistantToolOutputDefaultMode}
-                        purposeTitle={options.purposeTitle}
                         onOpenFilePath={onOpenFilePath}
                         onOpenUrl={onOpenInternalLink}
                         onViewDiff={onViewDiff}
@@ -499,7 +501,6 @@ function AssistantTimelineImpl({
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
-                    purposeTitle={options.purposeTitle}
                     onOpenFilePath={onOpenFilePath}
                     onOpenUrl={onOpenInternalLink}
                     onViewDiff={onViewDiff}
@@ -552,6 +553,7 @@ function AssistantTimelineImpl({
                 assistantTextStreamingMode={assistantTextStreamingMode}
                 displayMode={assistantChatDisplayMode}
                 compactLiveNarration={options.compactLiveNarration}
+                inlineWorkNarration={options.inlineWorkNarration}
                 onRequestDelete={row.message.role === 'user' ? onRequestDeleteUserMessage : undefined}
                 onOpenFilePath={row.message.role === 'user' ? onOpenFilePath : undefined}
                 filePath={row.message.role === 'assistant' ? assistantMessageFilePath : null}

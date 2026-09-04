@@ -30,26 +30,24 @@ function getRowTurnId(row: TimelineRenderRow): string | null {
     return null
 }
 
-function getToolRowActivities(row: TimelineRenderRow): AssistantActivity[] | null {
-    if (row.kind === 'activity') {
-        return getActivityRenderGroupKind(row.activity) === 'tool' ? [row.activity] : null
+function getActionRowActivities(row: TimelineRenderRow): AssistantActivity[] | null {
+    const isAction = (activity: AssistantActivity) => {
+        const kind = getActivityRenderGroupKind(activity)
+        return kind === 'tool' || kind === 'subagent'
     }
-    if (
-        row.kind === 'activity-group'
-        && row.activities.length > 0
-        && row.activities.every((activity) => getActivityRenderGroupKind(activity) === 'tool')
-    ) {
+    if (row.kind === 'activity') return isAction(row.activity) ? [row.activity] : null
+    if (row.kind === 'activity-group' && row.activities.length > 0 && row.activities.every(isAction)) {
         return row.activities
     }
     return null
 }
 
-function groupConsecutiveToolRows(rows: TimelineRenderRow[]): TimelineRenderRow[] {
+function groupConsecutiveActionRows(rows: TimelineRenderRow[]): TimelineRenderRow[] {
     const groupedRows: TimelineRenderRow[] = []
     for (const row of rows) {
-        const activities = getToolRowActivities(row)
+        const activities = getActionRowActivities(row)
         const previous = groupedRows[groupedRows.length - 1]
-        const previousActivities = previous ? getToolRowActivities(previous) : null
+        const previousActivities = previous ? getActionRowActivities(previous) : null
         if (!activities || !previous || !previousActivities) {
             groupedRows.push(row)
             continue
@@ -360,7 +358,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
                     row.kind !== 'working'
                     && !rowMustStayVisible(row)
                 ))
-                const groupedWorkRows = groupConsecutiveToolRows(workRows)
+                const groupedWorkRows = groupConsecutiveActionRows(workRows)
                 const visibleRows = activeRows.filter((row) => (
                     row.kind !== 'working'
                     && rowMustStayVisible(row)
@@ -425,7 +423,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
 
         const workRows = rows.slice(userIndex + 1, finalIndex)
         if (workRows.length === 0 || workRows.some(rowMustStayVisible)) continue
-        const groupedWorkRows = groupConsecutiveToolRows(workRows)
+        const groupedWorkRows = groupConsecutiveActionRows(workRows)
 
         const startedAt = usage?.startedAt
             || usage?.requestedAt
@@ -486,7 +484,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
                     running: false,
                     terminalResponseVisible: false,
                     outcome: 'completed',
-                    rows: groupConsecutiveToolRows(workRows),
+                    rows: groupConsecutiveActionRows(workRows),
                     liveNarrationRow: null
                 },
                 visibleRows: turnRows.filter((row) => row.kind !== 'working' && rowMustStayVisible(row))
@@ -508,7 +506,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
                 : projectedTerminalOutcome || 'no-response'
         const displayTurnRows = outcome === 'interrupted' ? stripProjectedInterruptions(turnRows) : turnRows
         const workRows = displayTurnRows.filter((row) => row.kind !== 'working' && !rowMustStayVisible(row))
-        const groupedWorkRows = groupConsecutiveToolRows(workRows)
+        const groupedWorkRows = groupConsecutiveActionRows(workRows)
         const visibleRows = displayTurnRows.filter((row) => row.kind !== 'working' && rowMustStayVisible(row))
         if (workRows.length === 0 && outcome !== 'interrupted') continue
 

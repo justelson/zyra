@@ -9,6 +9,7 @@ import { AssistantCapturedReadPreview } from '../src/renderer/src/pages/assistan
 import { AssistantSkillSnapshotPreview } from '../src/renderer/src/pages/assistant/AssistantTimelineSkillAction'
 import { AssistantWebResultPreviewCard } from '../src/renderer/src/pages/assistant/AssistantTimelineWebAction'
 import { TimelineTurnInterruptionMarker } from '../src/renderer/src/pages/assistant/AssistantTimelineWorkSummary'
+import { TimelineMessage } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
 import {
     getAssistantActionFamily,
     getAssistantActionTitle,
@@ -22,7 +23,6 @@ import {
     requestAssistantInspectorNavigation,
     subscribeAssistantInspectorNavigation
 } from '../src/renderer/src/pages/assistant/assistant-inspector-navigation'
-import { buildAssistantWorkSteps, deriveAssistantWorkStepTitle, shouldInheritAssistantWorkStepTitle } from '../src/renderer/src/pages/assistant/assistant-work-steps'
 
 const createdAt = '2026-09-03T12:00:00.000Z'
 function activity(input: Partial<AssistantActivity> & Pick<AssistantActivity, 'id' | 'kind'>): AssistantActivity {
@@ -50,21 +50,17 @@ const command = activity({
     detail: 'bun test',
     payload: { toolName: 'bash', command: 'bun test', output: 'ok', status: 'completed', startedAt: createdAt, completedAt: createdAt }
 })
-const steps = buildAssistantWorkSteps([
-    { kind: 'message', id: narration.id, createdAt, message: narration },
-    { kind: 'activity', id: command.id, createdAt, activity: command }
-])
-assert.equal(steps.length, 1)
-assert.equal(steps[0]?.id, 'work-step:message:purpose', 'purpose IDs remain stable across replay')
-assert.equal(steps[0]?.title, 'Verify the question handoff before changing presentation')
-assert.equal(steps[0]?.rows.some((row) => row.kind === 'message'), false, 'narration is projected as purpose rather than a timestamped message')
-assert.equal(shouldInheritAssistantWorkStepTitle(steps[0]!), true)
-assert.equal(getAssistantActionTitle(command, null, steps[0]?.title), steps[0]?.title)
-assert.equal(
-    deriveAssistantWorkStepTitle("The runtime path is clear. Next, I'm mapping replay evidence."),
-    'Map replay evidence',
-    'result context yields to the next concrete product intent'
-)
+const inlineNarrationMarkup = renderToStaticMarkup(createElement(TimelineMessage, {
+    message: narration,
+    inlineWorkNarration: true
+}))
+assert.match(inlineNarrationMarkup, /I&#x27;ll verify the question handoff before changing presentation\./, 'Work preserves the original inline narration verbatim')
+assert.match(inlineNarrationMarkup, /data-assistant-inline-work-narration="true"/)
+assert.doesNotMatch(inlineNarrationMarkup, /data-assistant-message-timestamp/, 'inline narration stays quiet without final-answer metadata')
+assert.equal(getAssistantActionTitle(command), 'Running tests', 'Actions use their own short actual intent rather than rewritten narration')
+assert.equal(getAssistantActionTitle(activity({
+    id: 'action:search-command', kind: 'command', payload: { toolName: 'bash', command: 'rg -n "test" src', status: 'completed' }
+})), 'Searching code', 'command intent follows the operation instead of incidental words in its arguments')
 
 const webSearch = activity({
     id: 'action:web-search',
@@ -117,7 +113,8 @@ assert.equal(getAssistantCapturedRead(activity({
 }))?.content, '\nconst middle = true\n', 'captured reads preserve leading and trailing blank source lines')
 const readMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [read], projectRootPath: 'C:/workspace' }))
 assert.match(readMarkup, /data-assistant-typed-action="action:read"/)
-assert.match(readMarkup, /L20–21/)
+assert.match(readMarkup, /Reading app\.ts/, 'file Actions use a short actual -ing title')
+assert.match(readMarkup, /src\/app\.ts · L20–21/, 'the exact path and captured range stay available as secondary evidence')
 assert.doesNotMatch(readMarkup, /const one/, 'captured source waits for the dedicated preview instead of duplicating its row')
 const readPreviewMarkup = renderToStaticMarkup(createElement(AssistantCapturedReadPreview, {
     activity: read, projectRootPath: 'C:/workspace', onClose: () => undefined
@@ -146,7 +143,7 @@ assert.deepEqual(parseAssistantSkillSnapshot(String(skill.payload?.output)), {
     body: '# Diagnose\n\nTrace the failure.'
 })
 const skillMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [skill] }))
-assert.match(skillMarkup, /Load diagnose/)
+assert.match(skillMarkup, /Loading diagnose/)
 assert.doesNotMatch(skillMarkup, /Trace the failure/, 'skill instructions open in their captured snapshot viewer')
 const skillPreviewMarkup = renderToStaticMarkup(createElement(AssistantSkillSnapshotPreview, {
     activity: skill, onClose: () => undefined
@@ -166,7 +163,8 @@ const agent = activity({
 const agentMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [agent] }))
 assert.match(agentMarkup, /data-dicebear-style="bottts"/, 'agent actions use the assigned internal identity avatar')
 assert.doesNotMatch(agentMarkup, />code-reviewer</, 'generic definition labels are not the visible agent identity')
-assert.match(agentMarkup, /Audit replay identity/)
+assert.match(agentMarkup, /Starting audit/, 'agent Actions use the short running intent')
+assert.doesNotMatch(agentMarkup, /Audit replay identity/, 'the full agent goal stays in the inspector instead of becoming a long Action title')
 const inspectorRequests: string[] = []
 const inspectorRequest = { workspace: 'agents' as const, agentRunId: 'agent:run:42' }
 requestAssistantInspectorNavigation(inspectorRequest)
@@ -188,12 +186,29 @@ assert.match(controlMarkup, /save-button/)
 const allMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [command, webSearch, read, skill, agent, browser, computer] }))
 assert.doesNotMatch(allMarkup, /Tool Calls/)
 assert.doesNotMatch(allMarkup, /Show (?:all|last)/)
-assert.equal((allMarkup.match(/data-assistant-(?:tool-call|typed-action)=/g) || []).length, 7, 'one action produces one clickable row')
+assert.match(allMarkup, /data-assistant-action-batch="true"/, 'consecutive Actions share one disclosure block')
+assert.match(allMarkup, /data-state="closed"/, 'the Action batch starts collapsed rather than leaking a last-five preview')
+assert.match(allMarkup, /Clicking save-button/, 'the batch title follows the latest short Action intent')
+assert.equal((allMarkup.match(/data-assistant-(?:tool-call|typed-action)=/g) || []).length, 7, 'expanding the batch reveals every real Action without a last-five slice')
+const runningBatchMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
+    command,
+    activity({
+        id: 'action:browser-running', kind: 'browser-control',
+        payload: { toolName: 'browser_observe', operation: 'observe', url: 'https://example.com/live', status: 'running' }
+    })
+] }))
+assert.match(runningBatchMarkup, /data-current-action-intent="Inspecting example\.com"/, 'a live batch follows the currently running Action')
+assert.match(runningBatchMarkup, /assistant-action-intent-shimmer/, 'the current Action intent shimmers while work is running')
 const repeatedEditMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
     activity({ id: 'action:edit-one', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], patch: '@@ -1 +1 @@\n-a\n+b', status: 'completed' } }),
     activity({ id: 'action:edit-two', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], patch: '@@ -1 +1 @@\n-b\n+c', status: 'completed' } })
 ] }))
 assert.equal((repeatedEditMarkup.match(/data-assistant-tool-call=/g) || []).length, 2, 'two real edits to the same file remain two actions')
+const runningEditMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
+    activity({ id: 'action:edit-running', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], status: 'running' } })
+] }))
+assert.match(runningEditMarkup, /Editing app\.ts/, 'a lone Action keeps the same short -ing title contract')
+assert.match(runningEditMarkup, /assistant-action-intent-shimmer/, 'a lone running Action shimmers without needing a batch')
 assert.equal(stripAssistantCommandEnvelope('Command completed (cmd-42) after 2s.\nCommand: bun test\n\nok', 'bun test'), 'ok')
 assert.equal(stripAssistantCommandEnvelope([
     '[Zyra managed command update]',
@@ -216,7 +231,7 @@ const failedActionMarkup = renderToStaticMarkup(createElement(AssistantTimelineA
     status: 'failed', elapsed: '2s'
 }))
 assert.match(failedActionMarkup, /aria-label="Failed"/)
-assert.match(failedActionMarkup, /text-red-300\/80/)
+assert.match(failedActionMarkup, /var\(--status-danger\)/, 'failed Actions use the semantic danger token')
 const interruptionMarkup = renderToStaticMarkup(createElement(TimelineTurnInterruptionMarker))
 assert.match(interruptionMarkup, /data-assistant-turn-interruption="true"/)
 assert.equal((interruptionMarkup.match(/Interrupted/g) || []).length, 2, 'the interruption boundary has one visible and one accessible label')

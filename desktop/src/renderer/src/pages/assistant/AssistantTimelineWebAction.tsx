@@ -86,14 +86,13 @@ function WebResultPill(props: {
 export function AssistantTimelineWebAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
     onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
     const [expanded, setExpanded] = useState(false)
     const evidence = getAssistantWebEvidence(hydrated.activity)
     const status = getActivityStatus(hydrated.activity)
-    const title = getAssistantActionTitle(hydrated.activity, props.projectRootPath, props.purposeTitle)
+    const title = getAssistantActionTitle(hydrated.activity, props.projectRootPath)
     const target = getAssistantActionTarget(hydrated.activity, props.projectRootPath)
     const first = evidence[0]
     const toggle = async () => {

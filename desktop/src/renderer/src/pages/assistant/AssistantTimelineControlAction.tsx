@@ -17,7 +17,6 @@ function stringValue(value: unknown): string | null {
 export function AssistantTimelineControlAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
     onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
 }) {
     const family = getAssistantActionFamily(props.activity)
@@ -32,7 +31,7 @@ export function AssistantTimelineControlAction(props: {
             icon={browser
                 ? url ? <AssistantBrowserPageIcon faviconUrl={faviconUrl} pageUrl={url} size={13} /> : <MousePointer2 size={13} />
                 : <Monitor size={13} />}
-            title={getAssistantActionTitle(props.activity, props.projectRootPath, props.purposeTitle)}
+            title={getAssistantActionTitle(props.activity, props.projectRootPath)}
             target={getAssistantActionTarget(props.activity, props.projectRootPath)}
             createdAt={props.activity.createdAt}
             elapsed={getActivityElapsed(props.activity)}

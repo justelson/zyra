@@ -8,7 +8,8 @@ import {
     getActivityPaths,
     getCreatedFilePaths
 } from './assistant-timeline-helpers'
-import { getAssistantActionFamily } from './assistant-action-presentation'
+import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
+import { AssistantTimelineActionBatch } from './AssistantTimelineActionBatch'
 import { AssistantTimelineAgentAction } from './AssistantTimelineAgentAction'
 import { AssistantTimelineControlAction } from './AssistantTimelineControlAction'
 import { AssistantTimelineReadAction } from './AssistantTimelineReadAction'
@@ -81,7 +82,6 @@ export const TimelineToolCallList = memo(({
     runningCommandCount,
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
-    purposeTitle,
     onOpenFilePath,
     onOpenUrl,
     onViewDiff,
@@ -92,7 +92,6 @@ export const TimelineToolCallList = memo(({
     runningCommandCount?: number
     projectRootPath?: string | null
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
-    purposeTitle?: string | null
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
     onViewDiff?: (target: AssistantDiffTarget) => void
@@ -101,44 +100,50 @@ export const TimelineToolCallList = memo(({
     const displayActivities = useMemo(() => buildDisplayActivityList(activities), [activities])
     const localRunningCommandCount = useMemo(() => countRunningCommandActivities(displayActivities), [displayActivities])
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
-    const inheritedPurpose = displayActivities.length === 1 ? purposeTitle : null
+
+    const renderActivity = (activity: AssistantActivity) => {
+        const family = getAssistantActionFamily(activity)
+        const common = { activity, projectRootPath }
+        return (
+            <div key={activity.id}>
+                {family === 'web-search' || family === 'web-fetch' ? (
+                    <AssistantTimelineWebAction {...common} onOpenUrl={onOpenUrl} />
+                ) : family === 'skill' ? (
+                    <AssistantTimelineSkillAction {...common} />
+                ) : family === 'read' ? (
+                    <AssistantTimelineReadAction {...common} />
+                ) : family === 'agent' || family === 'workflow' ? (
+                    <AssistantTimelineAgentAction {...common} />
+                ) : family === 'browser' || family === 'computer' ? (
+                    <AssistantTimelineControlAction {...common} onOpenUrl={onOpenUrl} />
+                ) : family === 'search' ? (
+                    <AssistantTimelineSearchAction {...common} />
+                ) : (
+                    <TimelineToolCallCard
+                        activity={activity}
+                        displayMode={displayMode}
+                        runningCommandCount={activeRunningCommandCount}
+                        projectRootPath={projectRootPath}
+                        toolOutputDefaultMode={toolOutputDefaultMode}
+                        actionTitle={getAssistantActionTitle(activity, projectRootPath)}
+                        onOpenFilePath={onOpenFilePath}
+                        onOpenUrl={onOpenUrl}
+                        onViewDiff={onViewDiff}
+                        onRevealActivity={onRevealActivity}
+                    />
+                )}
+            </div>
+        )
+    }
+    const actionRows = displayActivities.map(renderActivity)
 
     return (
         <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
-            {displayActivities.map((activity) => {
-                const family = getAssistantActionFamily(activity)
-                const common = { activity, projectRootPath, purposeTitle: inheritedPurpose }
-                return (
-                    <div key={activity.id}>
-                        {family === 'web-search' || family === 'web-fetch' ? (
-                            <AssistantTimelineWebAction {...common} onOpenUrl={onOpenUrl} />
-                        ) : family === 'skill' ? (
-                            <AssistantTimelineSkillAction {...common} />
-                        ) : family === 'read' ? (
-                            <AssistantTimelineReadAction {...common} />
-                        ) : family === 'agent' || family === 'workflow' ? (
-                            <AssistantTimelineAgentAction {...common} />
-                        ) : family === 'browser' || family === 'computer' ? (
-                            <AssistantTimelineControlAction {...common} onOpenUrl={onOpenUrl} />
-                        ) : family === 'search' ? (
-                            <AssistantTimelineSearchAction {...common} />
-                        ) : (
-                            <TimelineToolCallCard
-                                activity={activity}
-                                displayMode={displayMode}
-                                runningCommandCount={activeRunningCommandCount}
-                                projectRootPath={projectRootPath}
-                                toolOutputDefaultMode={toolOutputDefaultMode}
-                                purposeTitle={inheritedPurpose}
-                                onOpenFilePath={onOpenFilePath}
-                                onOpenUrl={onOpenUrl}
-                                onViewDiff={onViewDiff}
-                                onRevealActivity={onRevealActivity}
-                            />
-                        )}
-                    </div>
-                )
-            })}
+            {displayActivities.length > 1 ? (
+                <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath}>
+                    {actionRows}
+                </AssistantTimelineActionBatch>
+            ) : actionRows}
         </div>
     )
 }, (prev, next) => {
@@ -146,7 +151,6 @@ export const TimelineToolCallList = memo(({
         && prev.displayMode === next.displayMode
         && prev.runningCommandCount === next.runningCommandCount
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
-        && prev.purposeTitle === next.purposeTitle
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onOpenUrl === next.onOpenUrl
         && prev.onViewDiff === next.onViewDiff

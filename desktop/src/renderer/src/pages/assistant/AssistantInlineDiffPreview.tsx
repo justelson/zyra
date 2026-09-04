@@ -126,7 +126,7 @@ export const AssistantInlineDiffPreview = memo(function AssistantInlineDiffPrevi
                         event.stopPropagation()
                         onOpenFullDiff()
                     }}
-                    className="absolute right-2 top-2 z-10 inline-flex size-6 items-center justify-center rounded-md border border-white/[0.08] bg-[color-mix(in_srgb,var(--color-card)_88%,transparent)] text-[var(--accent-primary)] backdrop-blur hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                    className="absolute right-2 top-2 z-10 inline-flex size-6 items-center justify-center rounded-md border border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--color-card)_88%,transparent)] text-[var(--accent-primary)] backdrop-blur hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
                     title={`Open full diff for ${displayPath} in side panel`}
                     aria-label={`Open full diff for ${displayPath} in side panel`}
                 >

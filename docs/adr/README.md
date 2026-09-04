@@ -30,7 +30,7 @@ Status vocabulary:
 - [ADR-0013: Use chat permissions and critical-only Full access escalation](0013-use-chat-permissions-and-critical-only-full-access-escalation.md) — **Superseded by ADR-0014.**
 - [ADR-0014: Share four permission modes across chat and control](0014-share-four-permission-modes-across-chat-and-control.md) — **Accepted and implemented.**
 - [ADR-0015: Use stable Projects and revisioned Chat scopes](0015-use-stable-projects-and-revisioned-chat-scopes.md) — **Accepted and implemented.**
-- [ADR-0016: Use purpose-led Work steps and deferred Question handoffs](0016-use-purpose-led-work-steps-and-deferred-question-handoffs.md) — **Accepted and implemented.**
+- [ADR-0016: Preserve inline Work narration and defer Question handoffs](0016-preserve-inline-work-narration-and-defer-question-handoffs.md) — **Accepted and implemented.**
 
 ## Format
 

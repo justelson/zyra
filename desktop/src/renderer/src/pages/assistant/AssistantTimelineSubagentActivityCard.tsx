@@ -17,11 +17,9 @@ import {
 } from './assistant-timeline-helpers'
 
 export const TimelineSubagentActivityCard = memo(({
-    activity,
-    purposeTitle
+    activity
 }: {
     activity: AssistantActivity
-    purposeTitle?: string | null
 }) => {
     const [expanded, setExpanded] = useState(activity.kind === 'subagent.send-input')
     const title = useMemo(() => getActivityTitle(activity), [activity])
@@ -59,7 +57,7 @@ export const TimelineSubagentActivityCard = memo(({
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-sparkle-text">{purposeTitle || title}</p>
+                            <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-sparkle-text">{title}</p>
                             <span className={cn(
                                 'rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em]',
                                 status === 'running'
@@ -120,4 +118,4 @@ export const TimelineSubagentActivityCard = memo(({
             </div>
         </div>
     )
-}, (prev, next) => prev.purposeTitle === next.purposeTitle && areActivitiesEquivalent(prev.activity, next.activity))
+}, (prev, next) => areActivitiesEquivalent(prev.activity, next.activity))

@@ -235,7 +235,7 @@ export const TimelineToolCallCard = memo(({
     runningCommandCount = 0,
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
-    purposeTitle,
+    actionTitle,
     onOpenFilePath,
     onViewDiff,
     onRevealActivity
@@ -245,7 +245,7 @@ export const TimelineToolCallCard = memo(({
     runningCommandCount?: number
     projectRootPath?: string | null
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
-    purposeTitle?: string | null
+    actionTitle?: string | null
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
     onViewDiff?: (target: AssistantDiffTarget) => void
@@ -409,7 +409,7 @@ export const TimelineToolCallCard = memo(({
     const isRawTool = isRawToolActivity(activity)
     const isTerminalLikeTool = isCommand || isRawTool
     const toolTextStyle = useMemo(() => getToolTextShimmerStyle(isTerminalLikeTool && status === 'running'), [isTerminalLikeTool, status])
-    const primaryLabel = purposeTitle || (isResolvedUserInput
+    const primaryLabel = actionTitle || (isResolvedUserInput
         ? (primaryValue || `${resolvedUserInputEntries.length} answers captured`)
         : activity.kind === 'file-change'
             ? (displayFilePaths[0]
@@ -651,15 +651,21 @@ export const TimelineToolCallCard = memo(({
                     <div className="flex min-w-0 items-center gap-2">
                         <p className={cn(
                             'min-w-0 flex-1 truncate',
-                            minimal ? 'text-[12px] leading-6' : purposeTitle ? 'text-[12px] font-medium leading-5' : 'font-mono text-[11px] leading-5',
+                            minimal ? 'text-[12px] leading-6' : actionTitle ? 'text-[12px] font-medium leading-5' : 'font-mono text-[11px] leading-5',
                             isTerminalLikeTool
-                                ? purposeTitle ? 'whitespace-nowrap text-sparkle-text-secondary' : minimal ? 'whitespace-nowrap font-mono text-sparkle-text-secondary' : 'whitespace-nowrap font-mono text-[color-mix(in_srgb,var(--status-success)_44%,var(--color-text))]'
+                                ? actionTitle ? 'whitespace-nowrap text-sparkle-text-secondary' : minimal ? 'whitespace-nowrap font-mono text-sparkle-text-secondary' : 'whitespace-nowrap font-mono text-[color-mix(in_srgb,var(--status-success)_44%,var(--color-text))]'
                                 : 'text-sparkle-text-secondary'
                         )}>
                             <span className="inline-flex min-w-0 items-center gap-1.5">
-                                <span className="truncate" style={toolTextStyle}>{primaryLabel}</span>
-                                {purposeTitle && primaryValue && primaryValue !== purposeTitle ? (
-                                    <span className="hidden max-w-[280px] shrink truncate rounded bg-white/[0.035] px-1.5 py-0.5 font-mono text-[9px] font-normal text-sparkle-text-muted sm:inline">
+                                <span
+                                    className={cn(
+                                        'truncate',
+                                        status === 'running' && actionTitle && !isTerminalLikeTool && 'assistant-action-intent-shimmer assistant-model-name-shimmer'
+                                    )}
+                                    style={toolTextStyle}
+                                >{primaryLabel}</span>
+                                {actionTitle && primaryValue && primaryValue !== actionTitle ? (
+                                    <span className="hidden max-w-[280px] shrink truncate rounded bg-[var(--surface-hover)] px-1.5 py-0.5 font-mono text-[9px] font-normal text-sparkle-text-muted sm:inline">
                                         {activity.kind === 'file-change' && displayFilePaths[0] ? displayFilePaths[0] : primaryValue}
                                     </span>
                                 ) : null}
@@ -923,7 +929,7 @@ export const TimelineToolCallCard = memo(({
         && prev.displayMode === next.displayMode
         && prev.runningCommandCount === next.runningCommandCount
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
-        && prev.purposeTitle === next.purposeTitle
+        && prev.actionTitle === next.actionTitle
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onOpenUrl === next.onOpenUrl
         && prev.onViewDiff === next.onViewDiff

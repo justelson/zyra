@@ -24,7 +24,6 @@ import { IssueLogRow } from '../src/renderer/src/pages/assistant/AssistantPageHe
 import { TimelineContextCompactionMarker, TimelineMessage, TimelineWorkingIndicator } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
 import { TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
 import { getAssistantActionFamily, getAssistantActionTitle, stripAssistantCommandEnvelope } from '../src/renderer/src/pages/assistant/assistant-action-presentation'
-import { buildAssistantWorkSteps, shouldInheritAssistantWorkStepTitle } from '../src/renderer/src/pages/assistant/assistant-work-steps'
 import { stripProposedPlanBlocks } from '../src/renderer/src/pages/assistant/assistant-proposed-plan'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
 import { groupTimelineRowsIntoWorkSummaries } from '../src/renderer/src/pages/assistant/assistant-turn-work'
@@ -183,7 +182,7 @@ assert.equal(
 assert.deepEqual(
     entries.filter((entry) => entry.type === 'message' && entry.message.role === 'assistant').map((entry) => entry.type === 'message' ? entry.message.id : ''),
     ['progress-one', 'progress-two', 'final'],
-    'intermediate narration and the final answer remain distinct timeline records before work-step projection'
+    'intermediate narration and the final answer remain distinct chronological timeline records'
 )
 
 const completedRows = buildTimelineRows(entries, false, null)
@@ -1049,6 +1048,8 @@ assert.equal(historyStoreSource.includes('getHistoryPage({'), true, 'earlier his
 assert.equal(historyStateSource.includes('5 * 60_000'), true, 'recent thread detail is retained for a bounded five-minute idle window')
 assert.equal(timelineSource.includes('compactLiveNarration: true'), false, 'collapsed work does not replace the sequence with a one-at-a-time narration preview')
 assert.equal(timelineSource.includes('renderLiveNarration'), false, 'one stable disclosure owns all live work presentation')
+assert.equal(timelineSource.includes('inlineWorkNarration: workRow.kind'), true, 'expanded Work renders each intermediate narration in its original chronological position')
+assert.equal(timelineSource.includes('buildAssistantWorkSteps'), false, 'rendering cannot consume narration as an Action-title projection')
 const compactNarrationMarkup = renderToStaticMarkup(createElement(TimelineMessage, {
     message: messages[1],
     compactLiveNarration: true
@@ -1577,21 +1578,16 @@ assert.equal(isModelNoticeActivity(modelNotice), true)
 const purposeActivity = activity({ id: 'purpose-action', turnId: 'purpose-turn', millisecond: 1760 })
 purposeActivity.kind = 'command'
 purposeActivity.payload = { toolName: 'bash', command: 'npm test', status: 'completed' }
-const workSteps = buildAssistantWorkSteps([
-    {
-        kind: 'message',
-        id: 'purpose-message',
-        createdAt: purposeActivity.createdAt,
-        message: {
-            id: 'purpose-message', role: 'assistant', text: "I'll verify interruption handling.", turnId: 'purpose-turn', streaming: false,
-            createdAt: purposeActivity.createdAt, updatedAt: purposeActivity.createdAt
-        }
+const inlinePurposeMarkup = renderToStaticMarkup(createElement(TimelineMessage, {
+    message: {
+        id: 'purpose-message', role: 'assistant', text: "I'll verify interruption handling.", turnId: 'purpose-turn', streaming: false,
+        createdAt: purposeActivity.createdAt, updatedAt: purposeActivity.createdAt
     },
-    { kind: 'activity', id: purposeActivity.id, createdAt: purposeActivity.createdAt, activity: purposeActivity }
-])
-assert.equal(workSteps[0]?.title, 'Verify interruption handling', 'intermediate narration becomes the purpose title without message chrome')
-assert.equal(shouldInheritAssistantWorkStepTitle(workSteps[0]!), true, 'a one-action step inherits its purpose directly')
-assert.equal(getAssistantActionTitle(purposeActivity, null, workSteps[0]?.title), 'Verify interruption handling')
+    inlineWorkNarration: true
+}))
+assert.equal(inlinePurposeMarkup.includes("I&#x27;ll verify interruption handling."), true, 'intermediate narration remains verbatim inside Work')
+assert.equal(inlinePurposeMarkup.includes('data-assistant-message-timestamp'), false, 'inline narration does not gain final-answer message chrome')
+assert.equal(getAssistantActionTitle(purposeActivity), 'Running tests', 'the Action keeps a short actual -ing intent instead of borrowing narration')
 const typedWebActivity = { ...purposeActivity, kind: 'web-search', payload: { toolName: 'web_search', query: 'Pi SDK' } }
 assert.equal(getAssistantActionFamily(typedWebActivity), 'web-search')
 const typedSkillActivity = { ...purposeActivity, kind: 'skill', payload: { toolName: 'read', paths: ['C:/skills/diagnose/SKILL.md'] } }
@@ -1603,8 +1599,10 @@ const tenToolActivities = Array.from({ length: 10 }, (_, index) => activity({
     millisecond: 1800 + index
 }))
 const allToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: tenToolActivities }))
-assert.equal(allToolsMarkup.includes('Show all 10'), false, 'expanded work never adds a second last-five disclosure')
-assert.equal((allToolsMarkup.match(/data-assistant-tool-call=/g) || []).length, 10, 'expanded work renders one clickable row for every action')
+assert.equal(allToolsMarkup.includes('Show all 10'), false, 'Action batches never restore the last-five format')
+assert.equal(allToolsMarkup.includes('data-assistant-action-batch="true"'), true, 'consecutive Actions collapse into one block')
+assert.equal(allToolsMarkup.includes('data-state="closed"'), true, 'the Action block starts closed with no visible action subset')
+assert.equal((allToolsMarkup.match(/data-assistant-tool-call=/g) || []).length, 10, 'opening the Action block reveals every captured Action')
 assert.equal(stripAssistantCommandEnvelope('Command completed (cmd-1) after 1s.\nCommand: npm test\n\npassed', 'npm test'), 'passed', 'managed command wrappers stay out of evidence')
 
 const timelineRowsSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineRows.tsx', import.meta.url), 'utf8')

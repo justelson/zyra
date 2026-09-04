@@ -15,7 +15,6 @@ import { useAssistantHydratedActivity } from './useAssistantHydratedActivity'
 export function AssistantTimelineAgentAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
     const evidence = getAssistantAgentActionEvidence(hydrated.activity)
@@ -47,7 +46,7 @@ export function AssistantTimelineAgentAction(props: {
         <AssistantTimelineActionShell
             activityId={props.activity.id}
             icon={workflow ? <Waypoints size={13} /> : <AssistantAgentAvatar run={source} size={16} />}
-            title={getAssistantActionTitle(hydrated.activity, props.projectRootPath, props.purposeTitle)}
+            title={getAssistantActionTitle(hydrated.activity, props.projectRootPath)}
             target={workflow
                 ? evidence.label || evidence.definitionName || 'workflow'
                 : `${identity.name} · ${identity.roleTitle}`}

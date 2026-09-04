@@ -2,14 +2,13 @@ import { useState } from 'react'
 import { Search } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { AssistantTimelineActionShell } from './AssistantTimelineActionShell'
-import { getAssistantActionTarget, getAssistantActionTitle } from './assistant-action-presentation'
+import { getAssistantActionTitle } from './assistant-action-presentation'
 import { getActivityElapsed, getActivityOutput, getActivityStatus } from './assistant-timeline-helpers'
 import { useAssistantHydratedActivity } from './useAssistantHydratedActivity'
 
 export function AssistantTimelineSearchAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
     const [expanded, setExpanded] = useState(false)
@@ -22,8 +21,7 @@ export function AssistantTimelineSearchAction(props: {
         <AssistantTimelineActionShell
             activityId={props.activity.id}
             icon={<Search size={13} />}
-            title={getAssistantActionTitle(hydrated.activity, props.projectRootPath, props.purposeTitle)}
-            target={props.purposeTitle ? getAssistantActionTarget(hydrated.activity, props.projectRootPath) : null}
+            title={getAssistantActionTitle(hydrated.activity, props.projectRootPath)}
             createdAt={props.activity.createdAt}
             elapsed={getActivityElapsed(hydrated.activity)}
             status={getActivityStatus(hydrated.activity)}

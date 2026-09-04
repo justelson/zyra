@@ -5,6 +5,7 @@ import type { AssistantActivity } from '@shared/assistant/contracts'
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer'
 import { AssistantTimelineActionShell } from './AssistantTimelineActionShell'
 import {
+    getAssistantActionTarget,
     getAssistantActionTitle,
     getAssistantCapturedRead,
     getAssistantSkillName
@@ -98,7 +99,6 @@ function SkillSnapshotModal(props: {
 export function AssistantTimelineSkillAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
     const [previewActivity, setPreviewActivity] = useState<AssistantActivity | null>(null)
@@ -110,8 +110,8 @@ export function AssistantTimelineSkillAction(props: {
             <AssistantTimelineActionShell
                 activityId={props.activity.id}
                 icon={hydrated.loading ? <Loader2 size={13} className="animate-spin" /> : <Puzzle size={13} />}
-                title={getAssistantActionTitle(hydrated.activity, props.projectRootPath, props.purposeTitle)}
-                target={props.purposeTitle ? name : getAssistantCapturedRead(hydrated.activity)?.path || name}
+                title={getAssistantActionTitle(hydrated.activity, props.projectRootPath)}
+                target={getAssistantActionTarget(hydrated.activity, props.projectRootPath) || name}
                 createdAt={props.activity.createdAt}
                 elapsed={getActivityElapsed(hydrated.activity)}
                 status={status}

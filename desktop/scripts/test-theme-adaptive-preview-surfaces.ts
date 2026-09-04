@@ -13,6 +13,8 @@ const themeCss = source('../src/renderer/src/index.css')
 const toolSources = [
     source('../src/renderer/src/pages/assistant/AssistantTimelineToolCallCard.tsx'),
     source('../src/renderer/src/pages/assistant/AssistantTimelineToolCalls.tsx'),
+    source('../src/renderer/src/pages/assistant/AssistantTimelineActionBatch.tsx'),
+    source('../src/renderer/src/pages/assistant/AssistantTimelineActionShell.tsx'),
     source('../src/renderer/src/pages/assistant/AssistantTimelineSubagentActivityCard.tsx'),
     source('../src/renderer/src/pages/assistant/assistant-timeline-path-ui.tsx'),
     source('../src/renderer/src/pages/assistant/AssistantInlineDiffPreview.tsx'),

@@ -82,22 +82,21 @@ function CapturedReadModal(props: {
 export function AssistantTimelineReadAction(props: {
     activity: AssistantActivity
     projectRootPath?: string | null
-    purposeTitle?: string | null
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
     const [previewActivity, setPreviewActivity] = useState<AssistantActivity | null>(null)
     const captured = getAssistantCapturedRead(hydrated.activity)
     const open = async () => setPreviewActivity(await hydrated.hydrate())
     const target = captured
-        ? `${getAssistantRelativeFilePath(captured.path, props.projectRootPath)}${captured.startLine && captured.endLine ? `:${captured.startLine}–${captured.endLine}` : ''}`
+        ? `${getAssistantRelativeFilePath(captured.path, props.projectRootPath)}${captured.startLine && captured.endLine ? ` · L${captured.startLine}–${captured.endLine}` : ''}`
         : null
     return (
         <>
             <AssistantTimelineActionShell
                 activityId={props.activity.id}
                 icon={hydrated.loading ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
-                title={getAssistantActionTitle(hydrated.activity, props.projectRootPath, props.purposeTitle)}
-                target={props.purposeTitle ? target : captured?.startLine && captured.endLine ? `L${captured.startLine}–${captured.endLine}` : readLanguage(captured?.path || '')}
+                title={getAssistantActionTitle(hydrated.activity, props.projectRootPath)}
+                target={target || readLanguage(captured?.path || '')}
                 createdAt={props.activity.createdAt}
                 elapsed={getActivityElapsed(hydrated.activity)}
                 status={getActivityStatus(hydrated.activity)}

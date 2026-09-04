@@ -113,48 +113,101 @@ function readActionUrl(activity: AssistantActivity): string | null {
     return text(activity.payload?.url) || text(args.url) || text(details.url)
 }
 
+function shortIntentTarget(value: string | null, maxLength = 52): string | null {
+    return firstSentence(value, maxLength)
+}
+
+function actionFileLabel(path: string | null): string | null {
+    if (!path) return null
+    const normalized = path.replace(/\\/g, '/')
+    return normalized.split('/').filter(Boolean).at(-1) || normalized
+}
+
+function commandIntent(command: string): string {
+    if (/^\s*(?:rg|grep|findstr)\b/i.test(command)) return 'Searching code'
+    if (/^\s*git\s+(?:status|diff)\b/i.test(command)) return 'Checking changes'
+    if (/^\s*git\s+(?:log|show)\b/i.test(command)) return 'Reading Git history'
+    if (/\bnode\s+--check\b|\bsyntax\b/i.test(command)) return 'Checking syntax'
+    if (/\b(?:typecheck|tsc)\b/i.test(command)) return 'Checking types'
+    if (/\b(?:test|tests|vitest|jest|playwright)\b/i.test(command)) return 'Running tests'
+    if (/\b(?:build|compile)\b/i.test(command) || /\bnpm\s+pack\b/i.test(command)) return 'Building project'
+    return 'Running command'
+}
+
+function operationIntent(operationValue: string | null, target: string | null, surface: 'browser' | 'computer'): string {
+    const operation = String(operationValue || '').toLowerCase().replace(/[._-]+/g, ' ')
+    const suffix = target ? ` ${target}` : surface === 'browser' ? ' web page' : ''
+    if (/navigate|open/.test(operation)) return `Opening${suffix || (surface === 'computer' ? ' app' : '')}`
+    if (/observe|inspect|snapshot/.test(operation)) return `Inspecting${suffix || (surface === 'computer' ? ' app' : '')}`
+    if (/click|press/.test(operation)) return `Clicking${suffix}`
+    if (/\btype|input|fill/.test(operation)) return `Typing${suffix}`
+    if (/scroll/.test(operation)) return `Scrolling${suffix}`
+    if (/focus/.test(operation)) return `Focusing${suffix}`
+    if (/drag/.test(operation)) return `Dragging${suffix}`
+    if (/wait/.test(operation)) return `Waiting${target ? ` for ${target}` : ''}`
+    if (/release|close|stop/.test(operation)) return surface === 'browser' ? 'Closing browser control' : 'Releasing computer control'
+    return surface === 'browser' ? 'Using browser' : 'Running computer control'
+}
+
+function agentIntent(actionValue: string, subject: 'agent' | 'workflow', label: string | null): string {
+    const action = actionValue.toLowerCase().replace(/[._-]+/g, ' ')
+    const target = shortIntentTarget(label, 36)
+    if (/spawn|start|run/.test(action)) return subject === 'agent' ? `Starting${target ? ` ${target}` : ' agent'}` : `Running${target ? ` ${target}` : ' workflow'}`
+    if (/wait/.test(action)) return `Waiting for ${subject}`
+    if (/send|steer|input/.test(action)) return `Steering ${subject}`
+    if (/resume/.test(action)) return `Resuming ${subject}`
+    if (/stop|close/.test(action)) return `Stopping ${subject}`
+    return subject === 'agent' ? 'Checking agent' : 'Checking workflow'
+}
+
+function fallbackIntent(activity: AssistantActivity): string {
+    const value = shortIntentTarget(text(activity.summary) || text(activity.detail))
+    if (!value) return 'Using tool'
+    return value
+        .replace(/^Ran\b/i, 'Running')
+        .replace(/^Run\b/i, 'Running')
+        .replace(/^Read\b/i, 'Reading')
+        .replace(/^Used?\b/i, 'Using')
+        .replace(/^Searched?\b/i, 'Searching')
+        .replace(/^Checked?\b/i, 'Checking')
+        .replace(/^Loaded?\b/i, 'Loading')
+}
+
 export function getAssistantActionTitle(
     activity: AssistantActivity,
-    projectRootPath?: string | null,
-    purposeTitle?: string | null
+    projectRootPath?: string | null
 ): string {
-    if (purposeTitle?.trim()) return purposeTitle.trim()
     const family = getAssistantActionFamily(activity)
     const args = getAssistantActivityArgs(activity)
     const paths = getActivityPaths(activity)
     const path = paths[0] ? getAssistantRelativeFilePath(paths[0], projectRootPath) : null
-    const query = text(activity.payload?.query) || text(args.query) || text(args.pattern)
+    const query = shortIntentTarget(text(activity.payload?.query) || text(args.query) || text(args.pattern))
     const operation = text(activity.payload?.operation) || text(args.operation) || text(args.action)
 
-    if (family === 'command') return getActivityCommand(activity) || 'Run command'
-    if (family === 'read') return path ? `Read ${path}` : 'Read file'
-    if (family === 'edit') return path ? `Edit ${path}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : 'Edit files'
-    if (family === 'skill') return `Load ${getAssistantSkillName(activity) || 'skill'}`
-    if (family === 'web-search') return query ? `Search ${query}` : 'Search the web'
+    if (family === 'command') return commandIntent(getActivityCommand(activity))
+    if (family === 'read') return `Reading ${actionFileLabel(path) || 'file'}`
+    if (family === 'edit') return path ? `Editing ${actionFileLabel(path)}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : 'Editing files'
+    if (family === 'skill') return `Loading ${getAssistantSkillName(activity) || 'skill'}`
+    if (family === 'web-search') return query ? `Searching ${query}` : 'Searching the web'
     if (family === 'web-fetch') {
-        const pageTitle = text(activity.payload?.pageTitle) || text(getResultDetails(activity).title)
-        return pageTitle ? `Read ${pageTitle}` : `Read ${hostLabel(readActionUrl(activity)) || 'web page'}`
+        const pageTitle = shortIntentTarget(text(activity.payload?.pageTitle) || text(getResultDetails(activity).title))
+        return `Reading ${pageTitle || hostLabel(readActionUrl(activity)) || 'web page'}`
     }
-    if (family === 'search') return query ? `Search ${query}` : 'Search the project'
-    if (family === 'browser') {
-        const target = hostLabel(readActionUrl(activity))
-        if (/navigate|open/i.test(operation || '')) return target ? `Open ${target}` : 'Open web page'
-        if (/observe|inspect|snapshot/i.test(operation || '')) return target ? `Inspect ${target}` : 'Inspect web page'
-        return operation ? `${operation.charAt(0).toUpperCase()}${operation.slice(1)} in browser` : 'Use browser'
-    }
+    if (family === 'search') return query ? `Searching ${query}` : 'Searching the project'
+    if (family === 'browser') return operationIntent(operation, hostLabel(readActionUrl(activity)), 'browser')
     if (family === 'computer') {
-        const target = text(args.name) || text(args.targetId) || text(activity.payload?.targetId)
-        return operation ? `${operation.charAt(0).toUpperCase()}${operation.slice(1)}${target ? ` · ${target}` : ''}` : 'Use computer control'
+        const target = shortIntentTarget(text(args.name) || text(args.targetId) || text(activity.payload?.targetId), 36)
+        return operationIntent(operation, target, 'computer')
     }
     if (family === 'agent') {
         const evidence = getAssistantAgentActionEvidence(activity)
-        return firstSentence(evidence.goal || evidence.label) || `${evidence.action.charAt(0).toUpperCase()}${evidence.action.slice(1)} agent`
+        return agentIntent(evidence.action, 'agent', evidence.label || evidence.definitionName)
     }
     if (family === 'workflow') {
         const name = text(args.name) || text(activity.payload?.label)
-        return name ? `${operation || 'Run'} ${name}` : `${operation || 'Run'} workflow`
+        return agentIntent(operation || 'run', 'workflow', name)
     }
-    return firstSentence(text(activity.summary) || text(activity.detail)) || 'Use tool'
+    return fallbackIntent(activity)
 }
 
 export function getAssistantActionTarget(activity: AssistantActivity, projectRootPath?: string | null): string | null {

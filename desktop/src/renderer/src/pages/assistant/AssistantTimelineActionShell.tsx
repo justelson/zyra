@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
+import { getTimelineActivityDomId } from './assistant-timeline-helpers'
 
 export function formatAssistantActionTime(value: string): string {
     const date = new Date(value)
@@ -33,7 +34,7 @@ export function AssistantTimelineActionShell(props: {
     const canToggle = Boolean(props.expandable && props.onToggle)
     const meta = [formatAssistantActionTime(props.createdAt), props.elapsed].filter(Boolean).join(' · ')
     return (
-        <div className="group/action" data-assistant-typed-action={props.activityId}>
+        <div id={getTimelineActivityDomId(props.activityId)} className="group/action" data-assistant-typed-action={props.activityId}>
             <button
                 type="button"
                 disabled={!actionable}
@@ -41,27 +42,30 @@ export function AssistantTimelineActionShell(props: {
                 aria-expanded={canToggle ? props.expanded : undefined}
                 className={cn(
                     'flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors',
-                    actionable ? 'hover:bg-white/[0.035]' : 'cursor-default'
+                    actionable ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'
                 )}
             >
                 <span className={cn(
                     'inline-flex size-4 shrink-0 items-center justify-center',
-                    props.status === 'running' ? 'text-amber-300/80'
-                        : props.status === 'failed' ? 'text-red-300/80'
+                    props.status === 'running' ? 'text-[color-mix(in_srgb,var(--status-warning)_72%,var(--color-text))]'
+                        : props.status === 'failed' ? 'text-[color-mix(in_srgb,var(--status-danger)_72%,var(--color-text))]'
                             : 'text-sparkle-text-muted'
                 )}>
                     {props.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : props.icon}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-sparkle-text-secondary group-hover/action:text-sparkle-text">
+                <span className={cn(
+                    'min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-sparkle-text-secondary group-hover/action:text-sparkle-text',
+                    props.status === 'running' && 'assistant-action-intent-shimmer assistant-model-name-shimmer'
+                )}>
                     {props.title}
                 </span>
                 {props.target ? (
-                    <span className="hidden max-w-[34%] truncate rounded bg-white/[0.035] px-1.5 py-0.5 font-mono text-[9px] text-sparkle-text-muted sm:inline">
+                    <span className="hidden max-w-[34%] truncate rounded bg-[var(--surface-hover)] px-1.5 py-0.5 font-mono text-[9px] text-sparkle-text-muted sm:inline">
                         {props.target}
                     </span>
                 ) : null}
                 {meta ? <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</span> : null}
-                {props.status === 'failed' ? <span className="size-1.5 shrink-0 rounded-full bg-red-300/70" aria-label="Failed" /> : null}
+                {props.status === 'failed' ? <span className="size-1.5 shrink-0 rounded-full bg-[var(--status-danger)] opacity-70" aria-label="Failed" /> : null}
                 {canToggle ? (
                     <ChevronDown size={11} className={cn('shrink-0 text-sparkle-text-muted transition-transform duration-200', props.expanded && 'rotate-180')} />
                 ) : <span className="w-[11px] shrink-0" />}

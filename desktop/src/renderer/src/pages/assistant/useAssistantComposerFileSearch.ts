@@ -34,7 +34,7 @@ export function useAssistantComposerFileSearch(input: {
         if (roots.length === 0) {
             setItems([])
             setLoading(false)
-            setError('Choose a Project before including a file.')
+            setError('/include needs a Project.')
             return
         }
 

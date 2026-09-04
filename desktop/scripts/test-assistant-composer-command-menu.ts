@@ -61,6 +61,7 @@ assert.equal(resolveAssistantComposerCommandMenuIndex(20, 'ArrowUp', 5), 3, 'sta
 assert.equal(resolveAssistantComposerCommandMenuIndex(0, 'ArrowDown', 0), 0)
 assert.equal(resolveAssistantComposerMenuScrollTop({ scrollTop: 40, viewportHeight: 120, contentHeight: 400, itemTop: 70, itemHeight: 28 }), null, 'a visible active row does not move the list')
 assert.equal(resolveAssistantComposerMenuScrollTop({ scrollTop: 40, viewportHeight: 120, contentHeight: 400, itemTop: 170, itemHeight: 28 }), 84, 'an active row below the viewport moves by the minimum required distance')
+assert.equal(resolveAssistantComposerMenuScrollTop({ scrollTop: 40, viewportHeight: 120, contentHeight: 400, itemTop: 125, itemHeight: 28, bottomInset: 38 }), 77, 'the selector scrolls before entering the composer-covered area')
 
 const allItems = buildAssistantComposerCommandItems(resources, '')
 for (const commandName of ['/yolo', '/auto', '/edits', '/safe', '/include', '/review']) {
@@ -178,6 +179,7 @@ const markup = renderToStaticMarkup(createElement(AssistantComposerCommandMenu, 
     activeIndex: 0,
     loading: false,
     error: null,
+    scrollBehavior: 'auto',
     onActiveIndexChange: () => undefined,
     onSelect: () => undefined
 }))
@@ -205,10 +207,12 @@ assert.match(composerSource, /aria-activedescendant=/, 'keyboard selection expos
 assert.match(composerSource, /resolveAssistantComposerCommandMenuIndex/, 'composer command arrows use bounded wraparound navigation')
 assert.match(composerSource, /if \(!slashToken \|\| commandActivationPendingRef\.current\) return[\s\S]*commandActivationPendingRef\.current = true/, 'Enter, Tab, and click activation must single-flight before applying a slash item')
 assert.doesNotMatch(commandMenuSource, /scrollIntoView|lookaheadItem/, 'command navigation has no competing document-scroll calls')
-assert.match(menuScrollSource, /nextTop === null[\s\S]*scrollTo\(\{ top: nextTop, behavior:/, 'the menu stays still for visible rows and smoothly follows rows that leave the viewport')
+assert.match(menuScrollSource, /bottomInset: 38[\s\S]*nextTop === null[\s\S]*scrollTo\(\{ top: nextTop, behavior:/, 'the menu stays still for safely visible rows and follows rows before the composer can cover them')
+assert.match(composerSource, /event\.repeat \? 'auto' : 'smooth'/, 'single-step navigation animates while held navigation keeps the selector visible')
 assert.match(commandMenuSource, /movementX === 0 && event\.movementY === 0/, 'scrolling beneath a stationary pointer cannot pull keyboard highlight backward')
 assert.match(commandMenuSource, /scroll-pb-10[\s\S]*pb-10/, 'the slash menu reserves a full row below its last option')
 assert.match(fileMenuSource, /FileEntryIcon/, 'include results use the existing file icon language')
+assert.match(fileMenuSource, /item\.name[\s\S]*text-right[\s\S]*item\.displayPath/, 'include files stay in one thin row with the relative folder aligned right')
 assert.match(fileMenuSource, /item\.showRootLabel/, 'conflicting filenames show their source folder')
 assert.match(fileSearchSource, /searchIndexedPaths\([\s\S]*roots:/, 'include search uses the indexed revisioned Chat roots')
 assert.match(conversationPaneSource, /selectedSession\?\.chatScope\?\.roots[\s\S]*projectRoots=\{composerProjectRoots\}/, 'existing Chats keep their captured folder revision in include search')

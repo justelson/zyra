@@ -137,6 +137,7 @@ export function AssistantComposerView({
     const [promptResourcesLoading, setPromptResourcesLoading] = useState(!promptResources)
     const [promptResourcesError, setPromptResourcesError] = useState<string | null>(null)
     const [activeCommandIndex, setActiveCommandIndex] = useState(0)
+    const [menuScrollBehavior, setMenuScrollBehavior] = useState<ScrollBehavior>('smooth')
     const [slashMenuDismissed, setSlashMenuDismissed] = useState(false)
     const [slashMenuPresent, setSlashMenuPresent] = useState(false)
     const [slashMenuAnimatedOpen, setSlashMenuAnimatedOpen] = useState(false)
@@ -430,6 +431,11 @@ export function AssistantComposerView({
         })
     }, [controller, includeToken])
 
+    const handleMenuPointerActiveIndex = useCallback((index: number) => {
+        setMenuScrollBehavior('smooth')
+        setActiveCommandIndex(index)
+    }, [])
+
     const handleComposerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         if (!showSlashMenu) {
             controller.handleKeyDown(event)
@@ -438,6 +444,7 @@ export function AssistantComposerView({
 
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
+            setMenuScrollBehavior(event.repeat ? 'auto' : 'smooth')
             if (activeMenuItemCount > 0) {
                 const direction = event.key === 'ArrowDown' ? 'ArrowDown' : 'ArrowUp'
                 setActiveCommandIndex((current) => resolveAssistantComposerCommandMenuIndex(
@@ -503,7 +510,8 @@ export function AssistantComposerView({
                                             loading={fileSearch.loading}
                                             error={fileSearch.error}
                                             iconTheme={iconTheme}
-                                            onActiveIndexChange={setActiveCommandIndex}
+                                            scrollBehavior={menuScrollBehavior}
+                                            onActiveIndexChange={handleMenuPointerActiveIndex}
                                             onSelect={selectFileItem}
                                         />
                                     ) : (
@@ -513,7 +521,8 @@ export function AssistantComposerView({
                                             activeIndex={activeCommandIndex}
                                             loading={promptResourcesLoading}
                                             error={promptResourcesError}
-                                            onActiveIndexChange={setActiveCommandIndex}
+                                            scrollBehavior={menuScrollBehavior}
+                                            onActiveIndexChange={handleMenuPointerActiveIndex}
                                             onSelect={selectCommandItem}
                                         />
                                     )}
@@ -801,7 +810,10 @@ export function AssistantComposerView({
                                         }}
                                         onClick={(event) => controller.syncComposerCursor(event.currentTarget)}
                                         onScroll={(event) => syncTextareaScroll(event.currentTarget)}
-                                        onKeyUp={(event) => controller.syncComposerCursor(event.currentTarget)}
+                                        onKeyUp={(event) => {
+                                            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') setMenuScrollBehavior('smooth')
+                                            controller.syncComposerCursor(event.currentTarget)
+                                        }}
                                         onSelect={(event) => controller.syncComposerCursor(event.currentTarget)}
                                         onKeyDown={handleComposerKeyDown}
                                         onPaste={controller.handlePaste}

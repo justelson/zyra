@@ -12,6 +12,7 @@ export type AssistantComposerFileSearchItem = {
     path: string
     name: string
     relativePath: string
+    displayPath: string
     rootPath: string
     rootLabel: string
     showRootLabel: boolean
@@ -84,6 +85,7 @@ export function buildAssistantComposerFileSearchItems(
             path: entry.path,
             name: entry.name,
             relativePath: entry.relativePath,
+            displayPath: relativeDirectory(entry.relativePath),
             rootPath: root?.path || entry.rootPath,
             rootLabel: root?.displayLabel || basename(entry.rootPath),
             showRootLabel: (rootKeysByName.get(entry.name.toLocaleLowerCase())?.size || 0) > 1
@@ -94,6 +96,11 @@ export function buildAssistantComposerFileSearchItems(
 function normalizePath(pathValue: string): string {
     const normalized = String(pathValue || '').trim().replace(/\\/g, '/').replace(/\/+$/, '')
     return /^[a-z]:\//i.test(normalized) || normalized.startsWith('//') ? normalized.toLocaleLowerCase() : normalized
+}
+
+function relativeDirectory(pathValue: string): string {
+    const segments = String(pathValue || '').replace(/\\/g, '/').split('/').filter(Boolean)
+    return segments.length > 1 ? segments.slice(0, -1).join('/') : 'Project root'
 }
 
 function basename(pathValue: string): string {

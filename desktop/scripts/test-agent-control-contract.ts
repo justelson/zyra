@@ -7,6 +7,7 @@ import {
     CONTROL_PROTOCOL_VERSION
 } from '../src/shared/agent-control/contracts'
 import { CONTROL_BOUNDS } from '../src/shared/agent-control/policy'
+import { GrantStore } from '../src/main/agent-control/grant-store'
 import {
     assertControlActionRequest,
     assertControlCapabilities,
@@ -62,4 +63,16 @@ assert.throws(
     /both x and y/
 )
 assert.doesNotMatch(windowsDriverSource, /\bspawnSync\b/, 'closing the Windows sidecar must not block Electron main')
+const expiryStore = new GrantStore()
+const expiredGrant = expiryStore.issue({
+    principal: fixture.principal,
+    targetId: fixture.action.targetId,
+    capabilities: ['observe.structure'],
+    expiresAt: new Date(Date.now() - 1).toISOString(),
+    maxActions: 1,
+    issuedBy: 'user'
+})
+assert.throws(() => expiryStore.requireActive(expiredGrant.grantId, fixture.principal), /expired/)
+assert.deepEqual(expiryStore.expire().map((grant) => grant.grantId), [expiredGrant.grantId], 'expiry discovered during an action remains available for broker cleanup')
+assert.deepEqual(expiryStore.expire(), [], 'an expired grant is drained exactly once')
 console.log('Agent control contract equivalence passed.')

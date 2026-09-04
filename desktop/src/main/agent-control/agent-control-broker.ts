@@ -127,7 +127,7 @@ export class AgentControlBroker extends EventEmitter {
         super()
         this.audit = new AuditStore(options.userDataPath)
         this.grantExpiryTimer = setInterval(() => {
-            try { this.expireActiveGrants(true) } catch {}
+            try { this.expireControlAuthority(true) } catch {}
         }, 500)
         this.grantExpiryTimer.unref?.()
     }
@@ -505,6 +505,7 @@ export class AgentControlBroker extends EventEmitter {
     approvePendingGrant(input: RendererControlGrantInput, options: { auditMessage?: string } = {}): ControlGrant {
         this.assertAlive()
         const requestId = assertControlIdentifier(input.pendingRequestId, 'pendingRequestId')
+        this.expireControlAuthority(false)
         const pending = this.grants.getPending(requestId)
         if (!pending) throw new AgentControlError('CONTROL_GRANT_NOT_FOUND', 'The pending grant request is no longer available.')
         if (pending.targetId !== input.targetId) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'A pending grant cannot be rebound to another target.')
@@ -1107,7 +1108,7 @@ export class AgentControlBroker extends EventEmitter {
     }
 
     state(ownerWebContentsId?: number): ControlStateSnapshot {
-        this.expireActiveGrants(false)
+        this.expireControlAuthority(false)
         const grants = this.grants.list()
         return {
             version: 1,
@@ -1299,7 +1300,7 @@ export class AgentControlBroker extends EventEmitter {
                 }, signal, options)
                 const grant = result.grant as ControlGrant | undefined
                 if (!grant) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return its bounded grant.')
-                this.expireActiveGrants(false)
+                this.expireControlAuthority(false)
                 for (const previous of this.grants.listForPrincipal(principal)) {
                     if (previous.grantId === grant.grantId || previous.state !== 'active') continue
                     let previousTarget: ControlTarget
@@ -1686,14 +1687,19 @@ export class AgentControlBroker extends EventEmitter {
     }
 
     private waitForPendingGrant(requestId: string, signal?: AbortSignal): Promise<ControlGrant> {
-        if (!this.grants.getPending(requestId)) {
+        const pendingRequest = this.grants.getPending(requestId)
+        if (!pendingRequest) {
             return Promise.reject(new AgentControlError('CONTROL_GRANT_NOT_FOUND', 'The pending grant request is no longer available.'))
         }
         return new Promise((resolve, reject) => {
             let settled = false
+            const expiryTimer = setTimeout(() => {
+                this.expireControlAuthority(true)
+            }, Math.max(1, Date.parse(pendingRequest.expiresAt) - Date.now()))
             const finish = <T>(callback: (value: T) => void, value: T) => {
                 if (settled) return
                 settled = true
+                clearTimeout(expiryTimer)
                 signal?.removeEventListener('abort', abort)
                 this.pendingGrantWaiters.delete(requestId)
                 callback(value)
@@ -1722,16 +1728,17 @@ export class AgentControlBroker extends EventEmitter {
     async dispose(): Promise<void> {
         if (this.disposed) return
         clearInterval(this.grantExpiryTimer)
-        this.expireActiveGrants(false)
+        this.expireControlAuthority(false)
         await this.emergencyStop('Application shutdown.')
         this.disposed = true
         await Promise.allSettled((this.options.drivers || []).map((driver) => Promise.resolve(driver.dispose?.())))
         this.removeAllListeners()
     }
 
-    private expireActiveGrants(notify: boolean): void {
+    private expireControlAuthority(notify: boolean): void {
         const expired = this.grants.expire()
-        if (!expired.length) return
+        const expiredPending = this.grants.expirePending()
+        if (!expired.length && !expiredPending.length) return
         for (const grant of expired) {
             this.releaseInputFocus(grant.targetId)
             this.clearCursorIfNoActiveGrant(grant.targetId)
@@ -1748,6 +1755,18 @@ export class AgentControlBroker extends EventEmitter {
                 targetKind, grantId: grant.grantId, outcome: 'cancelled', message: 'Control grant expired.', redactions: []
             })
             this.releaseTargetIfIdle(grant.targetId)
+        }
+        for (const pending of expiredPending) {
+            let targetKind: ControlTarget['kind'] | undefined
+            try { targetKind = this.targets.get(pending.targetId).target.kind } catch {}
+            this.audit.append({
+                eventType: 'grant.expired', principal: pending.principal, targetId: pending.targetId,
+                targetKind, outcome: 'cancelled', message: 'Control grant request expired before approval.', redactions: []
+            })
+            this.releaseTargetIfIdle(pending.targetId)
+            this.pendingGrantWaiters.get(pending.requestId)?.reject(
+                new AgentControlError('CONTROL_GRANT_EXPIRED', 'The control grant request expired before approval.')
+            )
         }
         if (notify) this.changed()
     }

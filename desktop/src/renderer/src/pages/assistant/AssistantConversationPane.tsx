@@ -1135,6 +1135,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             deletingMessageId={props.deletingMessageId}
                             focusMessageId={props.focusMessageId}
                             loadingChats={isLoadingSelectedChat}
+                            selectionHydrating={controller.selectionHydrating}
                             assistantTextStreamingMode={settings.assistantTextStreamingMode}
                             assistantToolOutputDefaultMode={settings.assistantToolOutputDefaultMode}
                             assistantChatDisplayMode={settings.assistantChatDisplayMode}

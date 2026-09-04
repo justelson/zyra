@@ -31,6 +31,7 @@
     "test:voice-core": "npm run test:voice-agent-contracts && node scripts/test-zyra-canonical-message-ledger.mjs && bun run --cwd desktop test:assistant-voice-core",
     "chat:migration-report": "node scripts/build-chat-metadata-migration-report.mjs",
     "chat:migration-apply": "node scripts/apply-chat-metadata-migration.mjs",
+    "chat:seed-dev-fixtures": "node scripts/seed-development-chat-fixtures.mjs",
     "browser:live": "node scripts/automation/live-browser-control.mjs",
     "test:codex-resets": "node scripts/test-zyra-codex-resets.mjs",
     "test:codex-usage": "node scripts/test-zyra-codex-usage-windows.mjs",

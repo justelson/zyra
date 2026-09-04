@@ -92,6 +92,7 @@ const syntaxTargets = [
   "scripts/sign-standalone-tui.mjs",
   "scripts/tui-release-contract.mjs",
   "scripts/generate-third-party-licenses.mjs",
+  "scripts/seed-development-chat-fixtures.mjs",
   "scripts/test-legal-release-contract.mjs",
   "scripts/test-standalone-tui-binary.mjs",
   "scripts/test-standalone-tui-signing-contract.mjs",

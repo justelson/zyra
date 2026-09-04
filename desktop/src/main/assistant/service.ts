@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { app } from 'electron'
 import log from 'electron-log'
 import type {
@@ -105,6 +105,10 @@ import { getAssistantCanonicalThreadId } from './thread-identity'
 import { createAssistantSessionRecord } from './service-records'
 import type { AssistantServiceActionDeps } from './service-action-deps'
 import { AssistantPersistence } from './persistence'
+import {
+    createAssistantDevelopmentChatFixtures,
+    isAssistantDevelopmentChatFixtureSessionId
+} from './development-chat-fixtures'
 import {
     getAssistantSkillSourceOverview,
     listAssistantPromptResources,
@@ -708,6 +712,9 @@ export class AssistantService {
         const thread = requireThread(this.state.snapshot, input.threadId)
         const localThreadId = thread.id
         const record = findThreadRecord(this.state.snapshot, localThreadId)
+        if (isAssistantDevelopmentChatFixtureSessionId(record?.session.id)) {
+            throw new Error('Development TEST Chats are read-only local fixtures.')
+        }
         await this.runtime.connect(
             thread,
             record
@@ -753,6 +760,17 @@ export class AssistantService {
     }
 
     async connect(options?: AssistantConnectOptions) {
+        await this.ensureReady()
+        const targetSession = options?.sessionId
+            ? requireSession(this.state.snapshot, options.sessionId)
+            : getSelectedSession(this.state.snapshot)
+        if (isAssistantDevelopmentChatFixtureSessionId(targetSession?.id)) {
+            if (options?.voicePreparation) throw new Error('Development TEST Chats are read-only local fixtures.')
+            const fixtureThread = getActiveThread(targetSession)
+            if (!fixtureThread) throw new Error('Assistant session has no active thread.')
+            return { success: true as const, threadId: fixtureThread.id }
+        }
+
         const voicePreparation = options?.voicePreparation || null
         const preparationGeneration = voicePreparation
             ? ++this.voicePrimaryPreparationGeneration
@@ -820,6 +838,59 @@ export class AssistantService {
         }
     }
 
+    async seedDevelopmentChatFixtures() {
+        await this.ensureReady()
+        const userDataName = basename(app.getPath('userData'))
+        if (app.isPackaged || !/^zyra-dev(?:$|[-.][a-z0-9._-]+$)/i.test(userDataName)) {
+            throw new Error('Development Chat fixtures can only be seeded into a Zyra-dev profile.')
+        }
+
+        const selectedSessionId = this.state.snapshot.selectedSessionId
+        const fixtures = createAssistantDevelopmentChatFixtures({
+            cwd: this.persistence.getGlobalWorkspaceRoot()
+        })
+        for (const fixture of fixtures.sessions) {
+            if (isAssistantDevelopmentChatFixtureSessionId(fixture.id)
+                && this.state.snapshot.sessions.some((session) => session.id === fixture.id)) {
+                this.appendEvent('session.deleted', nowIso(), { sessionId: fixture.id }, fixture.id)
+            }
+
+            const fixtureThread = fixture.threads[0]!
+            const shellThread: AssistantThread = {
+                ...fixtureThread,
+                activePlan: null,
+                messages: [],
+                activities: [],
+                proposedPlans: [],
+                pendingApprovals: [],
+                pendingUserInputs: []
+            }
+            const shellSession: AssistantSession = { ...fixture, threads: [shellThread] }
+            this.appendEvent('session.created', fixture.createdAt, { session: shellSession }, fixture.id, fixtureThread.id)
+            this.appendEvent('thread.updated', fixture.updatedAt, {
+                threadId: fixtureThread.id,
+                patch: {
+                    messageCount: fixtureThread.messageCount,
+                    activityCount: fixtureThread.activityCount,
+                    proposedPlanCount: fixtureThread.proposedPlanCount,
+                    lastSeenCompletedTurnId: fixtureThread.lastSeenCompletedTurnId,
+                    state: fixtureThread.state,
+                    latestTurn: fixtureThread.latestTurn,
+                    messages: fixtureThread.messages,
+                    activities: fixtureThread.activities,
+                    proposedPlans: fixtureThread.proposedPlans,
+                    updatedAt: fixtureThread.updatedAt
+                }
+            }, fixture.id, fixtureThread.id)
+        }
+
+        if (selectedSessionId && this.state.snapshot.sessions.some((session) => session.id === selectedSessionId)) {
+            this.appendEvent('session.selected', nowIso(), { sessionId: selectedSessionId }, selectedSessionId)
+        }
+        await this.persistence.flush()
+        return { success: true as const, fixtures: fixtures.summaries }
+    }
+
     async selectSession(sessionId: string) {
         await this.ensureReady()
         const generation = ++this.navigationSelectionGeneration
@@ -828,7 +899,9 @@ export class AssistantService {
         const result = await selectAssistantSessionAction(this.actionDeps, sessionId)
         if (generation !== this.navigationSelectionGeneration) return result
         const snapshot = toAssistantShellSnapshot(this.state.snapshot)
-        this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
+        if (!isAssistantDevelopmentChatFixtureSessionId(sessionId)) {
+            this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
+        }
         return { ...result, snapshot }
     }
 
@@ -840,7 +913,9 @@ export class AssistantService {
         const result = await selectAssistantThreadAction(this.actionDeps, sessionId, threadId)
         if (generation !== this.navigationSelectionGeneration) return result
         const snapshot = toAssistantShellSnapshot(this.state.snapshot)
-        this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
+        if (!isAssistantDevelopmentChatFixtureSessionId(sessionId)) {
+            this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
+        }
         return { ...result, snapshot }
     }
 
@@ -1159,6 +1234,11 @@ export class AssistantService {
     }
 
     async newThread(sessionId?: string) {
+        await this.ensureReady()
+        const targetSessionId = sessionId || this.state.snapshot.selectedSessionId
+        if (isAssistantDevelopmentChatFixtureSessionId(targetSessionId)) {
+            throw new Error('Development TEST Chats are read-only local fixtures.')
+        }
         await this.stopCanonicalVoiceForNavigation()
         return createAssistantThreadAction(this.actionDeps, sessionId)
     }
@@ -1168,6 +1248,9 @@ export class AssistantService {
         const session = options?.sessionId
             ? requireSession(this.state.snapshot, options.sessionId)
             : getSelectedSession(this.state.snapshot)
+        if (isAssistantDevelopmentChatFixtureSessionId(session?.id)) {
+            throw new Error('Development TEST Chats are read-only local fixtures.')
+        }
         const thread = getActiveThread(session)
         if (thread && this.isVoiceForeground(thread) && !this.activeCanonicalVoice) {
             await this.recoverInactiveCanonicalVoice(thread)
@@ -1223,6 +1306,12 @@ export class AssistantService {
 
     async startRealtimeVoice(input: AssistantStartRealtimeVoiceInput, senderId: number) {
         if (!Number.isSafeInteger(senderId)) throw new Error('Voice owner identity is invalid.')
+        const fixtureSessionId = input.conversationId
+            ? findThreadRecord(this.state.snapshot, input.conversationId)?.session.id
+            : null
+        if (isAssistantDevelopmentChatFixtureSessionId(fixtureSessionId)) {
+            throw new Error('Development TEST Chats are read-only local fixtures.')
+        }
         if (this.realtimeVoiceOwnerId !== null && this.realtimeVoiceOwnerId !== senderId) {
             this.captureAnalytics({ event: 'zyra_v1_voice', properties: { action: 'duplicate_prevented', outcome: 'prevented', error_code: 'already_active' } })
             throw new Error('Voice is already active in another Zyra window.')

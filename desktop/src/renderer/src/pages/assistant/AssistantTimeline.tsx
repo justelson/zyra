@@ -97,6 +97,7 @@ type AssistantTimelineProps = {
     deletingMessageId?: string | null
     focusMessageId?: string | null
     loadingChats?: boolean
+    selectionHydrating?: boolean
     assistantTextStreamingMode?: AssistantTextStreamingMode
     assistantToolOutputDefaultMode?: AssistantToolOutputDefaultMode
     assistantChatDisplayMode?: AssistantChatDisplayMode
@@ -149,6 +150,7 @@ function AssistantTimelineImpl({
     deletingMessageId = null,
     focusMessageId = null,
     loadingChats = false,
+    selectionHydrating = false,
     assistantTextStreamingMode = 'stream',
     assistantToolOutputDefaultMode = 'expanded',
     assistantChatDisplayMode = 'detailed',
@@ -590,6 +592,7 @@ function AssistantTimelineImpl({
             scrollContainerRef={scrollContainerRef}
             contentInsetEndAdjustment={contentInsetEndAdjustment}
             isWorking={isWorking}
+            selectionHydrating={selectionHydrating}
             hasOlder={hasOlder}
             hasNewer={hasNewer}
             loadingOlder={loadingOlder}

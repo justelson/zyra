@@ -47,6 +47,7 @@ import {
     applyAssistantThreadDetail,
     dematerializeAssistantHistories,
     formatAssistantHistoryLoadError,
+    hasAssistantPersistedThreadContent,
     hasRenderableAssistantRetainedHistory,
     isAssistantRetainedHistoryFresh,
     materializeAssistantShellSnapshot,
@@ -1234,21 +1235,42 @@ export class AssistantStore {
     ): Promise<void> {
         if (!sessionId || !threadId) return
         const retainedHistory = this.state.historyByThreadId[threadId]
-        const currentThread = this.state.snapshot.sessions
-            .flatMap((session) => session.threads)
-            .find((thread) => thread.id === threadId) || null
+        const requestedSession = this.state.snapshot.sessions.find((session) => session.id === sessionId) || null
+        const currentThread = requestedSession?.threads.find((thread) => thread.id === threadId) || null
+        if (!currentThread) return
         if (!force && isAssistantRetainedHistoryFresh(retainedHistory, currentThread)) {
-            const retainedHasRows = hasRenderableAssistantRetainedHistory(retainedHistory)
-            const renderedHasRows = Boolean(
-                currentThread?.messages.length
-                || currentThread?.activities.length
-                || currentThread?.proposedPlans.length
-            )
-            if (!retainedHasRows || renderedHasRows) return
-            this.setState((current) => ({
-                snapshot: applyAssistantRetainedHistory(current.snapshot, threadId, retainedHistory!)
-            }))
-            return
+            if (hasRenderableAssistantRetainedHistory(retainedHistory)) {
+                const freshHistory = retainedHistory!
+                if (
+                    currentThread.messages === freshHistory.messages
+                    && currentThread.activities === freshHistory.activities
+                    && currentThread.proposedPlans === freshHistory.proposedPlans
+                ) return
+                this.setState((current) => {
+                    const latestRetainedHistory = current.historyByThreadId[threadId]
+                    if (!latestRetainedHistory) return {}
+                    const restoredSnapshot = applyAssistantRetainedHistory(
+                        current.snapshot,
+                        threadId,
+                        latestRetainedHistory
+                    )
+                    const synchronizedHistory = synchronizeAssistantVisibleHistory(
+                        restoredSnapshot,
+                        threadId,
+                        latestRetainedHistory,
+                        latestRetainedHistory.pageInfo.hasNewer
+                    )
+                    return {
+                        snapshot: replaceAssistantVisibleHistory(restoredSnapshot, threadId, synchronizedHistory),
+                        historyByThreadId: {
+                            ...current.historyByThreadId,
+                            [threadId]: synchronizedHistory
+                        }
+                    }
+                })
+                return
+            }
+            if (!hasAssistantPersistedThreadContent(currentThread)) return
         }
 
         const hydrationKey = this.buildSelectionHydrationKey(sessionId, threadId)

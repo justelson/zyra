@@ -484,6 +484,7 @@ export class BrowserAssistantBridge {
             case 'connect': return service.connect(args[0] as any)
             case 'disconnect': return service.disconnect(args[0] as string | undefined)
             case 'createSession': return service.createSession(args[0] as any)
+            case 'seedDevelopmentChatFixtures': return service.seedDevelopmentChatFixtures()
             case 'selectSession': return service.selectSession(args[0] as string)
             case 'selectThread': {
                 const input = args[0] as { sessionId: string; threadId: string }

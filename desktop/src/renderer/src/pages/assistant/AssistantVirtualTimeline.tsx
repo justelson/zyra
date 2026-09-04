@@ -36,6 +36,11 @@ type LegendScrollViewHandle = {
     getScrollableNode?: () => HTMLElement | null
 }
 
+type HistoryLoadRequestOwner = {
+    windowKey: string
+    requestId: number
+}
+
 function resolveScrollElement(value: unknown): HTMLDivElement | null {
     if (value instanceof HTMLDivElement) return value
     if (!value || typeof value !== 'object') return null
@@ -51,6 +56,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     scrollContainerRef?: RefObject<HTMLDivElement | null>
     contentInsetEndAdjustment: number
     isWorking: boolean
+    selectionHydrating: boolean
     hasOlder: boolean
     hasNewer: boolean
     loadingOlder: boolean
@@ -76,6 +82,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const scrollbarDragLastYRef = useRef<number | null>(null)
     const olderLoadRequestPendingRef = useRef(false)
     const newerLoadRequestPendingRef = useRef(false)
+    const nextHistoryLoadRequestIdRef = useRef(0)
+    const olderLoadRequestOwnerRef = useRef<HistoryLoadRequestOwner | null>(null)
+    const newerLoadRequestOwnerRef = useRef<HistoryLoadRequestOwner | null>(null)
     const initialHistoryBackfillFrameRef = useRef<number | null>(null)
     const initialHistoryBackfillWindowKeyRef = useRef(props.windowKey)
     const initialHistoryBackfillReadyRef = useRef(false)
@@ -105,6 +114,10 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         initialHistoryBackfillReadyRef.current = false
         initialHistoryBackfillActiveRef.current = true
         initialHistoryBackfillPagesRef.current = 0
+        olderLoadRequestPendingRef.current = false
+        newerLoadRequestPendingRef.current = false
+        olderLoadRequestOwnerRef.current = null
+        newerLoadRequestOwnerRef.current = null
     }
     activeWindowKeyRef.current = props.windowKey
     renderRowRef.current = props.renderRow
@@ -199,6 +212,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         const element = props.scrollContainerRef?.current
         const plan = resolveAssistantInitialHistoryBackfill({
             initialLayoutReady: initialHistoryBackfillReadyRef.current,
+            selectionSettled: !props.selectionHydrating,
             isWorking: props.isWorking,
             hasOlder: props.hasOlder,
             loadingOlder: props.loadingOlder,
@@ -210,14 +224,23 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         })
         if (!plan.shouldRequest) return
 
+        const requestOwner = {
+            windowKey: targetWindowKey,
+            requestId: ++nextHistoryLoadRequestIdRef.current
+        }
         olderLoadRequestPendingRef.current = true
+        olderLoadRequestOwnerRef.current = requestOwner
         initialHistoryBackfillPagesRef.current += 1
         void Promise.resolve(props.onLoadOlder(plan.turnLimit)).then((accepted) => {
-            if (activeWindowKeyRef.current !== targetWindowKey) return
+            if (olderLoadRequestOwnerRef.current !== requestOwner) return
+            olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
-            if (accepted === false) initialHistoryBackfillActiveRef.current = false
+            if (accepted === false) {
+                initialHistoryBackfillPagesRef.current = Math.max(0, initialHistoryBackfillPagesRef.current - 1)
+            }
         }).catch(() => {
-            if (activeWindowKeyRef.current !== targetWindowKey) return
+            if (olderLoadRequestOwnerRef.current !== requestOwner) return
+            olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
             initialHistoryBackfillActiveRef.current = false
         })
@@ -228,7 +251,8 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         props.loadOlderError,
         props.loadingOlder,
         props.onLoadOlder,
-        props.scrollContainerRef
+        props.scrollContainerRef,
+        props.selectionHydrating
     ])
 
     const scheduleInitialHistoryBackfillCheck = useCallback(() => {
@@ -325,15 +349,18 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             velocityPxPerMs: scrollVelocityRef.current
         })
         if (!plan.shouldRequest) return
+        const requestOwner = {
+            windowKey: props.windowKey,
+            requestId: ++nextHistoryLoadRequestIdRef.current
+        }
         olderLoadRequestPendingRef.current = true
-        void Promise.resolve(props.onLoadOlder(plan.turnLimit)).then((accepted) => {
-            if (accepted === false) olderLoadRequestPendingRef.current = false
-        }).catch(() => {
-            olderLoadRequestPendingRef.current = false
-        }).finally(() => {
+        olderLoadRequestOwnerRef.current = requestOwner
+        void Promise.resolve(props.onLoadOlder(plan.turnLimit)).catch(() => undefined).finally(() => {
+            if (olderLoadRequestOwnerRef.current !== requestOwner) return
+            olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
         })
-    }, [props.hasOlder, props.loadOlderError, props.loadingOlder, props.onLoadOlder, props.scrollContainerRef, scrollElement, startupSettled])
+    }, [props.hasOlder, props.loadOlderError, props.loadingOlder, props.onLoadOlder, props.scrollContainerRef, props.windowKey, scrollElement, startupSettled])
 
     const requestNewerPage = useCallback(() => {
         const element = props.scrollContainerRef?.current || scrollElement
@@ -350,39 +377,52 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             velocityPxPerMs: scrollVelocityRef.current
         })
         if (!plan.shouldRequest) return
+        const requestOwner = {
+            windowKey: props.windowKey,
+            requestId: ++nextHistoryLoadRequestIdRef.current
+        }
         newerLoadRequestPendingRef.current = true
-        void Promise.resolve(props.onLoadNewer(plan.turnLimit)).then((accepted) => {
-            if (accepted === false) newerLoadRequestPendingRef.current = false
-        }).catch(() => {
-            newerLoadRequestPendingRef.current = false
-        }).finally(() => {
+        newerLoadRequestOwnerRef.current = requestOwner
+        void Promise.resolve(props.onLoadNewer(plan.turnLimit)).catch(() => undefined).finally(() => {
+            if (newerLoadRequestOwnerRef.current !== requestOwner) return
+            newerLoadRequestOwnerRef.current = null
             newerLoadRequestPendingRef.current = false
         })
-    }, [props.hasNewer, props.loadNewerError, props.loadingNewer, props.onLoadNewer, props.scrollContainerRef, scrollElement, startupSettled])
+    }, [props.hasNewer, props.loadNewerError, props.loadingNewer, props.onLoadNewer, props.scrollContainerRef, props.windowKey, scrollElement, startupSettled])
 
     const retryOlderPage = useCallback(() => {
         if (!props.onLoadOlder || olderLoadRequestPendingRef.current || props.loadingOlder) return
+        const requestOwner = {
+            windowKey: props.windowKey,
+            requestId: ++nextHistoryLoadRequestIdRef.current
+        }
         olderLoadRequestPendingRef.current = true
-        void Promise.resolve(props.onLoadOlder(1)).then((accepted) => {
-            if (accepted === false) olderLoadRequestPendingRef.current = false
-        }).catch(() => {
+        olderLoadRequestOwnerRef.current = requestOwner
+        void Promise.resolve(props.onLoadOlder(1)).catch(() => undefined).finally(() => {
+            if (olderLoadRequestOwnerRef.current !== requestOwner) return
+            olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
         })
-    }, [props.loadingOlder, props.onLoadOlder])
+    }, [props.loadingOlder, props.onLoadOlder, props.windowKey])
 
     const requestOrRetryNewerPage = useCallback(() => {
         if (props.loadNewerError) {
             if (!props.onLoadNewer || newerLoadRequestPendingRef.current || props.loadingNewer) return
+            const requestOwner = {
+                windowKey: props.windowKey,
+                requestId: ++nextHistoryLoadRequestIdRef.current
+            }
             newerLoadRequestPendingRef.current = true
-            void Promise.resolve(props.onLoadNewer(1)).then((accepted) => {
-                if (accepted === false) newerLoadRequestPendingRef.current = false
-            }).catch(() => {
+            newerLoadRequestOwnerRef.current = requestOwner
+            void Promise.resolve(props.onLoadNewer(1)).catch(() => undefined).finally(() => {
+                if (newerLoadRequestOwnerRef.current !== requestOwner) return
+                newerLoadRequestOwnerRef.current = null
                 newerLoadRequestPendingRef.current = false
             })
             return
         }
         requestNewerPage()
-    }, [props.loadNewerError, props.loadingNewer, props.onLoadNewer, requestNewerPage])
+    }, [props.loadNewerError, props.loadingNewer, props.onLoadNewer, props.windowKey, requestNewerPage])
 
     const handleInitialLoad = useCallback(() => {
         const now = performance.now()
@@ -392,8 +432,6 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         scrollVelocityRef.current = 0
         lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
         lastDownwardIntentAtRef.current = Number.NEGATIVE_INFINITY
-        olderLoadRequestPendingRef.current = false
-        newerLoadRequestPendingRef.current = false
         if (!userNavigationAwayRef.current) {
             updateScrollMode('following-end')
         }

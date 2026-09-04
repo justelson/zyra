@@ -6,6 +6,7 @@ export const ASSISTANT_INITIAL_HISTORY_BACKFILL_MAX_PAGES = 3
 
 export type AssistantInitialHistoryBackfillInput = {
     initialLayoutReady: boolean
+    selectionSettled: boolean
     isWorking: boolean
     hasOlder: boolean
     loadingOlder: boolean
@@ -24,6 +25,7 @@ export function resolveAssistantInitialHistoryBackfill(
     const pagesRequested = Math.max(0, Math.floor(input.pagesRequested || 0))
     const targetContentLength = viewportSize + ASSISTANT_INITIAL_HISTORY_CONTEXT_PX
     const shouldRequest = input.initialLayoutReady
+        && input.selectionSettled
         && !input.isWorking
         && input.hasOlder
         && !input.loadingOlder

@@ -47,6 +47,10 @@ import { getAssistantThreadHydrationRevision } from '../src/renderer/src/lib/ass
 import { estimateAssistantTimelineCollectionsCharacters } from '../src/renderer/src/lib/assistant/session-hydration-cache'
 import type { TimelineDisplayRow } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import { createAssistantLongHistoryFixture } from './fixtures/assistant-long-history-fixture'
+import {
+    ASSISTANT_DEVELOPMENT_HEAVY_SESSION_ID,
+    createAssistantDevelopmentChatFixtures
+} from '../src/main/assistant/development-chat-fixtures'
 
 const at = (minute: number) => new Date(Date.parse('2026-07-16T10:00:00.000Z') + minute * 60_000).toISOString()
 assert.equal(shouldRefreshCanonicalHistory({ canonicalModifiedAt: at(1), persistedCanonicalModifiedAt: at(1), canonicalEntryCount: 50, persistedCanonicalEntryCount: 50 }), false, 'an up-to-date persisted chat must not rescan canonical history on every launch')
@@ -602,6 +606,37 @@ const detachedWindowSnapshot = replaceAssistantVisibleHistory(
 )
 const detachedWindowThread = detachedWindowSnapshot.sessions[0]!.threads[0]!
 assert.deepEqual(detachedWindowThread.messages, olderBoundedWindow.messages, 'live-edge projection cannot inject a disjoint newest turn into an older detached window')
+
+const developmentFixtureDb = new SQL.Database()
+initializeAssistantPersistenceSchema(developmentFixtureDb)
+const developmentFixtureSnapshot = createDefaultSnapshot()
+const developmentFixtureSessions = createAssistantDevelopmentChatFixtures({
+    cwd: 'C:/fixture-workspace',
+    now: Date.parse('2026-09-04T12:00:00.000Z')
+}).sessions
+const heavyDevelopmentSession = developmentFixtureSessions.find((entry) => entry.id === ASSISTANT_DEVELOPMENT_HEAVY_SESSION_ID)!
+developmentFixtureSnapshot.selectedSessionId = heavyDevelopmentSession.id
+developmentFixtureSnapshot.sessions = developmentFixtureSessions
+replaceAssistantSnapshot(developmentFixtureDb, developmentFixtureSnapshot)
+const heavyDevelopmentThread = heavyDevelopmentSession.threads[0]!
+const heavyDevelopmentFirstPage = readAssistantThreadDetail(developmentFixtureDb, heavyDevelopmentThread.id).history
+assert.equal(heavyDevelopmentFirstPage.pageInfo.turnCount, 1, 'the heavy dev fixture deliberately opens on one short newest turn')
+assert.equal(heavyDevelopmentFirstPage.pageInfo.hasOlder, true, 'the heavy dev fixture exposes older context for automatic backfill')
+assert.deepEqual(
+    heavyDevelopmentFirstPage.messages.filter((message) => message.role === 'user').map((message) => message.turnId),
+    ['development-fixture:heavy:turn-220']
+)
+const heavyDevelopmentBackfill = readAssistantHistoryPage(developmentFixtureDb, {
+    threadId: heavyDevelopmentThread.id,
+    before: heavyDevelopmentFirstPage.pageInfo.oldestCursor,
+    turnLimit: 1
+})
+assert.equal(heavyDevelopmentBackfill.activities.length, 132, 'the first fixture backfill carries the oversized penultimate Action batch intact')
+assert.deepEqual(
+    heavyDevelopmentBackfill.messages.filter((message) => message.role === 'user').map((message) => message.turnId),
+    ['development-fixture:heavy:turn-219']
+)
+developmentFixtureDb.close()
 
 db.close()
 console.log('Assistant paged history contract: ok')

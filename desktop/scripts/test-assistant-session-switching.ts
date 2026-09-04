@@ -25,6 +25,12 @@ import {
     prepareAssistantWarmSelection
 } from '../src/renderer/src/lib/assistant/assistant-warm-selection'
 import { AssistantStore } from '../src/renderer/src/lib/assistant/assistant-store-core'
+import {
+    ASSISTANT_DEVELOPMENT_HEAVY_SESSION_ID,
+    ASSISTANT_DEVELOPMENT_LIGHT_SESSION_ID,
+    createAssistantDevelopmentChatFixtures,
+    isAssistantDevelopmentChatFixtureSessionId
+} from '../src/main/assistant/development-chat-fixtures'
 
 function thread(id: string, messageText: string) {
     return {
@@ -86,6 +92,25 @@ function session(id: string) {
         threads: [activeThread]
     }
 }
+
+const developmentFixtures = createAssistantDevelopmentChatFixtures({
+    cwd: 'C:/fixture-workspace',
+    now: Date.parse('2026-09-04T12:00:00.000Z')
+})
+const lightDevelopmentFixture = developmentFixtures.sessions.find((entry) => entry.id === ASSISTANT_DEVELOPMENT_LIGHT_SESSION_ID)!
+const heavyDevelopmentFixture = developmentFixtures.sessions.find((entry) => entry.id === ASSISTANT_DEVELOPMENT_HEAVY_SESSION_ID)!
+const heavyDevelopmentThread = heavyDevelopmentFixture.threads[0]!
+const heavyLatestTurnId = 'development-fixture:heavy:turn-220'
+const heavyStressTurnId = 'development-fixture:heavy:turn-219'
+assert.match(lightDevelopmentFixture.title, /^TEST — LIGHT CHAT —/, 'the small fixture is unmistakable in the live Chat rail')
+assert.match(heavyDevelopmentFixture.title, /^TEST — HEAVY CHAT —/, 'the long fixture is unmistakable in the live Chat rail')
+assert.equal(lightDevelopmentFixture.threads[0]?.providerThreadId, null, 'development fixtures never create provider conversations')
+assert.equal(isAssistantDevelopmentChatFixtureSessionId(lightDevelopmentFixture.id), true)
+assert.equal(isAssistantDevelopmentChatFixtureSessionId('assistant-session:real-chat'), false, 'ordinary Chats never inherit fixture-only behavior')
+assert.equal(heavyDevelopmentThread.messages.filter((message) => message.role === 'user').length, 220)
+assert.equal(heavyDevelopmentThread.activities.filter((activity) => activity.turnId === heavyStressTurnId).length, 132, 'the penultimate turn exceeds the first-page record budget')
+assert.equal(heavyDevelopmentThread.activities.filter((activity) => activity.turnId === heavyLatestTurnId).length, 1, 'the newest turn stays short so underfilled-history backfill is exercised')
+assert.ok(developmentFixtures.summaries.find((entry) => entry.sessionId === ASSISTANT_DEVELOPMENT_HEAVY_SESSION_ID)!.characters > 100_000, 'the heavy fixture includes meaningful long-text pressure')
 
 const sessions = [session('a'), session('b'), session('c')]
 let state = {
@@ -318,6 +343,53 @@ try {
     assert.deepEqual(connectionCalls, [], 'rapid history navigation never starts renderer-owned provider sessions')
     assert.deepEqual(hydrationCalls, [{ sessionId: 'c', threadId: 'thread-c', force: false, resetLoadedRange: false }], 'only the newest chat validates its revision-matched visible cache')
     assert.equal(state.selectionRequestSessionId, null, 'the current selection request releases its event guard after completion')
+
+    selectionCalls.length = 0
+    hydrationCalls.length = 0
+    state = {
+        ...state,
+        snapshot: { ...state.snapshot, selectedSessionId: 'a' },
+        status: { ...state.status, selectedSessionId: 'a', activeThreadId: 'thread-a' },
+        selectionRequestId: 0,
+        selectionRequestSessionId: null,
+        selectionTransitionKey: null
+    }
+    const delayedSelectionResolvers = new Map<string, (value: any) => void>()
+    const immediateSelectSession = (globalThis as any).window.devscope.assistant.selectSession
+    ;(globalThis as any).window.devscope.assistant.selectSession = (sessionId: string) => {
+        selectionCalls.push(sessionId)
+        return new Promise((resolve) => delayedSelectionResolvers.set(sessionId, resolve))
+    }
+    const delayedSelectionResult = (sessionId: string) => ({
+        success: true as const,
+        sessionId,
+        snapshot: { ...state.snapshot, selectedSessionId: sessionId },
+        status: {
+            available: true,
+            connected: true,
+            selectedSessionId: sessionId,
+            activeThreadId: `thread-${sessionId}`,
+            state: 'ready' as const,
+            reason: null
+        }
+    })
+    try {
+        const delayedB = selectAssistantStoreSession(createContext(), 'b')
+        await Promise.resolve()
+        assert.deepEqual(selectionCalls, ['b'], 'the first delayed selection reaches IPC before the next click')
+        const delayedC = selectAssistantStoreSession(createContext(), 'c')
+        await Promise.resolve()
+        assert.deepEqual(selectionCalls, ['b', 'c'])
+        delayedSelectionResolvers.get('b')!(delayedSelectionResult('b'))
+        await delayedB
+        assert.equal(state.snapshot.selectedSessionId, 'c', 'an older IPC response cannot repaint the Chat selected by a newer click')
+        delayedSelectionResolvers.get('c')!(delayedSelectionResult('c'))
+        await delayedC
+        assert.equal(state.snapshot.selectedSessionId, 'c')
+        assert.deepEqual(hydrationCalls, [{ sessionId: 'c', threadId: 'thread-c', force: false, resetLoadedRange: false }], 'only the latest in-flight selection may hydrate visible history')
+    } finally {
+        ;(globalThis as any).window.devscope.assistant.selectSession = immediateSelectSession
+    }
 
     const raceSession = session('race')
     const raceThread = raceSession.threads[0]!
@@ -642,6 +714,165 @@ try {
         )
     } finally {
         ;(globalThis as any).window.devscope.assistant.selectSession = originalSelectSession
+    }
+
+    const partiallyVisibleThread = {
+        ...oversizedThread,
+        messages: oversizedThread.messages.slice(-1),
+        activities: oversizedThread.activities.slice(-1),
+        proposedPlans: []
+    }
+    const partiallyVisibleSession = {
+        ...oversizedSession,
+        threads: [partiallyVisibleThread]
+    }
+    const partialHistoryStore = new AssistantStore()
+    ;(partialHistoryStore as any).state = {
+        ...state,
+        snapshot: {
+            ...oversizedShell,
+            selectedSessionId: partiallyVisibleSession.id,
+            sessions: [partiallyVisibleSession]
+        },
+        historyByThreadId: { [oversizedThread.id]: oversizedRetainedHistory },
+        selectionTransitionKey: null,
+        selectionHydrationKey: null
+    }
+    await (partialHistoryStore as any).requestSessionHydration(partiallyVisibleSession.id, oversizedThread.id)
+    const restoredPartialThread = (partialHistoryStore as any).state.snapshot.sessions[0]!.threads[0]!
+    assert.equal(
+        restoredPartialThread.messages.length,
+        oversizedRetainedHistory.messages.length,
+        'a fresh retained Chat restores every loaded message when the visible snapshot contains only its latest preview'
+    )
+    assert.equal(
+        restoredPartialThread.activities.length,
+        oversizedRetainedHistory.activities.length,
+        'a latest-only preview cannot make detail hydration skip the rest of fresh retained activity history'
+    )
+
+    const completeHistoryStore = new AssistantStore()
+    ;(completeHistoryStore as any).state = {
+        ...state,
+        snapshot: {
+            ...oversizedShell,
+            selectedSessionId: oversizedSession.id,
+            sessions: [oversizedSession]
+        },
+        historyByThreadId: { [oversizedThread.id]: oversizedRetainedHistory },
+        selectionTransitionKey: null,
+        selectionHydrationKey: null
+    }
+    const completeSnapshotBeforeHydration = (completeHistoryStore as any).state.snapshot
+    await (completeHistoryStore as any).requestSessionHydration(oversizedSession.id, oversizedThread.id)
+    assert.equal((completeHistoryStore as any).state.snapshot, completeSnapshotBeforeHydration, 'an already complete warm Chat keeps the O(1) selection path')
+
+    const livePreviewMessage = {
+        ...oversizedThread.messages.at(-1)!,
+        id: 'oversized-preview-live-message',
+        turnId: 'oversized-preview-live-turn',
+        text: 'Live preview row that has not reached retained history yet.',
+        timelineSequence: (oversizedThread.messages.at(-1)!.timelineSequence || 0) + 10_000,
+        createdAt: '2026-07-24T11:00:00.000Z',
+        updatedAt: '2026-07-24T11:00:00.000Z'
+    }
+    const livePreviewThread = {
+        ...partiallyVisibleThread,
+        messages: [...partiallyVisibleThread.messages, livePreviewMessage]
+    }
+    const livePreviewStore = new AssistantStore()
+    ;(livePreviewStore as any).state = {
+        ...state,
+        snapshot: {
+            ...oversizedShell,
+            selectedSessionId: oversizedSession.id,
+            sessions: [{ ...oversizedSession, threads: [livePreviewThread] }]
+        },
+        historyByThreadId: { [oversizedThread.id]: oversizedRetainedHistory },
+        selectionTransitionKey: null,
+        selectionHydrationKey: null
+    }
+    await (livePreviewStore as any).requestSessionHydration(oversizedSession.id, oversizedThread.id)
+    assert.equal(
+        (livePreviewStore as any).state.snapshot.sessions[0]!.threads[0]!.messages.some((message: any) => message.id === livePreviewMessage.id),
+        true,
+        'restoring older retained rows preserves a newer live preview row'
+    )
+    assert.equal(
+        (livePreviewStore as any).state.historyByThreadId[oversizedThread.id].messages.some((message: any) => message.id === livePreviewMessage.id),
+        true,
+        'a newer live preview row joins retained state so the next Chat switch cannot drop it'
+    )
+
+    const emptyRetainedSession = session('empty-retained')
+    const emptyRetainedThread = emptyRetainedSession.threads[0]!
+    const emptyRetainedShellThread = {
+        ...emptyRetainedThread,
+        messages: [],
+        activities: [],
+        proposedPlans: []
+    }
+    let emptyRetainedBootstrapCalls = 0
+    const originalGetThreadDetailBootstrap = (globalThis as any).window.devscope.assistant.getThreadDetailBootstrap
+    ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = async (threadId: string) => {
+        emptyRetainedBootstrapCalls += 1
+        return {
+            success: true as const,
+            detail: {
+                threadId,
+                activePlan: null,
+                pendingApprovals: [],
+                pendingUserInputs: [],
+                history: {
+                    threadId,
+                    messages: emptyRetainedThread.messages,
+                    activities: [],
+                    proposedPlans: [],
+                    pageInfo: { oldestCursor: 'empty-retained-oldest', newestCursor: null, hasOlder: false, hasNewer: false, turnCount: 1 },
+                    initialLoading: false,
+                    loadingOlder: false,
+                    loadingNewer: false,
+                    loadOlderError: null,
+                    loadNewerError: null,
+                    fullyLoaded: true
+                }
+            }
+        }
+    }
+    try {
+        const emptyRetainedStore = new AssistantStore()
+        ;(emptyRetainedStore as any).state = {
+            ...state,
+            snapshot: {
+                ...state.snapshot,
+                selectedSessionId: emptyRetainedSession.id,
+                sessions: [{ ...emptyRetainedSession, threads: [emptyRetainedShellThread] }]
+            },
+            historyByThreadId: {
+                [emptyRetainedThread.id]: {
+                    threadId: emptyRetainedThread.id,
+                    messages: [],
+                    activities: [],
+                    proposedPlans: [],
+                    pageInfo: { oldestCursor: null, newestCursor: null, hasOlder: false, hasNewer: false, turnCount: 0 },
+                    initialLoading: false,
+                    loadingOlder: false,
+                    loadingNewer: false,
+                    loadOlderError: null,
+                    loadNewerError: null,
+                    fullyLoaded: true,
+                    lastUsedAt: Date.now(),
+                    shellRevision: getAssistantThreadHydrationRevision(emptyRetainedShellThread)
+                }
+            },
+            selectionTransitionKey: null,
+            selectionHydrationKey: null
+        }
+        await (emptyRetainedStore as any).requestSessionHydration(emptyRetainedSession.id, emptyRetainedThread.id)
+        assert.equal(emptyRetainedBootstrapCalls, 1, 'an empty retained entry cannot suppress hydration when shell counters prove that the Chat has history')
+        assert.equal((emptyRetainedStore as any).state.snapshot.sessions[0]!.threads[0]!.messages[0]?.text, 'content-empty-retained')
+    } finally {
+        ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = originalGetThreadDetailBootstrap
     }
 
     const staleCache = new Map(hydratedThreadCache)

@@ -44,6 +44,7 @@ export const BROWSER_ASSISTANT_BRIDGE_METHODS = [
     'connect',
     'disconnect',
     'createSession',
+    'seedDevelopmentChatFixtures',
     'selectSession',
     'selectThread',
     'getThreadDetailBootstrap',

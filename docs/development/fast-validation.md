@@ -15,6 +15,7 @@ Run these from the repository root unless the command says otherwise.
 | Merge/release gate | `npm run check` | Core, desktop, and doctor checks |
 | Inspect available check modes | `npm run check:help` | Prints runner modes and concurrency control |
 | Desktop UI development | `npm run ui:dev` | Electron/Vite development server with HMR |
+| Chat-switch fixture setup | `npm run chat:seed-dev-fixtures` | Idempotently seeds clearly named light and heavy Chats into the running `Zyra-dev` profile |
 | Persistent full type feedback | `npm run ui:typecheck:watch` | Keeps the full TypeScript graph alive between edits |
 | Renderer-only type check | `npm run ui:typecheck:renderer` | Renderer and shared contracts only |
 | Persistent renderer feedback | `npm run ui:typecheck:watch:renderer` | Keeps the renderer graph alive between edits |
@@ -39,6 +40,15 @@ Run these from the repository root unless the command says otherwise.
 7. Run `npm run check` once for merge/release readiness, not after every local edit.
 
 A successful typecheck proves type consistency. A successful build proves bundling. Neither replaces a focused behavior test or UI smoke test.
+
+## Chat-switch fixtures
+
+With the development Desktop running, `npm run chat:seed-dev-fixtures` creates two local-only Chats:
+
+- `TEST — LIGHT CHAT — 6 TURNS — SAFE TO DELETE`
+- `TEST — HEAVY CHAT — 220 TURNS + LONG TEXT — SAFE TO DELETE`
+
+The command is idempotent: it replaces only the two reserved development-fixture IDs and restores the previously selected Chat. Both fixtures are read-only and skip provider attachment. The heavy fixture ends with a deliberately short Turn after a 132-Action Turn, exercising retained history, initial backfill, pagination, long Markdown measurement, and virtualization. The seeder refuses packaged and non-`Zyra-dev` profiles and never creates provider conversations.
 
 ## Typecheck scopes and caches
 

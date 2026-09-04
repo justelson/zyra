@@ -25,6 +25,8 @@ const titleBarSource = readFileSync(new URL('../src/renderer/src/components/layo
 const mainSource = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
 const browserRuntimeSource = readFileSync(new URL('../src/main/browser-client-runtime.ts', import.meta.url), 'utf8')
 const assistantHandlersSource = readFileSync(new URL('../src/main/ipc/handlers/assistant-handlers.ts', import.meta.url), 'utf8')
+const assistantServiceSource = readFileSync(new URL('../src/main/assistant/service.ts', import.meta.url), 'utf8')
+const fixtureSeederSource = readFileSync(new URL('../../scripts/seed-development-chat-fixtures.mjs', import.meta.url), 'utf8')
 const preloadRelaySource = readFileSync(new URL('../src/preload/browser-devscope-relay.ts', import.meta.url), 'utf8')
 const mainRelaySource = readFileSync(new URL('../src/main/browser-devscope-relay.ts', import.meta.url), 'utf8')
 const liveDevscopeSource = readFileSync(new URL('../src/renderer/src/lib/browser-devscope-live-adapter.ts', import.meta.url), 'utf8')
@@ -53,6 +55,12 @@ assert.equal(liveDevscopeSource.includes('MAX_CONCURRENT_BACKGROUND_BROWSER_ACTI
 assert.equal(liveDevscopeSource.includes('isPriorityBrowserAction'), true, 'interactive native browser actions must bypass background read backlog')
 assert.equal(browserAssistantAdapterSource.includes('waitForVoiceStream()'), true, 'browser Voice start must wait until its owner-scoped event stream is connected')
 assert.equal(browserAssistantAdapterSource.includes('realtimeVoiceIngestQueue'), true, 'browser WebRTC control events must preserve provider ordering across HTTP requests')
+assert.match(assistantServiceSource, /app\.isPackaged \|\| !\/\^zyra-dev/, 'the live fixture owner rejects packaged and non-development profiles')
+assert.match(assistantServiceSource, /async connect[\s\S]{0,600}isAssistantDevelopmentChatFixtureSessionId[\s\S]{0,400}return \{ success: true as const, threadId: fixtureThread\.id \}/, 'opening a TEST Chat cannot attach it to a provider')
+assert.match(assistantServiceSource, /async selectSession[\s\S]{0,800}!isAssistantDevelopmentChatFixtureSessionId\(sessionId\)[\s\S]{0,180}scheduleSelectedCanonicalSessionSynchronization/, 'selecting a TEST Chat skips background canonical attachment')
+assert.match(assistantServiceSource, /async sendPrompt[\s\S]{0,500}isAssistantDevelopmentChatFixtureSessionId\(session\?\.id\)[\s\S]{0,180}read-only local fixtures/, 'TEST Chat content cannot be mutated through the composer')
+assert.match(fixtureSeederSource, /!\/\^zyra-dev/, 'the fixture command rejects production and path-like profile names before reading a bridge descriptor')
+assert.match(fixtureSeederSource, /x-zyra-browser-capability['"]?: descriptor\.capability/, 'the fixture command uses the protected local service instead of editing a live database')
 
 const allowedOrigin = 'http://localhost:5174'
 const capability = 'test-browser-assistant-capability'
@@ -95,6 +103,9 @@ const service = {
     },
     async getSnapshot() { return { selectedSessionId: 'session:real', sessions: [] } },
     async getStatus() { return { available: true, connected: true, state: 'idle' } },
+    async seedDevelopmentChatFixtures() {
+        return { success: true as const, fixtures: [{ title: 'TEST — LIGHT CHAT', turns: 6 }] }
+    },
     async startRealtimeVoice() { return { success: true as const, sdp: 'answer', realtimeVersion: 'v3' } },
     async sendRealtimeVoiceMessage() { return { success: true as const, mode: 'text-turn' as const } },
     async ingestRealtimeVoiceEvent() { return { success: true as const } },
@@ -157,6 +168,15 @@ try {
     assert.equal(bootstrap.value.snapshot.sessions[0].title, 'Shared browser session', 'browser bootstrap must use the live AssistantService')
     assert.equal(typeof eventListener, 'function', 'the first protected Browser request binds live Assistant events')
     assert.equal(bootstrapResponse.headers.get('access-control-allow-origin'), allowedOrigin)
+
+    const fixtureResponse = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'seedDevelopmentChatFixtures', args: [] })
+    })
+    const fixtureResult = await fixtureResponse.json() as any
+    assert.equal(fixtureResult.ok, true)
+    assert.match(fixtureResult.value.fixtures[0].title, /^TEST — LIGHT CHAT/, 'the protected local bridge can invoke the dev-only fixture owner')
 
     const devscopeResponse = await fetch(`${baseUrl}${BROWSER_DEVSCOPE_BRIDGE_INVOKE_PATH}`, {
         method: 'POST',

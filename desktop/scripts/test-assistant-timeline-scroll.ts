@@ -57,6 +57,7 @@ const idleStreamPlan = resolveAssistantHistoryStreamPlan({
 assert.equal(idleStreamPlan.shouldRequest, false, 'opening at the latest turn cannot preload older history without user motion')
 assert.deepEqual(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
+    selectionSettled: true,
     isWorking: false,
     hasOlder: true,
     loadingOlder: false,
@@ -68,6 +69,7 @@ assert.deepEqual(resolveAssistantInitialHistoryBackfill({
 }), { shouldRequest: true, turnLimit: 1 }, 'an underfilled reopened chat backfills one local turn before it can look like a one-turn transcript')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
+    selectionSettled: true,
     isWorking: false,
     hasOlder: true,
     loadingOlder: false,
@@ -79,6 +81,19 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
 }).shouldRequest, false, 'a viewport with one row of readable context does not fetch another page')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
+    isWorking: false,
+    hasOlder: true,
+    loadingOlder: false,
+    hasLoadError: false,
+    requestPending: false,
+    contentLength: 200,
+    viewportSize: 829,
+    pagesRequested: 0,
+    selectionSettled: false
+}).shouldRequest, false, 'an underfilled Chat waits for selection hydration to release the same history cursor')
+assert.equal(resolveAssistantInitialHistoryBackfill({
+    initialLayoutReady: true,
+    selectionSettled: true,
     isWorking: true,
     hasOlder: true,
     loadingOlder: false,
@@ -90,6 +105,7 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
 }).shouldRequest, false, 'an actively streaming chat prioritizes the live edge instead of backfilling history')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
+    selectionSettled: true,
     isWorking: false,
     hasOlder: true,
     loadingOlder: false,
@@ -226,6 +242,11 @@ assert.equal(
 assert.ok(incrementalMs < 100, 'a single tool lifecycle update remains bounded on the 1,000-turn fixture')
 
 const virtualTimelineSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantVirtualTimeline.tsx', import.meta.url), 'utf8')
+assert.equal(virtualTimelineSource.includes('selectionSettled: !props.selectionHydrating'), true, 'initial backfill waits until Chat selection and detail hydration release the history cursor')
+assert.equal(virtualTimelineSource.includes('if (accepted === false) initialHistoryBackfillActiveRef.current = false'), false, 'a transiently rejected page cannot permanently disable first-screen context')
+assert.match(virtualTimelineSource, /accepted === false[\s\S]{0,180}initialHistoryBackfillPagesRef\.current = Math\.max/, 'a rejected page restores its bounded retry budget')
+assert.match(virtualTimelineSource, /initialHistoryBackfillWindowKeyRef\.current !== props\.windowKey[\s\S]{0,420}olderLoadRequestOwnerRef\.current = null[\s\S]{0,120}newerLoadRequestOwnerRef\.current = null/, 'each Chat window clears stale page-request ownership synchronously')
+assert.equal(virtualTimelineSource.includes('requestId: ++nextHistoryLoadRequestIdRef.current'), true, 'revisiting the same Chat receives a new page owner instead of reusing its window key')
 const stylesSource = readFileSync(new URL('../src/renderer/src/index.css', import.meta.url), 'utf8')
 const timelineSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimeline.tsx', import.meta.url), 'utf8')
 const workSummarySource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineWorkSummary.tsx', import.meta.url), 'utf8')
@@ -303,7 +324,7 @@ assert.match(virtualTimelineSource, /lastUpwardIntentAtRef\.current = now[\s\S]{
 assert.equal(virtualTimelineSource.includes('shouldContinueAssistantHistoryStream'), false, 'a completed page cannot chain another history request without fresh user input')
 assert.equal(virtualTimelineSource.includes('olderDemandBlockedByLoadRef'), false, 'wheel events received during an in-flight page are not queued into a later request storm')
 assert.equal(virtualTimelineSource.includes('olderLoadBoundaryLockedRef'), false, 'pagination no longer stalls until a direction reversal')
-assert.match(virtualTimelineSource, /Promise\.resolve\(props\.onLoadOlder\(plan\.turnLimit\)\)[\s\S]{0,180}accepted === false[\s\S]{0,100}olderLoadRequestPendingRef\.current = false/, 'a store-rejected request cannot latch the timeline pending state')
+assert.match(virtualTimelineSource, /olderLoadRequestOwnerRef\.current = requestOwner[\s\S]{0,220}finally\(\(\) => \{[\s\S]{0,180}olderLoadRequestOwnerRef\.current !== requestOwner[\s\S]{0,160}olderLoadRequestPendingRef\.current = false/, 'page completion releases only the exact request that owns the current Chat window')
 assert.equal(virtualTimelineSource.includes('olderLoadIntentWindowKey'), false, 'remount-prone component intent state cannot trigger or block pages')
 assert.equal(virtualTimelineSource.includes('<span className="sr-only" role="status">Loading earlier messages</span>'), true, 'normal older-history loading remains visually silent')
 assert.equal(virtualTimelineSource.includes("props.loadOlderError ? 'Retry earlier messages'"), false, 'the visible pill is reserved for a real retry state')

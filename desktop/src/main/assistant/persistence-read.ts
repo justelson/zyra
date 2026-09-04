@@ -208,16 +208,17 @@ function readThreadDetails(db: SqlDatabase, threadId: string): AssistantHydrated
             resolvedAt: toNullableString(row[11])
         })),
         pendingUserInputs: readThreadRows<AssistantPendingUserInput>(db, 'assistant_pending_user_inputs', threadId, [
-            'id', 'request_id', 'questions_json', 'status', 'answers_json', 'turn_id', 'created_at', 'resolved_at'
+            'id', 'request_id', 'questions_json', 'status', 'answers_json', 'response_message_id', 'turn_id', 'created_at', 'resolved_at'
         ], (row) => ({
             id: String(row[0] || ''),
             requestId: String(row[1] || ''),
             questions: parseJson(row[2], []),
             status: String(row[3] || 'pending') as AssistantPendingUserInput['status'],
             answers: parseJson<Record<string, string | string[]> | null>(row[4], null),
-            turnId: toNullableString(row[5]),
-            createdAt: String(row[6] || new Date(0).toISOString()),
-            resolvedAt: toNullableString(row[7])
+            responseMessageId: toNullableString(row[5]),
+            turnId: toNullableString(row[6]),
+            createdAt: String(row[7] || new Date(0).toISOString()),
+            resolvedAt: toNullableString(row[8])
         }))
     }
 }

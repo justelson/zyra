@@ -5,6 +5,11 @@ export const AGENT_SURFACE_KINDS = Object.freeze([
   "file-change",
   "file-read",
   "search",
+  "web-search",
+  "web-fetch",
+  "skill",
+  "agent",
+  "workflow",
   "browser-control",
   "computer-control",
   "tool",
@@ -35,9 +40,11 @@ export function normalizeAgentSurfaceTool(value = {}) {
   const phase = normalizeAgentSurfacePhase(value);
   const command = firstString(args, ["command", "cmd", "script"]);
   const query = firstString(args, ["query", "q", "pattern", "search"]);
+  const url = firstString(args, ["url", "href"]);
+  const action = firstString(args, ["action", "operation"]);
   const paths = readPaths(args, result, partialResult, details);
   const kind = classifyToolKind({ normalizedToolName, args, command, query, paths });
-  const primaryText = command ?? paths[0] ?? query ?? toolName;
+  const primaryText = command ?? paths[0] ?? query ?? url ?? firstString(args, ["label", "name", "prompt"]) ?? action ?? toolName;
 
   return {
     version: AGENT_SURFACE_CONTRACT_VERSION,
@@ -49,6 +56,8 @@ export function normalizeAgentSurfaceTool(value = {}) {
     primaryText,
     command,
     query,
+    url,
+    action,
     paths,
     summary: summarizeSurfaceTool({ kind, lifecycle, toolName, pathCount: paths.length }),
   };
@@ -104,14 +113,19 @@ export function isAgentSurfaceDescriptor(value) {
 }
 
 function classifyToolKind({ normalizedToolName, args, command, query, paths }) {
-  if (normalizedToolName === "browser control") return "browser-control";
-  if (normalizedToolName === "computer control") return "computer-control";
+  if (normalizedToolName === "web search") return "web-search";
+  if (normalizedToolName === "web fetch") return "web-fetch";
+  if (normalizedToolName === "agent") return "agent";
+  if (normalizedToolName === "workflow") return "workflow";
+  if (/^browser(?:\s|$)/.test(normalizedToolName)) return "browser-control";
+  if (/^computer(?:\s|$)/.test(normalizedToolName)) return "computer-control";
   if (command || /\b(bash|shell|powershell|terminal|exec|command|cmd)\b/.test(normalizedToolName)) {
     return "command";
   }
   if (isFileMutation(normalizedToolName, args)) return "file-change";
+  if (paths.some((filePath) => /(?:^|[\\/])skills[\\/][^\\/]+[\\/]skill\.md$/i.test(filePath))) return "skill";
   if (paths.length > 0 || /\b(read|open|cat|view|inspect)\b/.test(normalizedToolName)) return "file-read";
-  if (query || /\b(search|find|grep|rg|web search|web fetch)\b/.test(normalizedToolName)) return "search";
+  if (query || /\b(search|find|grep|rg)\b/.test(normalizedToolName)) return "search";
   return "tool";
 }
 
@@ -137,6 +151,25 @@ function isFileMutation(toolName, args) {
 }
 
 function summarizeSurfaceTool({ kind, lifecycle, toolName, pathCount }) {
+  if (kind === "web-search" || kind === "web-fetch") {
+    const label = kind === "web-search" ? "Web search" : "Web fetch";
+    if (lifecycle === "running") return `${label} in progress`;
+    if (lifecycle === "failed") return `${label} failed`;
+    if (lifecycle === "stopped") return `${label} stopped`;
+    return `${label} completed`;
+  }
+  if (kind === "skill") {
+    if (lifecycle === "running") return "Loading skill";
+    if (lifecycle === "failed") return "Skill load failed";
+    return "Loaded skill";
+  }
+  if (kind === "agent" || kind === "workflow") {
+    const label = kind === "agent" ? "Agent" : "Workflow";
+    if (lifecycle === "running") return `${label} action in progress`;
+    if (lifecycle === "failed") return `${label} action failed`;
+    if (lifecycle === "stopped") return `${label} action stopped`;
+    return `${label} action completed`;
+  }
   if (kind === "browser-control" || kind === "computer-control") {
     const label = kind === "browser-control" ? "Browser control" : "Computer control";
     if (lifecycle === "running") return `Using ${label}`;

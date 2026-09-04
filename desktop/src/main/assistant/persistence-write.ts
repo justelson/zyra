@@ -603,15 +603,16 @@ function upsertAssistantPendingApproval(db: SqlDatabase, threadId: string, appro
 function upsertAssistantPendingUserInput(db: SqlDatabase, threadId: string, input: AssistantPendingUserInput): void {
     db.run(`
         INSERT INTO assistant_pending_user_inputs (
-            id, thread_id, request_id, questions_json, status, answers_json, turn_id, created_at, resolved_at
+            id, thread_id, request_id, questions_json, status, answers_json, response_message_id, turn_id, created_at, resolved_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(request_id) DO UPDATE SET
             id = excluded.id,
             thread_id = excluded.thread_id,
             questions_json = excluded.questions_json,
             status = excluded.status,
             answers_json = excluded.answers_json,
+            response_message_id = excluded.response_message_id,
             turn_id = excluded.turn_id,
             created_at = excluded.created_at,
             resolved_at = excluded.resolved_at
@@ -622,6 +623,7 @@ function upsertAssistantPendingUserInput(db: SqlDatabase, threadId: string, inpu
         jsonStringify(input.questions),
         input.status,
         jsonStringify(input.answers),
+        input.responseMessageId || null,
         input.turnId,
         input.createdAt,
         input.resolvedAt

@@ -399,16 +399,30 @@ try {
   });
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "user_input_requested"));
   assert.equal((await tui.request("catalog.list", {})).chats[0].presence.attention, "user-input", "catalog presence must expose blocking user-input attention");
-  await tui.request("session.request", {
+  const userInputResponse = await tui.request("session.request", {
     sessionKey: "chat:test",
     type: "user_input.respond",
     payload: { requestId: "user-input:test", answers: { targets: ["Desktop", "TUI"] }, cancelled: false }
   });
+  assert.deepEqual(userInputResponse, { ok: true });
   assert.deepEqual(workers[0].requests.at(-1), {
     type: "user_input.respond",
     payload: { requestId: "user-input:test", answers: { targets: ["Desktop", "TUI"] }, cancelled: false }
   }, "an attached surface should resolve canonical user input while the prompt remains active");
+  const userInputWorkerRequestCount = workers[0].requests.filter((entry) => entry.type === "user_input.respond").length;
+  assert.deepEqual(await tui.request("session.request", {
+    sessionKey: "chat:test",
+    type: "user_input.respond",
+    payload: { requestId: "user-input:test", answers: { targets: ["Desktop", "TUI"] }, cancelled: false }
+  }), userInputResponse, "the owning surface may safely retry a response whose acknowledgement was lost");
+  assert.equal(workers[0].requests.filter((entry) => entry.type === "user_input.respond").length, userInputWorkerRequestCount, "same-surface retries cannot resolve the request twice");
+  await assert.rejects(desktop.request("session.request", {
+    sessionKey: "chat:test",
+    type: "user_input.respond",
+    payload: { requestId: "user-input:test", answers: { targets: ["Desktop"] }, cancelled: false }
+  }), /already answered by another attached surface/, "only one attached surface may own a question response");
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "user_input_resolved"));
+  assert.equal(tuiEvents.find((entry) => entry.event?.type === "user_input_resolved")?.event?.responseOwnerClientId, "tui:test", "resolved question events retain the answering surface for safe retry recovery");
   assert.equal((await tui.request("catalog.list", {})).chats[0].presence.attention, null, "catalog presence must clear resolved user-input attention");
   workers[0].emit("event", { type: "agent_end", willRetry: true });
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "agent_end" && entry.event?.willRetry === true));

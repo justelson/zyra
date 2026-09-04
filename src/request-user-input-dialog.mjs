@@ -246,59 +246,69 @@ export class RequestUserInputDialogComponent {
 
   render(width) {
     const safeWidth = Math.max(32, Number(width) || 80);
-    const innerWidth = Math.max(24, safeWidth - 4);
+    const innerWidth = Math.max(24, safeWidth - 7);
     const border = () => new DynamicBorder((text) => `${this.theme.accent}${text}${reset}`);
     const container = new Container();
     container.addChild(border());
+    container.addChild(new Text(`${this.theme.accent}${bold}Asked ${this.questions.length} ${this.questions.length === 1 ? "question" : "questions"}${reset}`, 1, 0));
+
+    for (let questionIndex = 0; questionIndex < this.questions.length; questionIndex += 1) {
+      const question = this.questions[questionIndex];
+      const active = questionIndex === this.questionIndex && !this.isReview();
+      const answered = Object.prototype.hasOwnProperty.call(this.answers, question.id);
+      const marker = active ? `${this.theme.accent}›${reset}` : answered ? `${this.theme.success}✓${reset}` : `${this.theme.dimMuted}·${reset}`;
+      container.addChild(new Text(`${marker} ${active ? this.theme.accent : this.theme.primary}${bold}${questionIndex + 1}. ${question.header}${reset}`, 1, 0));
+      for (const line of wrapTextWithAnsi(question.question, innerWidth)) {
+        container.addChild(new Text(`${active ? this.theme.primary : this.theme.muted}   ${line}${reset}`, 1, 0));
+      }
+
+      if (!active) {
+        if (answered) container.addChild(new Text(`${this.theme.dimMuted}   Answer: ${formatAnswer(question, this.answers[question.id])}${reset}`, 1, 0));
+        continue;
+      }
+
+      if (this.inputMode) {
+        container.addChild(this.editor);
+      } else if (question.type === "ranking") {
+        const ranking = this.rankingByQuestionId.get(question.id) || [];
+        ranking.forEach((label, index) => container.addChild(new Text(`${index === this.optionIndex ? this.theme.accent : this.theme.muted}   ${index === this.optionIndex ? "›" : " "} ${index + 1}. ${label}${reset}`, 1, 0)));
+      } else {
+        const options = effectiveOptions(question);
+        const selected = answerArray(this.answers[question.id]);
+        options.forEach((option, index) => {
+          const focused = index === this.optionIndex;
+          const checked = selected.includes(option.label);
+          const optionMarker = question.type === "multi_select" || question.type === "file_select" ? (checked ? "[x]" : "[ ]") : focused ? "●" : "○";
+          const recommended = option.recommended ? ` ${this.theme.success}Recommended${reset}` : "";
+          container.addChild(new Text(`${focused ? this.theme.accent : this.theme.muted}   ${optionMarker} ${option.label}${reset}${recommended}`, 1, 0));
+          if (option.description) container.addChild(new Text(`${this.theme.dimMuted}      ${option.description}${reset}`, 1, 0));
+        });
+        if (question.allowOther) {
+          const focused = this.optionIndex === options.length;
+          container.addChild(new Text(`${focused ? this.theme.accent : this.theme.muted}   ${focused ? "●" : "○"} Something else${reset}`, 1, 0));
+        }
+      }
+    }
+
     if (this.isReview()) {
-      container.addChild(new Text(`${this.theme.accent}${bold}Review answers${reset}`, 1, 0));
-      for (const question of this.questions) {
-        container.addChild(new Text(`${this.theme.primary}${question.header}:${reset} ${this.theme.muted}${formatAnswer(question, this.answers[question.id])}${reset}`, 1, 0));
-      }
-      container.addChild(new Text(`${this.theme.dimMuted}enter submit • ← edit last • esc dismiss${reset}`, 1, 0));
-      container.addChild(border());
-      return container.render(safeWidth);
-    }
-
-    const question = this.currentQuestion();
-    container.addChild(new Text(`${this.theme.accent}${bold}${question.header}${reset} ${this.theme.dimMuted}${this.questionIndex + 1}/${this.questions.length}${reset}`, 1, 0));
-    for (const line of wrapTextWithAnsi(question.question, innerWidth)) container.addChild(new Text(`${this.theme.primary}${line}${reset}`, 1, 0));
-
-    if (this.inputMode) {
-      container.addChild(this.editor);
-    } else if (question.type === "ranking") {
-      const ranking = this.rankingByQuestionId.get(question.id) || [];
-      ranking.forEach((label, index) => container.addChild(new Text(`${index === this.optionIndex ? this.theme.accent : this.theme.muted}${index === this.optionIndex ? "›" : " "} ${index + 1}. ${label}${reset}`, 1, 0)));
+      container.addChild(new Text(`${this.theme.success}All questions answered.${reset} ${this.theme.dimMuted}enter submit • ← edit last • esc dismiss${reset}`, 1, 0));
     } else {
-      const options = effectiveOptions(question);
-      const selected = answerArray(this.answers[question.id]);
-      options.forEach((option, index) => {
-        const focused = index === this.optionIndex;
-        const checked = selected.includes(option.label);
-        const marker = question.type === "multi_select" || question.type === "file_select" ? (checked ? "[x]" : "[ ]") : focused ? "●" : "○";
-        const recommended = option.recommended ? ` ${this.theme.success}Recommended${reset}` : "";
-        container.addChild(new Text(`${focused ? this.theme.accent : this.theme.muted}${marker} ${option.label}${reset}${recommended}`, 1, 0));
-        if (option.description) container.addChild(new Text(`${this.theme.dimMuted}    ${option.description}${reset}`, 1, 0));
-      });
-      if (question.allowOther) {
-        const focused = this.optionIndex === options.length;
-        container.addChild(new Text(`${focused ? this.theme.accent : this.theme.muted}${focused ? "●" : "○"} Something else${reset}`, 1, 0));
-      }
+      const question = this.currentQuestion();
+      if (this.validationMessage) container.addChild(new Text(`${this.theme.warning}${this.validationMessage}${reset}`, 1, 0));
+      const help = this.inputMode
+        ? this.inputPurpose === "other" ? "enter continue • esc choices" : "enter continue • esc dismiss"
+        : question.type === "ranking"
+          ? "↑↓ navigate • shift+↑↓ reorder • enter continue • ← back • esc dismiss"
+          : question.type === "multi_select" || question.type === "file_select"
+            ? "↑↓ navigate • space toggle • enter continue • ← back • esc dismiss"
+            : "↑↓ navigate • enter choose • ← back • esc dismiss";
+      const helpWithSkip = question.required !== false
+        ? help
+        : this.inputMode
+          ? this.inputPurpose === "other" ? help : `${help} • empty enter skip`
+          : `${help} • s skip`;
+      container.addChild(new Text(`${this.theme.dimMuted}${helpWithSkip}${reset}`, 1, 0));
     }
-    if (this.validationMessage) container.addChild(new Text(`${this.theme.warning}${this.validationMessage}${reset}`, 1, 0));
-    const help = this.inputMode
-      ? this.inputPurpose === "other" ? "enter continue • esc choices" : "enter continue • esc dismiss"
-      : question.type === "ranking"
-        ? "↑↓ navigate • shift+↑↓ reorder • enter continue • ← back • esc dismiss"
-        : question.type === "multi_select" || question.type === "file_select"
-          ? "↑↓ navigate • space toggle • enter continue • ← back • esc dismiss"
-          : "↑↓ navigate • enter choose • ← back • esc dismiss";
-    const helpWithSkip = question.required !== false
-      ? help
-      : this.inputMode
-        ? this.inputPurpose === "other" ? help : `${help} • empty enter skip`
-        : `${help} • s skip`;
-    container.addChild(new Text(`${this.theme.dimMuted}${helpWithSkip}${reset}`, 1, 0));
     container.addChild(border());
     return container.render(safeWidth);
   }

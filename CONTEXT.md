@@ -40,6 +40,30 @@ _Avoid_: Folder rules
 Rules that govern work performed inside one Folder.
 _Avoid_: Project instructions
 
+**Turn**:
+One user message and the assistant work it starts, ending in a completed, failed, or interrupted outcome.
+_Avoid_: Tool call, transport request
+
+**Work summary**:
+The collapsible turn-level account of elapsed work and action count.
+_Avoid_: Tool-call group
+
+**Work step**:
+A purpose-led portion of a Turn. Its stable identity comes from the narration message that introduced the purpose, with a bounded legacy fallback.
+_Avoid_: Thought, tool batch
+
+**Action**:
+One typed operation performed within a Work step, such as a command, read, edit, search, skill load, browser operation, or agent assignment.
+_Avoid_: Purpose, raw protocol event
+
+**Evidence**:
+The event-time result retained for an Action, including captured read ranges, diffs, command output, structured web results, and meaningful screenshots.
+_Avoid_: Current file state, transport envelope
+
+**Question handoff**:
+A structured question set that ends its assistant Turn. Submitted answers become a linked user message and start a new Turn.
+_Avoid_: Approval, blocking tool continuation
+
 ## Relationships
 
 - A **Project** owns exactly one **Project home**.
@@ -53,6 +77,11 @@ _Avoid_: Project instructions
 - Every **Chat** has exactly one **Working root** selected from its **Chat scope**.
 - **Project instructions** apply throughout every Chat belonging to their Project.
 - **Folder-local instructions** apply only while work touches their Folder.
+- A **Turn** owns zero or one **Work summary** and one terminal outcome.
+- A **Work summary** contains ordered **Work steps**; a **Work step** contains ordered typed **Actions**.
+- An **Action** owns its captured **Evidence** and never substitutes newer filesystem or page state during replay.
+- A **Question handoff** is durable conversation state outside the completed assistant Turn; its answer message links back to the question set.
+- An approval remains an in-Turn authorization action and never becomes a **Question handoff**.
 
 ## Example dialogue
 
@@ -64,6 +93,7 @@ _Avoid_: Project instructions
 - Legacy `projectPath` values migrate independently inside each Zyra installation's data root.
 - A packaged Zyra installation directory is internal application state, never a Project or Working root.
 - A global Chat uses a neutral managed workspace inside its installation's data root instead of `process.cwd()`.
+- Each desktop installation runs its canonical agent server from an installation-specific namespace under its own `userData`; development and packaged builds never share the server endpoint, authority, lock, journal, or catalog.
 - Windows path identity is case-insensitive.
 - Nested legacy paths remain separate Projects until a later explicit merge.
 - Configured discovery locations produce review candidates; discovery never creates Projects automatically.

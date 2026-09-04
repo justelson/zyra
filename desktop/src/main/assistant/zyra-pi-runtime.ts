@@ -20,6 +20,7 @@ import type {
     AssistantTurnOutcome,
     AssistantTurnUsage,
     AssistantUserInputAnswer,
+    AssistantUserInputQuestion,
     FleetSnapshot
 } from '../../shared/assistant/contracts'
 import { isAssistantRuntimeMode, parseAgentSurfaceDescriptor, sanitizeFileChangeRawPayload } from '../../shared/assistant/contracts'
@@ -629,7 +630,7 @@ function readToolPaths(
     return [...new Set(candidates.map((entry) => entry.trim()).filter(Boolean))]
 }
 
-function readToolOutput(result: unknown, partialResult: unknown): string | undefined {
+function readToolOutput(result: unknown, partialResult: unknown, preserveWhitespace = false): string | undefined {
     if (typeof result === 'string' && result.trim()) return result
     if (typeof partialResult === 'string' && partialResult.trim()) return partialResult
     const resultRecord = asRecord(result)
@@ -643,8 +644,7 @@ function readToolOutput(result: unknown, partialResult: unknown): string | undef
         .map((entry) => asRecord(entry)?.['text'])
         .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         .join('\n')
-        .trim()
-    if (contentText) return contentText
+    if (contentText.trim()) return preserveWhitespace ? contentText : contentText.trim()
     return firstToolString(resultRecord, ['output', 'stdout', 'text', 'message'])
         || firstToolString(partialRecord, ['output', 'stdout', 'text', 'message'])
         || summarizeValue(partialResult)
@@ -818,6 +818,26 @@ export function readPiFileChangeData(input: {
     }
 }
 
+function parseToolJsonOutput(value: string | undefined): Record<string, unknown> | null {
+    if (!value?.trim().startsWith('{')) return null
+    try {
+        return asRecord(JSON.parse(value))
+    } catch {
+        return null
+    }
+}
+
+function projectWebSearchResults(value: unknown): Array<{ title: string; url: string; snippet: string }> {
+    if (!Array.isArray(value)) return []
+    return value.slice(0, 16).flatMap((entry) => {
+        const record = asRecord(entry)
+        const title = asString(record?.['title'])
+        const url = asString(record?.['url'])
+        if (!title || !url) return []
+        return [{ title, url, snippet: asString(record?.['snippet']) || '' }]
+    })
+}
+
 export function classifyZyraToolActivity(input: {
     toolName: string
     args: Record<string, unknown> | null
@@ -852,6 +872,8 @@ export function classifyZyraToolActivity(input: {
     const prompt = firstToolString(args, ['prompt', 'message', 'input'])
     const patch = firstToolString(args, ['patch', 'diff'])
     const patchStats = getPatchStats(patch)
+    const resultDetails = asRecord(result?.['details']) || asRecord(asRecord(partialResult)?.['details'])
+    const parsedOutput = parseToolJsonOutput(output)
     const baseData: Record<string, unknown> = {
         status: state,
         toolName,
@@ -904,6 +926,99 @@ export function classifyZyraToolActivity(input: {
         }
     }
 
+    if (compact === 'websearch') {
+        const webResults = projectWebSearchResults(resultDetails?.['results'])
+        return {
+            kind: 'web-search',
+            summary: running ? 'Searching the web' : failed ? 'Web search failed' : 'Searched the web',
+            detail: query || output || toolName,
+            data: {
+                ...baseData,
+                category: 'web-search',
+                query: query || asString(resultDetails?.['query']) || undefined,
+                webResults
+            }
+        }
+    }
+
+    if (compact === 'webfetch') {
+        const url = firstToolString(args, ['url', 'href']) || asString(resultDetails?.['url'])
+        return {
+            kind: 'web-fetch',
+            summary: running ? 'Reading a web page' : failed ? 'Web fetch failed' : 'Read a web page',
+            detail: url || output || toolName,
+            data: {
+                ...baseData,
+                category: 'web-fetch',
+                url: url || undefined,
+                pageTitle: asString(resultDetails?.['title']) || undefined,
+                contentType: asString(resultDetails?.['contentType']) || undefined,
+                statusCode: typeof resultDetails?.['status'] === 'number' ? resultDetails.status : undefined,
+                bytesRead: typeof resultDetails?.['bytesRead'] === 'number' ? resultDetails.bytesRead : undefined,
+                truncated: resultDetails?.['truncated'] === true || undefined,
+                pageText: asString(resultDetails?.['text']) || undefined
+            }
+        }
+    }
+
+    if (compact === 'agent' || compact === 'workflow') {
+        const action = firstToolString(args, ['action', 'operation']) || 'status'
+        const runId = firstToolString(parsedOutput, compact === 'agent' ? ['agentRunId'] : ['workflowRunId'])
+            || firstToolString(args, compact === 'agent' ? ['agentRunId'] : ['workflowRunId'])
+        return {
+            kind: compact,
+            summary: `${running ? 'Running' : failed ? 'Failed' : 'Completed'} ${compact} ${action}`,
+            detail: firstToolString(args, ['label', 'name', 'prompt']) || runId || output || toolName,
+            data: {
+                ...baseData,
+                category: compact,
+                action,
+                runId: runId || undefined,
+                agentRunId: compact === 'agent' ? runId || undefined : undefined,
+                workflowRunId: compact === 'workflow' ? runId || undefined : undefined,
+                requestedAgent: firstToolString(args, ['agent']) || undefined,
+                label: firstToolString(args, ['label', 'name']) || undefined,
+                prompt: prompt || undefined,
+                run: parsedOutput || undefined
+            }
+        }
+    }
+
+    if (/^browser(?:\s|$)/.test(normalized) || /^browser/.test(compact)) {
+        const url = firstToolString(args, ['url', 'href']) || firstToolString(resultDetails, ['url'])
+        return {
+            kind: 'browser-control',
+            summary: running ? 'Using the browser' : failed ? 'Browser action failed' : 'Browser action completed',
+            detail: url || firstToolString(args, ['operation', 'action']) || output || toolName,
+            data: {
+                ...baseData,
+                category: 'browser-control',
+                operation: firstToolString(args, ['operation', 'action']) || undefined,
+                url: url || undefined,
+                pageTitle: firstToolString(resultDetails, ['title']) || undefined,
+                faviconUrl: firstToolString(resultDetails, ['faviconUrl', 'favicon_url']) || undefined
+            }
+        }
+    }
+
+    if (/^computer(?:\s|$)/.test(normalized) || /^computer/.test(compact)) {
+        const computerMetadata = { ...baseData }
+        delete computerMetadata['result']
+        delete computerMetadata['output']
+        return {
+            kind: 'computer-control',
+            summary: running ? 'Using computer control' : failed ? 'Computer action failed' : 'Computer action completed',
+            detail: firstToolString(args, ['operation', 'action', 'name', 'targetId']) || toolName,
+            data: {
+                ...computerMetadata,
+                category: 'computer-control',
+                operation: firstToolString(args, ['operation', 'action']) || undefined,
+                targetId: firstToolString(args, ['targetId', 'target_id']) || undefined,
+                executableIdentity: firstToolString(args, ['executableIdentity', 'executable_identity']) || undefined
+            }
+        }
+    }
+
     if (command || isShellTool) {
         return {
             kind: 'command',
@@ -936,13 +1051,19 @@ export function classifyZyraToolActivity(input: {
     }
 
     if (paths.length > 0 || /\b(read|open|cat|view|inspect)\b/.test(normalized)) {
+        const skillPath = paths.find((entry) => /(?:^|[\\/])skills[\\/][^\\/]+[\\/]skill\.md$/i.test(entry))
         return {
-            kind: 'file-read',
-            summary: running ? 'Reading file' : failed ? 'File read failed' : (paths.length > 1 ? 'Read files' : 'Read file'),
+            kind: skillPath ? 'skill' : 'file-read',
+            summary: skillPath
+                ? running ? 'Loading skill' : failed ? 'Skill load failed' : 'Loaded skill'
+                : running ? 'Reading file' : failed ? 'File read failed' : (paths.length > 1 ? 'Read files' : 'Read file'),
             detail: paths.length > 0 ? paths.join('\n') : output || toolName,
             data: {
                 ...baseData,
+                category: skillPath ? 'skill' : 'file-read',
                 paths,
+                skillPath: skillPath || undefined,
+                skillName: skillPath ? skillPath.replace(/\\/g, '/').match(/\/skills\/([^/]+)\/SKILL\.md$/i)?.[1] : undefined,
                 fileCount: paths.length || undefined
             }
         }
@@ -2039,10 +2160,23 @@ export class ZyraPiRuntime extends EventEmitter {
         await context.worker.request('approval.respond', { requestId, decision })
     }
 
-    async respondUserInput(threadId: string, requestId: string, answers: Record<string, string | string[]>): Promise<void> {
+    async respondUserInput(
+        threadId: string,
+        requestId: string,
+        answers: Record<string, string | string[]>,
+        questions: AssistantUserInputQuestion[] = []
+    ): Promise<{ continuationPrompt: string | null }> {
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
-        await context.worker.request('user_input.respond', { requestId, answers, cancelled: false })
+        const result = await context.worker.request('user_input.respond', { requestId, questions, answers, cancelled: false })
+        const deadline = Date.now() + 5_000
+        while (context.activeTurnId && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+        if (context.activeTurnId) {
+            throw new Error('The question handoff is still finishing. Try submitting the answers again.')
+        }
+        return { continuationPrompt: asString(result['continuationPrompt']) || null }
     }
 
     private releaseSessionContext(context: ZyraSessionContext): void {
@@ -3190,7 +3324,10 @@ export class ZyraPiRuntime extends EventEmitter {
         }
         const completedAt = type === 'tool_execution_end' && state !== 'running' ? occurredAt : null
         const durationMs = completedAt ? Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)) : null
-        const output = readToolOutput(event['output'] ?? event['result'], partialResult)
+        const preserveOutputWhitespace = agentSurface?.kind === 'file-read'
+            || agentSurface?.kind === 'skill'
+            || /\bread\b/.test(normalizeToolName(toolName))
+        const output = readToolOutput(event['output'] ?? event['result'], partialResult, preserveOutputWhitespace)
         const classified = classifyZyraToolActivity({
             toolName,
             args: argsRecord,
@@ -3218,7 +3355,7 @@ export class ZyraPiRuntime extends EventEmitter {
                 toolCallId
             })
         }
-        if (classified.kind === 'file-read') {
+        if (classified.kind === 'file-read' || classified.kind === 'skill') {
             Object.assign(classified.data, analyzeAssistantReadResult({
                 args: argsRecord,
                 result: resultRecord,

@@ -52,11 +52,11 @@ const minimalToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallLi
 }))
 
 assert.match(detailedToolsMarkup, /data-assistant-tool-call-list="detailed"/)
-assert.match(detailedToolsMarkup, /Tool Calls \(2\)/, 'Detailed preserves the existing tool group heading')
-assert.match(detailedToolsMarkup, /rounded-xl/, 'Detailed preserves the existing bordered tool group anatomy')
+assert.doesNotMatch(detailedToolsMarkup, /Tool Calls/, 'Detailed actions no longer sit inside a generic tool-call wrapper')
+assert.equal((detailedToolsMarkup.match(/data-assistant-tool-call="detailed"/g) || []).length, 2, 'Detailed renders one row per action')
 assert.match(minimalToolsMarkup, /data-assistant-tool-call-list="minimal"/)
-assert.match(minimalToolsMarkup, />2 actions</, 'Minimal summarizes grouped work without tool-centric language')
-assert.doesNotMatch(minimalToolsMarkup, /Tool Calls/, 'Minimal removes the detailed tool group heading')
+assert.doesNotMatch(minimalToolsMarkup, />2 actions</, 'the outer work summary owns the only action count')
+assert.doesNotMatch(minimalToolsMarkup, /Tool Calls/, 'Minimal removes tool-centric group headings')
 assert.match(minimalToolsMarkup, /data-assistant-tool-call="minimal"/, 'Minimal reaches each collapsed activity row')
 assert.match(minimalToolsMarkup, /min-h-7/, 'Minimal activity rows retain a compact 28px interaction target')
 assert.match(minimalToolsMarkup, /display-mode-output-one/, 'Minimal preserves expanded command output')
@@ -80,9 +80,8 @@ const detailedWorkMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSu
 }))
 
 assert.match(minimalWorkMarkup, /data-assistant-work-summary-display="minimal"/)
-assert.match(minimalWorkMarkup, /Worked 4s · 2 actions/, 'Minimal combines duration and action count on one quiet line')
-assert.doesNotMatch(detailedWorkMarkup, /2 actions/, 'Detailed keeps the current work summary copy')
-assert.match(detailedWorkMarkup, /Worked for 4s/, 'Detailed keeps the current elapsed-time wording')
+assert.match(minimalWorkMarkup, /Worked for 4s · 2 actions/, 'Minimal uses the same one-line work summary contract')
+assert.match(detailedWorkMarkup, /Worked for 4s · 2 actions/, 'Detailed uses the same summary-only action count contract')
 
 const minimalExpandedWorkMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSummary, {
     startedAt: createdAt,
@@ -113,16 +112,23 @@ const assistantMessage: AssistantMessage = {
 }
 const minimalAssistantMarkup = renderToStaticMarkup(createElement(TimelineMessage, {
     message: assistantMessage,
-    displayMode: 'minimal'
+    displayMode: 'minimal',
+    isLastAssistantInTurn: true
 }))
 const detailedAssistantMarkup = renderToStaticMarkup(createElement(TimelineMessage, {
     message: assistantMessage,
-    displayMode: 'detailed'
+    displayMode: 'detailed',
+    isLastAssistantInTurn: true
 }))
 
 assert.match(minimalAssistantMarkup, /data-assistant-message-surface="minimal"/)
 assert.match(minimalAssistantMarkup, /The underlying conversation remains unchanged\./)
+assert.match(minimalAssistantMarkup, /data-assistant-message-metadata="minimal"/, 'final assistant answers retain message metadata')
+assert.match(minimalAssistantMarkup, /data-assistant-message-timestamp="true"/, 'final assistant answers retain their timestamp')
+const minimalMetadataClass = minimalAssistantMarkup.match(/class="([^"]*)" data-assistant-message-metadata="minimal"/)?.[1] || ''
+assert.doesNotMatch(minimalMetadataClass, /opacity-0/, 'Minimal does not hide the narration timestamp row')
 assert.match(detailedAssistantMarkup, /data-assistant-message-surface="detailed"/)
 assert.match(detailedAssistantMarkup, /The underlying conversation remains unchanged\./)
+assert.match(detailedAssistantMarkup, /data-assistant-message-metadata="detailed"/)
 
 console.log('Assistant chat display modes: ok')

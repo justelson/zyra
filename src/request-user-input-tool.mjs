@@ -39,10 +39,11 @@ export function createRequestUserInputTool(options = {}) {
   return {
     name: "request_user_input",
     label: "Request user input",
-    description: "Ask one or more blocking questions using text, select, confirm, project-file, number, date, or ranking controls. There is no fixed question-count limit.",
-    promptSnippet: "Ask blocking questions with purpose-built interactive controls",
+    description: "Hand off one or more materially blocking questions using text, select, confirm, project-file, number, date, or ranking controls. The question set ends the current assistant turn; submitted answers arrive as a new user turn.",
+    promptSnippet: "Hand off blocking questions with purpose-built interactive controls",
     promptGuidelines: [
       "Use request_user_input only after inspecting available context and only when a user decision materially blocks useful work.",
+      "Before calling request_user_input, explain briefly why the answer is needed. The call ends the current assistant turn.",
       "Never use request_user_input for discoverable facts, routine progress updates, or secrets.",
       "Use as many questions as are materially necessary; batch related decisions without manufacturing extra questions.",
       "Choose text for open answers, single_select for an obvious bounded choice, multi_select for several choices, confirm for a true yes/no decision, file_select for user choice among known project paths, number or date when validation matters, and ranking when order is the decision.",
@@ -67,14 +68,18 @@ export function createRequestUserInputTool(options = {}) {
         ? result.answers
         : {};
       const cancelled = result?.cancelled === true;
+      const deferred = result?.deferred === true;
       return {
         content: [{
           type: "text",
-          text: cancelled
-            ? "The user dismissed the questions without submitting answers. Do not assume answers."
-            : `User answers:\n${formatRequestUserInputAnswers(questions, answers)}`,
+          text: deferred
+            ? "Questions handed off to the user. End this turn now; their submitted answers will start a new user turn."
+            : cancelled
+              ? "The user dismissed the questions without submitting answers. Do not assume answers."
+              : `User answers:\n${formatRequestUserInputAnswers(questions, answers)}`,
         }],
-        details: { questions, answers, cancelled },
+        details: { questions, answers, cancelled, deferred, requestId: result?.requestId },
+        ...(deferred ? { terminate: true } : {}),
       };
     },
   };

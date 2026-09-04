@@ -766,6 +766,7 @@ class ServerOwnedSession {
     this.latestTurn = null;
     this.pendingApprovalRequestIds = new Set();
     this.pendingUserInputRequestIds = new Set();
+    this.userInputResponseStates = new Map();
     this.backgroundFleetActive = false;
     this.managedJobIds = new Set();
     this.connectPromise = null;
@@ -883,9 +884,41 @@ class ServerOwnedSession {
     return result.receipt || null;
   }
 
-  async request(_client, typeValue, payload, requestContextValue) {
+  async request(client, typeValue, payload, requestContextValue) {
     const type = String(typeValue || "");
     if (!BRIDGE_REQUEST_PATTERN.test(type)) throw new AgentServerProtocolError(`Bridge request type is not allowed: ${type || "missing"}.`);
+    let userInputResponsePromise = null;
+    if (type === "user_input.respond") {
+      const requestId = String(payload?.requestId || "").trim();
+      if (!requestId) throw new AgentServerProtocolError("User-input responses require a request id.", "AGENT_SERVER_USER_INPUT_INVALID");
+      const ownerClientId = String(client?.clientId || "unknown");
+      const existing = this.userInputResponseStates.get(requestId);
+      if (existing) {
+        if (existing.ownerClientId !== ownerClientId) {
+          throw new AgentServerProtocolError("This user-input request was already answered by another attached surface.", "AGENT_SERVER_USER_INPUT_ALREADY_ANSWERED");
+        }
+        userInputResponsePromise = existing.promise;
+      } else {
+        if (!this.pendingUserInputRequestIds.has(requestId)) {
+          throw new AgentServerProtocolError(`Unknown user-input request: ${requestId}`, "AGENT_SERVER_USER_INPUT_UNKNOWN");
+        }
+        const state = { ownerClientId, promise: null, settled: false };
+        state.promise = Promise.resolve().then(() => this.worker.request(type, payload)).then((result) => {
+          state.settled = true;
+          while (this.userInputResponseStates.size > 128) {
+            const removable = [...this.userInputResponseStates].find(([, candidate]) => candidate.settled);
+            if (!removable) break;
+            this.userInputResponseStates.delete(removable[0]);
+          }
+          return result;
+        }, (error) => {
+          if (this.userInputResponseStates.get(requestId) === state) this.userInputResponseStates.delete(requestId);
+          throw error;
+        });
+        this.userInputResponseStates.set(requestId, state);
+        userInputResponsePromise = state.promise;
+      }
+    }
     const requestContext = normalizeRequestContext(requestContextValue);
     if (type === "prompt" && !requestContext?.turnId) {
       throw new AgentServerProtocolError("Prompt requests require a durable turn id.");
@@ -911,7 +944,7 @@ class ServerOwnedSession {
       this.server.notifyDesktopWorkspaceTurn(this.sessionKey, requestContext.turnId);
     }
     try {
-      const result = await this.worker.request(type, payload);
+      const result = await (userInputResponsePromise || this.worker.request(type, payload));
       if (type === "prompt" && !this.isTurnTerminal(requestContext.turnId)) {
         this.publish({ type: "zyra_server_turn_completed", outcome: "completed" });
       }
@@ -940,6 +973,12 @@ class ServerOwnedSession {
   }
 
   publish(event) {
+    const userInputResponseState = event?.type === "user_input_resolved" && event.requestId
+      ? this.userInputResponseStates.get(String(event.requestId))
+      : null;
+    if (userInputResponseState && !event.responseOwnerClientId) {
+      event = { ...event, responseOwnerClientId: userInputResponseState.ownerClientId };
+    }
     const occurredAt = new Date().toISOString();
     const publishedRequestContext = this.activeRequestContext;
     const previousAttention = this.pendingApprovalRequestIds.size > 0 || this.pendingUserInputRequestIds.size > 0;

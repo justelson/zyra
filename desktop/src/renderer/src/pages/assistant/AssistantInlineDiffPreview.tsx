@@ -22,6 +22,7 @@ interface AssistantInlineDiffPreviewProps {
     displayPath: string
     additions: number
     deletions: number
+    hideHeader?: boolean
     onOpenFullDiff?: () => void
 }
 
@@ -92,13 +93,14 @@ export const AssistantInlineDiffPreview = memo(function AssistantInlineDiffPrevi
     displayPath,
     additions,
     deletions,
+    hideHeader = false,
     onOpenFullDiff
 }: AssistantInlineDiffPreviewProps) {
     const preview = useMemo(() => buildInlineDiffLines(patch), [patch])
 
     return (
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-sparkle-border bg-sparkle-card">
-            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-sparkle-border bg-[color-mix(in_srgb,var(--color-card)_86%,var(--color-bg))] px-2.5 text-[11px] leading-none">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-sparkle-border bg-sparkle-card">
+            {!hideHeader ? <div className="flex h-8 shrink-0 items-center gap-2 border-b border-sparkle-border bg-[color-mix(in_srgb,var(--color-card)_86%,var(--color-bg))] px-2.5 text-[11px] leading-none">
                 <span className="min-w-0 flex-1 truncate font-medium text-sparkle-text">{displayPath}</span>
                 <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums">
                     <span className="text-[var(--status-success)]">+{additions}</span>
@@ -117,7 +119,20 @@ export const AssistantInlineDiffPreview = memo(function AssistantInlineDiffPrevi
                         <ArrowUpRight size={12} />
                     </button>
                 ) : null}
-            </div>
+            </div> : onOpenFullDiff ? (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onOpenFullDiff()
+                    }}
+                    className="absolute right-2 top-2 z-10 inline-flex size-6 items-center justify-center rounded-md border border-white/[0.08] bg-[color-mix(in_srgb,var(--color-card)_88%,transparent)] text-[var(--accent-primary)] backdrop-blur hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                    title={`Open full diff for ${displayPath} in side panel`}
+                    aria-label={`Open full diff for ${displayPath} in side panel`}
+                >
+                    <ArrowUpRight size={12} />
+                </button>
+            ) : null}
 
             <div
                 className="min-h-0 flex-1 overflow-auto overscroll-contain font-mono text-[12px] leading-5 [font-variant-ligatures:none] [text-rendering:auto] [-webkit-font-smoothing:auto]"

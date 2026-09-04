@@ -335,6 +335,7 @@ export function normalizeRuntimeActivityPayload(incoming: RuntimeActivityPayload
     const toolName = readRuntimeToolName(data)
     const command = readRuntimeCommandText(data)
     const output = readRuntimeOutputText(data)
+    const rawOutput = typeof data['output'] === 'string' ? data['output'] : null
     const errorText = readRuntimeErrorText(data)
     const paths = readRuntimeToolPaths(data)
     const status = incoming.kind === 'context.compaction'
@@ -345,7 +346,9 @@ export function normalizeRuntimeActivityPayload(incoming: RuntimeActivityPayload
     if (toolName && !normalizedData['toolName']) normalizedData['toolName'] = toolName
     if (status) normalizedData['status'] = status
     if (command) normalizedData['command'] = command
-    if (output) normalizedData['output'] = output
+    if (output) normalizedData['output'] = (incoming.kind === 'file-read' || incoming.kind === 'skill') && rawOutput !== null
+        ? rawOutput
+        : output
     if (errorText) normalizedData['errorMessage'] = errorText
     if (paths.length > 0) normalizedData['paths'] = paths
 
@@ -373,7 +376,7 @@ export function normalizeRuntimeActivityPayload(incoming: RuntimeActivityPayload
     }
 
     const isCommand = incoming.kind === 'command' || Boolean(command) || isRuntimeShellToolName(toolName)
-    const isFileRead = incoming.kind === 'file-read' || (paths.length > 0 && isRuntimeReadToolName(toolName))
+    const isFileRead = incoming.kind === 'file-read' || incoming.kind === 'skill' || (paths.length > 0 && isRuntimeReadToolName(toolName))
 
     if (isCommand) {
         return {
@@ -392,7 +395,7 @@ export function normalizeRuntimeActivityPayload(incoming: RuntimeActivityPayload
     if (isFileRead) {
         return {
             ...incoming,
-            kind: 'file-read',
+            kind: incoming.kind === 'skill' ? 'skill' : 'file-read',
             tone: failed ? 'error' : incoming.tone,
             summary: paths.length > 1 ? 'Read files' : incoming.summary || 'Read file',
             detail: paths.join('\n') || readRuntimeJsonEnvelopeText(incoming.detail) || toolName || incoming.detail,
@@ -627,6 +630,21 @@ export function buildInternalTextActivity(input: {
 
 function assistantTextBufferKey(threadId: string, messageId: string): string {
     return `${threadId}:${messageId}`
+}
+
+function findContextCompactionReconciliation(
+    activities: AssistantActivity[]
+): { target: AssistantActivity | null; duplicateIds: string[] } {
+    const running = activities
+        .filter((activity) => (
+            (activity.kind === 'context.compaction' || readRuntimePayloadString(activity.payload?.['category']) === 'context-compaction')
+            && normalizeRuntimeCompactionStatus(activity.payload?.['status'], activity.tone) === 'running'
+        ))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    return {
+        target: running[0] || null,
+        duplicateIds: running.slice(1).map((activity) => activity.id)
+    }
 }
 
 export function findFileChangeReconciliationTarget(
@@ -1244,7 +1262,6 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         if (!eventSession) return
         const existingThread = eventThreadRecord?.thread || deps.requireThread(event.threadId)
         const current = existingThread.pendingUserInputs.find((entry) => entry.requestId === event.requestId)
-        const wasAlreadyResolved = current?.status === 'resolved'
         const userInput: AssistantPendingUserInput = current
             ? {
                 ...current,
@@ -1258,37 +1275,12 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 questions: event.type === 'user-input.requested' ? event.payload.questions : [],
                 status: event.type === 'user-input.requested' ? 'pending' : 'resolved',
                 answers: event.type === 'user-input.resolved' ? event.payload.answers : null,
+                responseMessageId: null,
                 turnId: event.turnId || null,
                 createdAt: event.createdAt,
                 resolvedAt: event.type === 'user-input.resolved' ? event.createdAt : null
             }
         deps.appendEvent('thread.user-input.updated', event.createdAt, { threadId: eventThreadId, userInput }, eventSession.id, eventThreadId)
-        if (event.type === 'user-input.resolved' && !wasAlreadyResolved) {
-            const answers = event.payload.answers || {}
-            const answeredCount = Object.values(answers).filter((value) => {
-                if (Array.isArray(value)) return value.length > 0
-                return String(value || '').trim().length > 0
-            }).length
-            deps.appendEvent('thread.activity.appended', event.createdAt, {
-                threadId: eventThreadId,
-                activity: {
-                    id: createAssistantId('assistant-activity'),
-                    kind: 'user-input.resolved',
-                    tone: 'tool',
-                    summary: 'Consulted user',
-                    detail: `${answeredCount}/${userInput.questions.length} answers captured`,
-                    turnId: event.turnId || null,
-                    createdAt: event.createdAt,
-                    payload: {
-                        requestId: userInput.requestId,
-                        questions: userInput.questions,
-                        answers,
-                        answeredCount,
-                        questionCount: userInput.questions.length
-                    }
-                }
-            }, eventSession.id, eventThreadId)
-        }
         return
     }
 
@@ -1321,10 +1313,25 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         const turnDiffTargetActivity = readRuntimePayloadString(payload['category']) === 'turn-diff'
             ? findFileChangeReconciliationTarget(existingThread.activities, turnId, payload)
             : null
+        const contextCompactionReconciliation = event.payload.kind === 'context.compaction'
+            || readRuntimePayloadString(payload['category']) === 'context-compaction'
+            ? findContextCompactionReconciliation(existingThread.activities)
+            : null
         if (turnDiffTargetActivity) {
             payload['category'] = readRuntimePayloadString(turnDiffTargetActivity.payload?.['category']) || 'file-change'
         }
-        const targetActivityId = turnDiffTargetActivity?.id || event.payload.activityId
+        if (contextCompactionReconciliation?.duplicateIds.length) {
+            deps.appendEvent('thread.updated', event.createdAt, {
+                threadId: eventThreadId,
+                patch: {
+                    activityCount: Math.max(0, existingThread.activityCount - contextCompactionReconciliation.duplicateIds.length)
+                },
+                removedActivityIds: contextCompactionReconciliation.duplicateIds
+            }, eventSession.id, eventThreadId)
+        }
+        const targetActivityId = turnDiffTargetActivity?.id
+            || contextCompactionReconciliation?.target?.id
+            || event.payload.activityId
         const existingActivity = targetActivityId
             ? existingThread.activities.find((activity) => activity.id === targetActivityId) || null
             : null

@@ -1,6 +1,6 @@
 import { buildRenderableFileChangePatch } from '@shared/assistant/contracts/file-change'
 import { parseAgentSurfaceDescriptor } from '@shared/assistant/contracts'
-import type { AssistantActivity, AssistantMessage, AssistantProposedPlan } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan } from '@shared/assistant/contracts'
 import {
     ASSISTANT_TIMELINE_KIND_RANK,
     compareAssistantTimelineStrings,
@@ -26,6 +26,7 @@ export type TimelineEntry =
     | { id: string; createdAt: string; timelineSequence?: number; type: 'plan'; plan: AssistantProposedPlan; canImplement: boolean }
     | { id: string; createdAt: string; timelineSequence?: number; type: 'activity'; activity: AssistantActivity }
     | { id: string; createdAt: string; timelineSequence?: number; type: 'activity-group'; activities: AssistantActivity[] }
+    | { id: string; createdAt: string; timelineSequence?: number; type: 'user-input'; input: AssistantPendingUserInput }
 
 export type TimelineRenderRow =
     | { kind: 'message'; id: string; createdAt: string; message: AssistantMessage }
@@ -35,6 +36,7 @@ export type TimelineRenderRow =
     | { kind: 'thought-group'; id: string; createdAt: string; activities: AssistantActivity[] }
     | { kind: 'command-checkpoint-group'; id: string; createdAt: string; activities: AssistantActivity[] }
     | { kind: 'work-trace-group'; id: string; createdAt: string; activities: AssistantActivity[] }
+    | { kind: 'user-input'; id: string; createdAt: string; input: AssistantPendingUserInput }
     | { kind: 'working'; id: string; createdAt: string | null }
 
 export type TimelineTurnWorkSummaryRow = {
@@ -70,6 +72,8 @@ export type ParsedUserAttachment = {
 
 export function shouldRenderActivity(activity: AssistantActivity): boolean {
     if (isInternalAssistantActivity(activity)) return false
+    if (activity.kind === 'user-input.resolved') return false
+    if (readActivityToolName(activity.payload || {}) === 'request_user_input') return false
     return activity.tone === 'tool'
         || activity.tone === 'warning'
         || activity.tone === 'error'
@@ -154,7 +158,7 @@ export function isIssueActivity(activity: AssistantActivity): boolean {
     return activity.tone === 'warning' || activity.tone === 'error'
 }
 
-function getActivityRenderGroupKind(activity: AssistantActivity): 'issue' | 'subagent' | 'tool' | null {
+export function getActivityRenderGroupKind(activity: AssistantActivity): 'issue' | 'subagent' | 'tool' | null {
     if (isInternalAssistantActivity(activity)) return null
     if (isVoiceStrongTaskActivity(activity)) return null
     if (isModelNoticeActivity(activity)) return null
@@ -719,7 +723,9 @@ function getTimelineEntryKindRank(entry: TimelineEntry): number {
         ? ASSISTANT_TIMELINE_KIND_RANK.message
         : entry.type === 'plan'
             ? ASSISTANT_TIMELINE_KIND_RANK.plan
-            : ASSISTANT_TIMELINE_KIND_RANK.activity
+            : entry.type === 'user-input'
+                ? ASSISTANT_TIMELINE_KIND_RANK.plan + 1
+                : ASSISTANT_TIMELINE_KIND_RANK.activity
 }
 
 export function getAssistantTimelineMessageEntryId(message: AssistantMessage): string {
@@ -734,6 +740,7 @@ function getTimelineEntryRecordId(entry: TimelineEntry): string {
     if (entry.type === 'message') return entry.message.id
     if (entry.type === 'plan') return entry.plan.id
     if (entry.type === 'activity') return entry.activity.id
+    if (entry.type === 'user-input') return entry.input.id
     return entry.activities[0]?.id || entry.id
 }
 
@@ -776,11 +783,23 @@ function mergeOrderedTimelineEntryStreams(streams: TimelineEntry[][]): TimelineE
 export function getTimelineEntries(
     messages: AssistantMessage[],
     activities: AssistantActivity[],
-    proposedPlans: AssistantProposedPlan[] = []
+    proposedPlans: AssistantProposedPlan[] = [],
+    userInputs: AssistantPendingUserInput[] = []
 ): TimelineEntry[] {
     const renderedMessages = messages.filter(shouldRenderMessage)
     const renderedActivities = activities.filter(shouldRenderActivity)
     const chronologicalActivities = [...renderedActivities].reverse()
+    const visibleMessageIds = new Set(renderedMessages.map((message) => message.id))
+    const visibleTurnIds = new Set([
+        ...renderedMessages.map((message) => message.turnId),
+        ...renderedActivities.map((activity) => activity.turnId),
+        ...proposedPlans.map((plan) => plan.turnId)
+    ].filter((turnId): turnId is string => Boolean(turnId)))
+    const visibleUserInputs = userInputs.filter((input) => (
+        input.status === 'pending'
+        || Boolean(input.turnId && visibleTurnIds.has(input.turnId))
+        || Boolean(input.responseMessageId && visibleMessageIds.has(input.responseMessageId))
+    ))
     const latestMessagesByDistinctTurn: AssistantMessage[] = []
     const seenLatestTurnIds = new Set<string>()
     for (let index = renderedMessages.length - 1; index >= 0 && latestMessagesByDistinctTurn.length < 2; index -= 1) {
@@ -803,6 +822,12 @@ export function getTimelineEntries(
         timelineSequence: activity.timelineSequence,
         type: 'activity' as const,
         activity
+    }))
+    const userInputEntries: TimelineEntry[] = visibleUserInputs.map((input) => ({
+        id: `user-input-${input.id}`,
+        createdAt: input.createdAt,
+        type: 'user-input' as const,
+        input
     }))
     const planEntries: TimelineEntry[] = proposedPlans.map((plan, index) => {
         const latestOtherTurnMessage = latestMessagesByDistinctTurn.find((message) => (
@@ -829,7 +854,8 @@ export function getTimelineEntries(
     return groupAdjacentTimelineActivities(mergeOrderedTimelineEntryStreams([
         messageEntries,
         activityEntries,
-        planEntries
+        planEntries,
+        userInputEntries
     ]))
 }
 
@@ -844,6 +870,8 @@ export function buildTimelineRows(entries: TimelineEntry[], isWorking: boolean, 
             row = { kind: 'plan', id: entry.id, createdAt: entry.createdAt, plan: entry.plan, canImplement: entry.canImplement }
         } else if (entry.type === 'activity-group') {
             row = { kind: 'activity-group', id: entry.id, createdAt: entry.createdAt, activities: entry.activities }
+        } else if (entry.type === 'user-input') {
+            row = { kind: 'user-input', id: entry.id, createdAt: entry.createdAt, input: entry.input }
         } else {
             row = { kind: 'activity', id: entry.id, createdAt: entry.createdAt, activity: entry.activity }
         }
@@ -1166,6 +1194,7 @@ export function estimateTimelineRowHeight(
     options: { containerWidth?: number | null } = {}
 ): number {
     if (row.kind === 'working') return 48
+    if (row.kind === 'user-input') return row.input.status === 'pending' ? Math.max(220, 96 + row.input.questions.length * 156) : 40
     if (row.kind === 'activity') {
         if (isVoiceStrongTaskActivity(row.activity)) return 36
         if (isCommandCheckpointActivity(row.activity)) return 34

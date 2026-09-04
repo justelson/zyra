@@ -31,7 +31,6 @@ function formatWorkSummaryStatus(
     startedAt: string,
     completedAt: string | null,
     running: boolean,
-    displayMode: AssistantChatDisplayMode,
     actionCount: number
 ): string {
     const elapsed = formatWorkingTimer(
@@ -39,12 +38,25 @@ function formatWorkSummaryStatus(
         running ? new Date().toISOString() : completedAt || new Date().toISOString()
     )
     const duration = elapsed
-        ? displayMode === 'minimal'
-            ? `${running ? 'Working' : 'Worked'} ${elapsed}`
-            : `${running ? 'Working' : 'Worked'} for ${elapsed}`
+        ? `${running ? 'Working' : 'Worked'} for ${elapsed}`
         : running ? 'Working' : 'Worked'
-    if (displayMode === 'detailed' || actionCount < 1) return duration
+    if (actionCount < 1) return duration
     return `${duration} · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}`
+}
+
+export function TimelineTurnInterruptionMarker() {
+    return (
+        <div
+            className="flex min-h-7 w-full max-w-4xl items-center gap-3 py-1"
+            role="status"
+            aria-label="Interrupted"
+            data-assistant-turn-interruption="true"
+        >
+            <span className="h-px min-w-6 flex-1 bg-white/[0.06]" aria-hidden="true" />
+            <span className="shrink-0 text-[10px] font-medium tracking-[0.04em] text-white/24">Interrupted</span>
+            <span className="h-px min-w-6 flex-1 bg-white/[0.06]" aria-hidden="true" />
+        </div>
+    )
 }
 
 export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
@@ -55,6 +67,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     outcome = null,
     displayMode = 'detailed',
     actionCount = 0,
+    hasWork = true,
     revealContent = false,
     renderChildren
 }: {
@@ -65,6 +78,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     outcome?: 'completed' | 'interrupted' | 'failed' | 'no-response' | null
     displayMode?: AssistantChatDisplayMode
     actionCount?: number
+    hasWork?: boolean
     revealContent?: boolean
     renderChildren: () => ReactNode
 }) {
@@ -85,11 +99,11 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const contentUnmountTimerRef = useRef<number | null>(null)
     const pendingExpansionAnchorRef = useRef<HTMLElement | null>(null)
     const minimal = displayMode === 'minimal'
-    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running, displayMode, actionCount)
+    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running, actionCount)
     useEffect(() => {
         const updateStatusText = () => {
             if (statusTextRef.current) {
-                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running, displayMode, actionCount)
+                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running, actionCount)
             }
         }
         updateStatusText()
@@ -97,13 +111,12 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
         const intervalId = window.setInterval(updateStatusText, 1000)
         return () => window.clearInterval(intervalId)
     }, [actionCount, completedAt, displayMode, running, startedAt])
-    const outcomeLabel = outcome === 'interrupted'
-        ? 'Interrupted'
-        : outcome === 'failed'
-            ? 'Failed'
-            : outcome === 'no-response'
-                ? 'No response'
-                : null
+    const outcomeLabel = outcome === 'failed'
+        ? 'Failed'
+        : outcome === 'no-response'
+            ? 'No response'
+            : null
+    const interruptionMarker = outcome === 'interrupted' ? <TimelineTurnInterruptionMarker /> : null
     const cancelPendingContentWork = () => {
         if (contentRevealFrameRef.current !== null) {
             window.cancelAnimationFrame(contentRevealFrameRef.current)
@@ -199,6 +212,10 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
         }
     }, [])
 
+    if (interruptionMarker && !hasWork) {
+        return <div className="max-w-4xl py-0.5">{interruptionMarker}</div>
+    }
+
     return (
         <div
             className={cn('max-w-4xl', minimal ? 'py-0' : 'py-0.5')}
@@ -237,7 +254,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                     {outcomeLabel ? (
                         <span className={cn(
                             'shrink-0 text-[10px] font-medium',
-                            outcome === 'failed' ? 'text-red-300/55' : outcome === 'interrupted' ? 'text-amber-200/50' : 'text-white/25'
+                            outcome === 'failed' ? 'text-red-300/55' : 'text-white/25'
                         )}>
                             · {outcomeLabel}
                         </span>
@@ -248,8 +265,9 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                         className={cn('shrink-0 text-white/20 transition-[transform,color] duration-[260ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover/work:text-white/35 motion-reduce:transition-none', expanded && 'rotate-90')}
                     />
                 </button>
-                {!minimal ? <div className="h-px w-full bg-white/[0.07]" aria-hidden="true" /> : null}
+                {!minimal && outcome !== 'interrupted' ? <div className="h-px w-full bg-white/[0.07]" aria-hidden="true" /> : null}
             </div>
+            {interruptionMarker}
             <div id={panelId}>
                 <AnimatedHeight isOpen={contentVisible} duration={WORK_SUMMARY_MOTION_MS} crispContent>
                     {contentMounted ? (

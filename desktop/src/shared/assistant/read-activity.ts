@@ -39,7 +39,7 @@ function countReadContentLines(content: string): number {
 
 export function splitAssistantReadOutput(output: string): AssistantReadOutputParts {
     const text = String(output || '')
-    const match = text.match(/(?:\r?\n){2}(\[(?:Showing lines \d+-\d+ of \d+[^\]]*|\d+ more lines? in file[^\]]*)\])\s*$/i)
+    const match = text.match(/\r?\n(\[(?:Showing lines \d+-\d+ of \d+[^\]]*|\d+ more lines? in file[^\]]*)\])\s*$/i)
     if (!match || match.index === undefined) {
         return { content: text, continuationNotice: null }
     }

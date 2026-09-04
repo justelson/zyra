@@ -70,6 +70,7 @@ import { inspectProjectAnalyticsCapabilities } from '../analytics/project-capabi
 import { classifyAnalyticsErrorCode as classifyAnalyticsError } from '../../shared/analytics/error-code'
 import { findAssistantMessageReplayDuplicateIds, preserveCanonicalUserReplayBoundaries } from '../../shared/assistant/message-reconciliation'
 import { replaceSerializedAssistantImageAttachments } from '../../shared/assistant/message-attachments'
+import { reconcileAssistantUserInputResponseMessageIds } from '../../shared/assistant/user-input-continuation'
 import { isAssistantTitleGenerationPrompt } from '../../shared/assistant/title-generation'
 import { AssistantTextDeltaBuffer } from './assistant-text-delta-buffer'
 import { AssistantActivityDeltaBuffer } from './assistant-activity-delta-buffer'
@@ -2635,6 +2636,19 @@ export class AssistantService {
             if (record && (projection.messages.length > 0 || projection.activities.length > 0)) {
                 const persistedTimeline = await this.persistence.readTimelineProjectionRows(input.threadId)
                 const canonicalMessages = preserveCanonicalUserReplayBoundaries(persistedTimeline.messages, projection.messages)
+                const reconciledUserInputs = reconcileAssistantUserInputResponseMessageIds(
+                    record.thread.pendingUserInputs,
+                    persistedTimeline.messages,
+                    canonicalMessages
+                )
+                for (let index = 0; index < reconciledUserInputs.length; index += 1) {
+                    const userInput = reconciledUserInputs[index]!
+                    if (userInput.responseMessageId === record.thread.pendingUserInputs[index]?.responseMessageId) continue
+                    this.appendEvent('thread.user-input.updated', nowIso(), {
+                        threadId: record.thread.id,
+                        userInput
+                    }, record.session.id, record.thread.id)
+                }
                 const canonicalActivities = reconcileCanonicalFileChangeActivities(persistedTimeline.activities, projection.activities)
                 const removedMessageIds = [...new Set([
                     ...projection.legacyMessageIds,
@@ -2779,6 +2793,19 @@ export class AssistantService {
         )
         const persistedTimeline = await this.persistence.readTimelineProjectionRows(thread.id)
         const canonicalMessages = preserveCanonicalUserReplayBoundaries(persistedTimeline.messages, projection.messages)
+        const reconciledUserInputs = reconcileAssistantUserInputResponseMessageIds(
+            thread.pendingUserInputs,
+            persistedTimeline.messages,
+            canonicalMessages
+        )
+        for (let index = 0; index < reconciledUserInputs.length; index += 1) {
+            const userInput = reconciledUserInputs[index]!
+            if (userInput.responseMessageId === thread.pendingUserInputs[index]?.responseMessageId) continue
+            this.appendEvent('thread.user-input.updated', nowIso(), {
+                threadId: thread.id,
+                userInput
+            }, session.id, thread.id)
+        }
         const canonicalActivities = reconcileCanonicalFileChangeActivities(persistedTimeline.activities, projection.activities)
         const removedMessageIds = [...new Set([
             ...projection.legacyMessageIds,
@@ -3672,12 +3699,15 @@ function canonicalContentParts(content: unknown): Record<string, unknown>[] {
     return content.filter((part): part is Record<string, unknown> => Boolean(part && typeof part === 'object'))
 }
 
-function canonicalMessageText(content: unknown): string {
+function canonicalMessageRawText(content: unknown): string {
     return canonicalContentParts(content)
         .filter((part) => part['type'] === 'text')
         .map((part) => String(part['text'] || ''))
         .join('')
-        .trim()
+}
+
+function canonicalMessageText(content: unknown): string {
+    return canonicalMessageRawText(content).trim()
 }
 
 function canonicalImageAttachment(
@@ -3726,7 +3756,7 @@ function projectCanonicalToolResult(input: {
     deferBody?: boolean
     stripBodyFields?: boolean
 }) {
-    const output = input.deferBody ? '' : canonicalMessageText(input.content)
+    const output = input.deferBody ? '' : canonicalMessageRawText(input.content)
     const isError = input.message['isError'] === true
     const state = isError ? 'error' : 'completed'
     const classified = classifyZyraToolActivity({
@@ -3748,17 +3778,20 @@ function projectCanonicalToolResult(input: {
             state
         }))
     }
-    const imageAttachments = input.content
-        .map((part, partIndex) => part['type'] === 'image'
-            ? canonicalImageAttachment(input.canonicalChatId, input.messageId, partIndex, part)
-            : null)
-        .filter((value): value is string => Boolean(value))
+    const retainBodyEvidence = classified.kind !== 'computer-control'
+    const imageAttachments = retainBodyEvidence
+        ? input.content
+            .map((part, partIndex) => part['type'] === 'image'
+                ? canonicalImageAttachment(input.canonicalChatId, input.messageId, partIndex, part)
+                : null)
+            .filter((value): value is string => Boolean(value))
+        : []
     return {
         ...classified,
         data: input.stripBodyFields ? omitHistoricalBodyFields(classified.data) : classified.data,
         imageAttachments,
         isError,
-        output
+        output: retainBodyEvidence ? output : ''
     }
 }
 

@@ -15,6 +15,7 @@ import { ZyraAgentServerClient } from "./client.mjs";
 import { captureCliEvent } from "../analytics/cli.mjs";
 import { normalizeZyraPermissionMode } from "../permission-mode.mjs";
 import { ZYRA_RETRY_MAX_ATTEMPTS } from "../network-recovery.mjs";
+import { formatRequestUserInputContinuationPrompt } from "../request-user-input.mjs";
 
 export const TUI_RESUME_HISTORY_ENTRY_LIMIT = 120;
 
@@ -32,9 +33,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
     thinking: options.thinking,
     ...requestedPermissionFields,
   });
+  const clientId = `tui:${process.pid}:${randomUUID()}`;
   const client = new ZyraAgentServerClient({
     root: defaults.root,
-    clientId: `tui:${process.pid}:${randomUUID()}`,
+    clientId,
     surface: "tui",
     ...(options.agentServer || {})
   });
@@ -105,7 +107,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const approvalAbortControllers = new Map();
   const respondedUserInputRequestIds = new Set();
   const resolvedUserInputRequestIds = new Set();
+  const locallyResolvedUserInputRequestIds = new Set();
   const userInputAbortControllers = new Map();
+  const pendingUserInputEvents = new Map();
+  const pendingUserInputResponses = new Map();
   let approvalHandler = null;
   let userInputHandler = null;
   const activeTools = new Set(["read", "bash", "edit", "write", "request_user_input", ...(preferences.webSearch ? ["web_search"] : []), ...(preferences.webFetch ? ["web_fetch"] : [])]);
@@ -131,6 +136,36 @@ export async function createZyraTuiClientRuntime(options = {}) {
   let latestFleet = asRecord(connected.fleet);
   let agentDefinitions = normalizeDefinitions(connected.agentDefinitions);
   let workflowDefinitions = normalizeDefinitions(connected.workflowDefinitions);
+  let drainUserInputContinuations = async () => undefined;
+  let enqueueUserInputContinuation = async () => undefined;
+  let flushPendingUserInputResponses = async () => undefined;
+
+  const presentUserInputRequest = (event) => {
+    const requestId = asString(event?.requestId);
+    if (!requestId || resolvedUserInputRequestIds.has(requestId) || respondedUserInputRequestIds.has(requestId)) return;
+    pendingUserInputEvents.set(requestId, event);
+    if (!userInputHandler) return;
+    pendingUserInputEvents.delete(requestId);
+    respondedUserInputRequestIds.add(requestId);
+    void Promise.resolve().then(async () => {
+      if (resolvedUserInputRequestIds.has(requestId)) return;
+      const controller = new AbortController();
+      userInputAbortControllers.set(requestId, controller);
+      let result = { answers: {}, cancelled: true };
+      try {
+        result = await userInputHandler(event, { signal: controller.signal }) || result;
+      } catch {}
+      userInputAbortControllers.delete(requestId);
+      if (resolvedUserInputRequestIds.has(requestId) || controller.signal.aborted) return;
+      pendingUserInputResponses.set(requestId, {
+        requestId,
+        questions: Array.isArray(event.questions) ? event.questions : [],
+        answers: result?.answers || {},
+        cancelled: result?.cancelled === true,
+      });
+      await flushPendingUserInputResponses();
+    });
+  };
 
   const dispatch = (event, requestContext, replay = false) => {
     if (!event || typeof event !== "object") return;
@@ -152,6 +187,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
         state: "ready",
         activeTurnId: null,
       };
+      queueMicrotask(() => { void drainUserInputContinuations(); });
     }
     if (event.type === "zyra_server_turn_completed") return;
     if (event.type === "session_config") {
@@ -205,33 +241,16 @@ export async function createZyraTuiClientRuntime(options = {}) {
     if (event.type === "user_input_resolved") {
       const requestId = asString(event.requestId);
       if (requestId) {
+        pendingUserInputEvents.delete(requestId);
+        const resolvedLocally = asString(event.responseOwnerClientId) === clientId;
+        if (resolvedLocally) locallyResolvedUserInputRequestIds.add(requestId);
+        else pendingUserInputResponses.delete(requestId);
         resolvedUserInputRequestIds.add(requestId);
         userInputAbortControllers.get(requestId)?.abort();
         userInputAbortControllers.delete(requestId);
       }
     }
-    if (event.type === "user_input_requested") {
-      const requestId = asString(event.requestId);
-      if (requestId && !respondedUserInputRequestIds.has(requestId)) {
-        respondedUserInputRequestIds.add(requestId);
-        void Promise.resolve().then(async () => {
-          if (resolvedUserInputRequestIds.has(requestId)) return;
-          const controller = new AbortController();
-          userInputAbortControllers.set(requestId, controller);
-          let result = { answers: {}, cancelled: true };
-          try {
-            result = await userInputHandler?.(event, { signal: controller.signal }) || result;
-          } catch {}
-          userInputAbortControllers.delete(requestId);
-          if (resolvedUserInputRequestIds.has(requestId) || controller.signal.aborted) return;
-          await request("user_input.respond", {
-            requestId,
-            answers: result?.answers || {},
-            cancelled: result?.cancelled === true,
-          }).catch(() => undefined);
-        });
-      }
-    }
+    if (event.type === "user_input_requested") presentUserInputRequest(event);
     if (event.type === "message_end" && event.message?.role === "assistant" && event.message.id && !costAccountedMessageIds.has(event.message.id)) {
       cumulativeCost += Number(event.message.usage?.cost?.total) || 0;
       costAccountedMessageIds.add(event.message.id);
@@ -279,7 +298,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
     currentPresence = presence;
     const remoteTurnId = activeTurnFromPresence(presence);
     if (remoteTurnId) activeTurnId = remoteTurnId;
-    else if (["ready", "idle", "completed", "failed", "interrupted"].includes(asString(presence.state))) activeTurnId = null;
+    else if (["ready", "idle", "completed", "failed", "interrupted"].includes(asString(presence.state))) {
+      activeTurnId = null;
+      queueMicrotask(() => { void drainUserInputContinuations(); });
+    }
     return currentPresence;
   };
 
@@ -295,6 +317,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     remotelyAttached = true;
     synchronizePresence(result.presence);
     for (const entry of Array.isArray(result.replay) ? result.replay : []) consumeServerEntry(entry, true);
+    queueMicrotask(() => { void flushPendingUserInputResponses(); });
   };
 
   let reconnectPromise = null;
@@ -440,6 +463,37 @@ export async function createZyraTuiClientRuntime(options = {}) {
     }
   };
 
+  let flushingPendingUserInputResponses = false;
+  flushPendingUserInputResponses = async () => {
+    if (flushingPendingUserInputResponses || disposed || !remotelyAttached || pendingUserInputResponses.size === 0) return;
+    flushingPendingUserInputResponses = true;
+    try {
+      for (const [requestId, payload] of [...pendingUserInputResponses]) {
+        if (disposed || !remotelyAttached) return;
+        let response;
+        try {
+          response = await request("user_input.respond", payload);
+        } catch (error) {
+          const code = asString(error?.code);
+          if (code === "AGENT_SERVER_USER_INPUT_UNKNOWN" && locallyResolvedUserInputRequestIds.has(requestId)) {
+            pendingUserInputResponses.delete(requestId);
+            if (payload.cancelled !== true) {
+              await enqueueUserInputContinuation(formatRequestUserInputContinuationPrompt(payload.questions, payload.answers));
+            }
+            continue;
+          }
+          if (code === "AGENT_SERVER_USER_INPUT_ALREADY_ANSWERED") pendingUserInputResponses.delete(requestId);
+          return;
+        }
+        pendingUserInputResponses.delete(requestId);
+        const continuationPrompt = asString(response?.continuationPrompt);
+        if (continuationPrompt && payload.cancelled !== true) await enqueueUserInputContinuation(continuationPrompt);
+      }
+    } finally {
+      flushingPendingUserInputResponses = false;
+    }
+  };
+
   const sessionManager = {
     getSessionId: () => canonicalChatId,
     getSessionFile: () => sessionFile,
@@ -513,6 +567,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
         throw error;
       } finally {
         if (!preserveServerOwnedTurn && activeTurnId === turnId) activeTurnId = null;
+        if (!activeTurnId) queueMicrotask(() => { void drainUserInputContinuations(); });
       }
     },
     abort: () => request("abort"),
@@ -567,11 +622,42 @@ export async function createZyraTuiClientRuntime(options = {}) {
       client.off("session-event", onServerEvent);
       client.off("disconnect", onDisconnect);
       for (const controller of approvalAbortControllers.values()) controller.abort();
+      for (const controller of userInputAbortControllers.values()) controller.abort();
       approvalAbortControllers.clear();
+      userInputAbortControllers.clear();
+      locallyResolvedUserInputRequestIds.clear();
+      pendingUserInputEvents.clear();
+      pendingUserInputResponses.clear();
+      queuedUserInputContinuations.length = 0;
       eventListeners.clear();
       fleetListeners.clear();
       void client.detach(canonicalChatId).catch(() => undefined).finally(() => client.close());
     }
+  };
+
+  const queuedUserInputContinuations = [];
+  let drainingUserInputContinuations = false;
+  drainUserInputContinuations = async () => {
+    if (drainingUserInputContinuations || disposed || activeTurnId || queuedUserInputContinuations.length === 0) return;
+    drainingUserInputContinuations = true;
+    try {
+      while (!disposed && !activeTurnId && queuedUserInputContinuations.length > 0) {
+        const prompt = queuedUserInputContinuations.shift();
+        try {
+          await session.prompt(prompt);
+        } catch {
+          if (activeTurnId && prompt) queuedUserInputContinuations.unshift(prompt);
+          return;
+        }
+      }
+    } finally {
+      drainingUserInputContinuations = false;
+    }
+  };
+  enqueueUserInputContinuation = async (prompt) => {
+    if (!prompt || disposed) return;
+    queuedUserInputContinuations.push(prompt);
+    await drainUserInputContinuations();
   };
 
   const fleet = createFleetProxy(request, () => latestFleet, fleetListeners, {
@@ -658,6 +744,9 @@ export async function createZyraTuiClientRuntime(options = {}) {
       },
       setUserInputHandler(handler) {
         userInputHandler = typeof handler === "function" ? handler : null;
+        if (userInputHandler) {
+          for (const event of [...pendingUserInputEvents.values()]) presentUserInputRequest(event);
+        }
       },
       respondApproval(requestId, decision) {
         return request("approval.respond", { requestId, decision });

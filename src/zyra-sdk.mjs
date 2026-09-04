@@ -729,6 +729,25 @@ export function ensureComputerToolState(session, enabled, applySearchOnly, compu
   return JSON.stringify(before) !== JSON.stringify(session.getActiveToolNames());
 }
 
+export function isDirectComputerControlPrompt(promptValue) {
+  const prompt = String(promptValue || "").trim();
+  return /\b(?:use|using|with|via)\s+(?:windows\s+)?computer[ -]?control\b/i.test(prompt)
+    || /\bcomputer[ -]?control\s+(?:to|and|for)\b/i.test(prompt)
+    || /\b(?:control|operate)\s+(?:my|the)\s+(?:windows\s+)?(?:computer|desktop)\b/i.test(prompt);
+}
+
+export function prepareZyraComputerToolsForPrompt(runtime, promptValue) {
+  const session = runtime?.session;
+  const names = Array.isArray(runtime?.computerToolsetNames) ? runtime.computerToolsetNames : [];
+  if (!runtime?.computerToolsAvailable || !isDirectComputerControlPrompt(promptValue) || !session?.getActiveToolNames || !session?.setActiveToolsByName) return false;
+  const active = new Set(session.getActiveToolNames());
+  active.delete("computer_control");
+  active.delete(runtime.computerToolSearchName || "tool_search");
+  for (const name of names) active.add(name);
+  session.setActiveToolsByName([...active]);
+  return true;
+}
+
 function installZyraSessionModelRegistry(session, piRuntime) {
   const attachAuthStorage = (registry) => {
     if (!registry) throw new Error("Pi did not expose a model registry for the Zyra session.");
@@ -766,6 +785,20 @@ export function applyZyraChatRetryPolicy(settingsManager) {
       provider: { maxRetries: 0 },
     },
   });
+}
+
+function installDeferredUserInputTurnStop(session) {
+  const agent = session?.agent;
+  if (!agent) return;
+  const previousShouldStop = agent.shouldStopAfterTurn;
+  agent.shouldStopAfterTurn = async (context, signal) => {
+    const handedOffQuestions = Array.isArray(context?.toolResults)
+      && context.toolResults.some((result) => result?.toolName === "request_user_input" && result?.details?.deferred === true);
+    if (handedOffQuestions) return true;
+    return typeof previousShouldStop === "function"
+      ? Boolean(await previousShouldStop(context, signal))
+      : false;
+  };
 }
 
 export async function createZyraSession(options = {}) {
@@ -905,6 +938,7 @@ export async function createZyraSession(options = {}) {
   browserSessionRef.current = result.session;
   computerSessionRef.current = result.session;
   installComputerToolTurnCleanup(result.session);
+  installDeferredUserInputTurnStop(result.session);
   installZyraNextTurnCheckpoint(result.session, managedBash, {
     intervalMs: options.managedBashAutoPollMs ?? DEFAULT_MANAGED_BASH_AUTO_POLL_MS,
     waitForUpdate: waitForManagedBashAutoUpdate,
@@ -1034,6 +1068,9 @@ export async function createZyraSession(options = {}) {
     codexServiceTier: startupPreferences.codexServiceTier,
     codexServiceTierState,
     managedBash,
+    computerToolsAvailable: Boolean(options.controlBridgeClient),
+    computerToolsetNames,
+    computerToolSearchName,
     modelAvailability,
     fleet,
     workflows,
@@ -1517,6 +1554,7 @@ function memoryRunner(root = defaults.dataRoot) {
 }
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
+  prepareZyraComputerToolsForPrompt(runtime, prompt);
   const promptResource = expandZyraPromptResource(runtime, prompt);
   const expanded = expandFileMentions(runtime, promptResource);
   const layeredMemoryPrompt = injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
@@ -1542,6 +1580,7 @@ export async function runZyraPrompt(runtime, prompt, options = {}) {
 }
 
 export async function queueZyraMidRunInput(runtime, prompt, options = {}) {
+  prepareZyraComputerToolsForPrompt(runtime, prompt);
   const mode = normalizeInterruptModePreference(options.mode) ?? runtime.interruptMode ?? "steer";
   const promptResource = expandZyraPromptResource(runtime, prompt);
   const expanded = expandFileMentions(runtime, promptResource);

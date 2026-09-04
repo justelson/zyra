@@ -1,21 +1,21 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useMemo } from 'react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
-import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
 import {
     areActivityListsEqual,
     countRunningCommandActivities,
     getActivityPaths,
-    getCreatedFilePaths,
-    isSubagentActivity
+    getCreatedFilePaths
 } from './assistant-timeline-helpers'
-import { TimelineSubagentActivityCard } from './AssistantTimelineSubagentActivityCard'
+import { getAssistantActionFamily } from './assistant-action-presentation'
+import { AssistantTimelineAgentAction } from './AssistantTimelineAgentAction'
+import { AssistantTimelineControlAction } from './AssistantTimelineControlAction'
+import { AssistantTimelineReadAction } from './AssistantTimelineReadAction'
+import { AssistantTimelineSearchAction } from './AssistantTimelineSearchAction'
+import { AssistantTimelineSkillAction } from './AssistantTimelineSkillAction'
+import { AssistantTimelineWebAction } from './AssistantTimelineWebAction'
 import { TimelineToolCallCard } from './AssistantTimelineToolCallCard'
-import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
-
-export const COLLAPSED_TOOL_CALL_COUNT = 5
-const TOOL_CALL_DISCLOSURE_MS = 280
 
 function normalizeTimelineFilePath(value: string): string {
     return value.trim().replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase()
@@ -29,6 +29,15 @@ function buildDisplayActivityList(activities: AssistantActivity[]): AssistantAct
 
         const filePaths = getActivityPaths(activity)
         if (filePaths.length === 0) return [activity]
+        const supplementalTurnDiff = activity.payload?.category === 'turn-diff'
+            || activity.payload?.source === 'turn-final'
+        if (!supplementalTurnDiff) {
+            for (const filePath of filePaths) {
+                const comparablePath = normalizeTimelineFilePath(filePath)
+                if (comparablePath) seenFilePaths.add(comparablePath)
+            }
+            return [activity]
+        }
 
         const nextPaths: string[] = []
         const seenInActivity = new Set<string>()
@@ -72,7 +81,9 @@ export const TimelineToolCallList = memo(({
     runningCommandCount,
     projectRootPath,
     toolOutputDefaultMode = 'expanded',
+    purposeTitle,
     onOpenFilePath,
+    onOpenUrl,
     onViewDiff,
     onRevealActivity
 }: {
@@ -81,111 +92,53 @@ export const TimelineToolCallList = memo(({
     runningCommandCount?: number
     projectRootPath?: string | null
     toolOutputDefaultMode?: AssistantToolOutputDefaultMode
+    purposeTitle?: string | null
     onOpenFilePath?: (filePath: string) => Promise<void> | void
+    onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
     onViewDiff?: (target: AssistantDiffTarget) => void
     onRevealActivity?: (activityId: string) => void
 }) => {
-    const [expanded, setExpanded] = useState(false)
-    const [olderMounted, setOlderMounted] = useState(false)
-    const olderUnmountTimerRef = useRef<number | null>(null)
     const displayActivities = useMemo(() => buildDisplayActivityList(activities), [activities])
     const localRunningCommandCount = useMemo(() => countRunningCommandActivities(displayActivities), [displayActivities])
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
-    const minimal = displayMode === 'minimal'
-    const containsSubagentActivities = useMemo(() => displayActivities.some((activity) => isSubagentActivity(activity)), [displayActivities])
-    const header = useMemo(() => {
-        if (minimal) return `${displayActivities.length} ${displayActivities.length === 1 ? 'action' : 'actions'}`
-        if (containsSubagentActivities) {
-            return displayActivities.length > 1 ? `Subagent Activity (${displayActivities.length})` : 'Subagent Activity'
-        }
-        return displayActivities.length > 1 ? `Tool Calls (${displayActivities.length})` : 'Tool Calls'
-    }, [containsSubagentActivities, displayActivities.length, minimal])
-    const hasMore = displayActivities.length > COLLAPSED_TOOL_CALL_COUNT
-    const olderActivities = useMemo(
-        () => hasMore ? displayActivities.slice(0, -COLLAPSED_TOOL_CALL_COUNT) : [],
-        [displayActivities, hasMore]
-    )
-    const recentActivities = useMemo(
-        () => hasMore ? displayActivities.slice(-COLLAPSED_TOOL_CALL_COUNT) : displayActivities,
-        [displayActivities, hasMore]
-    )
-    useEffect(() => () => {
-        if (olderUnmountTimerRef.current !== null) window.clearTimeout(olderUnmountTimerRef.current)
-    }, [])
-    const toggleOlderActivities = () => {
-        if (olderUnmountTimerRef.current !== null) {
-            window.clearTimeout(olderUnmountTimerRef.current)
-            olderUnmountTimerRef.current = null
-        }
-        if (!expanded) {
-            setOlderMounted(true)
-            setExpanded(true)
-            return
-        }
-        setExpanded(false)
-        olderUnmountTimerRef.current = window.setTimeout(() => {
-            olderUnmountTimerRef.current = null
-            setOlderMounted(false)
-        }, TOOL_CALL_DISCLOSURE_MS)
-    }
-    const renderActivity = (activity: AssistantActivity) => (
-        <div key={activity.id}>
-            {isSubagentActivity(activity) ? (
-                <TimelineSubagentActivityCard activity={activity} />
-            ) : (
-                <TimelineToolCallCard
-                    activity={activity}
-                    displayMode={displayMode}
-                    runningCommandCount={activeRunningCommandCount}
-                    projectRootPath={projectRootPath}
-                    toolOutputDefaultMode={toolOutputDefaultMode}
-                    onOpenFilePath={onOpenFilePath}
-                    onViewDiff={onViewDiff}
-                    onRevealActivity={onRevealActivity}
-                />
-            )}
-        </div>
-    )
-    const showHeader = !minimal || displayActivities.length > 1
+    const inheritedPurpose = displayActivities.length === 1 ? purposeTitle : null
+
     return (
-        <div
-            className={cn('max-w-4xl', minimal ? 'py-0.5' : 'py-2')}
-            data-assistant-tool-call-list={displayMode}
-        >
-            <div className={cn(
-                minimal ? 'overflow-visible' : 'overflow-hidden rounded-xl',
-                !minimal && (containsSubagentActivities
-                    ? 'border border-[color-mix(in_srgb,var(--accent-primary)_18%,var(--surface-divider))] bg-[color-mix(in_srgb,var(--accent-primary)_4%,var(--color-card))]'
-                    : 'border border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--color-card)_58%,transparent)]')
-            )}>
-                {showHeader ? (
-                    <div className={cn('flex items-center justify-between gap-2', minimal ? 'min-h-6 px-0.5' : 'px-2 pb-0 pt-1.5')}>
-                        <div className={cn(
-                            'font-medium text-sparkle-text-muted',
-                            minimal ? 'text-[10px]' : 'text-[9px] uppercase tracking-[0.22em]'
-                        )}>{header}</div>
-                        {hasMore ? (
-                            <button
-                                type="button"
-                                onClick={toggleOlderActivities}
-                                className={cn(
-                                    'transition-colors hover:text-sparkle-text-secondary',
-                                    minimal ? 'rounded-sm px-1 py-0.5 text-[10px] text-sparkle-text-muted' : 'rounded border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1.5 py-0.5 text-[9px] text-sparkle-text-muted hover:border-[color-mix(in_srgb,var(--color-text)_18%,transparent)] hover:bg-[var(--surface-active)]'
-                                )}
-                                title={expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : 'Show all'}
-                            >
-                                {expanded ? `Show last ${COLLAPSED_TOOL_CALL_COUNT}` : `Show all ${displayActivities.length}`}
-                            </button>
-                        ) : null}
+        <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
+            {displayActivities.map((activity) => {
+                const family = getAssistantActionFamily(activity)
+                const common = { activity, projectRootPath, purposeTitle: inheritedPurpose }
+                return (
+                    <div key={activity.id}>
+                        {family === 'web-search' || family === 'web-fetch' ? (
+                            <AssistantTimelineWebAction {...common} onOpenUrl={onOpenUrl} />
+                        ) : family === 'skill' ? (
+                            <AssistantTimelineSkillAction {...common} />
+                        ) : family === 'read' ? (
+                            <AssistantTimelineReadAction {...common} />
+                        ) : family === 'agent' || family === 'workflow' ? (
+                            <AssistantTimelineAgentAction {...common} />
+                        ) : family === 'browser' || family === 'computer' ? (
+                            <AssistantTimelineControlAction {...common} onOpenUrl={onOpenUrl} />
+                        ) : family === 'search' ? (
+                            <AssistantTimelineSearchAction {...common} />
+                        ) : (
+                            <TimelineToolCallCard
+                                activity={activity}
+                                displayMode={displayMode}
+                                runningCommandCount={activeRunningCommandCount}
+                                projectRootPath={projectRootPath}
+                                toolOutputDefaultMode={toolOutputDefaultMode}
+                                purposeTitle={inheritedPurpose}
+                                onOpenFilePath={onOpenFilePath}
+                                onOpenUrl={onOpenUrl}
+                                onViewDiff={onViewDiff}
+                                onRevealActivity={onRevealActivity}
+                            />
+                        )}
                     </div>
-                ) : null}
-                <div>
-                    <AnimatedHeight isOpen={expanded} duration={TOOL_CALL_DISCLOSURE_MS}>
-                        {olderMounted ? <div>{olderActivities.map(renderActivity)}</div> : null}
-                    </AnimatedHeight>
-                    {recentActivities.map(renderActivity)}
-                </div>
-            </div>
+                )
+            })}
         </div>
     )
 }, (prev, next) => {
@@ -193,7 +146,9 @@ export const TimelineToolCallList = memo(({
         && prev.displayMode === next.displayMode
         && prev.runningCommandCount === next.runningCommandCount
         && prev.toolOutputDefaultMode === next.toolOutputDefaultMode
+        && prev.purposeTitle === next.purposeTitle
         && prev.onOpenFilePath === next.onOpenFilePath
+        && prev.onOpenUrl === next.onOpenUrl
         && prev.onViewDiff === next.onViewDiff
         && prev.onRevealActivity === next.onRevealActivity
         && areActivityListsEqual(prev.activities, next.activities)

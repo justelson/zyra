@@ -2254,7 +2254,7 @@ function runStatusLineColorRegression() {
   runtime.session.getContextUsage = () => undefined;
   runtime.session.sessionManager.getEntries = () => [];
   const freshLine = renderStatusLine(runtime, 120);
-  assert.match(freshLine, /\x1b\[38;2;255;0;255mapproval required/);
+  assert.match(freshLine, /\x1b\[38;2;255;0;255msupervised/);
   assert.match(freshLine, /\x1b\[38;2;0;255;0mContext 100% left/);
   assert.match(freshLine, /\x1b\[38;2;119;119;119m\$0\.000/);
 }

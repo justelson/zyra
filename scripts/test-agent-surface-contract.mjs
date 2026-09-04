@@ -45,8 +45,38 @@ const search = normalizeAgentSurfaceTool({
   toolName: "web_search",
   args: { query: "Pi SDK" },
 });
-assert.equal(search.kind, "search");
+assert.equal(search.kind, "web-search");
 assert.equal(search.query, "Pi SDK");
+
+const fetchPage = normalizeAgentSurfaceTool({
+  type: "tool_execution_start",
+  toolName: "web_fetch",
+  args: { url: "https://example.com/docs" },
+});
+assert.equal(fetchPage.kind, "web-fetch");
+assert.equal(fetchPage.url, "https://example.com/docs");
+
+const skill = normalizeAgentSurfaceTool({
+  type: "tool_execution_end",
+  toolName: "read",
+  args: { path: "C:/Users/example/.agents/skills/diagnose/SKILL.md" },
+});
+assert.equal(skill.kind, "skill");
+
+const agent = normalizeAgentSurfaceTool({
+  type: "tool_execution_start",
+  toolName: "agent",
+  args: { action: "spawn", agent: "code-reviewer", prompt: "Review this change" },
+});
+assert.equal(agent.kind, "agent");
+assert.equal(agent.action, "spawn");
+
+const browser = normalizeAgentSurfaceTool({
+  type: "tool_execution_start",
+  toolName: "browser_observe",
+  args: { url: "https://example.com" },
+});
+assert.equal(browser.kind, "browser-control");
 
 assert.equal(normalizeAgentSurfaceLifecycle({ isError: true, state: "done" }), "failed");
 assert.equal(normalizeAgentSurfaceLifecycle({ result: { details: { status: "stopped" } } }), "stopped");

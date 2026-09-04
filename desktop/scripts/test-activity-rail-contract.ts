@@ -22,11 +22,16 @@ import { TimelineVoiceTaskStatus } from '../src/renderer/src/pages/assistant/Ass
 import { AssistantTimelineNetworkRecovery } from '../src/renderer/src/pages/assistant/AssistantTimelineNetworkRecovery'
 import { IssueLogRow } from '../src/renderer/src/pages/assistant/AssistantPageHelpers'
 import { TimelineContextCompactionMarker, TimelineMessage, TimelineWorkingIndicator } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
-import { COLLAPSED_TOOL_CALL_COUNT, TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
+import { TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
+import { getAssistantActionFamily, getAssistantActionTitle, stripAssistantCommandEnvelope } from '../src/renderer/src/pages/assistant/assistant-action-presentation'
+import { buildAssistantWorkSteps, shouldInheritAssistantWorkStepTitle } from '../src/renderer/src/pages/assistant/assistant-work-steps'
 import { stripProposedPlanBlocks } from '../src/renderer/src/pages/assistant/assistant-proposed-plan'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
 import { groupTimelineRowsIntoWorkSummaries } from '../src/renderer/src/pages/assistant/assistant-turn-work'
-import { isAssistantQueuedComposerSessionBusy } from '../src/renderer/src/pages/assistant/useAssistantQueuedComposer'
+import {
+    isAssistantQueuedComposerSessionBusy,
+    resolveAssistantForceInterruptAttempt
+} from '../src/renderer/src/pages/assistant/useAssistantQueuedComposer'
 import {
     didAssistantTimelineWorkComplete,
     resolveAssistantTimelineDisclosureAnchorMode
@@ -178,7 +183,7 @@ assert.equal(
 assert.deepEqual(
     entries.filter((entry) => entry.type === 'message' && entry.message.role === 'assistant').map((entry) => entry.type === 'message' ? entry.message.id : ''),
     ['progress-one', 'progress-two', 'final'],
-    'intermediate assistant narration and the final answer must remain distinct visible messages'
+    'intermediate narration and the final answer remain distinct timeline records before work-step projection'
 )
 
 const completedRows = buildTimelineRows(entries, false, null)
@@ -241,6 +246,36 @@ assert.equal(
     expandedNarrationIndex >= 0 && laterToolIndex > expandedNarrationIndex,
     true,
     'expanded work keeps narration in arrival order instead of forcing the latest narration to the bottom'
+)
+assert.equal(
+    activeWorkSummary?.kind === 'turn-work-summary'
+        ? activeWorkSummary.rows.filter((row) => row.kind === 'activity-group').length
+        : 0,
+    2,
+    'visible narration remains a real boundary between command groups'
+)
+
+const aliasedToolTurnMessages = [
+    message({ id: 'aliased-tool-user', role: 'user', turnId: 'local-tool-turn', millisecond: 800, text: 'Run consecutive checks.' })
+]
+const aliasedToolActivities = [
+    activity({ id: 'provider-tool-two', turnId: 'provider-tool-turn', millisecond: 1000 }),
+    activity({ id: 'local-tool-one', turnId: 'local-tool-turn', millisecond: 900 })
+]
+const aliasedToolRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries(aliasedToolTurnMessages, aliasedToolActivities), true, iso(800)),
+    messages: aliasedToolTurnMessages,
+    latestAssistantMessageId: null,
+    latestTurnStartedAt: iso(800),
+    isWorking: true
+})
+const aliasedToolSummary = aliasedToolRows.find((row) => row.kind === 'turn-work-summary')
+assert.deepEqual(
+    aliasedToolSummary?.kind === 'turn-work-summary'
+        ? aliasedToolSummary.rows.map((row) => row.kind === 'activity-group' ? row.activities.map((entry) => entry.id) : row.id)
+        : [],
+    [['local-tool-one', 'provider-tool-two']],
+    'consecutive tool activity stays in one visual group while a turn id is reconciled'
 )
 
 const streamingFinalMessages = messages.map((entry) => entry.id === 'final'
@@ -744,6 +779,8 @@ assert.equal(interruptedMarkup.includes('Worked for'), true)
 assert.equal(interruptedMarkup.includes('Interrupted'), true)
 assert.equal(interruptedMarkup.includes('aria-expanded="false"'), true)
 assert.equal(interruptedMarkup.includes('Interrupted work'), false)
+assert.equal(interruptedMarkup.includes('data-assistant-turn-interruption="true"'), true, 'an interrupted turn uses one quiet centered boundary instead of an error-style suffix')
+assert.equal(interruptedMarkup.includes('text-amber'), false, 'an intentional interruption does not use warning or error color')
 
 const projectedInterruptedTurnId = 'shared-turn:canonical-chat:stopped-user-message'
 const projectedInterruptedUser = message({
@@ -822,7 +859,7 @@ const projectedInterruptedRows = groupTimelineRowsIntoWorkSummaries({
 assert.deepEqual(
     projectedInterruptedRows.map((row) => row.kind),
     ['message', 'turn-work-summary', 'message'],
-    'an externally stopped TUI turn must collapse every partial response, tool, and terminal notice before the next prompt'
+    'an externally stopped TUI turn must collapse every partial response and tool, then show one interruption boundary before the next prompt'
 )
 const projectedInterruptedSummary = projectedInterruptedRows[1]
 assert.equal(projectedInterruptedSummary?.kind === 'turn-work-summary' ? projectedInterruptedSummary.outcome : null, 'interrupted')
@@ -837,8 +874,91 @@ assert.equal(
     projectedInterruptedSummary?.kind === 'turn-work-summary'
         ? projectedInterruptedSummary.rows.some((row) => row.id === projectedInterruptedTerminal.id)
         : false,
-    true,
-    'the interruption notice must collapse with the stopped work instead of remaining exposed in the timeline'
+    false,
+    'the technical abort activity must not remain inside the work disclosure'
+)
+
+const forcedOldTurnId = 'local-turn:forced-old'
+const forcedNextTurnId = 'local-turn:forced-next'
+const forcedInterruptedUser = message({
+    id: 'forced-interrupted-user',
+    role: 'user',
+    turnId: forcedOldTurnId,
+    millisecond: 2100,
+    text: 'Start the first task.',
+    timelineSequence: 1
+})
+const forcedInterruptedProgress = message({
+    id: 'forced-interrupted-progress',
+    role: 'assistant',
+    turnId: forcedOldTurnId,
+    millisecond: 2120,
+    text: 'I am still working.',
+    timelineSequence: 2
+})
+const forcedInterruptedTerminal: AssistantActivity = {
+    ...projectedInterruptedTerminal,
+    id: 'forced-interrupted-terminal',
+    turnId: 'provider-turn:forced-old',
+    timelineSequence: 3,
+    createdAt: iso(2140)
+}
+const forcedNextUser = message({
+    id: 'forced-next-user',
+    role: 'user',
+    turnId: forcedNextTurnId,
+    millisecond: 2160,
+    text: 'Do this instead.',
+    timelineSequence: 4
+})
+const forcedOldRunningUsage: AssistantSessionTurnUsageEntry = {
+    ...interruptedUsage,
+    id: forcedOldTurnId,
+    requestedAt: forcedInterruptedUser.createdAt,
+    startedAt: forcedInterruptedUser.createdAt,
+    completedAt: null,
+    assistantMessageId: forcedInterruptedProgress.id,
+    state: 'running',
+    updatedAt: forcedInterruptedProgress.updatedAt
+}
+const forcedInterruptionRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries([
+        forcedInterruptedUser,
+        forcedInterruptedProgress,
+        forcedNextUser
+    ], [forcedInterruptedTerminal]), true, forcedNextUser.createdAt),
+    messages: [forcedInterruptedUser, forcedInterruptedProgress, forcedNextUser],
+    turnUsageById: new Map([[forcedOldTurnId, forcedOldRunningUsage]]),
+    latestAssistantMessageId: null,
+    latestTurnStartedAt: forcedNextUser.createdAt,
+    isWorking: true
+})
+assert.deepEqual(
+    forcedInterruptionRows.map((row) => row.kind),
+    ['message', 'turn-work-summary', 'message', 'working'],
+    'forcing the next prompt closes old work even while usage is stale and the provider interruption uses a different turn id'
+)
+assert.equal(
+    forcedInterruptionRows[1]?.kind === 'turn-work-summary' ? forcedInterruptionRows[1].outcome : null,
+    'interrupted',
+    'the explicit interruption between user boundaries outranks stale running usage'
+)
+
+const stillWorkingInterruptedRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries([
+        forcedInterruptedUser,
+        forcedInterruptedProgress
+    ], [forcedInterruptedTerminal]), true, forcedInterruptedUser.createdAt),
+    messages: [forcedInterruptedUser, forcedInterruptedProgress],
+    turnUsageById: new Map([[forcedOldTurnId, forcedOldRunningUsage]]),
+    latestAssistantMessageId: null,
+    latestTurnStartedAt: forcedInterruptedUser.createdAt,
+    isWorking: true
+})
+assert.deepEqual(
+    stillWorkingInterruptedRows.map((row) => row.kind),
+    ['message', 'turn-work-summary'],
+    'an explicit interruption collapses the active disclosure before slower thread-state updates arrive'
 )
 
 const orphanTurnId = 'turn-no-final-response'
@@ -879,6 +999,42 @@ assert.equal(isAssistantQueuedComposerSessionBusy({
     pendingApprovalCount: 0,
     pendingUserInputCount: 0
 }), false, 'an explicitly terminal turn releases its queued follow-up')
+const startupForceAttempt = resolveAssistantForceInterruptAttempt({
+    messageId: 'force-during-startup',
+    dispatchMode: 'force',
+    sessionId: 'force-session',
+    sessionState: {
+        sessionId: 'force-session',
+        threadState: 'ready',
+        latestTurnState: null,
+        pendingApprovalCount: 0,
+        pendingUserInputCount: 0
+    },
+    selectedSessionId: 'force-session',
+    commandPending: true,
+    isThreadWorking: false,
+    activeTurnId: null
+})
+const runningForceAttempt = resolveAssistantForceInterruptAttempt({
+    messageId: 'force-during-startup',
+    dispatchMode: 'force',
+    sessionId: 'force-session',
+    sessionState: {
+        sessionId: 'force-session',
+        threadState: 'running',
+        latestTurnState: 'running',
+        pendingApprovalCount: 0,
+        pendingUserInputCount: 0
+    },
+    selectedSessionId: 'force-session',
+    commandPending: false,
+    isThreadWorking: true,
+    activeTurnId: 'turn-visible-after-startup'
+})
+assert.equal(startupForceAttempt?.turnId, undefined, 'force still requests interruption before a turn id has reached the renderer')
+assert.equal(runningForceAttempt?.turnId, 'turn-visible-after-startup', 'force retries against the concrete turn once startup publishes it')
+assert.notEqual(startupForceAttempt?.key, runningForceAttempt?.key, 'the startup and running attempts use separate idempotence generations')
+assert.match(queuedComposerTimelineSource, /selectedComposerBusy = sessionId === selectedSessionId && \(commandPending \|\| isThreadWorking\)/u, 'a force-queued prompt cannot drain beside an optimistic prompt whose turn id is still pending')
 assert.equal(virtualTimelineSource.includes('<LegendList'), true, 'long histories render through LegendList rather than renderer-only slicing')
 assert.match(virtualTimelineSource, /const maintainVisibleContentPosition = useMemo\(\(\) => \(\{[\s\S]{0,180}data: true,[\s\S]{0,180}size: startupSettled && scrollMode === 'free-scrolling'/u, 'database-page prepends and settled measured row sizes preserve the visible anchor')
 assert.match(virtualTimelineSource, /maintainVisibleContentPosition=\{maintainVisibleContentPosition\}/u, 'LegendList receives the bounded anchor policy')
@@ -1126,7 +1282,7 @@ const commandCheckpointMarkup = renderToStaticMarkup(createElement(TimelineToolC
     activities: [commandCheckpointDisplay],
     onRevealActivity: () => undefined
 }))
-assert.equal(commandCheckpointMarkup.includes('Tool Calls'), true, 'command follow-ups use the existing tool-call card container')
+assert.equal(commandCheckpointMarkup.includes('Tool Calls'), false, 'command follow-ups do not add a generic tool-call wrapper')
 assert.equal(commandCheckpointMarkup.includes('npm run check'), true)
 assert.equal(commandCheckpointMarkup.includes('Follow-up'), true)
 assert.equal(commandCheckpointMarkup.includes('Done'), true)
@@ -1172,7 +1328,7 @@ const checkpointGroupMarkup = renderToStaticMarkup(createElement(TimelineToolCal
     ],
     onRevealActivity: () => undefined
 }))
-assert.equal(checkpointGroupMarkup.includes('Tool Calls (2)'), true, 'adjacent follow-ups use the existing multi-tool card')
+assert.equal((checkpointGroupMarkup.match(/data-assistant-tool-call=/g) || []).length, 2, 'adjacent follow-ups keep one clickable row per action')
 assert.equal(checkpointGroupMarkup.includes('Follow-up'), true)
 assert.equal(checkpointGroupMarkup.includes('Done'), true)
 assert.equal(checkpointGroupMarkup.includes('Running'), true, 'each reused tool card carries its own follow-up state')
@@ -1342,7 +1498,8 @@ assert.equal(toolCardSource.includes("duration={activity.kind === 'file-change' 
 assert.equal(toolCardSource.includes("crispContent={activity.kind === 'file-change'}"), true, 'file diffs request the crisp disclosure path')
 assert.equal(animatedHeightSource.includes("'grid transition-[grid-template-rows] ease-[cubic-bezier(0.2,0.8,0.2,1)]"), true, 'crisp disclosures animate grid height without opacity or transforms')
 assert.equal(animatedHeightSource.includes('inert={!isOpen ? true : undefined}'), true, 'closed disclosures remove hidden controls from keyboard navigation')
-assert.match(toolCallListSource, /setExpanded\(false\)[\s\S]{0,260}setOlderMounted\(false\)/, 'older tool cards unmount after their closing animation')
+assert.equal(toolCallListSource.includes('setOlderMounted'), false, 'action lists do not maintain a hidden last-five subset')
+assert.equal(toolCallListSource.includes('displayActivities.map'), true, 'every expanded action is projected directly')
 assert.equal(toolCardSource.includes('className="shrink-0 font-mono text-[9px]'), true, 'file elapsed time no longer reserves an oversized fixed-width gap')
 assert.equal(inlineDiffPreviewSource.includes('MAX_INLINE_DIFF_ROWS = 100'), true, 'inline diff DOM work is capped at 100 lines')
 assert.equal(inlineDiffPreviewSource.includes("[text-rendering:auto] [-webkit-font-smoothing:auto]"), true, 'inline diff text uses native crisp rendering')
@@ -1363,13 +1520,13 @@ assert.equal(inlineDiffMarkup.includes('Open full diff for src/new-file.ts in si
 assert.equal(inlineDiffMarkup.includes('&gt;+1&lt;'), false, 'inline diff count text is rendered as ordinary text rather than serialized markup')
 assert.match(inlineDiffMarkup, />\+1<\/span>/)
 assert.match(inlineDiffMarkup, />-1<\/span>/)
-assert.equal(toolCardSource.includes('commandTimestamp'), false, 'collapsed command rows do not expose calendar date or time')
-assert.equal(toolCardSource.includes('formatAssistantDateTime(activityStartedAt)'), true, 'expanded command details show the real command start timestamp')
+assert.equal(toolCardSource.includes('commandTimestamp'), false, 'command timing is derived directly instead of copied into presentation state')
+assert.equal(toolCardSource.includes('formatAssistantActionTime(activityStartedAt)'), true, 'the single command row shows its compact real start time')
 assert.equal(toolCardSource.includes("window.setInterval(() => setNowIso(new Date().toISOString()), 1000)"), true, 'running command cards refresh elapsed time once per second')
 assert.equal(toolCardSource.includes("'shrink-0 text-right font-mono text-[9px] tabular-nums transition-colors'"), true, 'command durations stay right-aligned and tabular in both chat displays')
-assert.equal(toolCardSource.includes("minimal ? 'w-auto' : 'w-14'"), true, 'Detailed keeps the fixed duration column while Minimal uses compact intrinsic width')
+assert.equal(toolCardSource.includes("minimal ? 'w-auto' : 'w-14'"), false, 'command timing uses intrinsic width instead of a padded fixed column')
 assert.equal(toolCardSource.includes("'text-sparkle-text-muted group-hover:text-sparkle-text-secondary'"), true, 'completed command durations stay visually quiet until row hover')
-assert.equal(toolCardSource.includes("{elapsed || ''}"), true, 'commands without timing data still reserve the duration column')
+assert.equal(toolCardSource.includes("{formatAssistantActionTime(activityStartedAt)}{elapsed ? ` · ${elapsed}` : ''}"), true, 'command time and elapsed duration share the one compact row')
 assert.equal(toolCardSource.includes('inline-flex w-4 shrink-0 items-center justify-center'), true, 'every tool row reserves the same trailing chevron endpoint')
 assert.equal(
     toolCardSource.indexOf('{completedWithoutOutput ? (') < toolCardSource.indexOf('{isRead ? ('),
@@ -1417,15 +1574,38 @@ modelNotice.kind = 'model.notice'
 modelNotice.payload = { category: 'model-notice', noticeKind: 'usage-limit', model: 'gpt-5.5' }
 assert.equal(isModelNoticeActivity(modelNotice), true)
 
-assert.equal(COLLAPSED_TOOL_CALL_COUNT, 5)
+const purposeActivity = activity({ id: 'purpose-action', turnId: 'purpose-turn', millisecond: 1760 })
+purposeActivity.kind = 'command'
+purposeActivity.payload = { toolName: 'bash', command: 'npm test', status: 'completed' }
+const workSteps = buildAssistantWorkSteps([
+    {
+        kind: 'message',
+        id: 'purpose-message',
+        createdAt: purposeActivity.createdAt,
+        message: {
+            id: 'purpose-message', role: 'assistant', text: "I'll verify interruption handling.", turnId: 'purpose-turn', streaming: false,
+            createdAt: purposeActivity.createdAt, updatedAt: purposeActivity.createdAt
+        }
+    },
+    { kind: 'activity', id: purposeActivity.id, createdAt: purposeActivity.createdAt, activity: purposeActivity }
+])
+assert.equal(workSteps[0]?.title, 'Verify interruption handling', 'intermediate narration becomes the purpose title without message chrome')
+assert.equal(shouldInheritAssistantWorkStepTitle(workSteps[0]!), true, 'a one-action step inherits its purpose directly')
+assert.equal(getAssistantActionTitle(purposeActivity, null, workSteps[0]?.title), 'Verify interruption handling')
+const typedWebActivity = { ...purposeActivity, kind: 'web-search', payload: { toolName: 'web_search', query: 'Pi SDK' } }
+assert.equal(getAssistantActionFamily(typedWebActivity), 'web-search')
+const typedSkillActivity = { ...purposeActivity, kind: 'skill', payload: { toolName: 'read', paths: ['C:/skills/diagnose/SKILL.md'] } }
+assert.equal(getAssistantActionFamily(typedSkillActivity), 'skill')
+
 const tenToolActivities = Array.from({ length: 10 }, (_, index) => activity({
-    id: `collapsed-tool-${index + 1}`,
-    turnId: 'collapsed-tools',
+    id: `visible-tool-${index + 1}`,
+    turnId: 'visible-tools',
     millisecond: 1800 + index
 }))
-const collapsedToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: tenToolActivities }))
-assert.equal(collapsedToolsMarkup.includes('Show all 10'), true, 'tool batches over five expose the DevScope-style expansion control')
-assert.equal(collapsedToolsMarkup.includes('data-state="closed"'), true, 'older tool calls remain mounted inside the collapsed animated section')
+const allToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: tenToolActivities }))
+assert.equal(allToolsMarkup.includes('Show all 10'), false, 'expanded work never adds a second last-five disclosure')
+assert.equal((allToolsMarkup.match(/data-assistant-tool-call=/g) || []).length, 10, 'expanded work renders one clickable row for every action')
+assert.equal(stripAssistantCommandEnvelope('Command completed (cmd-1) after 1s.\nCommand: npm test\n\npassed', 'npm test'), 'passed', 'managed command wrappers stay out of evidence')
 
 const timelineRowsSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineRows.tsx', import.meta.url), 'utf8')
 assert.equal(timelineRowsSource.includes('Loading chat...'), true)

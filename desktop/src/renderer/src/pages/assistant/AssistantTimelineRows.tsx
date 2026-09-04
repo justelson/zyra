@@ -737,11 +737,11 @@ export const TimelineMessage = memo(({
                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
                     />
                 )}
-                {!compactLiveNarration ? <div className={cn(
-                    'mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sparkle-text-muted transition-opacity',
-                    minimal && 'opacity-0 focus-within:opacity-100 group-hover/assistant-message:opacity-100'
-                )}>
-                    <span>{formatAssistantDateTime(message.updatedAt)}</span>
+                {!compactLiveNarration ? <div
+                    className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sparkle-text-muted"
+                    data-assistant-message-metadata={displayMode}
+                >
+                    <span data-assistant-message-timestamp="true">{formatAssistantDateTime(message.updatedAt)}</span>
                     {assistantElapsed ? <span className="text-sparkle-text">| {assistantElapsed}</span> : null}
                     {isLastAssistantInTurn && assistantCopyValue.trim() ? (
                         <button
@@ -754,7 +754,7 @@ export const TimelineMessage = memo(({
                                 } catch {}
                             }}
                             className={cn(
-                                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 opacity-0 transition-all duration-150 group-hover:opacity-100',
+                                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 opacity-0 transition-all duration-150 focus-visible:opacity-100 group-hover/assistant-message:opacity-100',
                                 copied
                                     ? 'border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-200'
                                     : 'border-transparent bg-white/[0.03] text-sparkle-text-secondary hover:bg-white/[0.05] hover:text-sparkle-text'

@@ -1,6 +1,6 @@
 import type { AgentRunState, AgentTranscriptPage, AssistantActivity } from '@shared/assistant/contracts'
 
-type AgentIdentitySource = Pick<AgentRunState, 'agentRunId' | 'agentId' | 'definitionName' | 'label' | 'goal'>
+export type AgentIdentitySource = Pick<AgentRunState, 'agentRunId' | 'agentId' | 'definitionName' | 'label' | 'goal'>
 
 export type AssistantAgentVibe = 'inquiry' | 'systems' | 'guardian' | 'craft' | 'proof' | 'builder' | 'velocity' | 'contemplative'
 

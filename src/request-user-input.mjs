@@ -101,3 +101,11 @@ export function formatRequestUserInputAnswers(questions, answers) {
     return `${question.header}: ${display}`;
   }).join("\n");
 }
+
+export function formatRequestUserInputContinuationPrompt(questions, answers) {
+  const lines = formatRequestUserInputAnswers(questions, answers)
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => `- ${line}`);
+  return ["Here are my answers:", "", ...lines].join("\n");
+}

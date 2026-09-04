@@ -123,6 +123,7 @@ const coreTests = [
   "scripts/privacy-check.mjs",
   "scripts/test-product-analytics.mjs",
   "scripts/test-agent-surface-contract.mjs",
+  "scripts/test-request-user-input.mjs",
   "scripts/test-legal-release-contract.mjs",
   "scripts/test-standalone-tui-signing-contract.mjs",
   "scripts/test-zyra-auth.mjs",
@@ -154,6 +155,7 @@ const quickCoreTests = [
   "scripts/privacy-check.mjs",
   "scripts/test-product-analytics.mjs",
   "scripts/test-agent-surface-contract.mjs",
+  "scripts/test-request-user-input.mjs",
   "scripts/test-zyra-cli-permissions.mjs",
   "scripts/test-zyra-permission-gate.mjs",
   "scripts/test-zyra-permission-reviewer.mjs",
@@ -176,6 +178,7 @@ const serialCoreTests = new Set([
 ]);
 
 const desktopTasks = [
+  { label: "desktop:test:work-timeline-v2", bunArgs: ["run", "--cwd", "desktop", "test:work-timeline-v2"] },
   { label: "desktop:test:analytics", bunArgs: ["run", "--cwd", "desktop", "test:analytics"] },
   { label: "desktop:test:assistant-composer-command-menu", bunArgs: ["desktop/scripts/test-assistant-composer-command-menu.ts"] },
   { label: "desktop:test:assistant-fleet", bunArgs: ["run", "--cwd", "desktop", "test:assistant-fleet"] },

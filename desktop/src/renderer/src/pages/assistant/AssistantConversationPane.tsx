@@ -1117,6 +1117,9 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             messages={displayedTimelineMessages}
                             activities={controller.activityFeed}
                             proposedPlans={controller.activeThread?.proposedPlans || []}
+                            userInputs={controller.activeThread?.pendingUserInputs || []}
+                            userInputResponding={controller.commandPending}
+                            onRespondUserInput={handleRespondUserInput}
                             sessionMode={selectedSessionMode}
                             latestProjectLabel={latestProjectLabel}
                             projectTitle={displayProjectPath || null}

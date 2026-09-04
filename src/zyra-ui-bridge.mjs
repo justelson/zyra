@@ -3,6 +3,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 import { normalizeAgentSurfaceTool } from "./agent-surface.mjs";
+import { formatRequestUserInputContinuationPrompt, normalizeRequestUserInputQuestions } from "./request-user-input.mjs";
 import { classifyRecoveryError } from "./network-recovery.mjs";
 import { AgentControlBridgeClient } from "./agent-control/bridge-client.mjs";
 import { startTemporaryBrowserRelay } from "./agent-control/temporary-browser-relay.mjs";
@@ -118,41 +119,39 @@ function declinePendingPermissions(reason = "Zyra bridge disconnected.") {
   }
 }
 
-function requestUserInput(request = {}, options = {}) {
+function requestUserInput(request = {}) {
   const requestId = randomUUID();
-  send({ type: "event", event: { type: "user_input_requested", requestId, questions: request.questions || [] } });
-  return new Promise((resolve) => {
-    const finish = (result) => resolveUserInputRequest(requestId, result);
-    const timer = setTimeout(() => finish({ answers: {}, cancelled: true, reason: "User input timed out." }), 30 * 60 * 1000);
-    timer.unref?.();
-    const abort = () => finish({ answers: {}, cancelled: true, reason: "User input was cancelled." });
-    options.signal?.addEventListener?.("abort", abort, { once: true });
-    pendingUserInputRequests.set(requestId, { resolve, timer, signal: options.signal, abort });
-  });
+  const questions = Array.isArray(request.questions) ? request.questions : [];
+  pendingUserInputRequests.set(requestId, { questions });
+  send({ type: "event", event: { type: "user_input_requested", requestId, questions } });
+  return Promise.resolve({ answers: {}, cancelled: false, deferred: true, requestId });
 }
 
 function resolveUserInputRequest(requestId, result = {}) {
   const id = String(requestId || "");
-  const pending = pendingUserInputRequests.get(id);
-  if (!pending) return false;
+  const pending = pendingUserInputRequests.get(id) || {
+    questions: normalizeRequestUserInputQuestions(result.questions),
+  };
+  if (pending.questions.length === 0) return null;
   pendingUserInputRequests.delete(id);
-  clearTimeout(pending.timer);
-  pending.signal?.removeEventListener?.("abort", pending.abort);
   const rawAnswers = result.answers && typeof result.answers === "object" && !Array.isArray(result.answers) ? result.answers : {};
   const answers = Object.fromEntries(Object.entries(rawAnswers).map(([questionId, value]) => [
     questionId,
     Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : typeof value === "string" ? value : "",
   ]));
-  const resolved = { answers, cancelled: result.cancelled === true };
-  send({ type: "event", event: { type: "user_input_resolved", requestId: id, ...resolved, reason: result.reason } });
-  pending.resolve(resolved);
-  return true;
+  const cancelled = result.cancelled === true;
+  const resolved = {
+    answers,
+    cancelled,
+    questions: pending.questions,
+    continuationPrompt: cancelled ? null : formatRequestUserInputContinuationPrompt(pending.questions, answers),
+  };
+  send({ type: "event", event: { type: "user_input_resolved", requestId: id, answers, cancelled, reason: result.reason } });
+  return resolved;
 }
 
-function cancelPendingUserInputs(reason = "Zyra bridge disconnected.") {
-  for (const requestId of [...pendingUserInputRequests.keys()]) {
-    resolveUserInputRequest(requestId, { answers: {}, cancelled: true, reason });
-  }
+function abandonPendingUserInputs() {
+  pendingUserInputRequests.clear();
 }
 
 function stopTemporaryBrowserRelay() {
@@ -181,7 +180,7 @@ async function loadSdk() {
 
 function disposeRuntime() {
   declinePendingPermissions();
-  cancelPendingUserInputs();
+  abandonPendingUserInputs();
   stopTemporaryBrowserRelay();
   permissionReviewer?.dispose?.();
   permissionReviewer = undefined;
@@ -1013,10 +1012,11 @@ async function handleMessage(message) {
     }
     if (message?.type === "user_input.respond") {
       const requestId = String(message.payload?.requestId || "");
-      if (!resolveUserInputRequest(requestId, message.payload || {})) {
+      const result = resolveUserInputRequest(requestId, message.payload || {});
+      if (!result) {
         throw new Error(`Unknown user-input request: ${requestId || "missing"}`);
       }
-      sendResponse(id, true, { result: {} });
+      sendResponse(id, true, { result });
       return;
     }
     if (["canonical_message.append", "canonical_message.find"].includes(message?.type)) {

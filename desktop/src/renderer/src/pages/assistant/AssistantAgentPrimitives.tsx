@@ -4,7 +4,7 @@ import botttsDefinition from '@dicebear/styles/bottts.json'
 import { GitBranch, RotateCcw, Square } from 'lucide-react'
 import type { AgentRunState, AgentRunStatus } from '@shared/assistant/contracts'
 import { cn } from '@/lib/utils'
-import { resolveAssistantAgentIdentity } from './assistant-agent-presentation'
+import { resolveAssistantAgentIdentity, type AgentIdentitySource } from './assistant-agent-presentation'
 
 export type AssistantAgentAction = 'stop' | 'retry' | 'resume'
 
@@ -15,7 +15,7 @@ export function AssistantAgentAvatar({
     size,
     className
 }: {
-    run: AgentRunState
+    run: AgentIdentitySource
     size: number
     className?: string
 }) {

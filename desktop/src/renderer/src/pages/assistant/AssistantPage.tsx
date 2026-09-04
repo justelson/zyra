@@ -14,6 +14,7 @@ import { buildAssistantDiffTurns } from './assistant-diff-turns'
 import { resolveAssistantDiffTarget, type AssistantDiffTarget } from './assistant-diff-types'
 import { openAssistantFileTarget } from './assistant-file-navigation'
 import { resolveAssistantPaneLayout } from './assistant-pane-layout'
+import { subscribeAssistantInspectorNavigation } from './assistant-inspector-navigation'
 import { mergeAssistantReviewIndex } from './assistant-review-index'
 import { AssistantTransientToast, DeleteHistoryConfirm, useAssistantTransientToast } from './AssistantPageHelpers'
 import { useAssistantBrowserSurfaceRequests } from './useAssistantBrowserSurfaceRequests'
@@ -190,6 +191,10 @@ export default function AssistantPage() {
     const prepareInspector = useCallback(() => {
         void loadAssistantDiffPanel().catch(() => undefined)
     }, [])
+    useEffect(() => subscribeAssistantInspectorNavigation(() => {
+        prepareInspector()
+        setRightPanelMode('review')
+    }), [prepareInspector, setRightPanelMode])
     const revealBrowserInspector = useCallback(() => {
         prepareInspector()
         setRightPanelMode('review')

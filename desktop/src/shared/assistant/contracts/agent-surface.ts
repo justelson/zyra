@@ -1,4 +1,4 @@
-export type AgentSurfaceKind = 'command' | 'file-change' | 'file-read' | 'search' | 'browser-control' | 'computer-control' | 'tool'
+export type AgentSurfaceKind = 'command' | 'file-change' | 'file-read' | 'search' | 'web-search' | 'web-fetch' | 'skill' | 'agent' | 'workflow' | 'browser-control' | 'computer-control' | 'tool'
 export type AgentSurfaceLifecycle = 'running' | 'completed' | 'failed' | 'stopped'
 export type AgentSurfacePhase = 'start' | 'update' | 'end'
 
@@ -12,11 +12,13 @@ export interface AgentSurfaceDescriptor {
     primaryText: string
     command?: string
     query?: string
+    url?: string
+    action?: string
     paths: string[]
     summary: string
 }
 
-const AGENT_SURFACE_KINDS = new Set<AgentSurfaceKind>(['command', 'file-change', 'file-read', 'search', 'browser-control', 'computer-control', 'tool'])
+const AGENT_SURFACE_KINDS = new Set<AgentSurfaceKind>(['command', 'file-change', 'file-read', 'search', 'web-search', 'web-fetch', 'skill', 'agent', 'workflow', 'browser-control', 'computer-control', 'tool'])
 const AGENT_SURFACE_LIFECYCLES = new Set<AgentSurfaceLifecycle>(['running', 'completed', 'failed', 'stopped'])
 
 /** Validate the versioned descriptor crossing the root Zyra runtime -> desktop boundary. */
@@ -32,5 +34,7 @@ export function parseAgentSurfaceDescriptor(value: unknown): AgentSurfaceDescrip
     if (!Array.isArray(descriptor.paths) || descriptor.paths.some((entry) => typeof entry !== 'string')) return null
     if (descriptor.command !== undefined && typeof descriptor.command !== 'string') return null
     if (descriptor.query !== undefined && typeof descriptor.query !== 'string') return null
+    if (descriptor.url !== undefined && typeof descriptor.url !== 'string') return null
+    if (descriptor.action !== undefined && typeof descriptor.action !== 'string') return null
     return descriptor as unknown as AgentSurfaceDescriptor
 }

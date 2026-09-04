@@ -17,7 +17,8 @@ import type {
     AssistantSession,
     AssistantSessionUsageTotals,
     AssistantSnapshot,
-    AssistantThread
+    AssistantThread,
+    AssistantUserInputQuestion
 } from '../../shared/assistant/contracts'
 import type { PreparedAssistantPromptImage } from './prompt-images'
 import type { AssistantNewChatExecutionDefaults } from './service-state'
@@ -55,7 +56,12 @@ export interface AssistantRuntimeBridge {
     interruptTurn(threadId: string, turnId?: string): Promise<void>
     rollbackThread(threadId: string, numTurns: number): Promise<void>
     respondApproval(threadId: string, requestId: string, decision: AssistantApprovalDecision): Promise<void>
-    respondUserInput(threadId: string, requestId: string, answers: Record<string, string | string[]>): Promise<void>
+    respondUserInput(
+        threadId: string,
+        requestId: string,
+        answers: Record<string, string | string[]>,
+        questions?: AssistantUserInputQuestion[]
+    ): Promise<{ continuationPrompt: string | null }>
     disconnect(threadId: string): void
     dispose(): void
     on(event: 'runtime', listener: (event: AssistantRuntimeEvent) => void): this

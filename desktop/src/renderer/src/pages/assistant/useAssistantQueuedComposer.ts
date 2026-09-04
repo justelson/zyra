@@ -68,6 +68,35 @@ export function isAssistantQueuedComposerSessionBusy(sessionState: AssistantQueu
         || sessionState.threadState === 'waiting'
 }
 
+export function resolveAssistantForceInterruptAttempt(input: {
+    messageId: string
+    dispatchMode: AssistantComposerSendOptions['dispatchMode']
+    previewOnly?: boolean
+    sessionId: string
+    sessionState: AssistantQueuedComposerSessionState | null | undefined
+    selectedSessionId: string | null
+    commandPending: boolean
+    isThreadWorking: boolean
+    activeTurnId: string | null
+}): { key: string; turnId: string | undefined } | null {
+    if (input.previewOnly || input.dispatchMode !== 'force') return null
+    const selectedBusy = input.sessionId === input.selectedSessionId
+        && (input.commandPending || input.isThreadWorking)
+    if (!selectedBusy && !isAssistantQueuedComposerSessionBusy(input.sessionState)) return null
+
+    const turnId = input.sessionId === input.selectedSessionId
+        ? input.activeTurnId || undefined
+        : undefined
+    const stateKey = [
+        input.messageId,
+        turnId || 'pending-turn',
+        input.sessionState?.latestTurnState || 'no-turn-state',
+        input.sessionState?.threadState || 'no-thread-state',
+        input.commandPending ? 'command-pending' : 'command-settled'
+    ].join(':')
+    return { key: stateKey, turnId }
+}
+
 export function useAssistantQueuedComposer(args: {
     selectedSessionId: string | null
     sessionStates: AssistantQueuedComposerSessionState[]
@@ -102,6 +131,7 @@ export function useAssistantQueuedComposer(args: {
     const [pausedQueueMessageIdBySessionId, setPausedQueueMessageIdBySessionId] = useState<Record<string, string | null>>({})
     const [sendingComposerPrompt, setSendingComposerPrompt] = useState(false)
     const queueDrainSessionIdsRef = useRef<Set<string>>(new Set())
+    const forceInterruptAttemptKeyBySessionIdRef = useRef<Map<string, string>>(new Map())
 
     const queuedComposerMessages = selectedSessionId ? (queuedComposerMessagesBySessionId[selectedSessionId] || []) : []
     const queuedComposerMessageCount = queuedComposerMessages.length
@@ -244,13 +274,8 @@ export function useAssistantQueuedComposer(args: {
             [selectedSessionId]: null
         }))
 
-        if (mode === 'force' && (commandPending || isThreadWorking)) {
-            try {
-                await interruptTurn(activeTurnId || undefined, selectedSessionId)
-            } catch {}
-        }
         return true
-    }, [activeTurnId, commandPending, interruptTurn, isThreadWorking, selectedSessionId])
+    }, [selectedSessionId])
 
     const handleSendPrompt = useCallback(async (
         prompt: string,
@@ -322,12 +347,7 @@ export function useAssistantQueuedComposer(args: {
             [selectedSessionId]: null
         }))
 
-        if (commandPending || isThreadWorking) {
-            try {
-                await interruptTurn(activeTurnId || undefined, selectedSessionId)
-            } catch {}
-        }
-    }, [activeTurnId, commandPending, interruptTurn, isThreadWorking, selectedSessionId])
+    }, [selectedSessionId])
 
     const handleDeleteQueuedMessage = useCallback((messageId: string) => {
         if (!selectedSessionId) return
@@ -366,10 +386,52 @@ export function useAssistantQueuedComposer(args: {
 
     useEffect(() => {
         const sessionStateById = new Map(sessionStates.map((sessionState) => [sessionState.sessionId, sessionState]))
+        const forceQueuedSessionIds = new Set<string>()
+
+        for (const [sessionId, queuedMessages] of Object.entries(queuedComposerMessagesBySessionId)) {
+            const forceMessage = queuedMessages.find((entry) => !entry.previewOnly && entry.options.dispatchMode === 'force')
+            if (!forceMessage) continue
+            forceQueuedSessionIds.add(sessionId)
+            const attempt = resolveAssistantForceInterruptAttempt({
+                messageId: forceMessage.id,
+                dispatchMode: forceMessage.options.dispatchMode,
+                previewOnly: forceMessage.previewOnly,
+                sessionId,
+                sessionState: sessionStateById.get(sessionId),
+                selectedSessionId,
+                commandPending,
+                isThreadWorking,
+                activeTurnId
+            })
+            if (!attempt || forceInterruptAttemptKeyBySessionIdRef.current.get(sessionId) === attempt.key) continue
+            forceInterruptAttemptKeyBySessionIdRef.current.set(sessionId, attempt.key)
+            void interruptTurn(attempt.turnId, sessionId).catch(() => {
+                if (forceInterruptAttemptKeyBySessionIdRef.current.get(sessionId) === attempt.key) {
+                    forceInterruptAttemptKeyBySessionIdRef.current.delete(sessionId)
+                }
+            })
+        }
+
+        for (const sessionId of forceInterruptAttemptKeyBySessionIdRef.current.keys()) {
+            if (!forceQueuedSessionIds.has(sessionId)) forceInterruptAttemptKeyBySessionIdRef.current.delete(sessionId)
+        }
+    }, [
+        activeTurnId,
+        commandPending,
+        interruptTurn,
+        isThreadWorking,
+        queuedComposerMessagesBySessionId,
+        selectedSessionId,
+        sessionStates
+    ])
+
+    useEffect(() => {
+        const sessionStateById = new Map(sessionStates.map((sessionState) => [sessionState.sessionId, sessionState]))
 
         for (const [sessionId, queuedMessages] of Object.entries(queuedComposerMessagesBySessionId)) {
             if (queueDrainSessionIdsRef.current.has(sessionId)) continue
-            if (isAssistantQueuedComposerSessionBusy(sessionStateById.get(sessionId))) continue
+            const selectedComposerBusy = sessionId === selectedSessionId && (commandPending || isThreadWorking)
+            if (selectedComposerBusy || isAssistantQueuedComposerSessionBusy(sessionStateById.get(sessionId))) continue
 
             const nextQueuedMessage = queuedMessages.find((entry) => !entry.previewOnly)
             if (!nextQueuedMessage) continue
@@ -385,9 +447,12 @@ export function useAssistantQueuedComposer(args: {
             })()
         }
     }, [
+        commandPending,
         dispatchQueuedMessage,
+        isThreadWorking,
         pausedQueueMessageIdBySessionId,
         queuedComposerMessagesBySessionId,
+        selectedSessionId,
         sessionStates
     ])
 

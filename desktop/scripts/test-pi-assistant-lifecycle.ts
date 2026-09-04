@@ -40,11 +40,55 @@ mock.module('electron', () => ({
     },
     nativeImage: { createFromBuffer: () => ({ isEmpty: () => true }) },
     webContents: { fromId: () => null },
-    safeStorage: { isEncryptionAvailable: () => false }
+    safeStorage: { isEncryptionAvailable: () => false },
+    globalShortcut: { register: () => true, unregisterAll: electronNoop }
 }))
-const { ZyraPiRuntime, buildArgumentPreviewPatch, buildLiveAssistantTurnUsage, completeAssistantTurnUsage, mergeAssistantTurnUsage, resolveAssistantUsageMessageIdentity, shouldAccountAssistantMessageUsage } = await import('../src/main/assistant/zyra-pi-runtime')
+const { ZyraPiRuntime, buildArgumentPreviewPatch, buildLiveAssistantTurnUsage, classifyZyraToolActivity, completeAssistantTurnUsage, mergeAssistantTurnUsage, resolveAssistantUsageMessageIdentity, shouldAccountAssistantMessageUsage } = await import('../src/main/assistant/zyra-pi-runtime')
 const { resolveLiveContextUsage } = await import('../../src/live-context-usage.mjs')
 const { ZyraAccountService } = await import('../src/main/assistant/zyra-account-service')
+
+const webSearchActivity = classifyZyraToolActivity({
+    toolName: 'web_search',
+    args: { query: 'Pi SDK' },
+    result: { details: { results: [{ title: 'Pi', url: 'https://example.com/pi', snippet: 'SDK docs' }] } },
+    partialResult: null,
+    state: 'completed',
+    output: 'terminal-shaped fallback text'
+})
+assert.equal(webSearchActivity.kind, 'web-search')
+assert.deepEqual(webSearchActivity.data.webResults, [{ title: 'Pi', url: 'https://example.com/pi', snippet: 'SDK docs' }], 'web evidence crosses the runtime boundary as structured data')
+const skillActivity = classifyZyraToolActivity({
+    toolName: 'read',
+    args: { path: 'C:/Users/example/.agents/skills/diagnose/SKILL.md', offset: 10, limit: 20 },
+    result: null,
+    partialResult: null,
+    state: 'completed',
+    output: 'captured instructions'
+})
+assert.equal(skillActivity.kind, 'skill')
+assert.equal(skillActivity.data.skillName, 'diagnose')
+const agentActivity = classifyZyraToolActivity({
+    toolName: 'agent',
+    args: { action: 'spawn', agent: 'code-reviewer', prompt: 'Review the timeline' },
+    result: null,
+    partialResult: null,
+    state: 'completed',
+    output: JSON.stringify({ agentRunId: 'agent:run', definitionName: 'code-reviewer', goal: 'Review the timeline' })
+})
+assert.equal(agentActivity.kind, 'agent')
+assert.equal(agentActivity.data.agentRunId, 'agent:run')
+assert.equal(classifyZyraToolActivity({ toolName: 'browser_observe', args: { url: 'https://example.com' }, result: null, partialResult: null, state: 'running' }).kind, 'browser-control')
+const computerActivity = classifyZyraToolActivity({
+    toolName: 'computer_control',
+    args: { operation: 'observe', targetId: 'window:1' },
+    result: { content: [{ type: 'image', data: 'automatic-screenshot' }] },
+    partialResult: null,
+    state: 'completed',
+    output: 'automatic-screenshot'
+})
+assert.equal(computerActivity.kind, 'computer-control')
+assert.equal('result' in computerActivity.data, false, 'computer-use screenshots are not archived in timeline payloads')
+assert.equal('output' in computerActivity.data, false, 'computer-use screenshot output is not archived as textual evidence')
 
 const mergedTurnUsage = mergeAssistantTurnUsage(
     mergeAssistantTurnUsage(null, {
@@ -142,7 +186,7 @@ assert.match(structuredEditPreview || '', /-const oldValue = true[\s\S]*\+const 
 assert.match(structuredEditPreview || '', /-export \{ oldValue \}[\s\S]*\+export \{ newValue \}/)
 const zyraRuntimeSource = readFileSync(new URL('../src/main/assistant/zyra-pi-runtime.ts', import.meta.url), 'utf8')
 assert.match(zyraRuntimeSource, /sessionUsage && metadata\?\.replay !== true/, 'historical replay cannot replace the current cumulative session-cost snapshot')
-const { deleteAssistantSessionAction } = await import('../src/main/assistant/service-session-actions')
+const { deleteAssistantSessionAction, interruptAssistantTurnAction } = await import('../src/main/assistant/service-session-actions')
 const {
     findDuplicateProjectedActivityIds,
     findDuplicateProjectedMessageIds,
@@ -1363,6 +1407,40 @@ assert.deepEqual(
     ['canonical:provider-lifecycle:true', 'disconnect:provider-lifecycle', 'session.deleted'],
     'Desktop deletion must persist a canonical tombstone before removing its local projection'
 )
+const startupInterruptCalls: Array<{ threadId: string; turnId: string | undefined }> = []
+const startupInterruptThread: AssistantThread = {
+    ...projectedThread,
+    state: 'starting',
+    latestTurn: null
+}
+const startupInterruptSession: AssistantSession = {
+    ...projectedSession,
+    id: 'session-startup-interrupt',
+    activeThreadId: startupInterruptThread.id,
+    threadIds: [startupInterruptThread.id],
+    threads: [startupInterruptThread]
+}
+await interruptAssistantTurnAction({
+    ensureReady: async () => undefined,
+    getSnapshot: () => ({
+        snapshotSequence: 0,
+        updatedAt: startupInterruptThread.updatedAt,
+        selectedSessionId: startupInterruptSession.id,
+        playground: { rootPath: null, labs: [] },
+        sessions: [startupInterruptSession],
+        knownModels: []
+    }),
+    runtime: {
+        interruptTurn: async (threadId: string, turnId?: string) => {
+            startupInterruptCalls.push({ threadId, turnId })
+        }
+    }
+} as never, undefined, startupInterruptSession.id)
+assert.deepEqual(
+    startupInterruptCalls,
+    [{ threadId: projectedThread.providerThreadId!, turnId: undefined }],
+    'forcing a prompt during startup must reach the runtime before the Desktop turn id exists'
+)
 assert.deepEqual(
     getTitleGenerationModelCandidates('openai-codex/gpt-5.6-sol'),
     ['openai-codex/gpt-5.6-sol', 'openai-codex/gpt-5.6-luna', 'openai-codex/gpt-5.4-mini'],
@@ -1564,10 +1642,23 @@ assert.equal(projectedExternalUserMessages[0]?.turnId, turnId)
 
 if (runningCompactionEvent?.type === 'activity' && completedCompactionEvent?.type === 'activity') {
     handleAssistantRuntimeEvent(runningCompactionEvent, projectedDeps)
+    handleAssistantRuntimeEvent({
+        ...runningCompactionEvent,
+        eventId: `${runningCompactionEvent.eventId}-switch-back-replay`,
+        turnId: `${runningCompactionEvent.turnId}-provider-replay`,
+        payload: {
+            ...runningCompactionEvent.payload,
+            activityId: `${runningCompactionEvent.payload.activityId}-switch-back-replay`
+        }
+    }, projectedDeps)
+    const replayedRunningCompactions = findProjectedRecord(context.localThreadId)?.thread.activities.filter((activity) => activity.kind === 'context.compaction') || []
+    assert.equal(replayedRunningCompactions.length, 1, 'switching back during compaction must reconcile replayed activity and turn aliases')
+    assert.equal(replayedRunningCompactions[0]?.id, runningCompactionEvent.payload.activityId, 'compaction replay must preserve the original activity identity')
+    assert.equal(replayedRunningCompactions[0]?.payload?.['status'], 'running')
     handleAssistantRuntimeEvent(completedCompactionEvent, projectedDeps)
 }
 const projectedCompactionActivities = findProjectedRecord(context.localThreadId)?.thread.activities.filter((activity) => activity.kind === 'context.compaction') || []
-assert.equal(projectedCompactionActivities.length, 1, 'start and end must persist as one compaction activity')
+assert.equal(projectedCompactionActivities.length, 1, 'start, replay, and end must persist as one compaction activity')
 assert.equal(projectedCompactionActivities[0]?.payload?.['status'], 'completed')
 assert.equal(projectedCompactionActivities[0]?.payload?.['startedAt'], runningCompactionEvent?.type === 'activity' ? runningCompactionEvent.payload.data?.['startedAt'] : null)
 assert.equal(typeof projectedCompactionActivities[0]?.payload?.['completedAt'], 'string')

@@ -70,6 +70,8 @@ export interface AssistantPendingUserInput {
     questions: AssistantUserInputQuestion[]
     status: 'pending' | 'resolved'
     answers: Record<string, string | string[]> | null
+    /** Local message created when submitted answers continue the conversation. */
+    responseMessageId?: string | null
     turnId: string | null
     createdAt: string
     resolvedAt: string | null

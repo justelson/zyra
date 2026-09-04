@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import type { AssistantActivity, AssistantMessage, AssistantProposedPlan } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan } from '@shared/assistant/contracts'
 import {
     getAssistantTimelineMessageEntryId,
     getTimelineEntries,
@@ -12,6 +12,7 @@ type TimelineEntriesCache = {
     messages: AssistantMessage[]
     activities: AssistantActivity[]
     proposedPlans: AssistantProposedPlan[]
+    userInputs: AssistantPendingUserInput[]
     entries: TimelineEntry[]
 }
 
@@ -91,21 +92,22 @@ export function replaceAssistantTimelineActivityEntry(
 export function useAssistantTimelineEntries(
     messages: AssistantMessage[],
     activities: AssistantActivity[],
-    proposedPlans: AssistantProposedPlan[] = []
+    proposedPlans: AssistantProposedPlan[] = [],
+    userInputs: AssistantPendingUserInput[] = []
 ): TimelineEntry[] {
     const cacheRef = useRef<TimelineEntriesCache | null>(null)
 
     return useMemo(() => {
         const cached = cacheRef.current
         if (cached) {
-            if (cached.messages === messages && cached.activities === activities && cached.proposedPlans === proposedPlans) {
+            if (cached.messages === messages && cached.activities === activities && cached.proposedPlans === proposedPlans && cached.userInputs === userInputs) {
                 return cached.entries
             }
 
-            if (cached.messages === messages && cached.proposedPlans === proposedPlans) {
+            if (cached.messages === messages && cached.proposedPlans === proposedPlans && cached.userInputs === userInputs) {
                 const changedActivityIndex = findSingleChangedActivityIndex(cached.activities, activities)
                 if (changedActivityIndex === -1) {
-                    cacheRef.current = { messages, activities, proposedPlans, entries: cached.entries }
+                    cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: cached.entries }
                     return cached.entries
                 }
                 if (changedActivityIndex >= 0) {
@@ -117,7 +119,7 @@ export function useAssistantTimelineEntries(
                         nextActivity
                     )
                     if (nextEntries) {
-                        cacheRef.current = { messages, activities, proposedPlans, entries: nextEntries }
+                        cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: nextEntries }
                         return nextEntries
                     }
                     if (!shouldRenderActivity(nextActivity)) {
@@ -126,14 +128,14 @@ export function useAssistantTimelineEntries(
                             || (entry.type === 'activity-group' && entry.activities.some((activity) => activity.id === previousActivity.id))
                         ))
                         if (!previousStillRendered) {
-                            cacheRef.current = { messages, activities, proposedPlans, entries: cached.entries }
+                            cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: cached.entries }
                             return cached.entries
                         }
                     }
                 }
             }
 
-            if (cached.activities === activities && cached.proposedPlans === proposedPlans && cached.messages.length > 0) {
+            if (cached.activities === activities && cached.proposedPlans === proposedPlans && cached.userInputs === userInputs && cached.messages.length > 0) {
                 const previousLastMessage = cached.messages[cached.messages.length - 1]
                 const nextLastMessage = messages[messages.length - 1]
 
@@ -158,7 +160,7 @@ export function useAssistantTimelineEntries(
                             type: 'message',
                             message: nextLastMessage
                         }
-                        cacheRef.current = { messages, activities, proposedPlans, entries: nextEntries }
+                        cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: nextEntries }
                         return nextEntries
                     }
                 }
@@ -172,12 +174,12 @@ export function useAssistantTimelineEntries(
                         appendedMessage.role === 'assistant'
                         && appendedMessage.turnId
                     ) {
-                        const entries = getTimelineEntries(messages, activities, proposedPlans)
-                        cacheRef.current = { messages, activities, proposedPlans, entries }
+                        const entries = getTimelineEntries(messages, activities, proposedPlans, userInputs)
+                        cacheRef.current = { messages, activities, proposedPlans, userInputs, entries }
                         return entries
                     }
                     if (!shouldRenderMessage(appendedMessage)) {
-                        cacheRef.current = { messages, activities, proposedPlans, entries: cached.entries }
+                        cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: cached.entries }
                         return cached.entries
                     }
                     const nextEntries = [
@@ -190,14 +192,14 @@ export function useAssistantTimelineEntries(
                             message: appendedMessage
                         }
                     ]
-                    cacheRef.current = { messages, activities, proposedPlans, entries: nextEntries }
+                    cacheRef.current = { messages, activities, proposedPlans, userInputs, entries: nextEntries }
                     return nextEntries
                 }
             }
         }
 
-        const entries = getTimelineEntries(messages, activities, proposedPlans)
-        cacheRef.current = { messages, activities, proposedPlans, entries }
+        const entries = getTimelineEntries(messages, activities, proposedPlans, userInputs)
+        cacheRef.current = { messages, activities, proposedPlans, userInputs, entries }
         return entries
-    }, [activities, messages, proposedPlans])
+    }, [activities, messages, proposedPlans, userInputs])
 }

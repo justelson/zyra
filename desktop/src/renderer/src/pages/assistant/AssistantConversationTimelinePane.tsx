@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, type RefObject } from 'react'
 import { ArrowDown } from 'lucide-react'
-import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantChatDisplayMode, AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { LoadingSpinner } from '@/components/ui/LoadingState'
@@ -17,6 +17,9 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     messages: AssistantMessage[]
     activities: AssistantActivity[]
     proposedPlans?: AssistantProposedPlan[]
+    userInputs: AssistantPendingUserInput[]
+    userInputResponding: boolean
+    onRespondUserInput: (requestId: string, answers: Record<string, string | string[]>) => Promise<void>
     sessionMode: 'work' | 'playground'
     latestProjectLabel: string
     projectTitle: string | null
@@ -113,6 +116,9 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         messages={props.messages}
                         activities={props.activities}
                         proposedPlans={props.proposedPlans || []}
+                        userInputs={props.userInputs}
+                        userInputResponding={props.userInputResponding}
+                        onRespondUserInput={props.onRespondUserInput}
                         sessionMode={props.sessionMode}
                         projectLabel={projectRootPath ? props.latestProjectLabel : null}
                         projectTitle={projectRootPath}

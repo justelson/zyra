@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { LegendListRef } from '@legendapp/list/react'
-import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import { resolveAssistantMessageReferenceId } from '@shared/assistant/message-identity'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantChatDisplayMode, AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
@@ -22,9 +22,10 @@ import {
     TimelineWorkTraceGroup,
     TimelineWorkingIndicator
 } from './AssistantTimelineRows'
-import { TimelineTurnWorkSummary } from './AssistantTimelineWorkSummary'
+import { TimelineTurnInterruptionMarker, TimelineTurnWorkSummary } from './AssistantTimelineWorkSummary'
 import { TimelineVoiceTaskStatus } from './AssistantTimelineVoiceTask'
 import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
+import { AssistantTimelineQuestionSet } from './AssistantTimelineQuestionSet'
 import { AssistantVirtualTimeline } from './AssistantVirtualTimeline'
 import { computeStableAssistantTimelineRows, type StableTimelineRowsState } from './assistant-virtual-timeline-rows'
 import {
@@ -46,6 +47,7 @@ import {
 } from './assistant-timeline-helpers'
 import { stripProposedPlanBlocks } from './assistant-proposed-plan'
 import { groupTimelineRowsIntoWorkSummaries } from './assistant-turn-work'
+import { buildAssistantWorkSteps, shouldInheritAssistantWorkStepTitle } from './assistant-work-steps'
 import { useAssistantTimelineEntries } from './useAssistantTimelineEntries'
 
 const ASSISTANT_MARKDOWN_PREWARM_MAX_LENGTH = 32_000
@@ -62,6 +64,9 @@ type AssistantTimelineProps = {
     messages: AssistantMessage[]
     activities: AssistantActivity[]
     proposedPlans?: AssistantProposedPlan[]
+    userInputs?: AssistantPendingUserInput[]
+    userInputResponding?: boolean
+    onRespondUserInput?: (requestId: string, answers: Record<string, string | string[]>) => Promise<void>
     projectLabel?: string | null
     projectTitle?: string | null
     sessionMode?: 'work' | 'playground'
@@ -111,6 +116,9 @@ function AssistantTimelineImpl({
     messages,
     activities,
     proposedPlans = [],
+    userInputs = [],
+    userInputResponding = false,
+    onRespondUserInput,
     projectLabel = null,
     projectTitle = null,
     sessionMode = 'work',
@@ -174,7 +182,7 @@ function AssistantTimelineImpl({
         setInitialLayoutWindowKey(windowKey)
     }, [windowKey])
 
-    const entries = useAssistantTimelineEntries(messages, activities, proposedPlans)
+    const entries = useAssistantTimelineEntries(messages, activities, proposedPlans, userInputs)
     const resolvedLatestAssistantMessageId = useMemo(
         () => resolveAssistantMessageReferenceId(messages, latestAssistantMessageId),
         [latestAssistantMessageId, messages]
@@ -338,7 +346,7 @@ function AssistantTimelineImpl({
 
     const renderRow = (
         row: TimelineDisplayRow,
-        options: { compactLiveNarration?: boolean; liveNarration?: boolean } = {}
+        options: { compactLiveNarration?: boolean; liveNarration?: boolean; purposeTitle?: string | null } = {}
     ): ReactNode => {
         if (row.kind === 'turn-work-summary') {
             return (
@@ -351,10 +359,25 @@ function AssistantTimelineImpl({
                     outcome={row.outcome}
                     displayMode={assistantChatDisplayMode}
                     actionCount={countTimelineWorkActions(row.rows)}
+                    hasWork={row.rows.length > 0}
                     revealContent={Boolean(focusMessageId && row.rows.some((nested) => nested.kind === 'message' && nested.message.id === focusMessageId))}
                     renderChildren={() => (
-                        <div className="[&>*:last-child]:pb-0">
-                            {row.rows.map((workRow) => renderRowContainer(workRow, renderRow(workRow)))}
+                        <div className="[&>*:last-child]:pb-0" data-assistant-work-steps="true">
+                            {buildAssistantWorkSteps(row.rows).map((step) => {
+                                const inheritTitle = shouldInheritAssistantWorkStepTitle(step)
+                                return (
+                                    <section key={step.id} className="pb-3 last:pb-0" data-assistant-work-step={step.id}>
+                                        {step.title && !inheritTitle ? (
+                                            <p className="mb-1.5 px-1 text-[11px] font-medium leading-5 text-sparkle-text-secondary">{step.title}</p>
+                                        ) : null}
+                                        {step.rows.map((workRow) => renderRowContainer(
+                                            workRow,
+                                            renderRow(workRow, { purposeTitle: inheritTitle ? step.title : null }),
+                                            true
+                                        ))}
+                                    </section>
+                                )
+                            })}
                         </div>
                     )}
                 />
@@ -382,35 +405,47 @@ function AssistantTimelineImpl({
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                    purposeTitle={options.purposeTitle}
                     onOpenFilePath={onOpenFilePath}
+                    onOpenUrl={onOpenInternalLink}
                     onViewDiff={onViewDiff}
                     onRevealActivity={revealActivity}
                 />
             )
         }
         if (row.kind === 'activity-group') {
-            if (row.activities.every((activity) => isIssueActivity(activity))) {
-                return (
-                    <TimelineIssueList
-                        key={row.id}
-                        activities={row.activities}
-                    />
-                )
-            }
-            return (
-                <TimelineToolCallList
-                    key={row.id}
-                    activities={row.activities}
-                    displayMode={assistantChatDisplayMode}
-                    runningCommandCount={runningCommandCount}
-                    projectRootPath={projectRootPath}
-                    toolOutputDefaultMode={assistantToolOutputDefaultMode}
-                    onOpenFilePath={onOpenFilePath}
-                    onViewDiff={onViewDiff}
-                />
-            )
+            const interruptionActivities = row.activities.filter((activity) => activity.turnTerminalOutcome === 'interrupted')
+            const visibleActivities = interruptionActivities.length > 0
+                ? row.activities.filter((activity) => activity.turnTerminalOutcome !== 'interrupted')
+                : row.activities
+            const activityContent = visibleActivities.length === 0
+                ? null
+                : visibleActivities.every((activity) => isIssueActivity(activity))
+                    ? <TimelineIssueList activities={visibleActivities} />
+                    : (
+                        <TimelineToolCallList
+                            activities={visibleActivities}
+                            displayMode={assistantChatDisplayMode}
+                            runningCommandCount={runningCommandCount}
+                            projectRootPath={projectRootPath}
+                            toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                            purposeTitle={options.purposeTitle}
+                            onOpenFilePath={onOpenFilePath}
+                            onOpenUrl={onOpenInternalLink}
+                            onViewDiff={onViewDiff}
+                        />
+                    )
+            return interruptionActivities.length > 0 ? (
+                <div key={row.id}>
+                    {activityContent}
+                    <TimelineTurnInterruptionMarker />
+                </div>
+            ) : activityContent
         }
         if (row.kind === 'activity') {
+            if (row.activity.turnTerminalOutcome === 'interrupted') {
+                return <TimelineTurnInterruptionMarker key={row.id} />
+            }
             if (isAssistantConnectionRecoveryActivity(row.activity)) {
                 return <AssistantTimelineNetworkRecovery key={row.id} activity={row.activity} />
             }
@@ -432,7 +467,9 @@ function AssistantTimelineImpl({
                         runningCommandCount={runningCommandCount}
                         projectRootPath={projectRootPath}
                         toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                        purposeTitle={options.purposeTitle}
                         onOpenFilePath={onOpenFilePath}
+                        onOpenUrl={onOpenInternalLink}
                         onViewDiff={onViewDiff}
                         onRevealActivity={revealActivity}
                     />
@@ -462,10 +499,23 @@ function AssistantTimelineImpl({
                     runningCommandCount={runningCommandCount}
                     projectRootPath={projectRootPath}
                     toolOutputDefaultMode={assistantToolOutputDefaultMode}
+                    purposeTitle={options.purposeTitle}
                     onOpenFilePath={onOpenFilePath}
+                    onOpenUrl={onOpenInternalLink}
                     onViewDiff={onViewDiff}
                 />
             )
+        }
+        if (row.kind === 'user-input') {
+            return onRespondUserInput ? (
+                <AssistantTimelineQuestionSet
+                    key={row.id}
+                    input={row.input}
+                    responding={userInputResponding}
+                    submissionBlocked={isWorking}
+                    onRespond={onRespondUserInput}
+                />
+            ) : null
         }
         if (row.kind === 'working') {
             return <TimelineWorkingIndicator key={row.id} startedAt={activeWorkStartedAt} label={workingLabel} />
@@ -512,14 +562,14 @@ function AssistantTimelineImpl({
         )
     }
 
-    const renderRowContainer = (row: TimelineDisplayRow, content: ReactNode) => {
+    const renderRowContainer = (row: TimelineDisplayRow, content: ReactNode, compact = false) => {
         if (!content) return null
         return (
             <div
                 key={row.id}
                 id={row.kind === 'message' ? getTimelineMessageDomId(row.message.id) : undefined}
                 tabIndex={row.kind === 'message' ? -1 : undefined}
-                className="pb-4 outline-none"
+                className={cn(compact ? 'pb-1 outline-none' : 'pb-4 outline-none')}
                 data-assistant-timeline-row-id={row.id}
                 data-assistant-timeline-row-kind={row.kind}
                 data-assistant-message-role={row.kind === 'message' ? row.message.role : undefined}

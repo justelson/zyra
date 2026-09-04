@@ -13,6 +13,7 @@
     "precheck": "node --check src/auth-methods.mjs && node --check src/project-paths.mjs && node --check src/oauth-login-callbacks.mjs && node --check src/desktop-openai-auth.mjs && node --check src/desktop-openai-auth-worker.mjs && node --check src/secret-input.mjs && node --check scripts/test-zyra-auth.mjs && node scripts/test-zyra-auth.mjs",
     "test:agent-surface": "node scripts/test-agent-surface-contract.mjs && bun run --cwd desktop test:agent-surface",
     "test:user-input": "node scripts/test-request-user-input.mjs && bun desktop/scripts/test-assistant-user-input-contract.ts",
+    "test:work-timeline-v2": "bun run --cwd desktop test:work-timeline-v2",
     "test:subagents-workflows": "node scripts/test-zyra-subagents.mjs && node scripts/test-zyra-workflows.mjs && node scripts/test-zyra-fleet-ui.mjs && bun run --cwd desktop test:assistant-fleet",
     "test:agent-control": "node scripts/test-zyra-computer-control-tool.mjs && bun run --cwd desktop test:agent-control && npm --prefix extensions/zyra-browser-control test && dotnet build native/zyra-computer-use/tests/Zyra.ComputerUse.Tests/Zyra.ComputerUse.Tests.csproj && dotnet run --project native/zyra-computer-use/tests/Zyra.ComputerUse.Tests/Zyra.ComputerUse.Tests.csproj --no-build",
     "test:browser-tool-projection": "node scripts/test-zyra-browser-tool-projection.mjs",

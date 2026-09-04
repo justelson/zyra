@@ -29,6 +29,10 @@ import { AssistantBrowserPageIcon } from './AssistantBrowserPageIcon'
 import type { AssistantBrowserWorkspaceController } from './AssistantBrowserWorkspace'
 import { captureAssistantBrowserTabHoverPreview } from './assistant-browser-tab-hover-preview'
 import {
+    acknowledgeAssistantInspectorNavigation,
+    subscribeAssistantInspectorNavigation
+} from './assistant-inspector-navigation'
+import {
     ASSISTANT_BROWSER_DANGEROUS_TAB_TITLE,
     ASSISTANT_BROWSER_TAB_LIMIT,
     hasPersistedAssistantBrowserWorkspaceState,
@@ -842,6 +846,17 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     const handleOpenThreadDetailsWorkspace = useCallback(() => openSingletonWorkspace(CONTROL_TAB), [openSingletonWorkspace])
     const handleOpenResourcesWorkspace = useCallback(() => openSingletonWorkspace(RESOURCES_TAB), [openSingletonWorkspace])
     const handleOpenAgentsWorkspace = useCallback(() => openSingletonWorkspace(AGENTS_TAB), [openSingletonWorkspace])
+    useEffect(() => subscribeAssistantInspectorNavigation((request) => {
+        openSingletonWorkspace(AGENTS_TAB)
+        if ('agentRunId' in request) {
+            setSelectedWorkflowRunId(null)
+            setSelectedAgentRunId(request.agentRunId)
+        } else {
+            setSelectedAgentRunId(null)
+            setSelectedWorkflowRunId(request.workflowRunId)
+        }
+        acknowledgeAssistantInspectorNavigation(request)
+    }), [openSingletonWorkspace])
 
     const handleAgentAction = useCallback((action: 'stop' | 'retry' | 'resume', agentRunId: string) => {
         if (!threadId) return

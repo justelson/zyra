@@ -225,6 +225,7 @@ export function initializeAssistantPersistenceSchema(db: SqlDatabase): void {
             questions_json TEXT NOT NULL,
             status TEXT NOT NULL,
             answers_json TEXT,
+            response_message_id TEXT,
             turn_id TEXT,
             created_at TEXT NOT NULL,
             resolved_at TEXT,
@@ -333,6 +334,7 @@ export function initializeAssistantPersistenceSchema(db: SqlDatabase): void {
     ensureTableColumn(db, 'assistant_messages', 'timeline_sequence', 'INTEGER')
     ensureTableColumn(db, 'assistant_messages', 'provider_item_id', 'TEXT')
     ensureTableColumn(db, 'assistant_messages', 'modality', 'TEXT')
+    ensureTableColumn(db, 'assistant_pending_user_inputs', 'response_message_id', 'TEXT')
     ensureTableColumn(db, 'assistant_activities', 'timeline_sequence', 'INTEGER')
     ensureTableColumn(db, 'assistant_proposed_plans', 'timeline_sequence', 'INTEGER')
     db.run(`

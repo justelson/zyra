@@ -55,6 +55,8 @@ import {
     sanitizeOptionalPath
 } from './utils'
 
+const activeUserInputResponses = new WeakMap<AssistantServiceActionDeps, Set<string>>()
+
 export async function connectAssistantSession(deps: AssistantServiceActionDeps, options?: AssistantConnectOptions) {
     await deps.ensureReady()
     const snapshot = deps.getSnapshot()
@@ -547,7 +549,7 @@ export async function sendAssistantPromptAction(
 
     try {
         if (!options?.suppressUserMessage) {
-            const userMessage = createAssistantUserMessage(input, occurredAt, createAssistantId('assistant-message'))
+            const userMessage = createAssistantUserMessage(input, occurredAt, options?.userMessageId || createAssistantId('assistant-message'))
             deps.appendEvent('thread.message.user', occurredAt, { threadId: thread.id, message: userMessage }, session.id, thread.id)
         }
         if (!hasLiveRuntimeSession) {
@@ -622,9 +624,7 @@ export async function interruptAssistantTurnAction(
     const session = requireSession(deps.getSnapshot(), sessionId)
     const thread = requireActiveThread(session)
     const effectiveTurnId = turnId || thread.latestTurn?.id
-    if (effectiveTurnId) {
-        await deps.runtime.interruptTurn(getAssistantCanonicalThreadId(thread), effectiveTurnId)
-    }
+    await deps.runtime.interruptTurn(getAssistantCanonicalThreadId(thread), effectiveTurnId)
     return { success: true as const }
 }
 
@@ -643,18 +643,45 @@ export async function respondAssistantUserInputAction(
     deps: AssistantServiceActionDeps,
     input: { requestId: string; answers: Record<string, string | string[]> }
 ) {
-    await deps.ensureReady()
-    const target = findThreadForUserInput(deps.getSnapshot(), input.requestId)
-    if (!target) throw new Error(`Unknown user-input request ${input.requestId}.`)
-    await respondToAssistantUserInputWithRuntime({
-        runtime: deps.runtime,
-        thread: target.thread,
-        cwd: deps.getSessionRuntimeCwd(target.session, target.thread),
-        chatScope: target.session.chatScope,
-        requestId: input.requestId,
-        answers: input.answers
-    })
-    return { success: true as const }
+    const activeRequests = activeUserInputResponses.get(deps) || new Set<string>()
+    activeUserInputResponses.set(deps, activeRequests)
+    if (activeRequests.has(input.requestId)) throw new Error(`User-input request ${input.requestId} is already being submitted.`)
+    activeRequests.add(input.requestId)
+    try {
+        await deps.ensureReady()
+        const target = findThreadForUserInput(deps.getSnapshot(), input.requestId)
+        if (!target) throw new Error(`Unknown user-input request ${input.requestId}.`)
+        const pendingInput = target.thread.pendingUserInputs.find((entry) => entry.requestId === input.requestId)
+        if (!pendingInput) throw new Error(`Unknown user-input request ${input.requestId}.`)
+        const continuationPrompt = await respondToAssistantUserInputWithRuntime({
+            runtime: deps.runtime,
+            thread: target.thread,
+            cwd: deps.getSessionRuntimeCwd(target.session, target.thread),
+            chatScope: target.session.chatScope,
+            requestId: input.requestId,
+            questions: pendingInput.questions,
+            answers: input.answers
+        })
+        const respondedAt = nowIso()
+        const responseMessageId = createAssistantId('assistant-message')
+        deps.appendEvent('thread.user-input.updated', respondedAt, {
+            threadId: target.thread.id,
+            userInput: {
+                ...pendingInput,
+                status: 'resolved',
+                answers: input.answers,
+                responseMessageId,
+                resolvedAt: respondedAt
+            }
+        }, target.session.id, target.thread.id)
+        return sendAssistantPromptAction(deps, continuationPrompt, {
+            sessionId: target.session.id,
+            userMessageId: responseMessageId
+        })
+    } finally {
+        activeRequests.delete(input.requestId)
+        if (activeRequests.size === 0) activeUserInputResponses.delete(deps)
+    }
 }
 
 export async function getAssistantRuntimeStatusAction(deps: AssistantServiceActionDeps): Promise<AssistantRuntimeStatus> {

@@ -27,6 +27,7 @@
         "typecheck:watch:shared": "tsc --noEmit -p tsconfig.shared.json --watch --preserveWatchOutput",
         "typecheck:browser-runtime": "tsc --noEmit -p tsconfig.browser-runtime.json",
         "test:activity-rail": "bun scripts/test-activity-rail-contract.ts",
+        "test:work-timeline-v2": "bun scripts/test-assistant-work-timeline-v2.tsx",
         "test:settings": "bun scripts/test-settings-contract.ts && bun scripts/test-settings-performance.ts",
         "test:analytics": "node ../scripts/test-product-analytics.mjs && bun --no-install scripts/test-product-analytics-contract.ts",
         "test:themes": "bun scripts/test-theme-contract.ts",

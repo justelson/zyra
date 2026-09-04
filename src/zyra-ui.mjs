@@ -46,17 +46,77 @@ const outroMessages = loadJson("./outro-messages.json", {
   closingNote: ["The work will still be here when you come back."],
 });
 
-export async function runZyraInputDialog(host, dialog) {
+class QuestionHandoffInputComponent {
+  constructor(questionComponent, composerComponent) {
+    this.key = `question-handoff-${questionComponent.key}`;
+    this.questionComponent = questionComponent;
+    this.composerComponent = composerComponent;
+    this.focus = "questions";
+  }
+
+  setHost(host) {
+    this.host = host;
+    this.questionComponent.setHost?.(host);
+    this.composerComponent.setHost?.(host);
+  }
+
+  handleInput(data) {
+    if (data === "\t" || data === "\x1b[Z") {
+      this.focus = this.focus === "questions" ? "composer" : "questions";
+      this.host?.invalidate({ fixedOnly: true, force: true });
+      return;
+    }
+    const target = this.focus === "questions" ? this.questionComponent : this.composerComponent;
+    target.handleInput?.(data);
+  }
+
+  handleKeypress(str, key) {
+    this.handleInput(key?.sequence ?? str ?? "");
+  }
+
+  render(width) {
+    const questions = this.questionComponent.render?.(width) || [];
+    const composer = this.composerComponent.render?.(width) || [];
+    const focusHint = this.focus === "questions"
+      ? `${fallbackTheme.accent}Questions active${reset}${fallbackTheme.dimMuted} • tab to write another message${reset}`
+      : `${fallbackTheme.accent}Composer active${reset}${fallbackTheme.dimMuted} • tab to answer questions${reset}`;
+    return [...questions, focusHint, ...composer];
+  }
+
+  cursorPosition(width) {
+    if (this.focus !== "composer") return undefined;
+    const cursor = this.composerComponent.cursorPosition?.(width);
+    if (!cursor) return undefined;
+    const questionRows = (this.questionComponent.render?.(width) || []).length + 1;
+    return { ...cursor, row: Number(cursor.row || 0) + questionRows };
+  }
+
+  setTheme(theme) { this.composerComponent.setTheme?.(theme); }
+  setInputLocked(value) { this.composerComponent.setInputLocked?.(value); }
+  setWaiting(value) { this.composerComponent.setWaiting?.(value); }
+  tickBusy() { this.composerComponent.tickBusy?.(); }
+  resetSession() { this.composerComponent.resetSession?.(); }
+  setText(value) { this.composerComponent.setText?.(value); }
+  getText() { return this.composerComponent.getText?.() || ""; }
+  dispose() {}
+}
+
+export async function runZyraInputDialog(host, dialog, options = {}) {
   const previousInput = host?.inputComponent;
   if (!previousInput || !dialog?.component || !dialog?.result) return null;
-  previousInput.setInputLocked?.(true);
-  host.setInputComponent(dialog.component);
+  const preserveComposer = options.preserveComposer === true;
+  const activeComponent = preserveComposer
+    ? new QuestionHandoffInputComponent(dialog.component, previousInput)
+    : dialog.component;
+  if (!preserveComposer) previousInput.setInputLocked?.(true);
+  host.setInputComponent(activeComponent);
   try {
     return await dialog.result;
   } finally {
     dialog.component.dispose?.();
-    if (host.inputComponent === dialog.component) host.setInputComponent(previousInput);
-    previousInput.setInputLocked?.(false);
+    activeComponent.dispose?.();
+    if (host.inputComponent === activeComponent) host.setInputComponent(previousInput);
+    if (!preserveComposer) previousInput.setInputLocked?.(false);
     host.markContentDirty();
     host.invalidate({ force: true });
   }
@@ -393,6 +453,11 @@ export function createZyraUi(options = {}) {
     if (jobId) rememberManagedBashTool(jobId, toolCallId, managedBashToolIds);
     const fileChange = normalizeToolFileChangeState(next);
     if (fileChange) next.fileChange = fileChange;
+
+    if (String(next.toolName || "").toLowerCase().replace(/[^a-z0-9]+/g, "") === "requestuserinput") {
+      activeTools.delete(toolCallId);
+      return;
+    }
 
     const checkCommand = isCheckCommandTool(next);
     const completedCheck = checkCommand && next.surface.lifecycle === "completed" && !next.historical;
@@ -768,7 +833,12 @@ export function createZyraUi(options = {}) {
       const cancel = () => dialog.cancel?.();
       options.signal?.addEventListener?.("abort", cancel, { once: true });
       try {
-        return (await runZyraInputDialog(host, dialog)) || { answers: {}, cancelled: true };
+        const response = (await runZyraInputDialog(host, dialog, { preserveComposer: true })) || { answers: {}, cancelled: true };
+        if (!response.cancelled) {
+          const count = Array.isArray(request.questions) ? request.questions.length : 0;
+          host.printLines([`${theme.success}✓ Answered ${count} ${count === 1 ? "question" : "questions"}${reset}`]);
+        }
+        return response;
       } finally {
         options.signal?.removeEventListener?.("abort", cancel);
       }

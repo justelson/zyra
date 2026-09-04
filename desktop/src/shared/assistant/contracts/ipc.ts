@@ -278,6 +278,8 @@ export interface AssistantSendPromptOptions {
     skipPlaygroundTerminalAccessRequest?: boolean
     playgroundTerminalAccessRequestSuppressed?: boolean
     suppressUserMessage?: boolean
+    /** Reserved by the service when a structured answer becomes a real user message. */
+    userMessageId?: string
 }
 
 export interface AssistantDeleteMessageInput {

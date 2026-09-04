@@ -19,6 +19,7 @@ function areRowsEquivalent(left: TimelineDisplayRow, right: TimelineDisplayRow):
     if (left.kind === 'message' && right.kind === 'message') return left.message === right.message
     if (left.kind === 'activity' && right.kind === 'activity') return left.activity === right.activity
     if (left.kind === 'plan' && right.kind === 'plan') return left.plan === right.plan && left.canImplement === right.canImplement
+    if (left.kind === 'user-input' && right.kind === 'user-input') return left.input === right.input
     if (left.kind === 'working' && right.kind === 'working') return true
     if (left.kind === 'turn-work-summary' && right.kind === 'turn-work-summary') {
         return left.turnId === right.turnId

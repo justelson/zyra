@@ -37,6 +37,7 @@ function subset<T>(requested: T[] | undefined, allowed: T[] | undefined): boolea
 export class GrantStore {
     private readonly grants = new Map<string, ControlGrant>()
     private readonly pending = new Map<string, ControlPendingGrant>()
+    private readonly pendingExpiredGrantIds = new Set<string>()
 
     addPending(input: Omit<ControlPendingGrant, 'requestId' | 'requestedAt'>): ControlPendingGrant {
         const request: ControlPendingGrant = {
@@ -71,6 +72,16 @@ export class GrantStore {
             removed.push(request)
         }
         return removed
+    }
+
+    expirePending(): ControlPendingGrant[] {
+        const expired: ControlPendingGrant[] = []
+        for (const [requestId, request] of this.pending) {
+            if (Date.parse(request.expiresAt) > Date.now()) continue
+            this.pending.delete(requestId)
+            expired.push(request)
+        }
+        return expired
     }
 
     issue(input: IssueGrantInput): ControlGrant {
@@ -197,27 +208,24 @@ export class GrantStore {
     }
 
     expire(): ControlGrant[] {
-        const expired: ControlGrant[] = []
         for (const grant of this.grants.values()) {
-            if (grant.state === 'active' && Date.parse(grant.expiresAt) <= Date.now()) {
-                grant.state = 'expired'
-                this.revokeDescendants(grant.grantId, 'expired')
-                expired.push(grant)
-            }
+            if (grant.state === 'active' && Date.parse(grant.expiresAt) <= Date.now()) this.markExpired(grant)
         }
+        const expired = [...this.pendingExpiredGrantIds]
+            .map((grantId) => this.grants.get(grantId))
+            .filter((grant): grant is ControlGrant => grant?.state === 'expired')
+        this.pendingExpiredGrantIds.clear()
         return expired
     }
 
     list(): ControlGrant[] {
-        this.expire()
         return [...this.grants.values()]
     }
 
     private assertLifecycleActive(grant: ControlGrant): void {
         if (grant.state !== 'active') throw new AgentControlError('CONTROL_GRANT_INACTIVE', `The control grant is ${grant.state}.`)
         if (Date.parse(grant.expiresAt) <= Date.now()) {
-            grant.state = 'expired'
-            this.revokeDescendants(grant.grantId, 'expired')
+            this.markExpired(grant)
             throw new AgentControlError('CONTROL_GRANT_EXPIRED', 'The control grant expired.')
         }
     }
@@ -239,11 +247,21 @@ export class GrantStore {
         }
     }
 
+    private markExpired(grant: ControlGrant): void {
+        if (grant.state !== 'active') return
+        grant.state = 'expired'
+        this.pendingExpiredGrantIds.add(grant.grantId)
+        this.revokeDescendants(grant.grantId, 'expired')
+    }
+
     private revokeDescendants(parentGrantId: string, state: 'expired' | 'revoked'): void {
         for (const grant of this.grants.values()) {
             if (grant.parentGrantId !== parentGrantId || grant.state !== 'active') continue
-            grant.state = state
-            this.revokeDescendants(grant.grantId, state)
+            if (state === 'expired') this.markExpired(grant)
+            else {
+                grant.state = state
+                this.revokeDescendants(grant.grantId, state)
+            }
         }
     }
 }

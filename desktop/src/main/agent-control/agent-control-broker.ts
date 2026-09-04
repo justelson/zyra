@@ -1299,6 +1299,7 @@ export class AgentControlBroker extends EventEmitter {
                 }, signal, options)
                 const grant = result.grant as ControlGrant | undefined
                 if (!grant) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return its bounded grant.')
+                this.expireActiveGrants(false)
                 for (const previous of this.grants.listForPrincipal(principal)) {
                     if (previous.grantId === grant.grantId || previous.state !== 'active') continue
                     let previousTarget: ControlTarget
@@ -1315,7 +1316,7 @@ export class AgentControlBroker extends EventEmitter {
                 }
                 const observation = result.observation as ControlObservation | undefined
                 if (!observation) {
-                    this.revokeGrant(grant.grantId, principal)
+                    this.revokeGrant(grant.grantId)
                     throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return the initial granted observation.')
                 }
                 let sequence: ControlSemanticActionSequenceResult
@@ -1329,7 +1330,7 @@ export class AgentControlBroker extends EventEmitter {
                         steps: requestedSequence.steps
                     }, signal)
                 } catch (error) {
-                    this.revokeGrant(grant.grantId, principal)
+                    this.revokeGrant(grant.grantId)
                     throw error
                 }
                 return {
@@ -1721,6 +1722,7 @@ export class AgentControlBroker extends EventEmitter {
     async dispose(): Promise<void> {
         if (this.disposed) return
         clearInterval(this.grantExpiryTimer)
+        this.expireActiveGrants(false)
         await this.emergencyStop('Application shutdown.')
         this.disposed = true
         await Promise.allSettled((this.options.drivers || []).map((driver) => Promise.resolve(driver.dispose?.())))

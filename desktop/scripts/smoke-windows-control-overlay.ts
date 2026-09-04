@@ -15,6 +15,7 @@ async function run(): Promise<void> {
     await targetWindow.loadURL('data:text/html,<body style="background:%23111827;color:white;font:18px Segoe UI;padding:40px"><button>Continue</button></body>')
     targetWindow.showInactive()
 
+    let boundsReadCount = 0
     const driver: AgentControlDriver = {
         kind: 'windows-window',
         async observe(target, options) {
@@ -45,7 +46,10 @@ async function run(): Promise<void> {
             context.updateCursor?.({ ...point, coordinateSpace: 'screen', visible: true, phase: 'idle', durationMs: 0 })
             return { changed: true }
         },
-        async getWindowBounds() { return targetWindow.getBounds() }
+        async getWindowBounds() {
+            boundsReadCount += 1
+            return targetWindow.getBounds()
+        }
     }
 
     const broker = new AgentControlBroker({ drivers: [driver] })
@@ -100,20 +104,53 @@ async function run(): Promise<void> {
     const cursorVisible = await cursor.webContents.executeJavaScript("document.querySelector('#cursor').classList.contains('show')", true)
     if (!cursorVisible) throw new Error('The synthetic cursor did not receive its screen-space update.')
 
+    const readsBeforeMove = boundsReadCount
+    const currentDisplay = screen.getDisplayMatching(targetWindow.getBounds())
+    const alternateDisplay = screen.getAllDisplays().find((display) => display.id !== currentDisplay.id)
+    const destination = alternateDisplay?.workArea || currentDisplay.workArea
+    targetWindow.setBounds({ x: destination.x + 40, y: destination.y + 40, width: 600, height: 420 })
+    await delay(900)
+    assert(boundsReadCount > readsBeforeMove, 'the overlay keeps polling the exact target through move and resize')
+    assert.deepEqual(safety.getBounds(), screen.getDisplayMatching(targetWindow.getBounds()).bounds, 'the glow follows the target onto its current display')
+
     broker.revokeGrant(grant.grantId)
     await delay(120)
     if (safety.isVisible() || cursor.isVisible()) throw new Error('Control overlays remained visible after grant revocation.')
     if (globalShortcut.isRegistered('Esc')) throw new Error('Plain Escape remained registered after Windows control ended.')
 
+    const expiringRequest = broker.requestGrant({ principal, targetId, capabilities: ['observe.structure'], durationMs: 1_000, maxActions: 4 })
+    const expiringGrant = broker.approvePendingGrant({ pendingRequestId: expiringRequest.requestId, targetId, capabilities: expiringRequest.capabilities, durationMs: 1_000, maxActions: 4 })
+    await broker.observe(principal, expiringGrant.grantId, targetId)
+    assert(await waitForCondition(() => safety.isVisible()), 'the overlay did not return for the expiry check')
+    assert(await waitForCondition(() => !safety.isVisible(), 2_500), 'the overlay remained visible after an idle grant expired')
+    assert.equal(expiringGrant.state, 'expired')
+    assert.equal(globalShortcut.isRegistered('Esc'), false, 'plain Escape remained registered after grant expiry')
+
+    const closingRequest = broker.requestGrant({ principal, targetId, capabilities: ['observe.structure'], durationMs: 30_000, maxActions: 4 })
+    const closingGrant = broker.approvePendingGrant({ pendingRequestId: closingRequest.requestId, targetId, capabilities: closingRequest.capabilities, durationMs: 30_000, maxActions: 4 })
+    await broker.observe(principal, closingGrant.grantId, targetId)
+    assert(await waitForCondition(() => safety.isVisible()), 'the overlay did not return for the target-close check')
+    targetWindow.destroy()
+    assert(await waitForCondition(() => !safety.isVisible(), 2_500), 'the overlay remained visible after the exact target closed')
+    assert.equal(broker.targets.list().some((entry) => entry.target.targetId === targetId), false)
+
     overlay.dispose()
     await broker.dispose()
-    targetWindow.destroy()
-    console.log('Windows control cursor, app icon, full-display accent glow, Escape lifetime, and teardown smoke passed.')
+    console.log('Windows control cursor, app icon, full-display accent glow, display tracking, expiry, target-close, Escape lifetime, and teardown smoke passed.')
     app.quit()
 }
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 1_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        if (predicate()) return true
+        await delay(25)
+    }
+    return predicate()
 }
 
 async function waitForWindow(title: string, predicate: (window: BrowserWindow) => boolean): Promise<BrowserWindow | null> {

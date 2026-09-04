@@ -27,6 +27,8 @@ Command rows use reduced header and evidence padding, and settled output grows o
 
 Only normal final assistant Markdown opts into inline response media. Images retain the existing click-to-expand path. Links to supported video files become aspect-preserving native players with controls, metadata preload, and no autoplay. Work narration and Action rows suppress media projection.
 
+The Desktop agent guide teaches Markdown image syntax and video links using verified absolute `file:///` URLs with encoded path characters. Bare or code-formatted paths remain file chips. Local media paths are decoded once before conversion to the existing file protocol, including when no project root is available. The page policy permits HTTPS media while retaining its script, frame, and connection restrictions. An emitted media link is not proof of successful playback.
+
 A **Question handoff** is durable state outside the completed assistant Turn:
 
 - the assistant explains why input is needed before calling `request_user_input`, and that explanation remains visible as final-response-styled handoff text after any collapsed Work;
@@ -73,4 +75,5 @@ Rejected because an approval authorizes an in-flight action and must remain tied
 - `test-assistant-action-batch-intent.ts` covers hidden declaration projection and replay persistence; the agent-surface contract covers tool registration and approval-free execution.
 - User-input contracts cover composer ownership, zero-height timeline handoff rows, linked answer-message persistence, deferred tool termination, reconnect fallback, TUI flat-form rendering, TUI/composer multiplexing, and continuation through a real prompt.
 - Markdown renderer contracts cover final-response image/video opt-in, video controls, and the no-autoplay boundary.
+- `test:assistant-response-media` executes the actual Desktop prompt injector and renders its examples, covering encoded Windows filenames and page media policy. `test:assistant-response-media-playback` loads that rendered output in a hidden, isolated Electron window and verifies metadata, playback, seeking, and no autoplay through the real file protocol.
 - Activity, display-mode, lifecycle, history, pagination, switching, virtualization, and main/renderer TypeScript checks preserve existing turn and replay behavior.

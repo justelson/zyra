@@ -22,18 +22,24 @@ export function resolveImageSrc(src: string, filePath?: string): string {
         return projectLocalFileUrl(src)
     }
 
+    // Markdown destinations are URL-encoded. Decode once before getFileUrl
+    // encodes the filesystem path, otherwise a space becomes literal "%20".
+    let localPath = src
+    try {
+        localPath = decodeURIComponent(src)
+    } catch {
+        // Keep malformed escapes as literal filename characters.
+    }
+    if (localPath.match(/^[a-zA-Z]:[\\/]/) || localPath.startsWith('/')) {
+        return getFileUrl(localPath)
+    }
     if (!filePath) return src
 
     const normalizePath = (path: string) => path.replace(/\\/g, '/')
     const normalizedFilePath = normalizePath(filePath)
     const fileDir = normalizedFilePath.substring(0, normalizedFilePath.lastIndexOf('/'))
-
-    if (src.match(/^[a-zA-Z]:/) || src.startsWith('/')) {
-        return getFileUrl(src)
-    }
-
     const parts = fileDir.split('/')
-    const srcParts = normalizePath(src).split('/')
+    const srcParts = normalizePath(localPath).split('/')
 
     for (const part of srcParts) {
         if (part === '.') continue

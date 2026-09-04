@@ -67,6 +67,8 @@
         "test:assistant-voice-transcription": "bun scripts/test-assistant-voice-transcription.ts",
         "test:markdown-links": "bun scripts/test-markdown-link-contract.ts",
         "test:markdown-renderer": "bun scripts/test-markdown-renderer-features.tsx",
+        "test:assistant-response-media": "bun scripts/test-assistant-response-media.tsx",
+        "test:assistant-response-media-playback": "bun scripts/test-assistant-response-media-playback.ts",
         "test:assistant-performance": "bun scripts/test-assistant-history-performance.ts",
         "test:assistant-timeline-scroll": "bun scripts/test-assistant-timeline-scroll.ts && bun scripts/test-assistant-history-streaming.ts",
         "test:file-change-lifecycle": "bun scripts/test-file-change-lifecycle.ts",

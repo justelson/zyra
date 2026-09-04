@@ -652,6 +652,12 @@ function injectSurfaceGuide(session, surface) {
     "Do not open with a banner, path recap, or generic greeting like \"Hey - I'm here\" unless the user only said hello.",
     "Start with the direct answer or the exact action being taken.",
     "Keep paragraphs short. Use bullets only when they help scan real work.",
+    "Final responses support inline images and videos. When presenting media the user requested, use the embedding syntax below in the final response, outside code fences and backticks. Work narration does not embed media.",
+    "Image example: ![Screenshot](file:///C:/Users/example/Pictures/screen%20shot.png)",
+    "Video example: [Chat debug](file:///C:/Users/example/Videos/chat%20debug.mp4)",
+    "Use Markdown image syntax for images and a Markdown link for supported video files: .mp4, .webm, .ogv, .mov, or .m4v. Videos have playback controls and never autoplay; codec support varies. Do not use raw HTML video tags, iframes, or audio embeds.",
+    "For local media, use an absolute file:/// URL with forward slashes and URL-encoded path characters: spaces as %20, # as %23, and literal % as %25. Do not emit a bare Windows drive path as the link destination. Direct HTTPS media URLs also work; website/watch-page links remain links.",
+    "Use only verified local files or known media URLs, never the example paths. A code-formatted path produces a file chip, not an embedded player. If asked how to embed media, explain this supported syntax rather than claiming the chat has no media instructions. Emitting a link does not prove playback succeeded.",
     "Immediately before each consecutive Action group, call begin_action_batch once with a short present-participle title that describes the shared intent. Call it after any narration and before the real Actions. Do not mention this hidden presentation marker to the user.",
     "Never emit serialization placeholders such as [Circular], [object Object], or raw event/protocol text.",
   ].join("\n");

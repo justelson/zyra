@@ -14,6 +14,8 @@ Run these from the repository root unless the command says otherwise.
 | Desktop integration checkpoint | `npm run check:desktop` | Assistant timeline, handoff, Markdown, Browser, fleet, and agent-platform suites, serially |
 | Merge/release gate | `npm run check` | Core, desktop, and doctor checks |
 | Inspect available check modes | `npm run check:help` | Prints runner modes and concurrency control |
+| Response media contract | `npm --prefix desktop run test:assistant-response-media` | Actual Desktop guide injection, authored image/video syntax, Windows URL decoding, and media policy |
+| Response media playback | `npm --prefix desktop run test:assistant-response-media-playback` | Hidden, isolated Electron loads, plays, and seeks local H.264 media with no autoplay; requires `ffmpeg`, or an existing read-only file via `ZYRA_MEDIA_TEST_FILE` |
 | Desktop UI development | `npm run ui:dev` | Electron/Vite development server with HMR |
 | Chat-switch fixture setup | `npm run chat:seed-dev-fixtures` | Idempotently seeds clearly named light and heavy Chats into the running `Zyra-dev` profile |
 | Persistent full type feedback | `npm run ui:typecheck:watch` | Keeps the full TypeScript graph alive between edits |

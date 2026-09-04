@@ -136,4 +136,13 @@ const observed = await broker.handleToolOperation(principal, { operation: 'obser
 assert.equal(observed.observation.targetId, targetId)
 await assert.rejects(() => broker.handleToolOperation({ ...principal, turnId: 'turn:forged' }, { operation: 'observe', grantId: grant.grantId, targetId }), /another principal/)
 await assert.rejects(() => broker.handleToolOperation(principal, { operation: 'raw_cdp' }), (error: any) => error.code === 'CONTROL_UNKNOWN_OPERATION')
+const expiringAccess = await broker.handleToolOperation(principal, {
+    operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure'], durationMs: 1_000, maxActions: 2
+}, undefined, { permissionMode: 'full-access' }) as any
+assert.equal(windowsDriver.retainedTargetCount(), 1)
+await new Promise((resolve) => setTimeout(resolve, 1_700))
+assert.equal(expiringAccess.grant.state, 'expired', 'the broker expires idle grants without waiting for another read or action')
+assert.equal(windowsDriver.retainedTargetCount(), 0, 'expiry releases the retained Windows helper target')
+assert(broker.audit.list().some((event) => event.eventType === 'grant.expired' && event.grantId === expiringAccess.grant.grantId))
+await broker.dispose()
 console.log('Agent control bounded bridge operations passed.')

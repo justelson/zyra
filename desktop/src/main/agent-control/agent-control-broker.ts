@@ -1538,7 +1538,10 @@ export class AgentControlBroker extends EventEmitter {
         const hasPending = this.grants.listPending().some((request) => request.targetId === targetId)
         if (hasGrant || hasPending) return
         const registered = this.targets.list().find((entry) => entry.target.targetId === targetId)
-        if (registered) void registered.driver.release?.(registered)
+        if (!registered) return
+        try {
+            void Promise.resolve(registered.driver.release?.(registered)).catch(() => undefined)
+        } catch {}
     }
 
     private clearCursorIfNoActiveGrant(targetId: string): void {

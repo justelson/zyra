@@ -126,6 +126,17 @@ await assert.rejects(
 assert.ok(Date.now() - conflictStartedAt < 1_000, "a live older server must fail explicitly instead of waiting for the 30-second startup timeout");
 rmSync(conflictStateDirectory, { recursive: true, force: true });
 assert.match(getAgentServerPaths({ stateDirectory, channel }).descriptorFile, new RegExp(`agent-server-v${AGENT_SERVER_PROTOCOL_VERSION}-`));
+const isolatedStateDirectory = `${stateDirectory}-isolated`;
+assert.notEqual(
+  getAgentServerPaths({ stateDirectory, channel }).endpoint,
+  getAgentServerPaths({ stateDirectory: isolatedStateDirectory, channel }).endpoint,
+  "Windows pipe and Unix socket identities include the installation-specific state directory"
+);
+assert.notEqual(
+  getAgentServerPaths({ stateDirectory, channel }).catalogFile,
+  getAgentServerPaths({ stateDirectory: isolatedStateDirectory, channel }).catalogFile,
+  "separate installation state cannot share a canonical chat catalog"
+);
 const project = path.join(stateDirectory, "project");
 const sessionPath = path.join(project, ".zyra", "sessions", "chat-test.jsonl");
 const fakeSessions = [{

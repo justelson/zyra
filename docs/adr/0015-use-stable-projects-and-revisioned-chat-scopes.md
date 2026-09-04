@@ -41,6 +41,8 @@ Legacy migration is idempotent:
 
 The development and production databases run the migration independently. Deterministic IDs may match for the same legacy path, but each installation stores a different managed-home path under its own `userData` root. Global Chats also use separate neutral workspaces, so production no longer falls back to `process.cwd()` inside the installed application directory.
 
+Each desktop installation also owns a separate canonical agent-server namespace under `<userData>/assistant/agent-server`. Its descriptor, authority file, endpoint identity, lock, journal, and catalog cannot be shared with another installation. The endpoint identity includes the state directory as well as channel and protocol version, preventing a development desktop from attaching to a live packaged server on the same account.
+
 The selected Chat scope travels with runtime connection metadata. Direct file tools are checked against every scoped root. Out-of-scope paths and writes targeting read-only roots are blocked before permission-mode review, so Full access and chat approval cannot widen the saved scope. Shell checks reject explicit out-of-scope paths and conservatively restrict commands from or against read-only roots. This is an application authority boundary, not an operating-system filesystem sandbox.
 
 Project-home instructions are always included in the Chat prompt. Root-level instructions from other scoped Folders are labeled as folder-local and apply only while work touches that Folder.
@@ -77,5 +79,6 @@ Rejected because the applications already use separate identity and `userData` r
 
 - Database fixtures cover deterministic case-insensitive migration, nested paths, idempotent reruns, installation-directory repair, neutral global workspaces, reviewed discovery, shared associations, read-only ceilings, revisioned scope snapshots, detachment preservation, and independent development/production managed homes.
 - Permission-gate fixtures cover scoped reads, hard out-of-scope blocking, read-only file writes, explicit shell paths, and conservative read-only command handling.
+- Agent-server path and desktop-worker fixtures prove that equal channels in different installation state directories produce different endpoints and catalogs.
 - Main, preload, and renderer typechecks cover the persistence, IPC, bridge, store, picker, Settings, Files, and runtime contracts.
 - The existing new-Chat surface regression passes with Project-catalog selection.

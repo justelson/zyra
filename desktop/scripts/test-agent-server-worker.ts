@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { DesktopAgentServerConnection } from '../src/main/assistant/zyra-agent-server-worker'
+import { DesktopAgentServerConnection, resolveDesktopAgentServerNamespace } from '../src/main/assistant/zyra-agent-server-worker'
 
 class FakeWorker extends EventEmitter {
     activePrompt: ((value: Record<string, unknown>) => void) | null = null
@@ -28,6 +28,16 @@ class FakeWorker extends EventEmitter {
 const root = path.resolve(import.meta.dirname, '../..')
 const stateDirectory = mkdtempSync(path.join(os.tmpdir(), 'zyra-desktop-agent-server-'))
 const channel = `desktop-test-${process.pid}-${Date.now()}`
+const devNamespace = resolveDesktopAgentServerNamespace(path.join(stateDirectory, 'Zyra-dev'))
+const productionNamespace = resolveDesktopAgentServerNamespace(path.join(stateDirectory, 'Zyra'))
+assert.equal(devNamespace.stateDirectory, path.resolve(stateDirectory, 'Zyra-dev', 'assistant', 'agent-server'))
+assert.equal(devNamespace.channel, 'desktop')
+assert.notEqual(devNamespace.stateDirectory, productionNamespace.stateDirectory, 'development and production desktop servers use separate userData state')
+assert.deepEqual(
+    resolveDesktopAgentServerNamespace(path.join(stateDirectory, 'ignored'), { stateDirectory, channel }),
+    { stateDirectory: path.resolve(stateDirectory), channel },
+    'explicit test and packaged server namespaces remain supported'
+)
 const project = path.join(stateDirectory, 'project')
 const sessionPath = path.join(project, '.zyra', 'sessions', 'desktop-test.jsonl')
 const catalogModule = await import(pathToFileURL(path.join(root, 'src', 'agent-server', 'catalog.mjs')).href)

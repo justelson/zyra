@@ -376,14 +376,19 @@ export class DesktopAgentServerConnection {
         const module = await import(/* @vite-ignore */ moduleUrl) as {
             ZyraAgentServerClient: new (options: Record<string, unknown>) => AgentServerClient
         }
-        const authorityProof = this.options.authorityProof || await loadDesktopAuthorityProof(this.options)
+        const userDataPath = this.options.stateDirectory
+            ? ''
+            : (await import('electron')).app.getPath('userData')
+        const namespace = resolveDesktopAgentServerNamespace(userDataPath, this.options)
+        const clientOptions = { ...this.options, ...namespace }
+        const authorityProof = this.options.authorityProof || await loadDesktopAuthorityProof(clientOptions)
         const client = new module.ZyraAgentServerClient({
             root: this.root,
             clientId: `desktop:${process.pid}:${randomUUID()}`,
             surface: 'desktop',
             authorities: ['desktop-control', 'desktop-workspace'],
             authorityProof,
-            ...this.options
+            ...clientOptions
         })
         client.setDesktopWorkspaceHandler(async (request, message) => {
             request = { ...request, _requestId: String(message['requestId'] || '') }
@@ -564,6 +569,16 @@ export class ZyraAgentServerWorker implements ZyraWorkerLike {
         this.controlAbortControllers.clear()
         this.connection.detach(this)
         this.eventListeners.clear()
+    }
+}
+
+export function resolveDesktopAgentServerNamespace(
+    userDataPath: string,
+    options: Pick<DesktopAgentServerConnectionOptions, 'stateDirectory' | 'channel'> = {}
+): { stateDirectory: string; channel: string } {
+    return {
+        stateDirectory: resolve(options.stateDirectory || join(userDataPath, 'assistant', 'agent-server')),
+        channel: String(options.channel || 'desktop').trim().toLowerCase()
     }
 }
 

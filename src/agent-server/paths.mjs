@@ -19,7 +19,7 @@ export function getAgentServerPaths(options = {}) {
   const channel = normalizeAgentServerChannel(options.channel);
   const stateDirectory = getAgentServerStateDirectory(options);
   const identity = createHash("sha256")
-    .update(`${os.homedir()}\0${channel}\0v${AGENT_SERVER_PROTOCOL_VERSION}`)
+    .update(`${os.homedir()}\0${stateDirectory}\0${channel}\0v${AGENT_SERVER_PROTOCOL_VERSION}`)
     .digest("hex")
     .slice(0, 20);
   const endpoint = process.platform === "win32"

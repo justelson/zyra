@@ -6,6 +6,15 @@ import {
   normalizeAgentSurfacePhase,
   normalizeAgentSurfaceTool,
 } from "../src/agent-surface.mjs";
+import { createAssistantActionBatchTool } from "../src/assistant-action-batch-tool.mjs";
+import { describeZyraToolPermission } from "../src/zyra-permission-gate.mjs";
+
+const actionBatchTool = createAssistantActionBatchTool();
+assert.equal(actionBatchTool.name, "begin_action_batch");
+const actionBatchResult = await actionBatchTool.execute("batch-1", { title: "  Reviewing   timeline behavior  " });
+assert.equal(actionBatchResult.details.actionBatchIntent, "Reviewing timeline behavior");
+assert.equal(actionBatchResult.details.hiddenFromTimeline, true);
+assert.equal(describeZyraToolPermission({ toolName: "begin_action_batch", input: { title: "Reviewing timeline behavior" } }), null, "declaring a presentation-only batch title never opens an approval gate");
 
 const command = normalizeAgentSurfaceTool({
   type: "tool_execution_start",

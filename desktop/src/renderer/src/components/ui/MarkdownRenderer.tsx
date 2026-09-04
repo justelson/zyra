@@ -26,6 +26,8 @@ import { useMarkdownVisualTheme } from './markdown/markdownTheme'
 import { parseMarkdownToHast } from './markdown/markdownPipeline'
 import { createMarkdownHeadingSlug } from './markdown/markdownHeadingIds'
 
+export type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
+
 export interface MarkdownRendererProps {
     content: string
     className?: string
@@ -45,6 +47,7 @@ export interface MarkdownRendererProps {
     onInternalLinkClick?: MarkdownInternalLinkHandler
     onLinkNotice?: MarkdownLinkNoticeHandler
     visualTheme?: 'light' | 'dark'
+    mediaMode?: MarkdownMediaMode
 }
 
 type CompiledMarkdownEntry = {
@@ -87,7 +90,8 @@ function resolveCompiledKey(props: MarkdownRendererProps): string {
         props.lightweight ? 'light' : 'full',
         props.plainCodeBlocks ? 'plain-code' : 'highlight-code',
         props.deferCodeHighlighting ? 'defer-highlight' : 'sync-highlight',
-        props.visualTheme || 'dark'
+        props.visualTheme || 'dark',
+        props.mediaMode || 'images'
     ].join('|')
 }
 
@@ -204,7 +208,8 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
         props.codeBlockMaxLines || 0,
         props.lightweight || props.plainCodeBlocks ? 'plain' : 'highlight',
         props.deferCodeHighlighting ? 'defer' : 'sync',
-        props.visualTheme || 'dark'
+        props.visualTheme || 'dark',
+        props.mediaMode || 'images'
     ].join('|')
     const cached = markdownComponentSets.get(key)
     if (cached) {
@@ -216,7 +221,8 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
         codeBlockMaxLines: props.codeBlockMaxLines,
         plainCodeBlocks: props.lightweight || props.plainCodeBlocks,
         deferCodeHighlighting: props.deferCodeHighlighting,
-        visualTheme: props.visualTheme
+        visualTheme: props.visualTheme,
+        mediaMode: props.mediaMode || 'images'
     })
     markdownComponentSets.set(key, components)
     while (markdownComponentSets.size > MAX_MARKDOWN_COMPONENT_SETS) {
@@ -310,15 +316,15 @@ export function prewarmMarkdownRenders(items: MarkdownRendererProps[]): () => vo
 }
 
 export function MarkdownContentRenderer(props: MarkdownRendererProps) {
-    const { content, className, filePath, codeBlockMaxLines, lightweight = false, plainCodeBlocks = false, deferCodeHighlighting = false, preparedTree, interactionLayerEnabled = true, cacheKey, transient = false, linkSearchRoot, onInternalLinkClick, onLinkNotice } = props
+    const { content, className, filePath, codeBlockMaxLines, lightweight = false, plainCodeBlocks = false, deferCodeHighlighting = false, preparedTree, interactionLayerEnabled = true, cacheKey, transient = false, linkSearchRoot, onInternalLinkClick, onLinkNotice, mediaMode = 'images' } = props
     const activeVisualTheme = useMarkdownVisualTheme()
     const documentRef = useRef<HTMLDivElement | null>(null)
     const visualTheme = props.visualTheme || activeVisualTheme
     const markdownProps = useMemo(
-        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, visualTheme }),
-        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, plainCodeBlocks, preparedTree, transient, visualTheme]
+        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, visualTheme, mediaMode }),
+        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme]
     )
-    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, plainCodeBlocks, preparedTree, transient, visualTheme])
+    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme])
     const shouldDeferCompilation = !transient && content.length >= DEFERRED_MARKDOWN_LENGTH
     const [preparedIdentity, setPreparedIdentity] = useState<object | null>(null)
 
@@ -401,5 +407,6 @@ export default memo(
         previous.linkSearchRoot === next.linkSearchRoot &&
         previous.onInternalLinkClick === next.onInternalLinkClick &&
         previous.onLinkNotice === next.onLinkNotice &&
-        previous.visualTheme === next.visualTheme
+        previous.visualTheme === next.visualTheme &&
+        previous.mediaMode === next.mediaMode
 )

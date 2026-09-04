@@ -24,6 +24,7 @@ import type {
     FleetSnapshot
 } from '../../shared/assistant/contracts'
 import { isAssistantRuntimeMode, parseAgentSurfaceDescriptor, sanitizeFileChangeRawPayload } from '../../shared/assistant/contracts'
+import { normalizeAssistantActionBatchIntent } from '../../shared/assistant/action-batch-intent'
 import { getAssistantModelReasoningEfforts, isAssistantReasoningEffort } from '../../shared/assistant/reasoning-efforts'
 import type { AssistantRuntimePolicy } from '../../shared/assistant/runtime-policy'
 import { analyzeAssistantReadResult } from '../../shared/assistant/read-activity'
@@ -3364,6 +3365,8 @@ export class ZyraPiRuntime extends EventEmitter {
                 status: state === 'error' ? 'failed' : state
             }))
         }
+        const actionBatchIntent = normalizeAssistantActionBatchIntent(event['actionBatchIntent'])
+        if (actionBatchIntent) classified.data['actionBatchIntent'] = actionBatchIntent
         classified.data['toolLifecyclePhase'] = agentSurface?.phase
             || (type === 'tool_execution_start' ? 'start' : type === 'tool_execution_update' ? 'update' : 'end')
         if (type === 'tool_execution_end' && lifecycleStatus && !isCommandCheckpointCall) {

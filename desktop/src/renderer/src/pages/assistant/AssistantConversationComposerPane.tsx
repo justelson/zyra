@@ -8,6 +8,7 @@ import { AssistantPendingApprovalPanel } from './AssistantPendingApprovalPanel'
 import { AssistantPendingControlApprovalPanel } from './AssistantPendingControlApprovalPanel'
 import { AssistantPendingPlaygroundLabPanel } from './AssistantPendingPlaygroundLabPanel'
 import { AssistantPendingTerminalAccessPanel, getPendingTerminalAccessRequest } from './AssistantPendingTerminalAccessModal'
+import { AssistantPendingUserInputPanel } from './AssistantPendingUserInputPanel'
 import { deriveAssistantComposerDisabledReason } from './assistant-composer-capabilities'
 import { ASSISTANT_COMPOSER_OVERLAY_TOP_PADDING_PX } from './assistant-pane-layout'
 import type { AssistantComposerProjectRoot, AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
@@ -23,6 +24,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     pendingControlGrants: ControlPendingGrant[]
     controlTargets: ControlTarget[]
     pendingUserInputs: AssistantPendingUserInput[]
+    userInputResponding: boolean
     commandPending: boolean
     composerDisabled?: boolean
     sending: boolean
@@ -95,6 +97,10 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     const isWaitingForControlApproval = props.pendingControlActions.length > 0 || props.pendingControlGrants.length > 0
     const isWaitingForApproval = props.pendingApprovals.length > 0
     const pendingTerminalAccessRequest = getPendingTerminalAccessRequest(props.pendingUserInputs)
+    const pendingQuestionInputs = pendingTerminalAccessRequest
+        ? props.pendingUserInputs.filter((request) => request.requestId !== pendingTerminalAccessRequest.requestId)
+        : props.pendingUserInputs
+    const hasPendingQuestions = pendingQuestionInputs.length > 0
     const isConnecting = props.isConnecting ?? (props.commandPending && !props.assistantConnected)
     const reconnectPending = props.reconnectPending ?? (props.commandPending && !props.assistantConnected)
     const composerDisabledReason = deriveAssistantComposerDisabledReason({
@@ -148,7 +154,26 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     onSetRequestMuted={props.setPlaygroundTerminalAccessRequestMuted}
                 />
             ) : null}
-            {!isWaitingForControlApproval && !isWaitingForApproval && hasPendingPlaygroundLabRequest && props.pendingPlaygroundLabRequest ? (
+            {!isWaitingForControlApproval && !isWaitingForApproval && !pendingTerminalAccessRequest && hasPendingQuestions ? (
+                <AssistantPendingUserInputPanel
+                    pendingUserInputs={pendingQuestionInputs}
+                    responding={props.userInputResponding}
+                    onRespond={props.respondUserInput}
+                    sessionId={props.selectedSessionId}
+                    assistantAvailable={props.assistantAvailable}
+                    assistantConnected={props.assistantConnected}
+                    selectedProjectPath={props.selectedProjectPath}
+                    availableModels={props.availableModels}
+                    activeModel={props.activeModel}
+                    modelsLoading={props.modelsLoading}
+                    runtimeMode={props.runtimeMode}
+                    interactionMode={props.interactionMode}
+                    activeProfile={props.activeProfile}
+                    activeStatusLabel={props.activeStatusLabel}
+                    isConnecting={isConnecting}
+                />
+            ) : null}
+            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingQuestions && hasPendingPlaygroundLabRequest && props.pendingPlaygroundLabRequest ? (
                 <AssistantPendingPlaygroundLabPanel
                     request={props.pendingPlaygroundLabRequest}
                     responding={props.commandPending}
@@ -156,7 +181,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     onDecline={props.declinePendingPlaygroundLabRequest}
                 />
             ) : null}
-            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest ? (
+            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingQuestions && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest ? (
                 <div
                     className={cn(
                         'mx-auto w-full transition-[max-width] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',

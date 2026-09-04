@@ -628,6 +628,7 @@ export function areActivitiesEquivalent(left: AssistantActivity, right: Assistan
         && getActivityPatch(left) === getActivityPatch(right)
         && getActivityStatus(left) === getActivityStatus(right)
         && getActivityElapsed(left) === getActivityElapsed(right)
+        && left.payload?.actionBatchIntent === right.payload?.actionBatchIntent
         && left.payload?.relatedCommandActivityId === right.payload?.relatedCommandActivityId
 }
 

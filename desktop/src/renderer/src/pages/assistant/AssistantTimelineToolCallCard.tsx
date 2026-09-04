@@ -70,19 +70,6 @@ function getMinimalStatusIconClassName(status: 'success' | 'running' | 'failed')
     return 'text-sparkle-text-muted/55'
 }
 
-function getToolTextShimmerStyle(isRunning: boolean): React.CSSProperties | undefined {
-    if (!isRunning) return undefined
-
-    return {
-        backgroundImage: 'linear-gradient(90deg, var(--color-text-secondary), var(--status-warning), var(--color-text-secondary))',
-        backgroundSize: '240% 100%',
-        WebkitBackgroundClip: 'text',
-        backgroundClip: 'text',
-        color: 'transparent',
-        animation: 'shimmer 1.45s linear infinite'
-    }
-}
-
 function isReadActivity(activity: AssistantActivity): boolean {
     return activity.kind === 'file-read'
 }
@@ -408,7 +395,6 @@ export const TimelineToolCallCard = memo(({
     const isRead = isReadActivity(activity)
     const isRawTool = isRawToolActivity(activity)
     const isTerminalLikeTool = isCommand || isRawTool
-    const toolTextStyle = useMemo(() => getToolTextShimmerStyle(isTerminalLikeTool && status === 'running'), [isTerminalLikeTool, status])
     const primaryLabel = actionTitle || (isResolvedUserInput
         ? (primaryValue || `${resolvedUserInputEntries.length} answers captured`)
         : activity.kind === 'file-change'
@@ -637,7 +623,11 @@ export const TimelineToolCallCard = memo(({
                 title={opensRelatedCommand ? 'Go to original command' : undefined}
                 className={cn(
                     'group relative flex w-full min-w-0 items-center overflow-hidden text-left transition-colors',
-                    minimal ? 'min-h-7 gap-1.5 rounded-md px-0.5' : 'min-h-7 gap-2 rounded-md px-1.5 py-1',
+                    minimal
+                        ? 'min-h-7 gap-1.5 rounded-md px-0.5'
+                        : isTerminalLikeTool
+                            ? 'min-h-6 gap-1.5 rounded-md px-1 py-0.5'
+                            : 'min-h-7 gap-2 rounded-md px-1.5 py-1',
                     canExpandBody || opensRelatedCommand ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'
                 )}
             >
@@ -651,7 +641,11 @@ export const TimelineToolCallCard = memo(({
                     <div className="flex min-w-0 items-center gap-2">
                         <p className={cn(
                             'min-w-0 flex-1 truncate',
-                            minimal ? 'text-[12px] leading-6' : actionTitle ? 'text-[12px] font-medium leading-5' : 'font-mono text-[11px] leading-5',
+                            minimal
+                                ? 'text-[12px] leading-6'
+                                : actionTitle
+                                    ? cn('text-[12px] font-medium', isTerminalLikeTool ? 'leading-4' : 'leading-5')
+                                    : 'font-mono text-[11px] leading-5',
                             isTerminalLikeTool
                                 ? actionTitle ? 'whitespace-nowrap text-sparkle-text-secondary' : minimal ? 'whitespace-nowrap font-mono text-sparkle-text-secondary' : 'whitespace-nowrap font-mono text-[color-mix(in_srgb,var(--status-success)_44%,var(--color-text))]'
                                 : 'text-sparkle-text-secondary'
@@ -660,12 +654,14 @@ export const TimelineToolCallCard = memo(({
                                 <span
                                     className={cn(
                                         'truncate',
-                                        status === 'running' && actionTitle && !isTerminalLikeTool && 'assistant-action-intent-shimmer assistant-model-name-shimmer'
+                                        status === 'running' && actionTitle && 'assistant-title-shimmer'
                                     )}
-                                    style={toolTextStyle}
                                 >{primaryLabel}</span>
                                 {actionTitle && primaryValue && primaryValue !== actionTitle ? (
-                                    <span className="hidden max-w-[280px] shrink truncate rounded bg-[var(--surface-hover)] px-1.5 py-0.5 font-mono text-[9px] font-normal text-sparkle-text-muted sm:inline">
+                                    <span className={cn(
+                                        'hidden max-w-[280px] shrink truncate rounded bg-[var(--surface-hover)] font-mono text-[9px] font-normal text-sparkle-text-muted sm:inline',
+                                        isTerminalLikeTool ? 'px-1 py-0' : 'px-1.5 py-0.5'
+                                    )}>
                                         {activity.kind === 'file-change' && displayFilePaths[0] ? displayFilePaths[0] : primaryValue}
                                     </span>
                                 ) : null}
@@ -776,7 +772,7 @@ export const TimelineToolCallCard = memo(({
                             <div
                                 ref={commandOutputViewportRef}
                                 className={cn(
-                                    'custom-scrollbar overflow-y-auto overscroll-x-contain px-3 py-2.5 font-mono text-[11px] leading-5 text-[color-mix(in_srgb,var(--color-text)_88%,var(--color-bg))] [tab-size:4] subpixel-antialiased',
+                                    'custom-scrollbar overflow-y-auto overscroll-x-contain px-2.5 py-1.5 font-mono text-[11px] leading-5 text-[color-mix(in_srgb,var(--color-text)_88%,var(--color-bg))] [tab-size:4] subpixel-antialiased',
                                     status === 'running' ? 'overflow-x-hidden' : 'overflow-x-auto',
                                     terminalOutputHeightClass,
                                     !terminalHasRealOutput && status === 'running' && 'text-[color-mix(in_srgb,var(--status-warning)_58%,var(--color-text-secondary))]'

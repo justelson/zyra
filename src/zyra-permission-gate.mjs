@@ -8,6 +8,7 @@ const SAFE_TOOL_NAMES = new Set([
   "web_search",
   "web_fetch",
   "request_user_input",
+  "begin_action_batch",
 ]);
 const CRITICAL_TOOL_NAME_PATTERN = /(?:^|[._-])(delete|remove|publish|deploy|release|purchase|payment|billing|account|security|credential|password|secret|upload|install|message|email|send)(?:[._-]|$)/;
 const DEFINITE_CRITICAL_COMMAND_PATTERNS = [

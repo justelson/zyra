@@ -215,15 +215,17 @@ async function loadPiPackage() {
 async function loadZyraToolModules() {
   zyraToolModulesPromise ??= Promise.all([
     import("./managed-bash-tool.mjs"),
+    import("./assistant-action-batch-tool.mjs"),
     import("./web-search-tool.mjs"),
     import("./write-diff-tool.mjs"),
     import("./agent-control/browser-control-tool.mjs"),
     import("./agent-control/browser-toolset.mjs"),
     import("./agent-control/computer-toolset.mjs"),
-  ]).then(([managedBash, web, writeDiff, browserControl, browserToolset, computerToolset]) => ({
+  ]).then(([managedBash, actionBatch, web, writeDiff, browserControl, browserToolset, computerToolset]) => ({
     createManagedBashState: managedBash.createManagedBashState,
     createManagedBashTool: managedBash.createManagedBashTool,
     waitForManagedBashAutoUpdate: managedBash.waitForManagedBashAutoUpdate,
+    createAssistantActionBatchTool: actionBatch.createAssistantActionBatchTool,
     createZyraWebSearchTool: web.createZyraWebSearchTool,
     createZyraWebFetchTool: web.createZyraWebFetchTool,
     createZyraWriteTool: writeDiff.createZyraWriteTool,
@@ -642,7 +644,7 @@ function injectFleetGuide(session, fleet, workflows) {
 }
 
 function injectSurfaceGuide(session, surface) {
-  if (surface !== "desktop-ui") return;
+  if (surface !== "desktop-ui" && surface !== "agent-server") return;
   const marker = ZYRA_DESKTOP_UI_MARKER;
   const guide = [
     "Surface: Zyra desktop UI.",
@@ -650,6 +652,7 @@ function injectSurfaceGuide(session, surface) {
     "Do not open with a banner, path recap, or generic greeting like \"Hey - I'm here\" unless the user only said hello.",
     "Start with the direct answer or the exact action being taken.",
     "Keep paragraphs short. Use bullets only when they help scan real work.",
+    "Immediately before each consecutive Action group, call begin_action_batch once with a short present-participle title that describes the shared intent. Call it after any narration and before the real Actions. Do not mention this hidden presentation marker to the user.",
     "Never emit serialization placeholders such as [Circular], [object Object], or raw event/protocol text.",
   ].join("\n");
   upsertSystemPromptBlock(session, marker, guide);
@@ -838,6 +841,7 @@ export async function createZyraSession(options = {}) {
     createManagedBashState,
     createManagedBashTool,
     waitForManagedBashAutoUpdate,
+    createAssistantActionBatchTool,
     createZyraWebSearchTool,
     createZyraWebFetchTool,
     createZyraWriteTool,
@@ -909,6 +913,7 @@ export async function createZyraSession(options = {}) {
         commandPrefix: settingsManager?.getShellCommandPrefix?.(),
       }),
       createRequestUserInputTool({ requestUserInput: options.requestUserInput }),
+      createAssistantActionBatchTool(),
       createZyraWebSearchTool(),
       createZyraWebFetchTool(),
       createZyraWriteTool({

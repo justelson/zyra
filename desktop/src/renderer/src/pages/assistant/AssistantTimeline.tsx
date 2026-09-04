@@ -25,7 +25,6 @@ import {
 import { TimelineTurnInterruptionMarker, TimelineTurnWorkSummary } from './AssistantTimelineWorkSummary'
 import { TimelineVoiceTaskStatus } from './AssistantTimelineVoiceTask'
 import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
-import { AssistantTimelineQuestionSet } from './AssistantTimelineQuestionSet'
 import { AssistantVirtualTimeline } from './AssistantVirtualTimeline'
 import { computeStableAssistantTimelineRows, type StableTimelineRowsState } from './assistant-virtual-timeline-rows'
 import {
@@ -78,8 +77,6 @@ type AssistantTimelineProps = {
     activities: AssistantActivity[]
     proposedPlans?: AssistantProposedPlan[]
     userInputs?: AssistantPendingUserInput[]
-    userInputResponding?: boolean
-    onRespondUserInput?: (requestId: string, answers: Record<string, string | string[]>) => Promise<void>
     projectLabel?: string | null
     projectTitle?: string | null
     sessionMode?: 'work' | 'playground'
@@ -131,8 +128,6 @@ function AssistantTimelineImpl({
     activities,
     proposedPlans = [],
     userInputs = [],
-    userInputResponding = false,
-    onRespondUserInput,
     projectLabel = null,
     projectTitle = null,
     sessionMode = 'work',
@@ -187,7 +182,8 @@ function AssistantTimelineImpl({
                 content,
                 cacheKey: `${message.id}:${message.updatedAt}:${content.length}`,
                 filePath: assistantMessageFilePath || undefined,
-                prewarmCodeBlocks: false
+                prewarmCodeBlocks: false,
+                mediaMode: 'images-and-videos'
             })
             break
         }
@@ -245,7 +241,7 @@ function AssistantTimelineImpl({
             latestAssistantMessageId: resolvedLatestAssistantMessageId,
             latestTurnStartedAt,
             isWorking
-        }),
+        }).filter((row) => row.kind !== 'user-input'),
         [baseRows, isWorking, latestTurnStartedAt, messages, resolvedLatestAssistantMessageId, turnUsageById]
     )
     const lastAssistantMessageIdByTurn = useMemo(() => {
@@ -256,6 +252,13 @@ function AssistantTimelineImpl({
         }
         return next
     }, [messages])
+    const questionResponseByMessageId = useMemo(() => new Map(
+        userInputs.flatMap((input) => (
+            input.status === 'resolved' && input.responseMessageId
+                ? [[input.responseMessageId, input] as const]
+                : []
+        ))
+    ), [userInputs])
     const commandCheckpointTargetById = useMemo(() => new Map(
         activities
             .filter(isCommandCheckpointActivity)
@@ -509,17 +512,7 @@ function AssistantTimelineImpl({
                 />
             )
         }
-        if (row.kind === 'user-input') {
-            return onRespondUserInput ? (
-                <AssistantTimelineQuestionSet
-                    key={row.id}
-                    input={row.input}
-                    responding={userInputResponding}
-                    submissionBlocked={isWorking}
-                    onRespond={onRespondUserInput}
-                />
-            ) : null
-        }
+        if (row.kind === 'user-input') return null
         if (row.kind === 'working') {
             return <TimelineWorkingIndicator key={row.id} startedAt={activeWorkStartedAt} label={workingLabel} />
         }
@@ -556,6 +549,7 @@ function AssistantTimelineImpl({
                 displayMode={assistantChatDisplayMode}
                 compactLiveNarration={options.compactLiveNarration}
                 inlineWorkNarration={options.inlineWorkNarration}
+                questionResponse={row.message.role === 'user' ? questionResponseByMessageId.get(row.message.id) || null : null}
                 onRequestDelete={row.message.role === 'user' ? onRequestDeleteUserMessage : undefined}
                 onOpenFilePath={row.message.role === 'user' ? onOpenFilePath : undefined}
                 filePath={row.message.role === 'assistant' ? assistantMessageFilePath : null}

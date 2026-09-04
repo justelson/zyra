@@ -49,11 +49,11 @@ The collapsible turn-level account of elapsed work and action count.
 _Avoid_: Tool-call group
 
 **Work narration**:
-The assistant's original user-facing progress text inside a Work summary, kept verbatim and in chronological order.
+The assistant's original user-facing progress text inside a Work summary, kept verbatim and chronological with final-response typography but without final-answer metadata.
 _Avoid_: Action title, internal thought
 
 **Action batch**:
-One collapsed block for consecutive Actions between Work narration boundaries. Its short `-ing` title follows the current running Action, then the latest settled Action; opening it reveals every Action rather than a last-five subset.
+One collapsed block for consecutive Actions between Work narration boundaries. Its title follows the current running Action, then uses the agent-declared shared intent after every Action settles; opening it reveals every Action rather than a last-five subset.
 _Avoid_: Tool-call group, Work narration
 
 **Action**:
@@ -61,11 +61,11 @@ One typed operation within an Action batch or standing alone, such as a command,
 _Avoid_: Work narration, raw protocol event
 
 **Evidence**:
-The event-time result retained for an Action, including captured read ranges, diffs, command output, structured web results, and meaningful screenshots.
+The event-time result retained for an Action, including exact captured read ranges, parsed Skill instructions, diffs, command output, structured web results, and meaningful screenshots.
 _Avoid_: Current file state, transport envelope
 
 **Question handoff**:
-A structured question set that ends its assistant Turn. Submitted answers become a linked user message and start a new Turn.
+A structured question set that ends its assistant Turn and occupies the composer until answered. Submitted answers become a linked user bubble with a compact Q&A preview and start a new Turn.
 _Avoid_: Approval, blocking tool continuation
 
 ## Relationships
@@ -83,9 +83,9 @@ _Avoid_: Approval, blocking tool continuation
 - **Folder-local instructions** apply only while work touches their Folder.
 - A **Turn** owns zero or one **Work summary** and one terminal outcome.
 - A **Work summary** preserves the chronological sequence of **Work narration**, **Action batches**, and lone **Actions**.
-- An **Action batch** contains every consecutive typed **Action** until the next narration or conversation boundary.
+- An **Action batch** contains every consecutive typed **Action** until the next narration or conversation boundary; its hidden title declaration is not itself an Action.
 - An **Action** owns its captured **Evidence** and never substitutes newer filesystem or page state during replay.
-- A **Question handoff** is durable conversation state outside the completed assistant Turn; its answer message links back to the question set.
+- A **Question handoff** is durable conversation state outside the completed assistant Turn; it reserves no timeline form or row, and its answer message links back to the question set.
 - An approval remains an in-Turn authorization action and never becomes a **Question handoff**.
 
 ## Example dialogue

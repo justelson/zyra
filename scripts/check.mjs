@@ -27,6 +27,7 @@ const syntaxTargets = [
   "src/analytics/client.mjs",
   "src/analytics/cli.mjs",
   "src/agent-surface.mjs",
+  "src/assistant-action-batch-tool.mjs",
   "src/model-availability.mjs",
   "src/chatgpt-account.mjs",
   "src/pi-runtime.mjs",
@@ -180,6 +181,10 @@ const serialCoreTests = new Set([
 
 const desktopTasks = [
   { label: "desktop:test:work-timeline-v2", bunArgs: ["run", "--cwd", "desktop", "test:work-timeline-v2"] },
+  { label: "desktop:test:action-batch-intent", bunArgs: ["run", "--cwd", "desktop", "test:assistant-action-batch-intent"] },
+  { label: "desktop:test:assistant-user-input", bunArgs: ["run", "--cwd", "desktop", "test:assistant-user-input"] },
+  { label: "desktop:test:markdown-renderer", bunArgs: ["run", "--cwd", "desktop", "test:markdown-renderer"] },
+  { label: "desktop:test:theme-adaptive-surfaces", bunArgs: ["run", "--cwd", "desktop", "test:theme-adaptive-surfaces"] },
   { label: "desktop:test:analytics", bunArgs: ["run", "--cwd", "desktop", "test:analytics"] },
   { label: "desktop:test:assistant-composer-command-menu", bunArgs: ["desktop/scripts/test-assistant-composer-command-menu.ts"] },
   { label: "desktop:test:assistant-fleet", bunArgs: ["run", "--cwd", "desktop", "test:assistant-fleet"] },

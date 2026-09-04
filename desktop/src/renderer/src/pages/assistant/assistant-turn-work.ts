@@ -469,7 +469,26 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         const usage = turnUsageById?.get(turnId)
         const handoffRows = turnRows.filter((row) => row.kind === 'user-input')
         if (handoffRows.length > 0) {
-            const workRows = turnRows.filter((row) => row.kind !== 'working' && !rowMustStayVisible(row))
+            const firstHandoffIndex = turnRows.findIndex((row) => row.kind === 'user-input')
+            const handoffBoundaryIndex = firstHandoffIndex < 0 ? turnRows.length : firstHandoffIndex
+            let handoffResponseIndex = -1
+            for (let index = handoffBoundaryIndex - 1; index >= 0; index -= 1) {
+                const row = turnRows[index]
+                if (row?.kind !== 'message' || row.message.role !== 'assistant' || !row.message.text.trim()) continue
+                handoffResponseIndex = index
+                break
+            }
+            const actionFollowsResponse = handoffResponseIndex >= 0 && turnRows
+                .slice(handoffResponseIndex + 1, handoffBoundaryIndex)
+                .some((row) => Boolean(getActionRowActivities(row)))
+            const handoffResponseRow = handoffResponseIndex >= 0 && !actionFollowsResponse
+                ? turnRows[handoffResponseIndex] || null
+                : null
+            const workRows = turnRows.filter((row) => (
+                row !== handoffResponseRow
+                && row.kind !== 'working'
+                && !rowMustStayVisible(row)
+            ))
             if (workRows.length === 0) continue
             const lastWorkRow = workRows[workRows.length - 1]
             ranges.set(userIndex + 1, {
@@ -487,7 +506,10 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
                     rows: groupConsecutiveActionRows(workRows),
                     liveNarrationRow: null
                 },
-                visibleRows: turnRows.filter((row) => row.kind !== 'working' && rowMustStayVisible(row))
+                visibleRows: turnRows.filter((row) => (
+                    row === handoffResponseRow
+                    || (row.kind !== 'working' && rowMustStayVisible(row))
+                ))
             })
             continue
         }

@@ -11,6 +11,10 @@ import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./agent-ser
 import { resolveLiveContextUsage } from "./live-context-usage.mjs";
 import { normalizeZyraPermissionMode } from "./permission-mode.mjs";
 import { createZyraPermissionReviewer } from "./zyra-permission-reviewer.mjs";
+import {
+  ASSISTANT_ACTION_BATCH_TOOL_NAME,
+  normalizeAssistantActionBatchIntent,
+} from "./assistant-action-batch-tool.mjs";
 
 const root = path.resolve(process.env.ZYRA_ROOT ?? path.resolve(import.meta.dirname, ".."));
 const sdkPath = path.join(root, "src", "zyra-sdk.mjs");
@@ -25,6 +29,7 @@ let activePermissionMode = "approval-required";
 let permissionReviewer;
 let liveContextBaselineTokens;
 let lastLiveContextPublishedAt = 0;
+let activeActionBatchIntent;
 const ZYRA_CHAT_CONFIG_CUSTOM_TYPE = "zyra.chat-config.v1";
 const pendingPermissionRequests = new Map();
 const pendingUserInputRequests = new Map();
@@ -202,6 +207,7 @@ function disposeRuntime() {
   runtime = undefined;
   liveContextBaselineTokens = undefined;
   lastLiveContextPublishedAt = 0;
+  activeActionBatchIntent = undefined;
 }
 
 function isMissingLocalChatError(error) {
@@ -248,9 +254,21 @@ async function handleConnect(payload) {
   const storedChatConfig = readStoredChatConfig(runtime.session.sessionManager);
   await applyChatConfig(sdk, storedChatConfig || normalizeChatConfig(payload), { emit: false });
   const chatConfig = currentChatConfig(sdk);
+  activeActionBatchIntent = undefined;
   unsubscribe = runtime.session.subscribe((event) => {
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
     if (!normalized) return;
+    if (isActionBatchIntentEvent(normalized)) {
+      activeActionBatchIntent = readActionBatchIntentFromEvent(normalized) || activeActionBatchIntent;
+      return;
+    }
+    if (normalized.message?.role === "user") activeActionBatchIntent = undefined;
+    if (normalized.message?.role === "assistant" && messageTextForTitle(normalized.message).trim()) {
+      activeActionBatchIntent = undefined;
+    }
+    if (isToolExecutionEvent(normalized) && activeActionBatchIntent) {
+      normalized.actionBatchIntent = activeActionBatchIntent;
+    }
     const isAssistantMessageEvent = (
       (event?.type === "message_start" || event?.type === "message_update" || event?.type === "message_end")
       && normalized.message?.role === "assistant"
@@ -276,6 +294,7 @@ async function handleConnect(payload) {
       if (event.type === "message_end") liveContextBaselineTokens = undefined;
     }
     send({ type: "event", event: normalized });
+    if (normalized.type === "agent_end") activeActionBatchIntent = undefined;
   });
   unsubscribeManagedBash = runtime.managedBash?.subscribe?.((update) => {
     const payload = cloneJsonValue(update);
@@ -329,6 +348,23 @@ async function handleConnect(payload) {
         .filter(Boolean)
       : [],
   };
+}
+
+function isToolExecutionEvent(event) {
+  return event?.type === "tool_execution_start"
+    || event?.type === "tool_execution_update"
+    || event?.type === "tool_execution_end";
+}
+
+function isActionBatchIntentEvent(event) {
+  if (!isToolExecutionEvent(event)) return false;
+  return String(event.toolName || event.name || "").trim().toLowerCase() === ASSISTANT_ACTION_BATCH_TOOL_NAME;
+}
+
+function readActionBatchIntentFromEvent(event) {
+  return normalizeAssistantActionBatchIntent(event?.args?.title ?? event?.arguments?.title)
+    || normalizeAssistantActionBatchIntent(event?.result?.details?.actionBatchIntent)
+    || null;
 }
 
 function normalizeEvent(event, modelContextWindow) {

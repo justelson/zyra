@@ -1815,6 +1815,51 @@ html[data-file-preview-titlebar-navigator='true'] [data-file-preview-local-navig
   to { background-position-x: -220%; }
 }
 
+.markdown-video-frame {
+  display: block;
+  width: min(100%, 52rem);
+  margin-block: 1rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--color-card), black 10%);
+}
+
+.markdown-video-frame video {
+  display: block;
+  width: 100%;
+  max-height: min(34rem, 70vh);
+  background: #050608;
+  object-fit: contain;
+}
+
+.markdown-video-caption {
+  display: block;
+  overflow: hidden;
+  border-top: 1px solid var(--color-border-secondary);
+  padding: 0.45rem 0.65rem;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-video-unavailable {
+  display: flex;
+  min-height: 5rem;
+  max-width: 32rem;
+  align-items: center;
+  gap: 0.65rem;
+  margin-block: 1rem;
+  border: 1px dashed var(--color-border-secondary);
+  border-radius: 0.7rem;
+  padding: 0.75rem 0.9rem;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-card), transparent 16%);
+  font-size: 0.75rem;
+}
+
 /* Task lists retain GFM semantics without a second bullet beside the checkbox. */
 .markdown-body .contains-task-list,
 .markdown-body .task-list-item {

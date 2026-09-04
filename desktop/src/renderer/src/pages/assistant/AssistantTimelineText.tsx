@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import MarkdownRenderer, { prepareMarkdownRender } from '@/components/ui/MarkdownRenderer'
+import MarkdownRenderer, { prepareMarkdownRender, type MarkdownMediaMode } from '@/components/ui/MarkdownRenderer'
 import { useObservedElementWidth } from '@/lib/text-layout/useObservedElementWidth'
 import {
     getUserMessageBodyWidth,
@@ -16,6 +16,7 @@ type StreamingAssistantTextProps = {
 type AssistantMarkdownInteractionProps = {
     onInternalLinkClick?: (href: string) => Promise<boolean | void> | boolean | void
     onLinkNotice?: (message: string, tone: 'info' | 'error') => void
+    mediaMode?: MarkdownMediaMode
 }
 
 type StreamingAssistantMarkdownProps = AssistantMarkdownInteractionProps & {
@@ -97,6 +98,7 @@ const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock(props: {
     transient?: boolean
     onInternalLinkClick?: AssistantMarkdownInteractionProps['onInternalLinkClick']
     onLinkNotice?: AssistantMarkdownInteractionProps['onLinkNotice']
+    mediaMode?: MarkdownMediaMode
 }) {
     return (
         <MarkdownRenderer
@@ -108,6 +110,7 @@ const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock(props: {
             transient={props.transient}
             onInternalLinkClick={props.onInternalLinkClick}
             onLinkNotice={props.onLinkNotice}
+            mediaMode={props.mediaMode}
         />
     )
 })
@@ -118,7 +121,8 @@ export const StreamingAssistantMarkdown = memo(function StreamingAssistantMarkdo
     className,
     cacheKey,
     onInternalLinkClick,
-    onLinkNotice
+    onLinkNotice,
+    mediaMode
 }: StreamingAssistantMarkdownProps) {
     const blocks = useMemo(() => splitStreamingMarkdownBlocks(content), [content])
     if (!content.trim()) return <StreamingAssistantText content=" " className={className} />
@@ -134,6 +138,7 @@ export const StreamingAssistantMarkdown = memo(function StreamingAssistantMarkdo
                     cacheKey={`${cacheKey}:settled:${index}:${block.length}`}
                     onInternalLinkClick={onInternalLinkClick}
                     onLinkNotice={onLinkNotice}
+                    mediaMode={mediaMode}
                 />
             ))}
             {blocks.tail ? (
@@ -145,6 +150,7 @@ export const StreamingAssistantMarkdown = memo(function StreamingAssistantMarkdo
                     transient
                     onInternalLinkClick={onInternalLinkClick}
                     onLinkNotice={onLinkNotice}
+                    mediaMode={mediaMode}
                 />
             ) : null}
         </div>
@@ -158,7 +164,8 @@ export const CompletedAssistantMarkdown = memo(function CompletedAssistantMarkdo
     cacheKey,
     deferInitialRender = false,
     onInternalLinkClick,
-    onLinkNotice
+    onLinkNotice,
+    mediaMode
 }: CompletedAssistantMarkdownProps) {
     const [renderReady, setRenderReady] = useState(!deferInitialRender)
 
@@ -171,7 +178,7 @@ export const CompletedAssistantMarkdown = memo(function CompletedAssistantMarkdo
         let cancelled = false
         setRenderReady(false)
         const prepare = () => {
-            prepareMarkdownRender({ content, filePath, cacheKey })
+            prepareMarkdownRender({ content, filePath, cacheKey, mediaMode })
             if (!cancelled) setRenderReady(true)
         }
         if (typeof window.requestIdleCallback === 'function') {
@@ -186,7 +193,7 @@ export const CompletedAssistantMarkdown = memo(function CompletedAssistantMarkdo
             cancelled = true
             window.clearTimeout(timeoutId)
         }
-    }, [cacheKey, content, deferInitialRender, filePath])
+    }, [cacheKey, content, deferInitialRender, filePath, mediaMode])
 
     if (!renderReady) {
         return (
@@ -197,6 +204,7 @@ export const CompletedAssistantMarkdown = memo(function CompletedAssistantMarkdo
                 cacheKey={`${cacheKey}:handoff`}
                 onInternalLinkClick={onInternalLinkClick}
                 onLinkNotice={onLinkNotice}
+                mediaMode={mediaMode}
             />
         )
     }
@@ -209,6 +217,7 @@ export const CompletedAssistantMarkdown = memo(function CompletedAssistantMarkdo
             onInternalLinkClick={onInternalLinkClick}
             onLinkNotice={onLinkNotice}
             className={className}
+            mediaMode={mediaMode}
         />
     )
 })

@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, Gauge, Loader2, RotateCcw, Trash2 } from 'lucide-react'
-import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
+import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import type { ComposerContextFile } from './assistant-composer-types'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantChatDisplayMode, AssistantTextStreamingMode } from '@/lib/settings'
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { formatAssistantDateTime } from '@/lib/assistant/selectors'
 import AssistantAttachmentPreviewModal from './AssistantAttachmentPreviewModal'
 import { AssistantFileAttachmentCard, AssistantPastedTextCard } from './AssistantAttachmentCards'
+import { AssistantQuestionResponse } from './AssistantQuestionResponse'
 import { AssistantAttachmentImageCard } from './AssistantAttachmentImageCard'
 import {
     CollapsibleUserMessageBody,
@@ -529,6 +530,7 @@ export const TimelineMessage = memo(({
     displayMode = 'detailed',
     compactLiveNarration = false,
     inlineWorkNarration = false,
+    questionResponse = null,
     onRequestDelete,
     onOpenFilePath = undefined,
     onOpenAttachmentPreview = undefined,
@@ -546,6 +548,7 @@ export const TimelineMessage = memo(({
     displayMode?: AssistantChatDisplayMode
     compactLiveNarration?: boolean
     inlineWorkNarration?: boolean
+    questionResponse?: AssistantPendingUserInput | null
     onRequestDelete?: (message: AssistantMessage) => void
     onOpenFilePath?: (filePath: string) => Promise<void> | void
     onOpenAttachmentPreview?: (
@@ -688,7 +691,8 @@ export const TimelineMessage = memo(({
                             filePath={filePath || undefined}
                             onInternalLinkClick={onInternalLinkClick}
                             onLinkNotice={onLinkNotice}
-                            className="assistant-live-narration-muted text-[11px] leading-5 [overflow-wrap:anywhere] [&_p]:mb-0 [&_li]:leading-5"
+                            className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                            mediaMode="none"
                         />
                     ) : (
                         <CompletedAssistantMarkdown
@@ -698,7 +702,8 @@ export const TimelineMessage = memo(({
                             filePath={filePath || undefined}
                             onInternalLinkClick={onInternalLinkClick}
                             onLinkNotice={onLinkNotice}
-                            className="text-[11px] leading-5 text-sparkle-text-muted/80 [overflow-wrap:anywhere] [&_p]:mb-0 [&_li]:leading-5"
+                            className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                            mediaMode="none"
                         />
                     )
                 ) : compactLiveNarration ? (
@@ -708,7 +713,8 @@ export const TimelineMessage = memo(({
                                 <StreamingAssistantMarkdown
                                     content={compactLiveNarrationText(renderedAssistantText) || ' '}
                                     cacheKey={`${message.id}:compact-stream`}
-                                    className="assistant-live-narration-muted text-[11px] leading-5 [&_p]:mb-0 [&_li]:leading-5"
+                                    className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                                    mediaMode="none"
                                 />
                             </div>
                         </div>
@@ -724,7 +730,8 @@ export const TimelineMessage = memo(({
                                         <StreamingAssistantMarkdown
                                             content={outgoingCompactNarration.text}
                                             cacheKey={`${outgoingCompactNarration.key}:compact-settled`}
-                                            className="assistant-live-narration-muted text-[11px] leading-5 [&_p]:mb-0 [&_li]:leading-5"
+                                            className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                                            mediaMode="none"
                                         />
                                     </div>
                                 ) : null}
@@ -735,7 +742,8 @@ export const TimelineMessage = memo(({
                                     <StreamingAssistantMarkdown
                                         content={compactNarration.text}
                                         cacheKey={`${compactNarration.key}:compact-settled`}
-                                        className="assistant-live-narration-muted text-[11px] leading-5 [&_p]:mb-0 [&_li]:leading-5"
+                                        className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                                        mediaMode="none"
                                     />
                                 </div>
                             </div>
@@ -749,6 +757,7 @@ export const TimelineMessage = memo(({
                         onInternalLinkClick={onInternalLinkClick}
                         onLinkNotice={onLinkNotice}
                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                        mediaMode="none"
                     />
                 ) : (
                     <CompletedAssistantMarkdown
@@ -759,6 +768,7 @@ export const TimelineMessage = memo(({
                         onInternalLinkClick={onInternalLinkClick}
                         onLinkNotice={onLinkNotice}
                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
+                        mediaMode="images-and-videos"
                     />
                 )}
                 {!compactLiveNarration && !inlineWorkNarration ? <div
@@ -923,7 +933,9 @@ export const TimelineMessage = memo(({
                             </div>
                         </div>
                     ) : null}
-                    {parsedUserMessage.body ? (
+                    {questionResponse ? (
+                        <AssistantQuestionResponse input={questionResponse} />
+                    ) : parsedUserMessage.body ? (
                         <CollapsibleUserMessageBody content={parsedUserMessage.body} />
                     ) : null}
                 </div>
@@ -960,6 +972,7 @@ export const TimelineMessage = memo(({
         && prev.deleting === next.deleting
         && prev.assistantTextStreamingMode === next.assistantTextStreamingMode
         && prev.displayMode === next.displayMode
+        && prev.questionResponse === next.questionResponse
         && prev.onRequestDelete === next.onRequestDelete
         && prev.onOpenFilePath === next.onOpenFilePath
         && prev.onOpenAttachmentPreview === next.onOpenAttachmentPreview

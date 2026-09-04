@@ -29,6 +29,7 @@ export interface FilePreviewModalProps extends PreviewMeta {
     onSelectPreviewTab?: (tabId: string) => void
     onClosePreviewTab?: (tabId: string) => void
     onReorderPreviewTabs?: (activeTabId: string, overTabId: string | null) => void
+    previewBody?: ReactNode
     mediaItems?: PreviewMediaItem[]
     navigationSidebar?: ReactNode
     onSaved?: (filePath: string) => Promise<void> | void

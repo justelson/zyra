@@ -254,11 +254,12 @@ assert.match(transcriptMarkup, /data-agent-transcript-role="user"/)
 assert.match(transcriptMarkup, /Root instruction for the child/)
 assert.match(transcriptMarkup, /data-agent-transcript-role="assistant"/)
 assert.match(transcriptMarkup, /Agent <strong[^>]*>answer<\/strong>/)
-assert.match(transcriptMarkup, /Tool Calls/)
-assert.match(transcriptMarkup, /Read file/)
+assert.doesNotMatch(transcriptMarkup, /Tool Calls/, 'agent transcripts use the same label-free typed Action rows as the root timeline')
+assert.match(transcriptMarkup, /data-assistant-typed-action="agent-tool:read-auth"/)
+assert.match(transcriptMarkup, /Reading auth\.ts/)
 assert.match(transcriptMarkup, /src\/auth\.ts/)
 assert.doesNotMatch(transcriptMarkup, /private reasoning/)
-assert.match(transcriptMarkup, /tool output should stay hidden/, 'tool output remains available inside the expandable tool-call row')
+assert.doesNotMatch(transcriptMarkup, /tool output should stay hidden/, 'captured evidence stays out of collapsed transcript markup')
 assert.doesNotMatch(transcriptMarkup, /No final response was written/)
 assert.doesNotMatch(transcriptMarkup, /<(?:input|textarea)\b/, 'the agent transcript page remains read-only without a composer')
 assert.doesNotMatch(transcriptMarkup, /Delegated task/, 'the summary task block stays hidden when the root transcript already shows the delegated request')
@@ -293,7 +294,10 @@ const multiBatchMarkup = renderToStaticMarkup(
         onRetry={() => {}}
     />
 )
-assert.equal(multiBatchMarkup.match(/>Tool Calls(?: \(\d+\))?</g)?.length, 1, 'separate child tool batches render inside one shared tool-call group')
+assert.doesNotMatch(multiBatchMarkup, />Tool Calls(?: \(\d+\))?</, 'separate child Action batches stay label-free')
+assert.equal((multiBatchMarkup.match(/data-assistant-typed-action=/g) || []).length, 2, 'separate child Action batches retain both typed rows')
+assert.match(multiBatchMarkup, /data-assistant-typed-action="agent-tool:read-auth"/)
+assert.match(multiBatchMarkup, /data-assistant-typed-action="agent-tool:search-auth"/)
 assert.match(multiBatchMarkup, /2 activities/)
 
 const missingFinalMarkup = renderToStaticMarkup(
@@ -348,8 +352,9 @@ const liveActivityMarkup = renderToStaticMarkup(
         onRetry={() => {}}
     />
 )
-assert.match(liveActivityMarkup, /Tool Calls/)
-assert.match(liveActivityMarkup, /Read file/)
+assert.doesNotMatch(liveActivityMarkup, /Tool Calls/)
+assert.match(liveActivityMarkup, /data-assistant-typed-action="agent-tool:live-read-auth"/)
+assert.match(liveActivityMarkup, /assistant-title-shimmer[^>]*>Reading auth\.ts/)
 assert.match(liveActivityMarkup, /src\/auth\.ts/)
 
 const root = path.resolve(import.meta.dirname, '..', '..')

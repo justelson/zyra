@@ -96,7 +96,10 @@ const handedOffRows = groupTimelineRowsIntoWorkSummaries({
             id: 'handoff-purpose', role: 'assistant', text: 'I need the scope before editing.', turnId: 'turn:question', streaming: false,
             createdAt: '2026-08-19T00:00:01.000Z', updatedAt: '2026-08-19T00:00:01.000Z'
         }
-    ], [], [], [{
+    ], [{
+        id: 'handoff-action', kind: 'file-read', tone: 'tool', summary: 'Read file', detail: 'src/app.ts',
+        turnId: 'turn:question', createdAt: '2026-08-19T00:00:00.500Z', payload: { status: 'completed' }
+    }], [], [{
         id: 'handoff-questions', requestId: 'request:handoff', questions, status: 'pending', answers: null,
         responseMessageId: null, turnId: 'turn:question', createdAt: '2026-08-19T00:00:02.000Z', resolvedAt: null
     }]), false, null),
@@ -114,8 +117,33 @@ const handedOffRows = groupTimelineRowsIntoWorkSummaries({
     latestTurnStartedAt: '2026-08-19T00:00:00.000Z',
     isWorking: false
 })
-assert.deepEqual(handedOffRows.map((row) => row.kind), ['message', 'turn-work-summary', 'user-input'], 'pre-question narration stays inside Work and cannot masquerade as a final assistant answer')
-assert.equal(handedOffRows[1]?.kind === 'turn-work-summary' ? handedOffRows[1].rows[0]?.id : null, 'handoff-purpose')
+assert.deepEqual(handedOffRows.map((row) => row.kind), ['message', 'turn-work-summary', 'message', 'user-input'], 'the final pre-question narration remains visible as the assistant handoff after Work')
+assert.equal(handedOffRows[1]?.kind === 'turn-work-summary' ? handedOffRows[1].rows[0]?.id : null, 'handoff-action')
+assert.equal(handedOffRows[2]?.kind === 'message' ? handedOffRows[2].message.id : null, 'handoff-purpose')
+const narrationBeforeActionRows = groupTimelineRowsIntoWorkSummaries({
+    rows: buildTimelineRows(getTimelineEntries([
+        {
+            id: 'before-action-user', role: 'user', text: 'Choose the scope.', turnId: 'turn:question-before-action', streaming: false,
+            createdAt: '2026-08-19T01:00:00.000Z', updatedAt: '2026-08-19T01:00:00.000Z'
+        },
+        {
+            id: 'before-action-narration', role: 'assistant', text: 'I will inspect the current flow.', turnId: 'turn:question-before-action', streaming: false,
+            createdAt: '2026-08-19T01:00:00.250Z', updatedAt: '2026-08-19T01:00:00.250Z'
+        }
+    ], [{
+        id: 'before-action-read', kind: 'file-read', tone: 'tool', summary: 'Read file', detail: 'src/app.ts',
+        turnId: 'turn:question-before-action', createdAt: '2026-08-19T01:00:00.500Z', payload: { status: 'completed' }
+    }], [], [{
+        id: 'before-action-questions', requestId: 'request:before-action', questions, status: 'pending', answers: null,
+        responseMessageId: null, turnId: 'turn:question-before-action', createdAt: '2026-08-19T01:00:01.000Z', resolvedAt: null
+    }]), false, null),
+    messages: [],
+    turnUsageById: new Map(),
+    latestAssistantMessageId: 'before-action-narration',
+    latestTurnStartedAt: '2026-08-19T01:00:00.000Z',
+    isWorking: false
+})
+assert.deepEqual(narrationBeforeActionRows.map((row) => row.kind), ['message', 'turn-work-summary', 'user-input'], 'narration followed by an Action keeps its original chronological place inside Work')
 const pageScopedQuestions = getTimelineEntries([{
     id: 'latest-page-message', role: 'user', text: 'Newest loaded turn', turnId: 'turn:newest', streaming: false,
     createdAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-08-20T00:00:00.000Z'
@@ -226,7 +254,8 @@ assert.match(collaborationMode.settings.developer_instructions, /Use request_use
 assert.match(collaborationMode.settings.developer_instructions, /<proposed_plan>/)
 assert.doesNotMatch(collaborationMode.settings.developer_instructions, /Do not call request_user_input in Default mode/)
 const questionFieldSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantPendingUserInputQuestionField.tsx', import.meta.url), 'utf8')
-const inlineQuestionSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineQuestionSet.tsx', import.meta.url), 'utf8')
+const pendingQuestionSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantPendingUserInputPanel.tsx', import.meta.url), 'utf8')
+const questionResponseSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantQuestionResponse.tsx', import.meta.url), 'utf8')
 const composerPaneSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantConversationComposerPane.tsx', import.meta.url), 'utf8')
 const timelineSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimeline.tsx', import.meta.url), 'utf8')
 const bridgeSource = readFileSync(new URL('../../src/zyra-ui-bridge.mjs', import.meta.url), 'utf8')
@@ -238,15 +267,19 @@ const conversationSource = readFileSync(new URL('../src/renderer/src/pages/assis
 const planCardSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineProposedPlan.tsx', import.meta.url), 'utf8')
 assert.match(questionFieldSource, /DndContext[\s\S]*SortableContext/, 'ranking answers use sortable pointer dragging')
 assert.match(questionFieldSource, /CSS\.Transform\.toString\(transform\)/, 'the complete ranking row follows the pointer')
-assert.match(inlineQuestionSource, /input\.questions\.map/, 'all questions render in one flat inline form')
-assert.match(inlineQuestionSource, /Asked \$\{count\}/, 'pending handoffs expose an Asked N questions boundary')
-assert.match(inlineQuestionSource, /Answered \{count\}/, 'completed handoffs collapse to Answered N questions')
-assert.match(inlineQuestionSource, /Your answers will continue as a new message/, 'the continuation semantics are visible at submission')
-assert.match(inlineQuestionSource, /responseMessageId/, 'resolved question sets retain a link to their answer message')
-assert.match(inlineQuestionSource, /submittingRef\.current/, 'rapid clicks cannot submit the same answer form twice')
-assert.doesNotMatch(composerPaneSource, /AssistantPendingUserInputPanel/, 'normal structured questions no longer replace the composer')
+assert.match(pendingQuestionSource, /AssistantPendingUserInputStage/, 'the existing guided questionnaire remains the composer-owned input')
+assert.match(pendingQuestionSource, /data-assistant-composer-hitbox="true"/, 'questionnaire wheel and pointer input stay inside the composer surface')
+assert.match(pendingQuestionSource, /onRespond\(activePrompt\.requestId, resolvedAnswers\)/, 'finishing the composer questionnaire submits one linked answer set')
+assert.match(pendingQuestionSource, /responding \? 'Submitting' : isReviewStep \? 'Submit'/, 'the settled review step exposes a direct Submit action')
+assert.match(questionResponseSource, /Responded to agent question/, 'the linked user bubble identifies question responses')
+assert.match(questionResponseSource, /Show more/, 'multiple answers collapse behind a compact Show more control')
+assert.match(questionResponseSource, /input\.questions\.map/, 'the dedicated modal presents every question and answer')
+assert.match(composerPaneSource, /AssistantPendingUserInputPanel/, 'normal structured questions replace the composer with its questionnaire')
+assert.match(composerPaneSource, /userInputResponding/, 'question submission owns a dedicated single-flight state instead of stale command work')
 assert.match(composerPaneSource, /AssistantPendingApprovalPanel/, 'approvals remain blocking composer actions')
-assert.match(timelineSource, /AssistantTimelineQuestionSet/, 'structured questions render in the timeline')
+assert.doesNotMatch(timelineSource, /AssistantTimelineQuestionSet/, 'pending questionnaires no longer render inside the timeline')
+assert.match(timelineSource, /\.filter\(\(row\) => row\.kind !== 'user-input'\)/, 'question handoffs reserve no virtualized timeline height')
+assert.match(timelineSource, /questionResponseByMessageId/, 'resolved question sets decorate their linked normal user message')
 assert.match(bridgeSource, /deferred: true/, 'the runtime bridge hands questions off without blocking the model turn')
 assert.match(requestToolSource, /terminate: true/, 'the handoff terminates the current tool turn cleanly')
 assert.match(sessionActionsSource, /responseMessageId[\s\S]*sendAssistantPromptAction/, 'submitted answers reserve a linked user message and use the normal prompt path')

@@ -18,8 +18,6 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     activities: AssistantActivity[]
     proposedPlans?: AssistantProposedPlan[]
     userInputs: AssistantPendingUserInput[]
-    userInputResponding: boolean
-    onRespondUserInput: (requestId: string, answers: Record<string, string | string[]>) => Promise<void>
     sessionMode: 'work' | 'playground'
     latestProjectLabel: string
     projectTitle: string | null
@@ -118,8 +116,6 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         activities={props.activities}
                         proposedPlans={props.proposedPlans || []}
                         userInputs={props.userInputs}
-                        userInputResponding={props.userInputResponding}
-                        onRespondUserInput={props.onRespondUserInput}
                         sessionMode={props.sessionMode}
                         projectLabel={projectRootPath ? props.latestProjectLabel : null}
                         projectTitle={projectRootPath}

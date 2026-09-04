@@ -8,6 +8,7 @@ interface SyntaxPreviewProps {
     content: unknown
     language: string
     filePath?: string
+    modelPath?: string
     projectPath?: string
     gitDiffText?: string
     readOnly?: boolean
@@ -19,6 +20,7 @@ interface SyntaxPreviewProps {
     findRequestToken?: number
     replaceRequestToken?: number
     focusLine?: number | null
+    lineNumberStart?: number
     height?: string
     lineMarkersOverride?: import('./gitDiff').GitLineMarker[]
 }
@@ -61,6 +63,7 @@ export default function SyntaxPreview({
     content,
     language,
     filePath,
+    modelPath: modelPathOverride,
     projectPath,
     gitDiffText,
     readOnly = true,
@@ -72,16 +75,22 @@ export default function SyntaxPreview({
     findRequestToken,
     replaceRequestToken,
     focusLine,
+    lineNumberStart = 1,
     height,
     lineMarkersOverride
 }: SyntaxPreviewProps) {
     const safeContent = normalizeSyntaxContent(content)
     const monacoLanguage = resolveMonacoLanguage(language)
     const isLargeFile = safeContent.length > 300_000
-    const modelPath = toMonacoModelPath(filePath)
+    const modelPath = modelPathOverride || toMonacoModelPath(filePath)
 
     return (
-        <div className="devscope-monaco-preview w-full h-full min-h-0" style={{ height: height || '100%', background: 'var(--color-card)' }}>
+        <div
+            className="devscope-monaco-preview w-full h-full min-h-0"
+            style={{ height: height || '100%', background: 'var(--color-card)' }}
+            data-syntax-preview-line-start={lineNumberStart}
+            data-syntax-preview-model-path={modelPath}
+        >
             <Suspense
                 fallback={<PreviewContentSkeleton label="Rendering file..." />}
             >
@@ -102,6 +111,7 @@ export default function SyntaxPreview({
                     findRequestToken={findRequestToken}
                     replaceRequestToken={replaceRequestToken}
                     focusLine={focusLine}
+                    lineNumberStart={lineNumberStart}
                     lineMarkersOverride={lineMarkersOverride}
                 />
             </Suspense>

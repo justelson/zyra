@@ -114,6 +114,7 @@ interface MonacoPreviewEditorProps {
     findRequestToken?: number
     replaceRequestToken?: number
     focusLine?: number | null
+    lineNumberStart?: number
     lineMarkersOverride?: GitLineMarker[]
 }
 
@@ -213,6 +214,7 @@ export default function MonacoPreviewEditor({
     findRequestToken = 0,
     replaceRequestToken = 0,
     focusLine = null,
+    lineNumberStart = 1,
     lineMarkersOverride
 }: MonacoPreviewEditorProps) {
     const { settings } = useSettings()
@@ -395,6 +397,9 @@ export default function MonacoPreviewEditor({
             selectionHighlight: !readOnly,
             quickSuggestions: !readOnly,
             wordWrap,
+            lineNumbers: lineNumberStart > 1
+                ? (lineNumber) => String(lineNumber + lineNumberStart - 1)
+                : 'on',
             fontFamily: getAppearanceCodeFontStack(settings.appearanceCodeFont),
             fontSize,
             minimap: {
@@ -421,7 +426,7 @@ export default function MonacoPreviewEditor({
             lineHeight: 18,
             padding: { top: 10, bottom: 10 }
         }
-    }, [compactLayout, fontSize, isLargeFile, minimapEnabled, readOnly, settings.appearanceCodeFont, themeRevision, wordWrap])
+    }, [compactLayout, fontSize, isLargeFile, lineNumberStart, minimapEnabled, readOnly, settings.appearanceCodeFont, themeRevision, wordWrap])
 
     useEffect(() => {
         if (findRequestToken <= 0) return

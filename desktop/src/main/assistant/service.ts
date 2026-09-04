@@ -71,6 +71,10 @@ import { classifyAnalyticsErrorCode as classifyAnalyticsError } from '../../shar
 import { findAssistantMessageReplayDuplicateIds, preserveCanonicalUserReplayBoundaries } from '../../shared/assistant/message-reconciliation'
 import { replaceSerializedAssistantImageAttachments } from '../../shared/assistant/message-attachments'
 import { reconcileAssistantUserInputResponseMessageIds } from '../../shared/assistant/user-input-continuation'
+import {
+    ASSISTANT_ACTION_BATCH_TOOL_NAME,
+    normalizeAssistantActionBatchIntent
+} from '../../shared/assistant/action-batch-intent'
 import { isAssistantTitleGenerationPrompt } from '../../shared/assistant/title-generation'
 import { AssistantTextDeltaBuffer } from './assistant-text-delta-buffer'
 import { AssistantActivityDeltaBuffer } from './assistant-activity-delta-buffer'
@@ -3375,6 +3379,7 @@ export function projectCanonicalTimeline(
         outcome: NonNullable<AssistantActivity['turnTerminalOutcome']>
     }>()
     let activeTurnId: string | null = null
+    let activeActionBatchIntent: string | null = null
     let suppressInternalTitleTurn = false
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
         const entryValue = entries[entryIndex]
@@ -3415,10 +3420,12 @@ export function projectCanonicalTimeline(
         const text = canonicalMessageText(content)
         if (role === 'user') {
             suppressInternalTitleTurn = isAssistantTitleGenerationPrompt(text)
+            activeActionBatchIntent = null
             activeTurnId = suppressInternalTitleTurn ? null : `shared-turn:${key}:${sourceMessageId}`
         } else if (role === 'assistant' && !activeTurnId && !suppressInternalTitleTurn) {
             activeTurnId = `shared-turn:${key}:${sourceMessageId}`
         }
+        if (role === 'assistant' && text) activeActionBatchIntent = null
 
         if (suppressInternalTitleTurn) {
             if (role === 'user' || role === 'assistant' || role === 'system') legacyMessageIds.add(messageId)
@@ -3500,6 +3507,11 @@ export function projectCanonicalTimeline(
             const toolName = String(part['name'] || 'tool')
             const args = asCanonicalRecord(part['arguments'])
             const activityId = `zyra-tool-${toolCallId}`
+            if (toolName.trim().toLowerCase() === ASSISTANT_ACTION_BATCH_TOOL_NAME) {
+                activeActionBatchIntent = normalizeAssistantActionBatchIntent(args?.['title'])
+                legacyActivityIds.add(activityId)
+                continue
+            }
             const classified = classifyZyraToolActivity({
                 toolName,
                 args,
@@ -3533,6 +3545,7 @@ export function projectCanonicalTimeline(
                     toolName,
                     args: part['arguments'],
                     toolCallId,
+                    actionBatchIntent: activeActionBatchIntent || undefined,
                     canonicalMessageId: messageId
                 }
             })
@@ -3543,6 +3556,10 @@ export function projectCanonicalTimeline(
             const activityId = `zyra-tool-${toolCallId}`
             const existing = activities.get(activityId)
             const toolName = String(message['toolName'] || existing?.payload?.['toolName'] || 'tool')
+            if (toolName.trim().toLowerCase() === ASSISTANT_ACTION_BATCH_TOOL_NAME) {
+                legacyActivityIds.add(activityId)
+                continue
+            }
             const args = asCanonicalRecord(existing?.payload?.['args'])
             const projected = projectCanonicalToolResult({
                 canonicalChatId,

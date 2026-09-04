@@ -130,6 +130,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const [renameDraft, setRenameDraft] = useState('')
     const [sessionToDelete, setSessionToDelete] = useState<AssistantSession | null>(null)
     const [headerActionPending, setHeaderActionPending] = useState<'rename' | 'project' | 'project-chat' | 'archive' | 'delete' | null>(null)
+    const [respondingUserInputRequestId, setRespondingUserInputRequestId] = useState<string | null>(null)
+    const respondingUserInputRequestIdRef = useRef<string | null>(null)
     const composerInsetEndRef = useRef(0)
     const composerInsetTargetRef = useRef(0)
     const composerInsetFrameRef = useRef<number | null>(null)
@@ -716,7 +718,15 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     }, [actions])
 
     const handleRespondUserInput = useCallback(async (requestId: string, answers: Record<string, string | string[]>) => {
-        await actions.respondUserInput(requestId, answers)
+        if (respondingUserInputRequestIdRef.current) return
+        respondingUserInputRequestIdRef.current = requestId
+        setRespondingUserInputRequestId(requestId)
+        try {
+            await actions.respondUserInput(requestId, answers)
+        } finally {
+            if (respondingUserInputRequestIdRef.current === requestId) respondingUserInputRequestIdRef.current = null
+            setRespondingUserInputRequestId((current) => current === requestId ? null : current)
+        }
     }, [actions])
 
     const handleApprovePendingPlaygroundLabRequest = useCallback(async (input: { title?: string; source: 'empty' | 'git-clone'; repoUrl?: string }) => {
@@ -1118,8 +1128,6 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             activities={controller.activityFeed}
                             proposedPlans={controller.activeThread?.proposedPlans || []}
                             userInputs={controller.activeThread?.pendingUserInputs || []}
-                            userInputResponding={controller.commandPending}
-                            onRespondUserInput={handleRespondUserInput}
                             sessionMode={selectedSessionMode}
                             latestProjectLabel={latestProjectLabel}
                             projectTitle={displayProjectPath || null}
@@ -1191,6 +1199,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         pendingControlGrants={pendingControlGrants}
                         controlTargets={controlState?.targets || []}
                         pendingUserInputs={effectivePendingUserInputs}
+                        userInputResponding={Boolean(
+                            respondingUserInputRequestId
+                            && effectivePendingUserInputs.some((input) => input.requestId === respondingUserInputRequestId)
+                        )}
                         commandPending={!newChatHandoffActive && controller.commandPending}
                         composerDisabled={newChatHandoffActive}
                         sending={sendingComposerPrompt}

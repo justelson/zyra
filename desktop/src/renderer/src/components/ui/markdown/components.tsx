@@ -1,6 +1,6 @@
 import type { Components } from 'react-markdown'
 import { Children, Fragment, cloneElement, isValidElement, useEffect, useState, type HTMLAttributes, type ImgHTMLAttributes, type ReactNode } from 'react'
-import { AlertTriangle, ImageOff, Info, Lightbulb, Link2, ShieldAlert, Siren } from 'lucide-react'
+import { AlertTriangle, ImageOff, Info, Lightbulb, Link2, ShieldAlert, Siren, VideoOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CodeBlock, InlineCode } from './CodeElements'
 import { renderColorAwareChildren } from './colorTokens'
@@ -14,6 +14,7 @@ type DivProps = HTMLAttributes<HTMLDivElement> & { align?: string }
 type SourceProps = HTMLAttributes<HTMLSourceElement> & { src?: string; srcSet?: string }
 type ParagraphProps = HTMLAttributes<HTMLParagraphElement> & { align?: string }
 type HeadingProps = HTMLAttributes<HTMLHeadingElement> & { align?: string }
+type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
 
 type MarkdownAlertType = 'tip' | 'note' | 'important' | 'warning' | 'caution'
 
@@ -125,6 +126,51 @@ function HeadingPermalink({ id }: { id?: string }) {
     )
 }
 
+const MARKDOWN_VIDEO_EXTENSION_PATTERN = /\.(?:mp4|webm|ogv|mov|m4v)(?:[?#].*)?$/i
+
+function isMarkdownVideoHref(value: string): boolean {
+    return MARKDOWN_VIDEO_EXTENSION_PATTERN.test(value.trim())
+}
+
+function MarkdownVideo(props: {
+    href: string
+    label: string
+    filePath?: string
+}) {
+    const resolvedSource = resolveImageSrc(props.href, props.filePath)
+    const [failedSource, setFailedSource] = useState<string | null>(null)
+
+    useEffect(() => {
+        setFailedSource((current) => current === resolvedSource ? current : null)
+    }, [resolvedSource])
+
+    if (failedSource === resolvedSource) {
+        return (
+            <span className="markdown-video-unavailable" data-markdown-copy={`[${props.label}](${props.href})`}>
+                <VideoOff size={17} aria-hidden="true" />
+                <span>{props.label || 'Video unavailable'}</span>
+            </span>
+        )
+    }
+
+    return (
+        <span className="markdown-video-frame" data-markdown-copy={`[${props.label}](${props.href})`}>
+            <video
+                controls
+                preload="metadata"
+                playsInline
+                src={resolvedSource}
+                data-markdown-video-target={props.href}
+                aria-label={props.label || 'Video'}
+                onError={() => setFailedSource(resolvedSource)}
+            >
+                <a href={resolvedSource}>Open video</a>
+            </video>
+            {props.label ? <span className="markdown-video-caption">{props.label}</span> : null}
+        </span>
+    )
+}
+
 function MarkdownImage({
     src,
     rawSrc,
@@ -197,6 +243,7 @@ export function createMarkdownComponents(
         deferCodeHighlighting?: boolean
         visualTheme?: 'light' | 'dark'
         onInternalLinkClick?: (href: string) => Promise<boolean | void> | boolean | void
+        mediaMode?: MarkdownMediaMode
     }
 ): Components {
     return {
@@ -245,6 +292,10 @@ export function createMarkdownComponents(
             const internalTarget = rawHref ? resolveMarkdownLinkTarget(rawHref, filePath) : null
             const childText = flattenNodeText(children).trim()
             const renderedChildren = renderColorAwareChildren(children, 'a')
+
+            if (options?.mediaMode === 'images-and-videos' && isMarkdownVideoHref(rawHref)) {
+                return <MarkdownVideo href={rawHref} label={childText} filePath={filePath} />
+            }
 
             if (isAnchorLink) {
                 return (
@@ -458,7 +509,9 @@ export function createMarkdownComponents(
             )
         },
         hr: () => <hr className="my-6 border-white/10" />,
-        img: ({ src, alt, ...props }) => (
+        img: ({ src, alt, ...props }) => options?.mediaMode === 'none' ? (
+            <span data-markdown-media-suppressed="image">{alt || ''}</span>
+        ) : (
             <MarkdownImage
                 {...props}
                 src={resolveImageSrc(src || '', filePath)}
@@ -466,12 +519,12 @@ export function createMarkdownComponents(
                 alt={alt || ''}
             />
         ),
-        picture: ({ children }) => (
+        picture: ({ children }) => options?.mediaMode === 'none' ? null : (
             <picture className="my-4 block max-w-full">
                 {children}
             </picture>
         ),
-        source: ({ src, srcSet, ...props }: SourceProps) => (
+        source: ({ src, srcSet, ...props }: SourceProps) => options?.mediaMode === 'none' ? null : (
             <source
                 {...props}
                 src={src ? resolveImageSrc(src, filePath) : undefined}

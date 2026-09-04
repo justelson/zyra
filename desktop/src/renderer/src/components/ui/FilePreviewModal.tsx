@@ -52,6 +52,7 @@ export function FilePreviewModal({
     onSelectPreviewTab,
     onClosePreviewTab,
     onReorderPreviewTabs,
+    previewBody,
     mediaItems = [],
     navigationSidebar,
     onSaved,
@@ -584,6 +585,7 @@ export function FilePreviewModal({
             jsonDiagnostic={jsonDiagnostic}
             isEditorToolsEnabled={isEditorToolsEnabled}
             pythonPanel={pythonOutputPanel}
+            previewBody={previewBody}
             previewBottomOverlay={terminalPanel}
             previewBottomOverlayPadding={previewBottomOverlayPadding}
             showUnsavedModal={showUnsavedModal}

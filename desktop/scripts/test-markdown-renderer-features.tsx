@@ -36,6 +36,8 @@ A note with a footnote.[^1]
 
 ![Architecture](./missing-architecture.png)
 
+[Recorded demo](./demo.mp4)
+
 [Timeline source](./src/AssistantVirtualTimeline.tsx:42)
 
 The implementation also lives in desktop/src/renderer/src/pages/assistant/AssistantVirtualTimeline.tsx:42.
@@ -138,6 +140,28 @@ assert.match(markup, /href="#user-content-fn-1"/, 'footnote references retain th
 assert.match(markup, /loading="lazy"/)
 assert.match(markup, /decoding="async"/, 'document images avoid blocking initial layout')
 assert.match(markup, /data-markdown-image-target="\.\/missing-architecture\.png"/, 'images open through the shared target interaction layer')
+assert.doesNotMatch(markup, /<video\b/, 'ordinary Markdown surfaces do not promote video links into players')
+const finalMediaMarkup = renderToStaticMarkup(createElement(Fragment, null, prepareMarkdownRender({
+    content,
+    cacheKey: 'markdown-renderer-features:final-media:v1',
+    filePath: 'C:/workspace/README.md',
+    mediaMode: 'images-and-videos'
+})))
+assert.match(finalMediaMarkup, /<video[^>]*controls=""[^>]*preload="metadata"/, 'intentional final-response video links render as controlled inline players')
+assert.match(finalMediaMarkup, /data-markdown-video-target="\.\/demo\.mp4"/, 'the player preserves its authored target for inspection')
+assert.doesNotMatch(finalMediaMarkup, /autoplay/i, 'final-response videos never autoplay')
+const unsafeMediaMarkup = renderToStaticMarkup(createElement(Fragment, null, prepareMarkdownRender({
+    content: '[Unsafe demo](javascript:alert(1).mp4)',
+    cacheKey: 'markdown-renderer-features:unsafe-media:v1',
+    mediaMode: 'images-and-videos'
+})))
+assert.doesNotMatch(unsafeMediaMarkup, /<video\b|javascript:/i, 'unsafe Markdown URLs cannot enter the native video player')
+const audioLinkMarkup = renderToStaticMarkup(createElement(Fragment, null, prepareMarkdownRender({
+    content: '[Audio recording](./recording.ogg)',
+    cacheKey: 'markdown-renderer-features:audio-link:v1',
+    mediaMode: 'images-and-videos'
+})))
+assert.doesNotMatch(audioLinkMarkup, /<video\b/, 'ambiguous Ogg audio links remain links rather than blank video players')
 assert.match(markup, /data-markdown-file-link=""/, 'local Markdown links render as inline file tags')
 assert.doesNotMatch(markup, /markdown-path-peek/, 'local file tags do not mount hover preview cards')
 assert.match(markup, /data-markdown-copy="desktop\/src\/renderer\/src\/pages\/assistant\/AssistantVirtualTimeline\.tsx:42"/, 'verified-looking plain paths are enhanced without changing copied prose')
@@ -162,6 +186,9 @@ assert.doesNotMatch(markup, /<script/i, 'raw scripts are stripped')
 assert.doesNotMatch(markup, /<iframe/i, 'raw embeds are stripped')
 
 const rendererSource = readFileSync(new URL('../src/renderer/src/components/ui/MarkdownRenderer.tsx', import.meta.url), 'utf8')
+const timelineRowsSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineRows.tsx', import.meta.url), 'utf8')
+assert.equal((timelineRowsSource.match(/mediaMode="images-and-videos"/g) || []).length, 1, 'only the settled final assistant response opts into inline video rendering')
+assert.match(timelineRowsSource, /mediaMode="none"/, 'streaming and Work narration suppress assistant-authored media projection')
 const codeSource = readFileSync(new URL('../src/renderer/src/components/ui/markdown/CodeElements.tsx', import.meta.url), 'utf8')
 const timelineTextSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineText.tsx', import.meta.url), 'utf8')
 assert.match(timelineTextSource, /<MarkdownRenderer\s+content=\{content\}/, 'sent user prompts use the shared safe Markdown renderer')

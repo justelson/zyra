@@ -138,6 +138,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         jsonDiagnostic,
         isEditorToolsEnabled,
         pythonPanel,
+        previewBody,
         previewBottomOverlay,
         previewBottomOverlayPadding = 0,
         previewModeEnabled,
@@ -203,7 +204,8 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
     const previewSurfaceBackgroundClass = file.type === 'md' && mode === 'preview'
         ? 'bg-sparkle-card'
         : 'bg-sparkle-bg'
-    const lockPreviewBodyHeight = mode === 'edit'
+    const lockPreviewBodyHeight = Boolean(previewBody)
+        || mode === 'edit'
         || isCsv
         || isHtml
         || hasBottomPanel
@@ -212,6 +214,13 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
     const isWindowShell = shellMode === 'window'
 
     function renderPreviewBody(fillEditorHeight: boolean) {
+        if (previewBody) {
+            return (
+                <div className="h-full min-h-0" data-file-preview-custom-body="true">
+                    {previewBody}
+                </div>
+            )
+        }
         return (
             <PreviewErrorBoundary resetKey={previewResetKey}>
                 <PreviewBody
@@ -316,7 +325,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
             previewSurfaceRef={previewSurfaceRef}
             centerHtmlRenderedPreview={centerHtmlRenderedPreview}
             isCompactHtmlViewport={isCompactHtmlViewport}
-            overflowLocked={mode === 'edit' || isCsv || isHtml || hasBottomPanel}
+            overflowLocked={Boolean(previewBody) || mode === 'edit' || isCsv || isHtml || hasBottomPanel}
             surfaceBackgroundClass={previewSurfaceBackgroundClass}
             shouldStretchPreviewBody={shouldStretchPreviewBody}
             hasBottomPanel={hasBottomPanel}

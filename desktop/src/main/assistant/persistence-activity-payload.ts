@@ -10,6 +10,7 @@ const COMPACT_PAYLOAD_KEYS = [
     'toolName',
     'toolCallId',
     'canonicalMessageId',
+    'actionBatchIntent',
     'historyBodyRef',
     'args',
     'paths',

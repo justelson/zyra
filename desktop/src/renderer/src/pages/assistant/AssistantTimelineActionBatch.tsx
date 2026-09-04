@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, ListTree, Loader2 } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
+import { readAssistantActionBatchIntent } from '@shared/assistant/action-batch-intent'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
 import { getAssistantActionTitle } from './assistant-action-presentation'
@@ -22,7 +23,11 @@ export function AssistantTimelineActionBatch(props: {
         || props.activities.at(-1)!
     const running = props.activities.some((activity) => getActivityStatus(activity) === 'running')
     const failed = props.activities.some((activity) => getActivityStatus(activity) === 'failed')
-    const title = getAssistantActionTitle(currentActivity, props.projectRootPath)
+    const currentActionTitle = getAssistantActionTitle(currentActivity, props.projectRootPath)
+    const settledIntent = [...props.activities].reverse()
+        .map(readAssistantActionBatchIntent)
+        .find((value): value is string => Boolean(value)) || null
+    const title = running ? currentActionTitle : settledIntent || currentActionTitle
     const elapsed = useMemo(
         () => getActivityElapsed(currentActivity, running ? nowIso : null),
         [currentActivity, nowIso, running]
@@ -42,7 +47,8 @@ export function AssistantTimelineActionBatch(props: {
         <div
             className="max-w-4xl py-0.5"
             data-assistant-action-batch="true"
-            data-current-action-intent={title}
+            data-current-action-intent={currentActionTitle}
+            data-settled-action-intent={!running && settledIntent ? settledIntent : undefined}
         >
             <button
                 ref={triggerRef}
@@ -65,7 +71,7 @@ export function AssistantTimelineActionBatch(props: {
                 </span>
                 <span className={cn(
                     'min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-sparkle-text-secondary group-hover/action-batch:text-sparkle-text',
-                    running && 'assistant-action-intent-shimmer assistant-model-name-shimmer'
+                    running && 'assistant-title-shimmer'
                 )}>
                     {title}
                 </span>

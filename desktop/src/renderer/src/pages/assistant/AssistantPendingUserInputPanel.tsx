@@ -331,7 +331,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         ? `${activePrompt.requestId}:review`
         : `${activePrompt.requestId}:${activeQuestion?.id || questionIndex}`
     const answeredAllQuestions = progress.answeredQuestionCount >= activePrompt.questions.length
-    const actionLabel = responding ? 'Finish' : isReviewStep ? 'Finish' : returnToReview ? 'Back to review' : 'Continue'
+    const actionLabel = responding ? 'Submitting' : isReviewStep ? 'Submit' : returnToReview ? 'Back to review' : 'Continue'
     const canAdvance = isReviewStep ? answeredAllQuestions : progress.hasAnswer
     const reviewAnswers = activePrompt.questions.map((question, index) => ({
         question,
@@ -407,7 +407,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     }, [animatedStageKey])
 
     return (
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-3xl" data-assistant-composer-hitbox="true">
             <div ref={composerController.composerRootRef} className="pointer-events-auto relative z-10">
                 <div className="group rounded-[20px] border border-white/10 bg-sparkle-card transition-[border-color,box-shadow] duration-200">
                     <div className="relative px-3 pb-1.5 pt-2 sm:px-4 sm:pt-2">

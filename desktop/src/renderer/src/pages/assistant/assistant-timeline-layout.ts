@@ -4,7 +4,7 @@ export function getTerminalOutputHeightClass(
     status: TimelineActivityStatus,
     runningCommandCount: number
 ): string {
-    if (status !== 'running') return 'h-32 sm:h-36'
+    if (status !== 'running') return 'max-h-32 sm:max-h-36'
 
     // Bottom anchoring scrolls the top padding away, so reserve the visible
     // lines plus the remaining 10px bottom padding: 1 line / 5 lines exactly.

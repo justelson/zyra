@@ -11,7 +11,7 @@ Run these from the repository root unless the command says otherwise.
 | JavaScript syntax only | `npm run check:syntax` | Parse-only validation for the maintained JavaScript target list |
 | Normal CLI iteration | `npm run check:quick` | JavaScript syntax and fast deterministic core contracts |
 | CLI/runtime checkpoint | `npm run check:core` | Every core CLI suite; excludes desktop integration |
-| Desktop integration checkpoint | `npm run check:desktop` | Browser, fleet, and agent-platform desktop suites, serially |
+| Desktop integration checkpoint | `npm run check:desktop` | Assistant timeline, handoff, Markdown, Browser, fleet, and agent-platform suites, serially |
 | Merge/release gate | `npm run check` | Core, desktop, and doctor checks |
 | Inspect available check modes | `npm run check:help` | Prints runner modes and concurrency control |
 | Desktop UI development | `npm run ui:dev` | Electron/Vite development server with HMR |

@@ -105,6 +105,7 @@ export type PreviewModalLayoutProps = {
     jsonDiagnostic: { ok: boolean; message: string } | null
     isEditorToolsEnabled: boolean
     pythonPanel: ReactNode
+    previewBody?: ReactNode
     previewBottomOverlay?: ReactNode
     previewBottomOverlayPadding?: number
     previewModeEnabled: boolean

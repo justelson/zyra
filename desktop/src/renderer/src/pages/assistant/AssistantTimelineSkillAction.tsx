@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Loader2, Puzzle, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, Loader2, Puzzle } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
+import FilePreviewModal from '@/components/ui/FilePreviewModal'
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer'
+import SyntaxPreview from '@/components/ui/file-preview/SyntaxPreview'
+import { cn } from '@/lib/utils'
 import { AssistantTimelineActionShell } from './AssistantTimelineActionShell'
 import {
     getAssistantActionTarget,
@@ -12,15 +14,12 @@ import {
 } from './assistant-action-presentation'
 import { parseAssistantSkillSnapshot } from './assistant-skill-snapshot'
 import { getActivityElapsed, getActivityStatus } from './assistant-timeline-helpers'
-import { getAssistantRelativeFilePath } from './assistant-file-navigation'
 import { useAssistantHydratedActivity } from './useAssistantHydratedActivity'
 
-function yamlValueClass(kind: ReturnType<typeof parseAssistantSkillSnapshot>['frontmatter'][number]['valueKind']): string {
-    if (kind === 'boolean') return 'text-fuchsia-300/85'
-    if (kind === 'number') return 'text-amber-300/85'
-    if (kind === 'null') return 'text-red-300/75'
-    if (kind === 'collection') return 'text-violet-300/85'
-    return 'text-emerald-200/80'
+function withoutDuplicateSkillHeading(body: string, name: string): string {
+    const match = body.match(/^#\s+(.+?)\s*(?:\n+|$)/)
+    if (!match || match[1]?.trim().toLowerCase() !== name.trim().toLowerCase()) return body
+    return body.slice(match[0].length).replace(/^\n+/, '')
 }
 
 export function AssistantSkillSnapshotPreview(props: {
@@ -29,70 +28,87 @@ export function AssistantSkillSnapshotPreview(props: {
     onClose: () => void
 }) {
     const captured = getAssistantCapturedRead(props.activity)
-    const name = getAssistantSkillName(props.activity) || 'Skill'
     const snapshot = parseAssistantSkillSnapshot(captured?.content || '')
+    const name = snapshot.name || getAssistantSkillName(props.activity) || 'Skill'
+    const body = useMemo(() => withoutDuplicateSkillHeading(snapshot.body, name), [name, snapshot.body])
+    const [showSource, setShowSource] = useState(false)
+    const capturedPath = captured?.path || `${name}/SKILL.md`
+    const fileName = capturedPath.replace(/\\/g, '/').split('/').pop() || 'SKILL.md'
     return (
-        <section className="flex h-[min(82vh,820px)] w-[min(880px,94vw)] min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[color-mix(in_srgb,var(--color-card)_97%,black)] shadow-[0_28px_90px_rgba(0,0,0,0.52)]">
-            <header className="flex min-h-12 items-center gap-3 border-b border-white/[0.07] px-4">
-                <Puzzle size={15} className="text-[var(--accent-primary)]" />
-                <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-semibold text-sparkle-text">{name}</p>
-                    <p className="truncate font-mono text-[9px] text-sparkle-text-muted">
-                        {captured ? getAssistantRelativeFilePath(captured.path, props.projectRootPath) : 'Captured skill instructions'}
-                        {captured?.startLine && captured.endLine ? ` · lines ${captured.startLine}–${captured.endLine}` : ''}
-                    </p>
-                </div>
-                <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-sparkle-text-muted">Captured</span>
-                <button type="button" onClick={props.onClose} className="inline-flex size-7 items-center justify-center rounded-lg text-sparkle-text-muted hover:bg-white/[0.06] hover:text-sparkle-text" aria-label="Close skill snapshot"><X size={14} /></button>
-            </header>
-            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto">
-                {snapshot.frontmatter.length > 0 ? (
-                    <div className="border-b border-white/[0.07] bg-black/15 px-5 py-4 font-mono text-[11px] leading-5" data-assistant-skill-frontmatter="true">
-                        <div className="text-sparkle-text-muted/55">---</div>
-                        {snapshot.frontmatter.map((entry, index) => (
-                            <div key={`${entry.key}:${index}`} className="whitespace-pre-wrap break-words">
-                                {entry.key ? <><span className="text-sky-300/85">{entry.key}</span><span className="text-sparkle-text-muted">: </span></> : null}
-                                <span className={yamlValueClass(entry.valueKind)}>{entry.value}</span>
+        <FilePreviewModal
+            file={{ name: fileName, path: capturedPath, type: 'md', language: 'markdown' }}
+            content={captured?.content || ''}
+            projectPath={props.projectRootPath || undefined}
+            readOnly
+            active
+            chromeContext="peek"
+            previewBytes={new TextEncoder().encode(captured?.content || '').byteLength}
+            onClose={props.onClose}
+            previewBody={(
+                <div className="custom-scrollbar h-full min-h-0 overflow-y-auto" data-assistant-skill-frontmatter="structured">
+                    <article className="mx-auto w-full max-w-3xl px-6 py-7">
+                        <div className="border-b border-[var(--surface-divider)] pb-5">
+                            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--accent-primary)]">
+                                <Puzzle size={13} />
+                                Skill
                             </div>
-                        ))}
-                        <div className="text-sparkle-text-muted/55">---</div>
-                    </div>
-                ) : null}
-                <div className="px-6 py-5">
-                    {snapshot.body ? (
-                        <MarkdownRenderer
-                            content={snapshot.body}
-                            cacheKey={`skill-snapshot:${props.activity.id}:${snapshot.body.length}`}
-                            className="text-[12px] leading-6 text-sparkle-text-secondary [&_h1]:text-xl [&_h2]:mt-7 [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[10px]"
-                        />
-                    ) : <p className="text-[12px] text-sparkle-text-muted">No captured skill text is available.</p>}
-                </div>
-            </div>
-        </section>
-    )
-}
+                            <h1 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-sparkle-text">{name}</h1>
+                            {snapshot.description ? (
+                                <p className="mt-2 max-w-2xl text-[13px] leading-6 text-sparkle-text-secondary">{snapshot.description}</p>
+                            ) : null}
+                        </div>
 
-function SkillSnapshotModal(props: {
-    activity: AssistantActivity
-    projectRootPath?: string | null
-    onClose: () => void
-}) {
-    const name = getAssistantSkillName(props.activity) || 'Skill'
-    useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') props.onClose()
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [props])
-    if (typeof document === 'undefined') return null
-    return createPortal(
-        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/55 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`${name} skill snapshot`} onMouseDown={(event) => {
-            if (event.target === event.currentTarget) props.onClose()
-        }}>
-            <AssistantSkillSnapshotPreview {...props} />
-        </div>,
-        document.body
+                        {snapshot.metadata.length > 0 ? (
+                            <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] border-b border-[var(--surface-divider)] py-3 text-[11px]">
+                                {snapshot.metadata.map((entry, index) => (
+                                    <div key={`${entry.key}:${index}`} className="contents">
+                                        <dt className={cn('py-2 pr-4 font-medium text-sparkle-text-muted', index > 0 && 'border-t border-[var(--surface-divider)]')}>{entry.key || 'metadata'}</dt>
+                                        <dd className={cn('whitespace-pre-wrap break-words py-2 text-sparkle-text-secondary', index > 0 && 'border-t border-[var(--surface-divider)]')}>{entry.value || '—'}</dd>
+                                    </div>
+                                ))}
+                            </dl>
+                        ) : null}
+
+                        <div className="py-6">
+                            {body ? (
+                                <MarkdownRenderer
+                                    content={body}
+                                    cacheKey={`skill-snapshot:${props.activity.id}:${body.length}`}
+                                    filePath={capturedPath}
+                                    className="text-[13px] leading-6 text-sparkle-text-secondary [&_h1]:text-xl [&_h2]:mt-7 [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[11px]"
+                                />
+                            ) : <p className="text-[12px] text-sparkle-text-muted">No captured skill instructions are available.</p>}
+                        </div>
+
+                        <div className="border-t border-[var(--surface-divider)] pt-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowSource((current) => !current)}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                                aria-expanded={showSource}
+                            >
+                                {showSource ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                {showSource ? 'Hide source' : 'View source'}
+                            </button>
+                            {showSource ? (
+                                <div className="mt-2 h-[26rem] overflow-hidden rounded-lg border border-[var(--surface-divider)]">
+                                    <SyntaxPreview
+                                        content={captured?.content || ''}
+                                        language="markdown"
+                                        filePath={capturedPath}
+                                        modelPath={`inmemory://zyra/captured-skill/${encodeURIComponent(props.activity.id)}/SKILL.md`}
+                                        projectPath={props.projectRootPath || undefined}
+                                        readOnly
+                                        wordWrap="on"
+                                        minimapEnabled={false}
+                                    />
+                                </div>
+                            ) : null}
+                        </div>
+                    </article>
+                </div>
+            )}
+        />
     )
 }
 
@@ -117,8 +133,8 @@ export function AssistantTimelineSkillAction(props: {
                 status={status}
                 onToggle={() => { void open() }}
             />
-            {hydrated.error ? <p className="pl-6 text-[10px] text-red-300/75">{hydrated.error}</p> : null}
-            {previewActivity ? <SkillSnapshotModal activity={previewActivity} projectRootPath={props.projectRootPath} onClose={() => setPreviewActivity(null)} /> : null}
+            {hydrated.error ? <p className="pl-6 text-[10px] text-[color-mix(in_srgb,var(--status-danger)_68%,var(--color-text))]">{hydrated.error}</p> : null}
+            {previewActivity ? <AssistantSkillSnapshotPreview activity={previewActivity} projectRootPath={props.projectRootPath} onClose={() => setPreviewActivity(null)} /> : null}
         </>
     )
 }

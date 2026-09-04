@@ -55,7 +55,7 @@ export function AssistantTimelineActionShell(props: {
                 </span>
                 <span className={cn(
                     'min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-sparkle-text-secondary group-hover/action:text-sparkle-text',
-                    props.status === 'running' && 'assistant-action-intent-shimmer assistant-model-name-shimmer'
+                    props.status === 'running' && 'assistant-title-shimmer'
                 )}>
                     {props.title}
                 </span>

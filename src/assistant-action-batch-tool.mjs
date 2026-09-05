@@ -1,4 +1,4 @@
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 
 export const ASSISTANT_ACTION_BATCH_TOOL_NAME = 'begin_action_batch';
 export const ASSISTANT_ACTION_BATCH_INTENT_MAX_LENGTH = 72;

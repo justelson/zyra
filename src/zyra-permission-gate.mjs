@@ -118,7 +118,7 @@ function filesystemRootForPath(value, project, roots, nativePaths = false, toolN
   }
 }
 
-function collectCommandPathHints(command) {
+export function collectCommandPathHints(command, platform = process.platform) {
   const values = [];
   const tokens = String(command || "").match(/"[^"]+"|'[^']+'|[^\s;&|><]+/g) || [];
   for (const tokenValue of tokens) {
@@ -129,6 +129,7 @@ function collectCommandPathHints(command) {
       || /^[a-z]:[\\/]/i.test(token)
       || /^\\\\[^\\]/.test(token)
       || /^~[\\/]/.test(token)
+      || (platform !== "win32" && token.startsWith("/"))
     ) values.push(token);
   }
   return [...new Set(values)];

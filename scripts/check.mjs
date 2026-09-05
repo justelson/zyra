@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const syntaxTargets = [
+  "desktop/scripts/test-runtime-source-imports.mjs",
   "src/permission-paths.mjs",
   "scripts/test-zyra-permission-paths.mjs",
   "scripts/test-zyra-update-isolation.mjs",
@@ -146,6 +147,7 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "desktop/scripts/test-runtime-source-imports.mjs",
   "scripts/test-zyra-permission-paths.mjs",
   "scripts/test-zyra-update-isolation.mjs",
   "scripts/test-zyra-plugin-availability.mjs",

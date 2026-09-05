@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { mkdtemp, mkdir, writeFile, readFile, realpath, symlink, rename, rm } from 'node:fs/promises';
-import { createZyraPermissionGateExtension, describeZyraToolPermission } from '../src/zyra-permission-gate.mjs';
+import { collectCommandPathHints, createZyraPermissionGateExtension, describeZyraToolPermission } from '../src/zyra-permission-gate.mjs';
 import { resolvePermissionPath } from '../src/permission-paths.mjs';
 
 const piEntry = import.meta.resolve('@earendil-works/pi-coding-agent');
@@ -11,6 +11,13 @@ const pi = await import(new URL('./core/tools/path-utils.js', piEntry));
 const { createReadToolDefinition } = await import(new URL('./core/tools/read.js', piEntry));
 const { createWriteToolDefinition } = await import(new URL('./core/tools/write.js', piEntry));
 const { createEditToolDefinition } = await import(new URL('./core/tools/edit.js', piEntry));
+// Exercise the production path-hint parser for every host, even on Windows.
+for (const platform of ['linux', 'darwin', 'win32']) {
+  const hints = (command) => collectCommandPathHints(command, platform);
+  assert.deepEqual(hints('cat "/tmp/approved skill/SKILL.md"'), platform === 'win32' ? [] : ['/tmp/approved skill/SKILL.md'], `${platform}: an explicit POSIX Skill path must reach scope checking`);
+  assert.deepEqual(hints('ls /'), platform === 'win32' ? [] : ['/'], `${platform}: filesystem root must reach scope checking`);
+  if (platform === 'win32') assert.deepEqual(hints('cmd /c echo ready'), [], 'Windows slash switches are not POSIX paths');
+}
 const fixture = await mkdtemp(path.join(os.tmpdir(), 'zyra-permission-paths-'));
 const savedEnv = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 const failures = [];
@@ -196,7 +203,7 @@ try {
   }
   await check('Skill authority remains read-only and nonrecursive', async () => {
     for (const toolName of ['write', 'edit', 'grep', 'find', 'ls']) assert.equal((await skillGate({ toolName, input: { path: path.join(skill, 'SKILL.md') } }))?.block, true);
-    assert.equal((await skillGate({ toolName: 'bash', input: { command: `cat "${path.join(skill, 'SKILL.md')}"` } }))?.block, true);
+    assert.equal((await skillGate({ toolName: 'bash', input: { command: `cat "${path.join(skill, 'SKILL.md')}"` } }))?.block, true, 'explicit shell access to a Skill resource remains blocked');
     for (const inputPath of [skill, path.join(skill, 'missing.md'), path.join(skill, 'escape/note.txt'), path.join(home, 'note.txt'), '~/skill/escape/note.txt', '@~/skill/escape/note.txt', '~/note.txt']) {
       assert.equal((await skillGate({ toolName: 'read', input: { path: inputPath } }))?.block, true);
     }

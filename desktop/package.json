@@ -116,7 +116,7 @@
         "release:validate": "node scripts/release/validate-release-assets.mjs",
         "test:electron-hardening": "bun scripts/test-electron-security-hardening.ts",
         "smoke:electron-hardening": "node scripts/test-electron-security-hardening-smoke.mjs",
-        "test:release-infra": "bun scripts/test-electron-security-hardening.ts && bun scripts/test-desktop-release-contract.ts && bun scripts/test-protected-media-contract.ts && bun scripts/test-desktop-build-version.ts && bun scripts/test-desktop-updater-release-feed.ts && node scripts/test-release-asset-contract.mjs && node ../scripts/test-standalone-tui-signing-contract.mjs",
+        "test:release-infra": "node scripts/test-runtime-source-imports.mjs && bun scripts/test-electron-security-hardening.ts && bun scripts/test-desktop-release-contract.ts && bun scripts/test-protected-media-contract.ts && bun scripts/test-desktop-build-version.ts && bun scripts/test-desktop-updater-release-feed.ts && node scripts/test-release-asset-contract.mjs && node ../scripts/test-standalone-tui-signing-contract.mjs",
         "test:release-readiness": "bun run test:analytics && bun run test:onboarding && bun run test:native-sqlite && bun run test:assistant-account-runtime && bun run test:pi-assistant-lifecycle && bun run test:assistant-realtime-voice && bun run test:assistant-voice-core && bun run test:browser-assistant-bridge && bun scripts/test-platform-window-chrome.ts && bun scripts/test-platform-terminal-launcher.ts",
         "build:mac": "node scripts/release/package-desktop.mjs --platform=macos",
         "build:linux": "node scripts/release/package-desktop.mjs --platform=linux",

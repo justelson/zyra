@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, readdir, lstat } from 'node:fs/promises'
+import { readFile, readdir, lstat, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 export const RUNTIME_SOURCE_DIRECTORIES = Object.freeze(['src', 'analytics', 'prompts', 'agents', 'workflows', 'bin'])
@@ -121,23 +121,106 @@ function packageNameForSpecifier(specifier) {
     return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
 }
 
-async function validateSourceImports(runtimeRoot, sourceFiles, dependencies) {
+function isContained(root, target) {
+    const relative = path.relative(root, target)
+    return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+// Resolve existing ancestors even in source-only stages, where dependencies may be absent.
+async function canonicalImportPath(target) {
+    try {
+        return await realpath(target)
+    } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+        // A dangling link must not be treated as an absent dependency directory.
+        if (await exists(target)) throw new Error(`Unsafe runtime import: dangling link at ${target}`)
+        const parent = path.dirname(target)
+        if (parent === target) throw error
+        return path.join(await canonicalImportPath(parent), path.basename(target))
+    }
+}
+
+function resolveRelativeImport(sourcePath, specifier) {
+    // Do not let URL escapes or platform-specific separators bypass segment checks.
+    if (/[\\\\%?#]/.test(specifier)) throw new Error(`Unsafe runtime import: ${sourcePath} -> ${specifier}`)
+    const segments = path.posix.dirname(sourcePath).split('/')
+    let dependencyDepth = 0
+    for (const segment of specifier.split('/')) {
+        if (!segment || segment === '.') continue
+        if (segment === '..') {
+            if (segments.length === 0 || (dependencyDepth && segments.length <= dependencyDepth)) {
+                throw new Error(`Unsafe runtime import: ${sourcePath} -> ${specifier}`)
+            }
+            segments.pop()
+        } else {
+            segments.push(segment)
+            // Once an import enters node_modules, it cannot traverse out of its package.
+            if (segments[0] === 'node_modules' && segments.length <= 3) {
+                dependencyDepth = segments[1]?.startsWith('@') ? Math.min(segments.length, 3) : Math.min(segments.length, 2)
+            }
+        }
+    }
+    return segments.join('/')
+}
+
+async function validateDependencyImport(runtimeRoot, resolved, dependencies, requireDependencies) {
+    const parts = resolved.split('/')
+    const packageName = packageNameForSpecifier(parts.slice(1).join('/'))
+    if (!packageName || !Object.hasOwn(dependencies, packageName)) {
+        throw new Error(`Runtime source imports undeclared production dependency: ${packageName || resolved}`)
+    }
+    const modulesRoot = path.join(runtimeRoot, 'node_modules')
+    const dependencyRoot = path.join(modulesRoot, ...packageName.split('/'))
+    const target = path.join(runtimeRoot, ...parts)
+    const canonicalRuntime = await realpath(runtimeRoot)
+    const canonicalModules = await canonicalImportPath(modulesRoot)
+    const canonicalDependency = await canonicalImportPath(dependencyRoot)
+    const canonicalTarget = await canonicalImportPath(target)
+    if (!isContained(canonicalRuntime, canonicalModules)
+        || !isContained(canonicalModules, canonicalDependency)
+        || !isContained(canonicalDependency, canonicalTarget)) {
+        throw new Error(`Unsafe runtime import: dependency path escapes staged root: ${resolved}`)
+    }
+    if (requireDependencies) {
+        let stats
+        try {
+            stats = await stat(target)
+        } catch (error) {
+            if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error
+            throw new Error(`Staged runtime dependency import is missing: ${resolved}`)
+        }
+        if (!stats.isFile()) throw new Error(`Staged runtime dependency import is not a file: ${resolved}`)
+    }
+}
+
+async function validateSourceImports(runtimeRoot, sourceFiles, dependencies, requireDependencies) {
     const sourceSet = new Set(sourceFiles.map((entry) => entry.path))
     const externalImports = new Set()
     const declarationPattern = /^\s*(?:import|export)\s+(?:[^'";]*?\sfrom\s*)?["']([^"']+)["']/gm
     const dynamicPattern = /\b(?:import\s*\(|import\.meta\.resolve\s*\()\s*["']([^"']+)["']/g
 
     for (const entry of sourceFiles.filter((item) => item.path.startsWith('src/') && item.path.endsWith('.mjs'))) {
-        const source = await readFile(path.join(runtimeRoot, ...entry.path.split('/')), 'utf8')
+        const sourcePath = path.join(runtimeRoot, ...entry.path.split('/'))
+        if (!isContained(await realpath(runtimeRoot), await realpath(sourcePath))) {
+            throw new Error(`Unsafe runtime import: source escapes staged root: ${entry.path}`)
+        }
+        const source = await readFile(sourcePath, 'utf8')
         const specifiers = [
             ...source.matchAll(declarationPattern),
             ...source.matchAll(dynamicPattern)
         ].map((match) => match[1])
         for (const specifier of specifiers) {
             if (specifier.startsWith('.')) {
-                const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry.path), specifier))
+                const resolved = resolveRelativeImport(entry.path, specifier)
+                if (resolved.startsWith('node_modules/')) {
+                    await validateDependencyImport(runtimeRoot, resolved, dependencies, requireDependencies)
+                    continue
+                }
                 if (!sourceSet.has(resolved)) {
                     throw new Error(`Staged runtime import is missing: ${entry.path} -> ${specifier}`)
+                }
+                if (!isContained(await realpath(runtimeRoot), await realpath(path.join(runtimeRoot, ...resolved.split('/'))))) {
+                    throw new Error(`Unsafe runtime import: source escapes staged root: ${resolved}`)
                 }
                 continue
             }
@@ -147,7 +230,7 @@ async function validateSourceImports(runtimeRoot, sourceFiles, dependencies) {
     }
 
     for (const packageName of externalImports) {
-        if (!(packageName in dependencies)) {
+        if (!Object.hasOwn(dependencies, packageName)) {
             throw new Error(`Runtime source imports undeclared production dependency: ${packageName}`)
         }
     }
@@ -183,7 +266,7 @@ export async function validateRuntimeStage(runtimeRoot, options = {}) {
     for (const requiredFile of REQUIRED_RUNTIME_FILES) {
         if (!sourceFileSet.has(requiredFile)) throw new Error(`Staged runtime is missing required file: ${requiredFile}`)
     }
-    await validateSourceImports(runtimeRoot, manifest.sourceFiles, manifest.dependencies)
+    await validateSourceImports(runtimeRoot, manifest.sourceFiles, manifest.dependencies, requireDependencies)
 
     if (requireDependencies) {
         for (const dependency of Object.keys(manifest.dependencies)) {

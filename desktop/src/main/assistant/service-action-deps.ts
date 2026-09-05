@@ -10,6 +10,7 @@ import type {
     AssistantInteractionMode,
     AssistantModelInfo,
     AssistantPlaygroundState,
+    AssistantPluginSkillSource,
     AssistantReasoningEffort,
     AssistantRuntimeEvent,
     AssistantRuntimeMode,
@@ -27,7 +28,12 @@ import type { AssistantRuntimePolicy } from '../../shared/assistant/runtime-poli
 export interface AssistantRuntimeBridge {
     checkAvailability(): Promise<{ available: boolean; reason: string | null }>
     listModels(forceRefresh?: boolean): Promise<AssistantModelInfo[]>
-    connect(thread: AssistantThread, cwd: string, filesystemScope?: AssistantChatScope | null): Promise<void>
+    connect(
+        thread: AssistantThread,
+        cwd: string,
+        filesystemScope?: AssistantChatScope | null,
+        pluginSkillSources?: AssistantPluginSkillSource[]
+    ): Promise<void>
     hasSession(threadId: string): boolean
     getSessionUsage?(threadId: string): AssistantSessionUsageTotals | null
     generateText(
@@ -87,6 +93,8 @@ export interface AssistantServiceActionDeps {
         session: AssistantSession,
         thread: AssistantThread
     ): string
+    getSessionPluginSkillSources?(session: AssistantSession): Promise<AssistantPluginSkillSource[]>
+    connectSessionRuntime?(session: AssistantSession, thread: AssistantThread): Promise<void>
     createSession(input?: AssistantCreateSessionInput): Promise<{ success: true; sessionId: string }>
     createPlaygroundLab(
         input: AssistantCreatePlaygroundLabInput

@@ -1,0 +1,18 @@
+{
+  "adobe": {
+    "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/adobe",
+    "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/adobe/skills/adobe-batch-edit-photos/assets/icon-large.svg"
+  },
+  "lovable": {
+    "sourcePage": "https://docs.lovable.dev/introduction/welcome",
+    "sourceUrl": "https://docs.lovable.dev/mintlify-assets/_mintlify/favicons/lovable-f9060f1e/AU_uVgnksniw8mje/_generated/favicon/android-chrome-192x192.png"
+  },
+  "consensus": {
+    "sourcePage": "https://consensus.app/",
+    "sourceUrl": "https://consensus.app/images/icon-384.png"
+  },
+  "higgsfield": {
+    "sourcePage": "https://higgsfield.ai/",
+    "sourceUrl": "https://higgsfield.ai/apple-icon.png"
+  }
+}

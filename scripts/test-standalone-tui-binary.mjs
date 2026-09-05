@@ -6,13 +6,14 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
 
-const binary = path.resolve(process.argv[2] || "");
+const sourceBinary = path.resolve(process.argv[2] || "");
 const expectedVersion = String(process.argv[3] || "").trim();
-if (!existsSync(binary)) throw new Error(`Standalone TUI binary is missing: ${binary}`);
+if (!existsSync(sourceBinary)) throw new Error(`Standalone TUI binary is missing: ${sourceBinary}`);
 if (!expectedVersion) throw new Error("Pass the expected Zyra version as the second argument.");
 
 const temporaryParent = process.platform === "darwin" ? "/tmp" : os.tmpdir();
 const temporaryRoot = mkdtempSync(path.join(temporaryParent, "zys-"));
+const binary = path.join(temporaryRoot, path.basename(sourceBinary));
 const stateDirectory = path.join(temporaryRoot, "state");
 const piAgentDirectory = path.join(temporaryRoot, "pi-agent");
 const channel = `smoke-${process.pid}-${Date.now()}`;
@@ -24,12 +25,20 @@ const environment = {
   PI_CODING_AGENT_DIR: piAgentDirectory,
   ZYRA_AGENT_SERVER_CHANNEL: channel,
   ZYRA_STATE_DIR: stateDirectory,
+  ZYRA_DATA_ROOT: temporaryRoot,
+  ZYRA_CALLER_CWD: temporaryRoot,
+  ZYRA_DISTRIBUTION: "standalone",
+  ZYRA_UPDATE_NO_PATH_UPDATE: "1",
+  ZYRA_ANALYTICS_ENABLED: "0",
+  ZYRA_ANALYTICS_USE_RELEASE_CONFIG: "0",
 };
 let server;
 let bridge;
 let serverOutput = "";
 
 try {
+  // Run outside the checkout so executable-relative dependency lookup cannot mask missing bundled code.
+  copyFileSync(sourceBinary, binary);
   const version = run(["--version"]);
   if (version.stdout.trim() !== `zyra ${expectedVersion}`) {
     throw new Error(`Unexpected standalone version output: ${version.stdout.trim()}`);

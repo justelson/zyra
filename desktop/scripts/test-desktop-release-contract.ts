@@ -18,7 +18,7 @@ const standaloneTuiSignerSource = readFileSync(path.join(repositoryRoot, 'script
 const standaloneTuiSmokeSource = readFileSync(path.join(repositoryRoot, 'scripts', 'test-standalone-tui-binary.mjs'), 'utf8')
 const standaloneTuiEntitlements = readFileSync(path.join(desktopRoot, 'build', 'entitlements.tui.plist'), 'utf8')
 
-assert.equal(rootPackage.version, '0.6.0')
+assert.equal(rootPackage.version, '0.6.1')
 assert.equal(rootPackage.scripts['release:tui'], 'node scripts/build-release.mjs', 'the local standalone TUI build shortcut stays stable')
 assert.match(localTuiReleaseSource, /build-tui-release\.mjs/, 'the local release shortcut delegates to the canonical standalone TUI builder')
 assert.doesNotMatch(localTuiReleaseSource, /git["', ]+archive|checksums\.txt/, 'the local shortcut cannot archive source or emit the obsolete checksum format')
@@ -242,6 +242,7 @@ const releaseWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workf
 assert(ciWorkflow.includes('windows-2025') && ciWorkflow.includes('macos-15') && ciWorkflow.includes('ubuntu-24.04'))
 assert.match(ciWorkflow, /Verify canonical generated branding[\s\S]*if: matrix\.platform == 'linux'[\s\S]*git diff --exit-code -- desktop\/resources/, 'byte-level branding drift must use one canonical Pillow host while every platform keeps structural validation')
 assert(releaseWorkflow.includes('workflow_dispatch:') && releaseWorkflow.includes('tags:'))
+assert(releaseWorkflow.includes(`default: "${rootPackage.version}"`), 'manual rehearsal defaults must match the current lockstep release')
 assert(releaseWorkflow.includes('Create or verify the private draft'))
 assert(releaseWorkflow.includes('validate-github-draft.mjs'))
 assert(releaseWorkflow.includes('--sha="${RELEASE_SHA}" --branch=master'))
@@ -273,4 +274,4 @@ for (const secret of [
     assert(releaseWorkflow.includes(secret), `release workflow must gate ${secret}`)
 }
 
-console.log('Zyra Desktop v0.6.0 release infrastructure contract: ok')
+console.log(`Zyra Desktop v${rootPackage.version} release infrastructure contract: ok`)

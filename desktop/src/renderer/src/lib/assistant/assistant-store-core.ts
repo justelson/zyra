@@ -6,6 +6,7 @@ import type {
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
     AssistantCreateSessionInput,
+    AssistantCreatePluginChatInput,
     AssistantDeclinePendingPlaygroundLabRequestInput,
     AssistantDeleteMessageInput,
     AssistantDomainEvent,
@@ -106,6 +107,7 @@ export class AssistantStore {
     private hydratePromise: Promise<void> | null = null
     private modelRefreshPromise: Promise<DevScopeResult<{ models: AssistantModelInfo[] }>> | null = null
     private createSessionPromise: Promise<AssistantCreateSessionResult> | null = null
+    private pluginChatPending = false
     private browserConnectionClaimPromise: Promise<void> | null = null
     private readonly backgroundConnectionPromises = new Map<string, Promise<void>>()
     private pendingAssistantEvents: AssistantDomainEvent[] = []
@@ -335,6 +337,7 @@ export class AssistantStore {
     }
 
     async createSession(input?: AssistantCreateSessionInput): Promise<AssistantCreateSessionResult> {
+        if (this.pluginChatPending) return { success: false, error: 'A Plugin Chat is already being created.' }
         if (this.createSessionPromise) return this.createSessionPromise
 
         const createSessionPromise = this.createSessionImpl(input)
@@ -346,11 +349,19 @@ export class AssistantStore {
         }
     }
 
-    private async createSessionImpl(input?: AssistantCreateSessionInput): Promise<AssistantCreateSessionResult> {
+    async createPluginChat(input: AssistantCreatePluginChatInput): Promise<AssistantCreateSessionResult> {
+        if (this.createSessionPromise) return { success: false, error: 'A Chat is already being created.' }
+        this.pluginChatPending = true
+        const work = this.createSessionImpl({ mode: 'work' }, input)
+        this.createSessionPromise = work
+        try { return await work } finally { this.createSessionPromise = null; this.pluginChatPending = false }
+    }
+
+    private async createSessionImpl(input?: AssistantCreateSessionInput, pluginSelection?: AssistantCreatePluginChatInput): Promise<AssistantCreateSessionResult> {
         const selectedSession = this.state.snapshot.sessions.find(
             (session) => session.id === this.state.snapshot.selectedSessionId
         ) || null
-        const reusableEmptySession = selectedSession && isReusableEmptySession(selectedSession, input)
+        const reusableEmptySession = !pluginSelection && selectedSession && isReusableEmptySession(selectedSession, input)
             ? selectedSession
             : null
         if (reusableEmptySession) {
@@ -381,7 +392,9 @@ export class AssistantStore {
             }
         })
         try {
-            const result = await window.devscope.assistant.createSession(input)
+            const result = pluginSelection
+                ? await window.devscope.assistant.createPluginChat(pluginSelection)
+                : await window.devscope.assistant.createSession(input)
             if (!result.success) {
                 this.setState((current) => ({
                     error: result.error,

@@ -1,5 +1,4 @@
-import { app, BrowserWindow, globalShortcut, screen } from 'electron'
-import { isAbsolute } from 'path'
+import { BrowserWindow, globalShortcut, screen } from 'electron'
 import type { ControlCursorState, ControlStateSnapshot, ControlTarget } from '../../shared/agent-control/contracts'
 import type { AgentControlBroker } from './agent-control-broker'
 import { resolveWindowsControlBounds, type WindowsControlBounds } from './windows-control-geometry'
@@ -11,6 +10,13 @@ const DEFAULT_APPEARANCE: ResolvedWindowsControlOverlayAppearance = {
     accentSecondary: '#60a5fa',
     accentPrimaryRgb: '59 130 246',
     accentSecondaryRgb: '96 165 250',
+    themeBackground: '#0c121f',
+    themeSurface: '#131c2c',
+    themeText: '#f0f4f8',
+    themeTextSecondary: '#aab4c3',
+    themeBorder: '#2c394c',
+    themeAppearance: 'dark',
+    uiFont: '"Bricolage Grotesque", "Hanken Grotesk", "Segoe UI", system-ui, sans-serif',
     reduceMotion: false,
     compact: false
 }
@@ -18,6 +24,13 @@ const DEFAULT_APPEARANCE: ResolvedWindowsControlOverlayAppearance = {
 export type WindowsControlOverlayAppearance = {
     accentPrimary?: string
     accentSecondary?: string
+    themeBackground?: string
+    themeSurface?: string
+    themeText?: string
+    themeTextSecondary?: string
+    themeBorder?: string
+    themeAppearance?: 'light' | 'dark'
+    uiFont?: string
     reduceMotion?: boolean
     compact?: boolean
 }
@@ -29,7 +42,6 @@ type ResolvedWindowsControlOverlayAppearance = Required<WindowsControlOverlayApp
 
 type WindowsControlOverlayOptions = {
     loadAppearance?: () => WindowsControlOverlayAppearance | Promise<WindowsControlOverlayAppearance>
-    loadApplicationIcon?: (target: Extract<ControlTarget, { kind: 'windows-window' }>) => string | Promise<string>
 }
 
 const overlayWindows = new WeakSet<BrowserWindow>()
@@ -49,9 +61,7 @@ export class WindowsControlOverlayManager {
     private disposed = false
     private boundsRefreshActive = false
     private appearanceRequest = 0
-    private iconRequest = 0
     private appearance = DEFAULT_APPEARANCE
-    private applicationIconDataUrl = ''
     private lastTargetBounds: WindowsControlBounds | null = null
     private safetyPayloadKey = ''
     private readonly boundsTimer: NodeJS.Timeout
@@ -110,11 +120,9 @@ export class WindowsControlOverlayManager {
         this.activateEscapeShortcut()
         if (targetChanged) {
             this.lastTargetBounds = null
-            this.applicationIconDataUrl = ''
             this.safetyPayloadKey = ''
             this.safetyWindow?.hide()
             this.refreshAppearance()
-            this.refreshApplicationIcon(target)
         }
         const observedBounds = resolveWindowsControlBounds(this.broker.observations.get(target.targetId))
         if (observedBounds) this.showSafety(observedBounds)
@@ -134,8 +142,6 @@ export class WindowsControlOverlayManager {
     private deactivate(): void {
         this.activeTargetId = null
         this.lastTargetBounds = null
-        this.applicationIconDataUrl = ''
-        this.iconRequest += 1
         this.safetyPayloadKey = ''
         if (this.ownsEscapeShortcut) globalShortcut.unregister('Esc')
         this.ownsEscapeShortcut = false
@@ -180,15 +186,15 @@ export class WindowsControlOverlayManager {
         if (!sameBounds(window.getBounds(), displayBounds)) window.setBounds(displayBounds, false)
         const payload = {
             application: this.activeApplication,
-            applicationIconDataUrl: this.applicationIconDataUrl,
             key: this.escapeHint,
             ...this.appearance
         }
         const payloadKey = JSON.stringify(payload)
         if (payloadKey === this.safetyPayloadKey && window.isVisible()) return
+        const entering = !window.isVisible()
         void (overlayWindowReady.get(window) || Promise.resolve()).then(async () => {
             if (window.isDestroyed() || this.activeTargetId !== expectedTargetId) return
-            await window.webContents.executeJavaScript(`globalThis.updateZyraSafety?.(${payloadKey})`, true)
+            await window.webContents.executeJavaScript(`globalThis.updateZyraSafety?.(${payloadKey}, ${entering})`, true)
             if (window.isDestroyed() || this.activeTargetId !== expectedTargetId) return
             this.safetyPayloadKey = payloadKey
             if (!window.isVisible()) window.showInactive()
@@ -206,13 +212,11 @@ export class WindowsControlOverlayManager {
             if (!grant || !target) return
             this.activeTargetId = cursor.targetId
             this.activeApplication = windowsApplicationLabel(target)
-            this.applicationIconDataUrl = ''
             this.lastTargetBounds = null
             this.safetyPayloadKey = ''
             this.safetyWindow?.hide()
             this.activateEscapeShortcut()
             this.refreshAppearance()
-            this.refreshApplicationIcon(target)
             void this.refreshBounds()
         }
         const window = this.ensureCursorWindow()
@@ -232,17 +236,6 @@ export class WindowsControlOverlayManager {
         }).catch(() => undefined)
     }
 
-    private refreshApplicationIcon(target: Extract<ControlTarget, { kind: 'windows-window' }>): void {
-        const request = ++this.iconRequest
-        const loader = this.options.loadApplicationIcon || loadWindowsApplicationIcon
-        void Promise.resolve(loader(target)).then((dataUrl) => {
-            if (this.disposed || request !== this.iconRequest || this.activeTargetId !== target.targetId) return
-            this.applicationIconDataUrl = isSafeImageDataUrl(dataUrl) ? dataUrl : ''
-            this.safetyPayloadKey = ''
-            if (this.lastTargetBounds) this.showSafety(this.lastTargetBounds)
-        }).catch(() => undefined)
-    }
-
     private ensureSafetyWindow(): BrowserWindow {
         if (this.safetyWindow && !this.safetyWindow.isDestroyed()) return this.safetyWindow
         this.safetyWindow = createOverlayWindow('Zyra Control Indicator', WINDOWS_CONTROL_SAFETY_HTML, true)
@@ -255,16 +248,6 @@ export class WindowsControlOverlayManager {
         this.cursorWindow.setBounds(virtualScreenBounds(), false)
         return this.cursorWindow
     }
-}
-
-async function loadWindowsApplicationIcon(target: Extract<ControlTarget, { kind: 'windows-window' }>): Promise<string> {
-    if (!isAbsolute(target.executableIdentity) || !/\.exe$/i.test(target.executableIdentity)) return ''
-    const icon = await app.getFileIcon(target.executableIdentity, { size: 'small' })
-    return icon.isEmpty() ? '' : icon.toDataURL()
-}
-
-function isSafeImageDataUrl(value: unknown): value is string {
-    return typeof value === 'string' && value.length <= 128 * 1024 && /^data:image\/png;base64,[a-z0-9+/=]+$/i.test(value)
 }
 
 function createOverlayWindow(title: string, html: string, captureProtected: boolean): BrowserWindow {
@@ -315,6 +298,13 @@ function resolveAppearance(input: WindowsControlOverlayAppearance): ResolvedWind
         accentSecondary,
         accentPrimaryRgb: hexToRgbChannels(accentPrimary),
         accentSecondaryRgb: hexToRgbChannels(accentSecondary),
+        themeBackground: validHexColor(input.themeBackground) || DEFAULT_APPEARANCE.themeBackground,
+        themeSurface: validHexColor(input.themeSurface) || DEFAULT_APPEARANCE.themeSurface,
+        themeText: validHexColor(input.themeText) || DEFAULT_APPEARANCE.themeText,
+        themeTextSecondary: validHexColor(input.themeTextSecondary) || DEFAULT_APPEARANCE.themeTextSecondary,
+        themeBorder: validHexColor(input.themeBorder) || DEFAULT_APPEARANCE.themeBorder,
+        themeAppearance: input.themeAppearance === 'light' ? 'light' : 'dark',
+        uiFont: validFontStack(input.uiFont) || DEFAULT_APPEARANCE.uiFont,
         reduceMotion: input.reduceMotion === true,
         compact: input.compact === true
     }
@@ -323,6 +313,11 @@ function resolveAppearance(input: WindowsControlOverlayAppearance): ResolvedWind
 function validHexColor(value: unknown): string | null {
     const color = String(value || '').trim()
     return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null
+}
+
+function validFontStack(value: unknown): string | null {
+    const font = String(value || '').trim().slice(0, 512)
+    return font && !/[{};<>\r\n]/.test(font) ? font : null
 }
 
 function hexToRgbChannels(value: string): string {

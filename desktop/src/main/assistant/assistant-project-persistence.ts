@@ -6,6 +6,7 @@ import type {
     AssistantChatScope,
     AssistantAssociateProjectFolderInput,
     AssistantChatScopeRoot,
+    AssistantCreateProjectFolderInput,
     AssistantCreateProjectInput,
     AssistantDismissProjectCandidateInput,
     AssistantProject,
@@ -19,6 +20,7 @@ import type {
 
 export const ASSISTANT_PROJECT_MIGRATION_VERSION = 1
 const PROJECT_NAME_LIMIT = 120
+const INITIAL_PROJECT_FOLDER_LIMIT = 32
 
 function sqlString(value: SqlValue | null | undefined): string {
     return typeof value === 'string' ? value : ''
@@ -527,8 +529,35 @@ export function findAssistantProjectByFolderPath(db: SqlDatabase, folderPath: st
 export function createAssistantProject(
     db: SqlDatabase,
     input: AssistantCreateProjectInput,
-    options: { projectHomesRoot: string; now?: () => Date; candidateId?: string; allowUnavailableFolder?: boolean }
+    options: {
+        projectHomesRoot: string
+        now?: () => Date
+        candidateId?: string
+        allowUnavailableFolder?: boolean
+        validateFolderPath?: (path: string) => void
+    }
 ): AssistantProject {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new Error('Project input must be an object.')
+    }
+    const hasExplicitFolders = input.folders !== undefined
+    const requestedFolders: AssistantCreateProjectFolderInput[] = []
+    if (hasExplicitFolders) {
+        if (!Array.isArray(input.folders)) throw new Error('Project folders must be an array.')
+        if (input.folders.length > INITIAL_PROJECT_FOLDER_LIMIT) {
+            throw new Error(`A Project can start with at most ${INITIAL_PROJECT_FOLDER_LIMIT} folders.`)
+        }
+        for (const folder of input.folders) {
+            if (
+                !folder || typeof folder !== 'object' || Array.isArray(folder)
+                || typeof folder.path !== 'string' || !folder.path.trim()
+            ) throw new Error('Each Project folder must include a non-empty path string.')
+            if (folder.access !== undefined && folder.access !== 'read-only' && folder.access !== 'read-write') {
+                throw new Error('Project folder access must be read-only or read-write.')
+            }
+            requestedFolders.push({ path: folder.path.trim(), access: folder.access })
+        }
+    }
     initializeAssistantProjectSchema(db)
     const occurredAt = nowIso(options.now)
     const candidateRow = options.candidateId
@@ -543,27 +572,43 @@ export function createAssistantProject(
         throw new Error('Detected Project candidate was not found or has already been reviewed.')
     }
     const candidatePath = sqlString(candidateRow?.[0])
-    const requestedFolderPath = String(input.folderPath || '').trim()
-    if (
-        candidatePath
-        && requestedFolderPath
-        && canonicalAssistantFolderKey(candidatePath) !== canonicalAssistantFolderKey(requestedFolderPath)
-    ) throw new Error('Detected Project candidate does not match the requested folder.')
-    const folderPath = candidatePath || requestedFolderPath
-    const displayPath = folderPath ? normalize(resolve(folderPath)) : ''
-    const canonicalPath = displayPath ? canonicalAssistantFolderKey(displayPath) : ''
-    if (displayPath && !options.allowUnavailableFolder && !isExistingDirectory(displayPath)) {
-        throw new Error('Associated folder was not found or is not a directory.')
+    if (!hasExplicitFolders) {
+        const requestedFolderPath = String(input.folderPath || '').trim()
+        if (
+            candidatePath
+            && requestedFolderPath
+            && canonicalAssistantFolderKey(candidatePath) !== canonicalAssistantFolderKey(requestedFolderPath)
+        ) throw new Error('Detected Project candidate does not match the requested folder.')
+        const folderPath = candidatePath || requestedFolderPath
+        if (folderPath) requestedFolders.push({ path: folderPath, access: input.folderAccess })
+    }
+    const folders = new Map<string, { displayPath: string; access: AssistantProjectFolderAccess }>()
+    for (const folder of requestedFolders) {
+        const displayPath = normalize(resolve(folder.path))
+        const canonicalPath = canonicalAssistantFolderKey(displayPath)
+        options.validateFolderPath?.(displayPath)
+        // Unavailable legacy roots remain supported; reviewed folder lists must all exist.
+        if ((hasExplicitFolders || !options.allowUnavailableFolder) && !isExistingDirectory(displayPath)) {
+            throw new Error('Associated folder was not found or is not a directory.')
+        }
+        // Keep the first selection's access when Windows path variants identify the same folder.
+        if (!folders.has(canonicalPath)) {
+            folders.set(canonicalPath, { displayPath, access: accessValue(folder.access) })
+        }
+    }
+    if (candidatePath && !folders.has(canonicalAssistantFolderKey(candidatePath))) {
+        throw new Error('Detected Project candidate does not match the requested folders.')
     }
     const projectId = `project_${randomUUID()}`
     const homePath = join(options.projectHomesRoot, projectId)
-    const name = (String(input.name || '').replace(/\s+/g, ' ').trim() || projectName(displayPath)).slice(0, PROJECT_NAME_LIMIT)
+    const firstFolderPath = folders.values().next().value?.displayPath || ''
+    const name = (String(input.name || '').replace(/\s+/g, ' ').trim() || projectName(firstFolderPath)).slice(0, PROJECT_NAME_LIMIT)
     runTransaction(db, () => {
         db.run(`
             INSERT INTO assistant_projects (id, name, home_path, archived, revision, created_at, updated_at)
             VALUES (?, ?, ?, 0, 1, ?, ?)
         `, [projectId, name, homePath, occurredAt, occurredAt])
-        if (displayPath) {
+        for (const [canonicalPath, { displayPath, access }] of folders) {
             const folderId = deterministicId('folder', canonicalPath)
             const associationId = deterministicId('association', `${projectId}\0${folderId}`)
             db.run(`
@@ -574,9 +619,7 @@ export function createAssistantProject(
                 INSERT INTO assistant_project_folders (
                     association_id, project_id, folder_id, label, access, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            `, [associationId, projectId, folderId, projectName(displayPath), accessValue(input.folderAccess), occurredAt, occurredAt])
-        }
-        if (canonicalPath) {
+            `, [associationId, projectId, folderId, projectName(displayPath), access, occurredAt, occurredAt])
             db.run(`
                 UPDATE assistant_project_candidates
                 SET status = 'imported', project_id = ?, updated_at = ?

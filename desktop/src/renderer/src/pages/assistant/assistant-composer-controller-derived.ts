@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo } from 'react'
+import { getLatestModelId, sortModelsLatestFirst } from '../../../../../../src/model-order.mjs'
 import type { AssistantInteractionMode, AssistantModelInfo, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { DevScopeGitBranchSummary } from '@shared/contracts/devscope-api'
 import type { Settings } from '@/lib/settings'
@@ -25,85 +26,10 @@ type AssistantComposerSettingsDefaults = Pick<
 >
 
 type ComposerModelOption = AssistantModelInfo
-type ParsedModelSortKey = {
-    family: string
-    version: number[]
-    variantRank: number
-}
-
-const CANONICAL_LATEST_MODEL_ID = 'openai-codex/gpt-5.6-sol'
-const CANONICAL_LATEST_MODEL_LABEL = 'gpt-5.6-sol'
-
-function readModelSortText(model: ComposerModelOption): string {
-    return `${model.label || ''} ${model.id || ''}`.toLowerCase()
-}
-
-function isCanonicalLatestModel(model: ComposerModelOption): boolean {
-    const value = readModelSortText(model)
-    return /(?:^|[/\s])gpt-5\.6-sol(?:$|\s)/.test(value)
-}
 
 function isRetiredModel(model: ComposerModelOption): boolean {
-    const value = readModelSortText(model)
+    const value = `${model.label || ''} ${model.id || ''}`.toLowerCase()
     return /(?:^|[/\s])gpt-5\.2(?:$|[\s-])/.test(value)
-}
-
-function createCanonicalLatestModel(options: ComposerModelOption[], activeModel: string): ComposerModelOption {
-    const usesCodexNamespace = String(activeModel || '').startsWith('openai-codex/')
-        || options.some((model) => String(model.id || '').startsWith('openai-codex/'))
-    return {
-        id: usesCodexNamespace ? CANONICAL_LATEST_MODEL_ID : CANONICAL_LATEST_MODEL_LABEL,
-        label: CANONICAL_LATEST_MODEL_LABEL,
-        description: usesCodexNamespace ? 'openai-codex' : undefined
-    }
-}
-
-function ensureLatestModelOption(options: ComposerModelOption[], activeModel: string): ComposerModelOption[] {
-    if (options.some(isCanonicalLatestModel)) return options
-    return [createCanonicalLatestModel(options, activeModel), ...options]
-}
-
-function getLatestModelId(options: ComposerModelOption[]): string | null {
-    return options.find(isCanonicalLatestModel)?.id || options.find((model) => /\blatest\b/i.test(`${model.id} ${model.label || ''}`))?.id || options[0]?.id || null
-}
-
-function getModelVariantRank(suffix: string): number {
-    if (/\bmini\b/.test(suffix)) return 0
-    if (/\bspark\b/.test(suffix)) return 1
-    if (/\bcodex\b/.test(suffix)) return 2
-    return 3
-}
-
-function parseModelSortKey(model: ComposerModelOption): ParsedModelSortKey | null {
-    const value = readModelSortText(model)
-    const match = value.match(/\b(gpt|o)-(\d+(?:\.\d+)*)([a-z0-9.-]*)/)
-    if (!match) return null
-    return {
-        family: match[1] || '',
-        version: String(match[2] || '')
-            .split('.')
-            .map((part) => Number.parseInt(part, 10))
-            .filter((part) => Number.isFinite(part)),
-        variantRank: getModelVariantRank(match[3] || '')
-    }
-}
-
-function compareModelSortKeys(left: ParsedModelSortKey | null, right: ParsedModelSortKey | null): number {
-    if (left && !right) return -1
-    if (!left && right) return 1
-    if (!left || !right) return 0
-    if (left.family !== right.family) return left.family.localeCompare(right.family)
-    const maxLength = Math.max(left.version.length, right.version.length)
-    for (let index = 0; index < maxLength; index += 1) {
-        const leftPart = left.version[index] || 0
-        const rightPart = right.version[index] || 0
-        if (leftPart !== rightPart) return rightPart - leftPart
-    }
-    return right.variantRank - left.variantRank
-}
-
-function modelLooksLatest(model: ComposerModelOption, latestModelId: string | null): boolean {
-    return Boolean(latestModelId && model.id === latestModelId)
 }
 
 export function resolveRetainedAssistantComposerModel(currentModel: string, fallbackModel: string): string {
@@ -204,7 +130,7 @@ export function useAssistantComposerSessionDefaults(input: {
             ? modelOptions
             : (resolvedModel ? [{ id: resolvedModel, label: resolvedModel }] : [])
     ).filter((model) => !isRetiredModel(model))
-    const availableModelOptions = ensureLatestModelOption(rawAvailableModelOptions, activeModel || resolvedModel)
+    const availableModelOptions = sortModelsLatestFirst(rawAvailableModelOptions)
     const initialComposerSessionState = useMemo(
         () => readAssistantComposerSessionState(sessionId, fallbackComposerState),
         [fallbackComposerState, sessionId]
@@ -337,15 +263,8 @@ export function useAssistantComposerDerivedOptions(input: {
             )
             : availableModelOptions
 
-        return [...options].sort((left, right) => {
-            const leftLatest = modelLooksLatest(left, latestModelId)
-            const rightLatest = modelLooksLatest(right, latestModelId)
-            if (leftLatest !== rightLatest) return leftLatest ? -1 : 1
-            const modelOrder = compareModelSortKeys(parseModelSortKey(left), parseModelSortKey(right))
-            if (modelOrder !== 0) return modelOrder
-            return options.indexOf(left) - options.indexOf(right)
-        })
-    }, [availableModelOptions, latestModelId, modelQuery])
+        return sortModelsLatestFirst(options)
+    }, [availableModelOptions, modelQuery])
     const filteredBranches = useMemo(() => {
         const normalizedQuery = branchQuery.trim().toLowerCase()
         if (!normalizedQuery) return branches

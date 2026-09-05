@@ -6,7 +6,7 @@ on:
       version:
         description: Lockstep Zyra version to rehearse from master
         required: true
-        default: "0.6.0"
+        default: "0.6.1"
         type: string
   push:
     tags:

@@ -5,6 +5,12 @@ import os from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { EventEmitter } from 'node:events'
 
+export type PluginAuthorityUpdate = {
+    pluginId?: string
+    state?: 'active' | 'disabled'
+    chats: Array<{ sessionKey: string; sources: Array<{ pluginId: string; releaseId: string; contentDigest: string; dir: string; scope?: string }> | null }>
+}
+
 export type ZyraWorkerEventMetadata = {
     sequence?: number
     turnId?: string
@@ -153,6 +159,11 @@ export class DesktopAgentServerConnection {
         return new ZyraAgentServerWorker(this, cwd, latestSequence)
     }
 
+    async updatePluginAuthority(input: PluginAuthorityUpdate): Promise<void> {
+        const client = await this.getClient()
+        await client.request('session.pluginAuthority', input, { timeoutMs: 20_000 })
+    }
+
     async listModels(forceRefresh = false, skipAvailability = false): Promise<Record<string, unknown>[]> {
         const client = await this.getClient()
         const result = await client.request('runtime.models', { forceRefresh, skipAvailability }, { timeoutMs: 65_000 })
@@ -240,6 +251,7 @@ export class DesktopAgentServerConnection {
             project: payload['cwd'],
             cwd: payload['cwd'],
             filesystemScope: payload['filesystemScope'],
+            pluginSkillSources: payload['pluginSkillSources'],
             session: payload['threadId'] || payload['providerThreadId'],
             localThreadId: payload['localThreadId'],
             model: payload['model'],

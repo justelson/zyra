@@ -7,18 +7,16 @@ import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import { getActiveAssistantThread, getSelectedAssistantSession } from '@/lib/assistant/selectors'
 import { shouldHideAssistantRowsForSelection } from '@/lib/assistant/assistant-history-state'
-import { ConnectedAssistantSessionsRail } from './AssistantConnectedSessionsRail'
 import { AssistantConversationPane } from './AssistantConversationPane'
 import type { AssistantDiffRevealRequest } from './AssistantDiffPanel'
 import { buildAssistantDiffTurns } from './assistant-diff-turns'
 import { resolveAssistantDiffTarget, type AssistantDiffTarget } from './assistant-diff-types'
 import { openAssistantFileTarget } from './assistant-file-navigation'
-import { resolveAssistantPaneLayout } from './assistant-pane-layout'
 import { subscribeAssistantInspectorNavigation } from './assistant-inspector-navigation'
 import { mergeAssistantReviewIndex } from './assistant-review-index'
 import { AssistantTransientToast, DeleteHistoryConfirm, useAssistantTransientToast } from './AssistantPageHelpers'
 import { useAssistantBrowserSurfaceRequests } from './useAssistantBrowserSurfaceRequests'
-import { useAssistantPageSidebarState } from './useAssistantPageSidebarState'
+import { useAssistantWorkspaceLayout } from './AssistantWorkspaceLayout'
 import { useAssistantReviewIndex } from './useAssistantReviewIndex'
 import { useAssistantChatRouting } from './useAssistantChatRouting'
 import { parseAssistantChatRoute, parseAssistantMessageSearchTarget } from './assistant-chat-route'
@@ -128,25 +126,13 @@ export default function AssistantPage() {
     const diffSessionIdRef = useRef<string | null>(shell.selectedSessionId)
     const diffRevealSequenceRef = useRef(1)
     const {
-        leftSidebarCollapsed,
-        setLeftSidebarCollapsed,
-        leftSidebarWidth,
-        setLeftSidebarWidth,
-        bubblePreviewPinned,
-        setBubblePreviewPinned,
         rightPanelMode,
         setRightPanelMode,
-        rightSidebarWidth,
         setRightSidebarWidth,
         railMode,
         setRailMode,
-        railGroupMode,
-        setRailGroupMode,
-        railSortMode,
-        setRailSortMode,
-        railFilterMode,
-        setRailFilterMode
-    } = useAssistantPageSidebarState(shell.selectedSessionId)
+        paneLayout
+    } = useAssistantWorkspaceLayout()
     const [pendingMessageDelete, setPendingMessageDelete] = useState<AssistantMessage | null>(null)
     const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
     const [selectedDiffTarget, setSelectedDiffTarget] = useState<AssistantDiffTarget | null>(null)
@@ -155,8 +141,6 @@ export default function AssistantPage() {
     const [reviewTurnDetails, setReviewTurnDetails] = useState<Record<string, AssistantTurnDetail>>({})
     const [reviewTurnDetailErrors, setReviewTurnDetailErrors] = useState<Record<string, string>>({})
     const pendingReviewTurnIdsRef = useRef(new Set<string>())
-    const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
-    const autoCollapsedLeftSidebarRef = useRef(false)
     const diffSource = useAssistantStoreSelector<AssistantDiffSourceSelection>((state) => {
         const selectedSession = getSelectedAssistantSession(state.snapshot)
         const activeThread = getActiveAssistantThread(selectedSession)
@@ -319,20 +303,6 @@ export default function AssistantPage() {
     }, [actions, messageSearchTarget, requestedChatTarget, shell.activeThreadId, shell.bootstrapped, shell.commandPending, shell.selectedSessionId, showToast])
 
     useEffect(() => {
-        const handleResize = () => setViewportWidth(window.innerWidth)
-        window.addEventListener('resize', handleResize)
-        return () => window.removeEventListener('resize', handleResize)
-    }, [])
-
-    const paneLayout = resolveAssistantPaneLayout({
-        viewportWidth,
-        leftSidebarCollapsed,
-        leftSidebarWidth,
-        inspectorOpen,
-        inspectorWidth: rightSidebarWidth
-    })
-
-    useEffect(() => {
         const turnId = selectedDiffTurn?.detailLoaded === false ? selectedDiffTurn.id : null
         const threadId = diffSource.threadId
         if (!inspectorOpen || !threadId || !turnId || reviewTurnDetails[turnId] || pendingReviewTurnIdsRef.current.has(turnId)) return
@@ -373,18 +343,6 @@ export default function AssistantPage() {
         setReviewTurnDetailErrors({})
         pendingReviewTurnIdsRef.current.clear()
     }, [inspectorOpen])
-
-    useEffect(() => {
-        if (paneLayout.autoCollapseLeftSidebar && !leftSidebarCollapsed) {
-            autoCollapsedLeftSidebarRef.current = true
-            setLeftSidebarCollapsed(true)
-            return
-        }
-        if (!paneLayout.autoCollapseLeftSidebar && autoCollapsedLeftSidebarRef.current) {
-            autoCollapsedLeftSidebarRef.current = false
-            setLeftSidebarCollapsed(false)
-        }
-    }, [leftSidebarCollapsed, paneLayout.autoCollapseLeftSidebar, setLeftSidebarCollapsed])
 
     useEffect(() => {
         const sessionId = shell.selectedSessionId
@@ -485,24 +443,6 @@ export default function AssistantPage() {
         }
     }, [actions, pendingMessageDelete, shell.selectedSessionId, showToast])
 
-    const handleToggleAssistantLeftSidebar = useCallback(() => {
-        setLeftSidebarCollapsed((current) => !current)
-    }, [setLeftSidebarCollapsed])
-
-    useEffect(() => {
-        window.addEventListener('zyra:toggle-assistant-sidebar', handleToggleAssistantLeftSidebar)
-        return () => window.removeEventListener('zyra:toggle-assistant-sidebar', handleToggleAssistantLeftSidebar)
-    }, [handleToggleAssistantLeftSidebar])
-
-    useEffect(() => {
-        window.dispatchEvent(new CustomEvent('zyra:assistant-sidebar-state', {
-            detail: {
-                collapsed: paneLayout.leftSidebarCollapsed,
-                width: paneLayout.leftSidebarWidth || leftSidebarWidth
-            }
-        }))
-    }, [leftSidebarWidth, paneLayout.leftSidebarCollapsed, paneLayout.leftSidebarWidth])
-
     const handleCancelPendingMessageDelete = useCallback(() => {
         if (deletingMessageId) return
         setPendingMessageDelete(null)
@@ -555,23 +495,6 @@ export default function AssistantPage() {
         <div className="flex h-[calc(100vh-34px)] min-h-[calc(100vh-34px)] flex-col overflow-hidden [--accent-primary:var(--color-primary)] [--accent-secondary:var(--color-secondary)]">
             <div className="min-h-0 flex-1 overflow-hidden">
                 <div className="flex h-full min-w-0 overflow-x-hidden">
-                    <ConnectedAssistantSessionsRail
-                        collapsed={paneLayout.leftSidebarCollapsed}
-                        width={leftSidebarWidth}
-                        maxWidth={paneLayout.maxLeftSidebarWidth}
-                        previewPinned={bubblePreviewPinned}
-                        railMode={railMode}
-                        railGroupMode={railGroupMode}
-                        railSortMode={railSortMode}
-                        railFilterMode={railFilterMode}
-                        onRailModeChange={setRailMode}
-                        onRailGroupModeChange={setRailGroupMode}
-                        onRailSortModeChange={setRailSortMode}
-                        onRailFilterModeChange={setRailFilterMode}
-                        onWidthChange={setLeftSidebarWidth}
-                        onPreviewPinnedChange={setBubblePreviewPinned}
-                        onShowToast={showToast}
-                    />
                     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <AssistantConversationPane
                             rightPanelOpen={inspectorOpen}

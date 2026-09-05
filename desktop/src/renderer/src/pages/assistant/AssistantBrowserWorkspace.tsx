@@ -95,6 +95,7 @@ import {
     normalizeAssistantBrowserNavigation,
     normalizeAssistantBrowserZoom,
     persistAssistantBrowserWorkspaceState,
+    resolveAssistantBrowserSurfaceTabSessionMode,
     shouldFocusAssistantBrowserOmnibox,
     updateAssistantBrowserTab,
     type AssistantBrowserTabState,
@@ -484,9 +485,18 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
 
     useEffect(() => {
         if (!selectedTabId || workspaceStateRef.current.activeTabId === selectedTabId) return
-        mutateWorkspaceState((current) => ensureAssistantBrowserWorkspaceTab(current, selectedTabId))
+        const trustedTarget = controlState?.targets.find((target) => (
+            target.kind === 'zyra-browser' && target.tabId === selectedTabId
+        ))
+        const trustedSessionMode = trustedTarget?.kind === 'zyra-browser' ? trustedTarget.sessionMode : undefined
+        const sessionMode = resolveAssistantBrowserSurfaceTabSessionMode(
+            selectedTabId,
+            surfaceRequest,
+            trustedSessionMode
+        )
+        mutateWorkspaceState((current) => ensureAssistantBrowserWorkspaceTab(current, selectedTabId, sessionMode))
         transitionToBrowserTab(selectedTabId)
-    }, [mutateWorkspaceState, selectedTabId, transitionToBrowserTab])
+    }, [controlState?.targets, mutateWorkspaceState, selectedTabId, surfaceRequest, transitionToBrowserTab])
 
     useEffect(() => {
         const visibleTabIds = active && activeTab ? [activeTab.id] : []
@@ -1371,7 +1381,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             ...(success ? { success: true as const, targetId: knownTargetId! } : { success: false as const, error: error || 'Browser command failed.' })
         })
 
-        if (mode === 'close' || mode === 'refresh' || mode === 'external') {
+        if (mode === 'close' || mode === 'refresh' || mode === 'navigate' || mode === 'external') {
             if (!knownTargetId) {
                 failSurfaceRequest(surfaceRequest, 'The selected Browser tab is no longer registered.')
                 return
@@ -1393,7 +1403,12 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                     } else if (mode !== 'close') {
                         const handle = webviewRefs.current.get(surfaceRequest.tabId)
                         if (!handle) throw new Error('The selected Browser view is not ready.')
-                        handle.reload()
+                        if (mode === 'navigate') {
+                            if (!surfaceRequest.url) throw new Error('The Browser navigation URL is missing.')
+                            await handle.navigate(surfaceRequest.url)
+                        } else {
+                            handle.reload()
+                        }
                     }
                     if (mode === 'close') {
                         closeTab(surfaceRequest.tabId)

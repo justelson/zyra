@@ -103,6 +103,23 @@ const service = {
     },
     async getSnapshot() { return { selectedSessionId: 'session:real', sessions: [] } },
     async getStatus() { return { available: true, connected: true, state: 'idle' } },
+    async getPluginCatalog() {
+        return {
+            success: true as const,
+            catalog: {
+                version: 1,
+                revision: 1,
+                sources: [{ id: 'source:one', kind: 'local', label: 'Local source', locator: 'C:\\private\\plugin-source', createdAt: '', updatedAt: '' }],
+                plugins: [],
+                releases: [{ id: 'release:one', packagePath: 'C:\\private\\installed-release' }],
+                pluginSets: [],
+                chatScopes: []
+            }
+        }
+    },
+    async setPluginSet() { return this.getPluginCatalog() },
+    async setPluginState() { return this.getPluginCatalog() },
+    async rollbackPlugin() { return this.getPluginCatalog() },
     async seedDevelopmentChatFixtures() {
         return { success: true as const, fixtures: [{ title: 'TEST — LIGHT CHAT', turns: 6 }] }
     },
@@ -168,6 +185,24 @@ try {
     assert.equal(bootstrap.value.snapshot.sessions[0].title, 'Shared browser session', 'browser bootstrap must use the live AssistantService')
     assert.equal(typeof eventListener, 'function', 'the first protected Browser request binds live Assistant events')
     assert.equal(bootstrapResponse.headers.get('access-control-allow-origin'), allowedOrigin)
+
+    const pluginCatalogResponse = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'getPluginCatalog', args: [] })
+    })
+    assert.equal(pluginCatalogResponse.status, 200)
+    const pluginCatalog = await pluginCatalogResponse.json() as any
+    assert.equal(pluginCatalog.value.catalog.sources[0].locator, '', 'browser Plugin catalogs hide Desktop source paths')
+    assert.equal(pluginCatalog.value.catalog.releases[0].packagePath, '', 'browser Plugin catalogs hide installed release paths')
+    assert.equal(pluginCatalog.value.catalog.sources[0].label, 'Local source')
+    for (const method of ['setPluginSet', 'setPluginState', 'rollbackPlugin']) {
+        const response = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, { method: 'POST', headers, body: JSON.stringify({ method, args: [{}] }) })
+        assert.equal(response.status, 200)
+        const result = await response.json() as any
+        assert.equal(result.value.catalog.sources[0].locator, '', `${method} hides Desktop source paths`)
+        assert.equal(result.value.catalog.releases[0].packagePath, '', `${method} hides installation paths`)
+    }
 
     const fixtureResponse = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
         method: 'POST',

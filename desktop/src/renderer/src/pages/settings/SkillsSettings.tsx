@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, FolderPlus, RefreshCw, Trash2 } from 'lucide-react'
 import type {
     AssistantSkillConflict,
@@ -79,7 +79,13 @@ function updateConflictPreference(
     return { ...settings, preferredSourceBySkill }
 }
 
-export default function SkillsSettings() {
+function SkillSettingsContainer({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+    return embedded ? <div className="plugin-source-settings">{children}</div> : (
+        <SettingsPageContainer title="Skills" backTo="/settings/assistant" backLabel="Assistant">{children}</SettingsPageContainer>
+    )
+}
+
+export default function SkillsSettings({ embedded = false, onSaved }: { embedded?: boolean; onSaved?: () => void }) {
     const desktopHost = isElectronRendererRuntime()
     const selectedProjectPath = useAssistantStoreSelector((state) => {
         const selected = state.snapshot.sessions.find((session) => session.id === state.snapshot.selectedSessionId)
@@ -128,12 +134,13 @@ export default function SkillsSettings() {
             cachedOverviewProjectKey = projectCacheKey(selectedProjectPath)
             markAssistantSkillSourcesChanged()
             setOverview(result)
+            onSaved?.()
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'Could not save skill sources.')
         } finally {
             setSaving(false)
         }
-    }, [saving, selectedProjectPath])
+    }, [onSaved, saving, selectedProjectPath])
 
     const toggleSource = useCallback((sourceId: string, enabled: boolean) => {
         if (!overview) return
@@ -207,7 +214,7 @@ export default function SkillsSettings() {
     }
 
     return (
-        <SettingsPageContainer title="Skills" backTo="/settings/assistant" backLabel="Assistant">
+        <SkillSettingsContainer embedded={embedded}>
             <SettingsSection
                 title="Skill sources"
                 headerAction={(
@@ -353,6 +360,6 @@ export default function SkillsSettings() {
                     )
                 })}
             </SettingsDialog>
-        </SettingsPageContainer>
+        </SkillSettingsContainer>
     )
 }

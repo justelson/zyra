@@ -13,6 +13,7 @@ import { usePublishAssistantTitleBarContent } from '@/lib/assistant/assistant-ti
 import { hasAssistantPersistedThreadContent, shouldShowAssistantThreadHistoryLoader } from '@/lib/assistant/assistant-history-state'
 import { isAssistantThreadActivelyWorking } from '@/lib/assistant/selectors'
 import { cn } from '@/lib/utils'
+import { chooseProjectFolder, useProjectCreation } from '@/lib/projects/project-creation'
 import { resolveAssistantComposerContextUsage } from './assistant-composer-context-usage'
 import { buildAssistantTurnUsageIndex } from './assistant-turn-usage-index'
 import { buildPromptImageInputs, buildPromptWithContextFiles } from './assistant-composer-utils'
@@ -47,6 +48,7 @@ import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { useInstructorVoiceSession } from './useInstructorVoiceSession'
 import { useAssistantPageTimelineScroll } from './useAssistantPageTimelineScroll'
 import { useAssistantProjectCatalog } from './useAssistantProjectCatalog'
+import { resolveAssistantProjectLabel } from './assistant-project-label'
 import { useAgentControlState } from './useAgentControlState'
 import { isControlPrincipalForThread } from './assistant-thread-details'
 
@@ -84,6 +86,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const actions = useAssistantStoreActions()
     const { settings, updateSettings } = useSettings()
     const projectCatalogState = useAssistantProjectCatalog()
+    const requestProjectCreation = useProjectCreation()
     const controlState = useAgentControlState()
     const visibilitySnapshot = useRendererVisibilitySnapshot()
     const composerPaneRef = useRef<HTMLDivElement | null>(null)
@@ -218,9 +221,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const selectedProjectTooltip = displayProjectPath || (
         'Select a project when this chat needs files.'
     )
-    const latestProjectLabel = displayProjectPath
-        ? (displayProjectPath.split(/[\\/]/).filter(Boolean).pop() || displayProjectPath)
-        : 'select project'
+    const latestProjectLabel = resolveAssistantProjectLabel(displayProjectName, displayProjectId, displayProjectPath) || 'select project'
     const newChatProjectChoices = useMemo(() => projectCatalogState.catalog.projects
         .filter((project) => !project.archived)
         .flatMap((project) => [
@@ -273,10 +274,6 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             }))
         ]
     }, [controller.selectedSession?.chatScope?.roots, displayProjectName, displayProjectPath, isCreatingFreshChat, latestProjectLabel, selectedProjectRecord])
-    const detectedProjectChoices = useMemo(() => projectCatalogState.catalog.candidates
-        .filter((candidate) => candidate.status === 'pending')
-        .map((candidate) => ({ id: candidate.id, path: candidate.path, label: candidate.suggestedName })),
-    [projectCatalogState.catalog.candidates])
     const assistantMessageFilePath = useMemo(
         () => getAssistantLinkBaseFilePath(displayProjectPath),
         [displayProjectPath]
@@ -479,9 +476,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const resetComposerStateToken = isCreatingFreshChat
         ? `${selectedSessionId || 'pending'}:${pendingCreateProjectPath || 'chat'}`
         : null
-    const emptyComposerProjectLabel = displayProjectPath
-        ? (displayProjectPath.split(/[\\/]/).filter(Boolean).pop() || displayProjectPath)
-        : ''
+    const emptyComposerProjectLabel = resolveAssistantProjectLabel(displayProjectName, displayProjectId, displayProjectPath)
     const emptyComposerPrompt = useMemo(() => {
         const hour = new Date().getHours()
         const timeGreeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
@@ -890,18 +885,18 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         if (!session || projectDirectoryLocked || headerActionPending) return
         setHeaderActionPending('project')
         try {
-            const result = await actions.chooseProjectPathResult(session.id)
-            if (!result.success) {
-                props.onShowToast?.(`Could not update project: ${result.error}`, 'error')
-                return
-            }
-            if ('cancelled' in result && result.cancelled) return
+            const selection = await chooseProjectFolder(requestProjectCreation)
+            if (!selection) return
+            const result = await actions.setSessionProjectResult(session.id, { projectId: selection.project.id, workingRoot: selection.workingRoot })
+            if (!result.success) throw new Error(result.error)
             await projectCatalogState.refresh()
             props.onShowToast?.(session.projectPath ? 'Project changed' : 'Project attached', 'success')
+        } catch (error) {
+            props.onShowToast?.(error instanceof Error ? error.message : 'Could not update Project.', 'error')
         } finally {
             setHeaderActionPending(null)
         }
-    }, [actions, controller.selectedSession, headerActionPending, projectCatalogState, projectDirectoryLocked, props.onShowToast])
+    }, [actions, controller.selectedSession, headerActionPending, projectCatalogState, projectDirectoryLocked, props.onShowToast, requestProjectCreation])
 
     const handleCreateHeaderProjectChat = useCallback(async () => {
         const projectPath = selectedProjectPath.trim()
@@ -967,14 +962,19 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
     const handleChooseProjectForWorkChat = useCallback(async () => {
         if (controller.commandPending) return
-        if (controller.selectedSession?.id) {
-            await actions.chooseProjectPath(controller.selectedSession.id)
+        try {
+            const selection = await chooseProjectFolder(requestProjectCreation)
+            if (!selection) return
+            const { project, workingRoot } = selection
+            const result = controller.selectedSession?.id
+                ? await actions.setSessionProjectResult(controller.selectedSession.id, { projectId: project.id, workingRoot })
+                : await actions.createSessionResult({ mode: 'work', projectId: project.id, projectPath: workingRoot, workingRoot })
+            if (!result.success) throw new Error(result.error)
             await projectCatalogState.refresh()
-            return
+        } catch (error) {
+            props.onShowToast?.(error instanceof Error ? error.message : 'Could not open Project.', 'error')
         }
-        await actions.createProjectSession()
-        await projectCatalogState.refresh()
-    }, [actions, controller.commandPending, controller.selectedSession?.id, projectCatalogState])
+    }, [actions, controller.commandPending, controller.selectedSession?.id, projectCatalogState, props.onShowToast, requestProjectCreation])
 
     const handleSelectNewChatProject = useCallback(async (
         projectId: string | null,
@@ -988,30 +988,15 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         }
     }, [actions, controller.commandPending, controller.selectedSession, projectDirectoryLocked, props.onShowToast, selectedSessionIsDraft])
 
-    const handleImportDetectedProject = useCallback(async (candidateId: string) => {
+    const handleCreateNewChatProject = useCallback(async () => {
         const session = controller.selectedSession
-        const candidate = projectCatalogState.catalog.candidates.find((entry) => entry.id === candidateId)
-        if (!session || !candidate || !selectedSessionIsDraft || projectDirectoryLocked || controller.commandPending) return
-        const project = await projectCatalogState.importCandidate(candidate)
-        if (!project) {
-            props.onShowToast?.(projectCatalogState.error || 'Could not create Project.', 'error')
-            return
-        }
+        if (!session || !selectedSessionIsDraft || projectDirectoryLocked || controller.commandPending) return
+        const project = await requestProjectCreation()
+        if (!project) return
         const workingRoot = project.folders[0]?.path || project.homePath
         const result = await actions.setSessionProjectResult(session.id, { projectId: project.id, workingRoot })
         if (!result.success) props.onShowToast?.(`Could not update Project: ${result.error}`, 'error')
-    }, [actions, controller.commandPending, controller.selectedSession, projectCatalogState, projectDirectoryLocked, props.onShowToast, selectedSessionIsDraft])
-
-    const handleChooseNewChatProjectFolder = useCallback(async () => {
-        const session = controller.selectedSession
-        if (!session || !selectedSessionIsDraft || projectDirectoryLocked || controller.commandPending) return
-        const result = await actions.chooseProjectPathResult(session.id)
-        if (!result.success && !('cancelled' in result && result.cancelled)) {
-            props.onShowToast?.(`Could not update Project: ${result.error}`, 'error')
-            return
-        }
-        if (result.success) await projectCatalogState.refresh()
-    }, [actions, controller.commandPending, controller.selectedSession, projectCatalogState, projectDirectoryLocked, props.onShowToast, selectedSessionIsDraft])
+    }, [actions, controller.commandPending, controller.selectedSession, projectDirectoryLocked, props.onShowToast, requestProjectCreation, selectedSessionIsDraft])
 
     const handleToggleDetailsPanel = useCallback(() => {
         props.onToggleRightSidebar()
@@ -1223,11 +1208,9 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         selectedProjectName={displayProjectName}
                         projectRoots={composerProjectRoots}
                         projectChoices={composerIsCentered ? newChatProjectChoices : undefined}
-                        detectedProjectChoices={composerIsCentered ? detectedProjectChoices : undefined}
                         projectContextDisabled={newChatHandoffActive || projectDirectoryLocked || controller.commandPending || projectCatalogState.loading}
                         onSelectProject={composerIsCentered ? handleSelectNewChatProject : undefined}
-                        onImportDetectedProject={composerIsCentered ? handleImportDetectedProject : undefined}
-                        onChooseProjectFolder={composerIsCentered ? handleChooseNewChatProjectFolder : undefined}
+                        onCreateProject={composerIsCentered ? handleCreateNewChatProject : undefined}
                         availableModels={availableModels}
                         activeModel={activeComposerConfiguration.activeModel}
                         activeEffort={activeComposerConfiguration.activeEffort}

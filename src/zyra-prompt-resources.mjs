@@ -29,7 +29,7 @@ const BUILT_IN_DESKTOP_COMMANDS = [
 ]
 
 export const ZYRA_PROMPT_RESOURCE_LIMITS = Object.freeze({
-  maxSources: 24,
+  maxSources: 64,
   maxDirectories: 192,
   maxFiles: 384,
   maxDepth: 8,
@@ -85,6 +85,51 @@ async function readProjectTrust(project) {
   }
 }
 
+function pathInside(value, root) {
+  const candidate = path.resolve(value)
+  const parent = path.resolve(root)
+  const relative = path.relative(parent, candidate)
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+}
+
+async function normalizePluginSkillSources(value) {
+  if (!Array.isArray(value)) return []
+  const result = []
+  const seen = new Set()
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const dir = String(candidate.dir || '').trim()
+    const installationRoot = String(candidate.installationRoot || '').trim()
+    const sourceId = String(candidate.sourceId || '').trim().slice(0, 256)
+    const sourceLabel = String(candidate.sourceLabel || '').replace(/\s+/gu, ' ').trim().slice(0, 120)
+    const pluginId = String(candidate.pluginId || '').trim().slice(0, 128)
+    const releaseId = String(candidate.releaseId || '').trim().slice(0, 128)
+    const contentDigest = String(candidate.contentDigest || '').trim().toLowerCase()
+    if (!path.isAbsolute(dir) || !path.isAbsolute(installationRoot) || !sourceId || !sourceLabel || !pluginId || !releaseId || !/^[a-f0-9]{64}$/.test(contentDigest)) {
+      throw new Error('Plugin Skill source metadata is invalid.')
+    }
+    const [canonicalDir, canonicalRoot] = await Promise.all([realpath(dir), realpath(installationRoot)])
+    if (!pathInside(canonicalDir, canonicalRoot)) throw new Error('Plugin Skill source is outside its installation root.')
+    const key = process.platform === 'win32' ? canonicalDir.toLowerCase() : canonicalDir
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({
+      dir: canonicalDir,
+      scope: candidate.scope === 'project' ? 'project' : 'personal',
+      sourceId,
+      sourceLabel,
+      loaderSource: candidate.scope === 'project' ? 'project' : 'user',
+      allowRootMarkdown: false,
+      enabled: true,
+      pluginId,
+      releaseId,
+      contentDigest,
+    })
+    if (result.length >= 24) break
+  }
+  return result
+}
+
 /**
  * Ordered from broadest to most specific. Later entries win name collisions.
  * Standard project locations are included only after the project trust bit is set.
@@ -109,6 +154,7 @@ export async function resolveZyraSkillSources(options = {}) {
   }
   const orderedSourceIds = [...settings.priority].reverse()
   const projectAgents = projectTrusted && project ? await findProjectAgentsSkillDirectories(project) : []
+  const pluginSkillSources = await normalizePluginSkillSources(options.pluginSkillSources)
   const sources = [{
     dir: path.join(root, 'skills'),
     scope: 'built-in',
@@ -135,8 +181,10 @@ export async function resolveZyraSkillSources(options = {}) {
       enabled: enabledSourceIds.has(sourceId),
     })
   }
+  sources.push(...pluginSkillSources.filter((source) => source.scope === 'personal'))
 
   if (project) {
+    sources.push(...pluginSkillSources.filter((source) => source.scope === 'project'))
     for (const sourceId of orderedSourceIds) {
       const definition = definitions.get(sourceId)
       if (!definition || definition.custom || (!options.includeDisabled && !enabledSourceIds.has(sourceId))) continue
@@ -359,6 +407,11 @@ async function discoverSkills(source, budget, diagnostics) {
         ...skill,
         sourceId: source.sourceId,
         sourceLabel: source.sourceLabel,
+        ...(source.pluginId ? {
+          pluginId: source.pluginId,
+          pluginReleaseId: source.releaseId,
+          pluginContentDigest: source.contentDigest,
+        } : {}),
       })
       return
     }
@@ -380,6 +433,11 @@ async function discoverSkills(source, budget, diagnostics) {
           ...skill,
           sourceId: source.sourceId,
           sourceLabel: source.sourceLabel,
+          ...(source.pluginId ? {
+            pluginId: source.pluginId,
+            pluginReleaseId: source.releaseId,
+            pluginContentDigest: source.contentDigest,
+          } : {}),
         })
       }
       if (skills.length >= ZYRA_PROMPT_RESOURCE_LIMITS.maxSkills) return

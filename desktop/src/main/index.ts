@@ -48,6 +48,7 @@ import { configureBrowserDownloadAnalytics } from './browser-download-service'
 import { inspectProjectAnalyticsCapabilities } from './analytics/project-capabilities'
 import { normalizeAnalyticsOnboardingStep } from '../shared/analytics/contracts'
 import { buildAssistantFilesShellLaunchRoute } from '../shared/assistant/files-shell-launch-route'
+import { buildQuickPreviewRoute } from '../shared/file-preview-route'
 import { BROWSER_LOCAL_FILE_SCHEME } from '../shared/browser-view'
 
 app.enableSandbox()
@@ -98,6 +99,36 @@ function applyRuntimeIdentity(identity: RuntimeIdentity): void {
 
 applyRuntimeIdentity(runtimeIdentity)
 
+let mainWindow: BrowserWindow | null = null
+
+async function readMainRendererOverlayAppearance(): Promise<Record<string, unknown>> {
+    const window = mainWindow
+    if (!window || window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.isLoading()) return {}
+    try {
+        const appearance = await window.webContents.executeJavaScript(`(() => {
+            const root = document.documentElement
+            const styles = getComputedStyle(root)
+            const token = (name) => styles.getPropertyValue(name).trim()
+            return {
+                accentPrimary: token('--accent-primary'),
+                accentSecondary: token('--accent-secondary'),
+                themeBackground: token('--color-bg'),
+                themeSurface: token('--color-card'),
+                themeText: token('--color-text'),
+                themeTextSecondary: token('--color-text-secondary'),
+                themeBorder: token('--color-border-secondary') || token('--color-border'),
+                themeAppearance: styles.colorScheme === 'light' || root.classList.contains('light') ? 'light' : 'dark',
+                uiFont: token('--font-ui') || getComputedStyle(document.body).fontFamily
+            }
+        })()`, true)
+        return appearance && typeof appearance === 'object' && !Array.isArray(appearance)
+            ? appearance as Record<string, unknown>
+            : {}
+    } catch {
+        return {}
+    }
+}
+
 const launchStartedAt = performance.now()
 const setupServices = createDesktopSetupServices(app.getPath('userData'))
 configureWindowsControlOverlayAppearance(async () => {
@@ -105,16 +136,32 @@ configureWindowsControlOverlayAppearance(async () => {
     const accent = settings.accentColor && typeof settings.accentColor === 'object' && !Array.isArray(settings.accentColor)
         ? settings.accentColor as Record<string, unknown>
         : {}
+    const themeAppearance = settings.appearanceThemeMode === 'light'
+        ? 'light'
+        : settings.appearanceThemeMode === 'dark'
+            ? 'dark'
+            : nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+    const themeFallback = themeAppearance === 'light'
+        ? { themeBackground: '#f7f7f5', themeSurface: '#ffffff', themeText: '#202124', themeTextSecondary: '#62666d', themeBorder: '#d7d9dc' }
+        : { themeBackground: '#0c121f', themeSurface: '#131c2c', themeText: '#f0f4f8', themeTextSecondary: '#aab4c3', themeBorder: '#2c394c' }
     return {
         accentPrimary: typeof accent.primary === 'string' ? accent.primary : undefined,
         accentSecondary: typeof accent.secondary === 'string' ? accent.secondary : undefined,
+        ...themeFallback,
+        themeAppearance,
+        ...await readMainRendererOverlayAppearance(),
         reduceMotion: settings.accessibilityReduceMotion === true,
         compact: settings.compactMode === true
     }
 })
+const WINDOWS_OVERLAY_APPEARANCE_KEYS = new Set([
+    'accentColor', 'appearanceThemeMode', 'appearanceLightTheme', 'appearanceDarkTheme',
+    'appearanceCustomTheme', 'appearanceCustomThemeActive', 'appearanceUiFont',
+    'accessibilityReduceMotion', 'compactMode'
+])
 setupServices.preferences.subscribe((event) => {
-    if (event.changedKeys.some((key) => ['accentColor', 'accessibilityReduceMotion', 'compactMode'].includes(key))) {
-        refreshWindowsControlOverlayAppearance()
+    if (event.changedKeys.some((key) => WINDOWS_OVERLAY_APPEARANCE_KEYS.has(key))) {
+        setTimeout(refreshWindowsControlOverlayAppearance, 50).unref?.()
     }
 })
 configureProjectOpenAnalytics((projectPath, outcome) => captureProjectOpenAnalytics(projectPath, outcome))
@@ -152,7 +199,6 @@ const rendererHangRecorder = createRendererHangRecorder({
     }
 })
 
-let mainWindow: BrowserWindow | null = null
 let quickPreviewWindow: BrowserWindow | null = null
 let browserClientRuntime: BrowserClientRuntime | null = null
 let hasRegisteredIpcHandlers = false
@@ -161,7 +207,6 @@ let quitCleanupStarted = false
 let quitCleanupComplete = false
 const pendingShellLaunchTargets: ShellLaunchTarget[] = []
 const FILE_PROTOCOL = 'zyra'
-const QUICK_PREVIEW_ROUTE = '/quick-open'
 
 type ShellLaunchTarget = {
     kind: 'file' | 'directory'
@@ -793,11 +838,12 @@ function createBrowserPopupShellWindow(input: {
 
 function createQuickPreviewWindow(filePath: string): BrowserWindow {
     const iconPath = getAppIconPath()
-    const route = `${QUICK_PREVIEW_ROUTE}?file=${encodeURIComponent(filePath)}`
+    const route = buildQuickPreviewRoute(filePath)
 
     if (quickPreviewWindow && !quickPreviewWindow.isDestroyed()) {
         loadRendererRoute(quickPreviewWindow, route)
         if (quickPreviewWindow.isMinimized()) quickPreviewWindow.restore()
+        quickPreviewWindow.maximize()
         quickPreviewWindow.show()
         quickPreviewWindow.focus()
         return quickPreviewWindow
@@ -823,7 +869,10 @@ function createQuickPreviewWindow(filePath: string): BrowserWindow {
     })
     configureTrustedRendererWindow(window)
 
-    window.on('ready-to-show', () => window.show())
+    window.on('ready-to-show', () => {
+        window.maximize()
+        window.show()
+    })
     window.on('focus', () => {
         lockWindowZoom(window)
     })
@@ -1085,7 +1134,10 @@ app.whenReady().then(async () => {
     }
     registerFileProtocol(FILE_PROTOCOL)
     configureMainRendererMediaPermissions()
-    nativeTheme.on('updated', syncOpenWindowIcons)
+    nativeTheme.on('updated', () => {
+        syncOpenWindowIcons()
+        refreshWindowsControlOverlayAppearance()
+    })
     globalShortcut.register('CommandOrControl+Alt+Escape', () => {
         void getAgentControlBroker().emergencyStop('Global emergency-stop shortcut pressed.')
     })

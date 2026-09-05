@@ -336,7 +336,7 @@ function sorted(values) {
 }
 
 function normalizeText(value) {
-  return String(value).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trimEnd() + "\n";
+  return String(value).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, "").trimEnd() + "\n";
 }
 
 function sha256(value) {

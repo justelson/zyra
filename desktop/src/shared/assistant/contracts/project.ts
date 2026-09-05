@@ -56,10 +56,17 @@ export interface AssistantProjectCatalog {
     candidates: AssistantProjectMigrationCandidate[]
 }
 
+export interface AssistantCreateProjectFolderInput {
+    path: string
+    access?: AssistantProjectFolderAccess
+}
+
 export interface AssistantCreateProjectInput {
     name?: string
     folderPath?: string
     folderAccess?: AssistantProjectFolderAccess
+    /** When supplied, replaces the legacy folderPath/folderAccess selection. */
+    folders?: AssistantCreateProjectFolderInput[]
 }
 
 export interface AssistantSetSessionProjectInput {

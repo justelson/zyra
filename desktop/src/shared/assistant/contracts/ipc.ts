@@ -44,6 +44,17 @@ export const ASSISTANT_IPC = {
     getSessionTurnUsage: 'devscope:assistant:getSessionTurnUsage',
     listModels: 'devscope:assistant:listModels',
     listProjects: 'devscope:assistant:listProjects',
+    getPluginCatalog: 'devscope:assistant:getPluginCatalog',
+    startPluginDownload: 'devscope:assistant:startPluginDownload',
+    getPluginDownload: 'devscope:assistant:getPluginDownload',
+    cancelPluginDownload: 'devscope:assistant:cancelPluginDownload',
+    createPluginChat: 'devscope:assistant:createPluginChat',
+    inspectLocalPlugin: 'devscope:assistant:inspectLocalPlugin',
+    installInspectedPlugin: 'devscope:assistant:installInspectedPlugin',
+    setPluginSet: 'devscope:assistant:setPluginSet',
+    refreshChatPluginScope: 'devscope:assistant:refreshChatPluginScope',
+    setPluginState: 'devscope:assistant:setPluginState',
+    rollbackPlugin: 'devscope:assistant:rollbackPlugin',
     createProject: 'devscope:assistant:createProject',
     associateProjectFolder: 'devscope:assistant:associateProjectFolder',
     removeProjectFolder: 'devscope:assistant:removeProjectFolder',
@@ -117,6 +128,9 @@ export interface AssistantPromptSkillResource extends AssistantPromptCommandReso
     disableModelInvocation: boolean
     sourceId?: string
     sourceLabel?: string
+    pluginId?: string
+    pluginReleaseId?: string
+    pluginContentDigest?: string
 }
 
 export interface AssistantSkillConflictSource {

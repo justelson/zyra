@@ -1,4 +1,6 @@
 import path from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { canonicalPermissionPath, resolvePermissionPath } from "./permission-paths.mjs";
 
 const SAFE_TOOL_NAMES = new Set([
   "read",
@@ -48,17 +50,18 @@ function boundedJson(value, limit = 1800) {
   }
 }
 
-function collectPaths(input) {
+function collectPaths(input, nativePaths = false) {
   const values = [];
+  const pathValue = (value) => nativePaths && typeof value === "string" ? value : stringValue(value);
   for (const key of ["path", "filePath", "folderPath", "rootPath", "directory", "cwd", "targetPath", "sourcePath", "destinationPath"]) {
-    const value = stringValue(input[key]);
+    const value = pathValue(input[key]);
     if (value) values.push(value);
   }
   for (const key of ["paths", "files"]) {
     if (!Array.isArray(input[key])) continue;
     for (const value of input[key]) {
-      const pathValue = stringValue(value);
-      if (pathValue) values.push(pathValue);
+      const entry = pathValue(value);
+      if (entry) values.push(entry);
     }
   }
   return [...new Set(values)].slice(0, 20);
@@ -80,14 +83,39 @@ function normalizeFilesystemRoots(options, project) {
     }];
   }) : [];
   if (roots.length === 0) roots.push({ path: project, access: "read-write" });
+  if (Array.isArray(scope.roots)) {
+    for (const root of roots) root.realPath = canonicalPermissionPath(root.path);
+  }
   return roots
-    .filter((root, index, entries) => entries.findIndex((candidate) => candidate.path.toLowerCase() === root.path.toLowerCase()) === index)
+    .filter((root, index, entries) => Array.isArray(scope.roots)
+      || entries.findIndex((candidate) => candidate.path.toLowerCase() === root.path.toLowerCase()) === index)
     .sort((left, right) => right.path.length - left.path.length);
 }
 
-function filesystemRootForPath(value, project, roots) {
-  const candidate = path.resolve(project, value);
-  return roots.find((root) => !isPathOutsideProject(candidate, root.path)) || null;
+function filesystemRootForPath(value, project, roots, nativePaths = false, toolName = "") {
+  if (!nativePaths) {
+    const candidate = path.resolve(project, value);
+    return roots.find((root) => !isPathOutsideProject(candidate, root.path)) || null;
+  }
+  try {
+    const candidate = resolvePermissionPath(value, project, toolName);
+    // Keep the advertised scope boundary as well as the destination boundary.
+    if (!roots.some((root) => !isPathOutsideProject(candidate, root.path))) return null;
+    const canonical = canonicalPermissionPath(candidate);
+    if (!canonical) return null;
+    // A loaded root may not acquire a different destination between calls.
+    const stableRoots = roots.filter((root) => root.realPath
+      && canonicalPermissionPath(root.path) === root.realPath);
+    const matches = stableRoots.filter((root) => !isPathOutsideProject(canonical, root.realPath));
+    if (!matches.length) return null;
+    // A writable alias must not override either spelling of a read-only root.
+    const readOnly = roots.find((root) => root.access === "read-only"
+      && (!isPathOutsideProject(candidate, root.path)
+        || (root.realPath && !isPathOutsideProject(canonical, root.realPath))));
+    return readOnly || matches[0];
+  } catch {
+    return null;
+  }
 }
 
 function collectCommandPathHints(command) {
@@ -117,25 +145,30 @@ function isConservativelyReadOnlyCommand(command) {
 }
 
 export function describeZyraToolPermission(event, options = {}) {
+  return describeToolPermission(event, options);
+}
+
+function describeToolPermission(event, options, scopedRoots) {
   const toolName = normalizeToolName(event?.toolName || event?.name);
   if (!toolName || isSeparatelySupervisedControlTool(toolName)) return null;
 
   const input = asRecord(event?.input);
   const project = path.resolve(options.project || process.cwd());
   const explicitFilesystemScope = Array.isArray(asRecord(options.filesystemScope).roots);
-  const roots = normalizeFilesystemRoots(options, project);
+  const roots = scopedRoots || normalizeFilesystemRoots(options, project);
   const command = toolName === "bash" || /(?:shell|terminal|exec|command)/.test(toolName)
     ? stringValue(input.command || input.cmd || input.script)
     : "";
-  const paths = [...new Set([...collectPaths(input), ...collectCommandPathHints(command)])];
-  const matchedRoots = paths.map((value) => filesystemRootForPath(value, project, roots));
+  const paths = [...new Set([...collectPaths(input, explicitFilesystemScope), ...collectCommandPathHints(command)])];
+  if (explicitFilesystemScope && ["grep", "find", "ls"].includes(toolName) && !input.path) paths.push(".");
+  const matchedRoots = paths.map((value) => filesystemRootForPath(value, project, roots, explicitFilesystemScope, toolName));
   const outsideProject = matchedRoots.some((root) => !root) || commandHasUnboundedPathExpansion(command);
   const requestType = toolName === "edit" || toolName === "write" || /(?:write|edit|patch|delete|move|rename|create)/.test(toolName)
     ? "file-change"
     : command
       ? "command"
       : "command";
-  const workingRoot = filesystemRootForPath(project, project, roots);
+  const workingRoot = filesystemRootForPath(project, project, roots, explicitFilesystemScope);
   const readOnlyViolation = requestType === "file-change"
     ? matchedRoots.some((root) => root?.access === "read-only")
     : Boolean(command)
@@ -179,8 +212,32 @@ function isPathOutsideProject(value, project) {
   return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
 }
 
+function isLoadedSkillRead(event, options) {
+  // Only Pi's single-file read tool. No recursive search, writes, or shell tools.
+  if (event?.toolName !== "read" || typeof event.input?.path !== "string"
+    || typeof options.getSkillReadResources !== "function") return false;
+  try {
+    const candidate = resolvePermissionPath(event.input.path, options.project || process.cwd(), "read");
+    const canonical = realpathSync.native(candidate);
+    if (!statSync(canonical).isFile()) return false;
+    return options.getSkillReadResources().some((resource) => {
+      // Both the advertised path and its canonical destination must stay inside
+      // the load-time boundary. Replacing a Skill directory with a link revokes it.
+      if (realpathSync.native(resource.path) !== resource.realPath) return false;
+      return resource.directory
+        ? !isPathOutsideProject(candidate, resource.path) && !isPathOutsideProject(canonical, resource.realPath)
+        : candidate === resource.path && canonical === resource.realPath;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function createZyraPermissionGateExtension(options = {}) {
   const sessionGrants = new Set();
+  const scopedRoots = Array.isArray(asRecord(options.filesystemScope).roots)
+    ? normalizeFilesystemRoots(options, path.resolve(options.project || process.cwd()))
+    : undefined;
   const requestPermission = typeof options.requestPermission === "function" ? options.requestPermission : null;
   const reviewPermission = typeof options.reviewPermission === "function" ? options.reviewPermission : null;
   const getPermissionMode = typeof options.getPermissionMode === "function"
@@ -188,7 +245,8 @@ export function createZyraPermissionGateExtension(options = {}) {
     : () => "approval-required";
   const handleToolCall = async (event) => {
     const permissionMode = getPermissionMode();
-    const request = describeZyraToolPermission(event, options);
+    if (isLoadedSkillRead(event, options)) return undefined;
+    const request = describeToolPermission(event, options, scopedRoots);
     if (!request) return undefined;
     if (request.scopeViolation) {
       return {

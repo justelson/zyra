@@ -45,11 +45,9 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     selectedProjectName?: string | null
     projectRoots?: AssistantComposerProjectRoot[]
     projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
-    detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean
     onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
-    onImportDetectedProject?: (candidateId: string) => Promise<void> | void
-    onChooseProjectFolder?: () => Promise<void> | void
+    onCreateProject?: () => Promise<void> | void
     availableModels: Array<{ id: string; label: string; description?: string }>
     activeModel: string | undefined
     activeEffort?: AssistantReasoningEffort | null
@@ -234,11 +232,9 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         projectName={props.selectedProjectName}
                         projectRoots={props.projectRoots}
                         projectChoices={props.projectChoices}
-                        detectedProjectChoices={props.detectedProjectChoices}
                         projectContextDisabled={props.projectContextDisabled}
                         onSelectProject={props.onSelectProject}
-                        onImportDetectedProject={props.onImportDetectedProject}
-                        onChooseProjectFolder={props.onChooseProjectFolder}
+                        onCreateProject={props.onCreateProject}
                         onReconnect={props.onReconnect}
                         onPrepareRealtimeVoice={props.onPrepareRealtimeVoice}
                         onStartRealtimeVoice={props.onStartRealtimeVoice}

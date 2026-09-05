@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, ChevronDown, Copy, Folder, MoreHorizontal, PanelLeftOpen, Pin, Plus, Search, Settings, SquarePen, Trash2, X } from 'lucide-react'
+import { Bot, ChevronDown, Copy, Folder, MoreHorizontal, PanelLeftOpen, Pin, Plug, Plus, Search, SquarePen, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { AssistantMessage, AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import { useCommandPalette } from '@/lib/commandPalette'
@@ -8,7 +8,7 @@ import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import { useLoadingScreenActive } from '@/components/ui/LoadingState'
 import { cn } from '@/lib/utils'
-import { preloadSettingsRoute } from '../settings/settings-route-loaders'
+import { AssistantSidebarFooter } from './AssistantSidebarFooter'
 import type { AssistantToastInput } from './AssistantPageHelpers'
 import { AssistantAgentInboxSidebar } from './AssistantAgentInboxSidebar'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
@@ -718,7 +718,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     ) : null
 
     const baseSidebarActions = (
-        <div className="shrink-0 space-y-0.5 px-0.5 pb-3">
+        <div className={cn('shrink-0 space-y-0.5 px-0.5', !agentInboxEnabled && 'pb-3')}>
             <div className="flex items-center gap-1">
                 <div className="min-w-0 flex-1">
                     <RailButton
@@ -730,19 +730,17 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                     />
                 </div>
                 {collapsedPreviewControls}
+                <button type="button" onClick={open} aria-label="Search chats" title="Search chats (Ctrl K)" className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/35">
+                    <Search size={15} strokeWidth={1.7} />
+                </button>
             </div>
+            <RailButton icon={<Plug size={15} strokeWidth={1.7} />} label="Plugins" onClick={() => navigate('/plugins')} />
             <RailButton
                 icon={<NewProjectIcon />}
                 label="New project"
                 shortcut="Ctrl Shift N"
                 disabled={commandPending}
                 onClick={() => void onCreateProjectChat()}
-            />
-            <RailButton
-                icon={<Search size={15} strokeWidth={1.7} />}
-                label="Search"
-                shortcut="Ctrl K"
-                onClick={open}
             />
         </div>
     )
@@ -950,21 +948,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                     </>
                 )}
 
-                <div className="mt-auto shrink-0 border-t border-[var(--surface-divider)] pt-2">
-                    <button
-                        type="button"
-                        onPointerEnter={() => preloadSettingsRoute('/settings')}
-                        onFocus={() => preloadSettingsRoute('/settings')}
-                        onClick={() => navigate('/settings')}
-                        className={cn(
-                            'group flex h-8 w-full cursor-pointer items-center text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/35',
-                            agentInboxEnabled ? 'gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sparkle-text-muted/80' : 'gap-2.5 rounded-lg px-2.5 text-[13px] leading-none'
-                        )}
-                    >
-                        <Settings size={agentInboxEnabled ? 18 : 15} strokeWidth={1.75} className="text-sparkle-text-secondary/70 transition-colors group-hover:text-sparkle-text" />
-                        <span className="truncate">Settings</span>
-                    </button>
-                </div>
+                <AssistantSidebarFooter agentInboxEnabled={agentInboxEnabled} />
             </div>
             <ChatDeleteConfirmModal
                 session={pendingDeleteSession}

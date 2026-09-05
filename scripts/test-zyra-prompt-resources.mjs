@@ -66,6 +66,20 @@ try {
   await writeSkill(path.join(project, '.zyra', 'skills', 'release-check'), 'release-check', 'Project release checks.', 'Project instructions win.')
   await writeSkill(path.join(project, '.zyra', 'skills', 'invalid'), 'Bad_Name', 'Invalid names never enter the menu.')
 
+  const pluginInstallationRoot = path.join(fixture, 'Zyra-dev', 'assistant', 'plugins', 'releases')
+  const pluginSkills = path.join(pluginInstallationRoot, 'plugin-fixture', 'release-fixture', 'skills')
+  await writeSkill(path.join(pluginSkills, 'plugin-audit'), 'plugin-audit', 'Audit a release using the exact scoped Plugin version.')
+  const pluginSkillSources = [{
+    dir: pluginSkills,
+    installationRoot: pluginInstallationRoot,
+    scope: 'project',
+    sourceId: 'plugin:fixture:release-fixture',
+    sourceLabel: 'Fixture Plugin',
+    pluginId: 'plugin_fixture',
+    releaseId: 'release_fixture',
+    contentDigest: 'a'.repeat(64),
+  }]
+
   const malformedDir = path.join(project, '.zyra', 'skills', 'malformed')
   await mkdir(malformedDir, { recursive: true })
   await writeFile(path.join(malformedDir, 'SKILL.md'), '---\nname: malformed\ndescription: missing terminator')
@@ -121,6 +135,28 @@ try {
   assert.ok(resources.diagnostics.some((entry) => entry.type === 'collision'))
   assert.ok(resources.diagnostics.some((entry) => entry.type === 'limit'))
   assert.ok(resources.diagnostics.length <= ZYRA_PROMPT_RESOURCE_LIMITS.maxDiagnostics)
+
+  const pluginResources = await listZyraPromptResourceManifest({
+    project,
+    root,
+    home,
+    projectTrusted: true,
+    pluginSkillSources,
+  })
+  const pluginSkill = pluginResources.skills.find((skill) => skill.name === 'plugin-audit')
+  assert.equal(pluginSkill?.sourceLabel, 'Fixture Plugin')
+  assert.equal(pluginSkill?.pluginId, 'plugin_fixture')
+  assert.equal(pluginSkill?.pluginReleaseId, 'release_fixture')
+  assert.equal(pluginSkill?.pluginContentDigest, 'a'.repeat(64))
+  const outsidePluginSkills = path.join(fixture, 'outside-plugin')
+  await writeSkill(path.join(outsidePluginSkills, 'escape-attempt'), 'escape-attempt', 'Must remain outside the trusted Plugin root.')
+  await assert.rejects(() => resolveZyraSkillSources({
+    project,
+    root,
+    home,
+    projectTrusted: true,
+    pluginSkillSources: [{ ...pluginSkillSources[0], dir: outsidePluginSkills }],
+  }), /outside its installation root/i, 'Plugin Skill sources cannot escape their installation root')
 
   const sourcePaths = (await resolveZyraSkillSources({ project, root, home, projectTrusted: true })).map((source) => source.dir)
   for (const expected of [
@@ -223,6 +259,7 @@ try {
   assert.match(sdkSource, /runZyraPrompt[\s\S]{0,180}expandZyraPromptResource\(runtime, prompt\)/u, 'Pi-backed prompts expand custom commands and explicit skills before provider dispatch')
   assert.match(desktopRuntimeSource, /async sendPrompt\([\s\S]*worker\.request\('prompt'/u, 'Desktop direct and attached worker routes use the same prompt bridge')
   assert.match(sdkSource, /reload: async \(\) => \{[\s\S]*options\.loadSkills/u, 'soft resource reload refreshes the skill manifest instead of retaining startup state')
+  assert.match(sdkSource, /createZyraResourceLoader\(project[\s\S]*pluginSkillSources: Array\.isArray\(options\.pluginSkillSources\)/u, 'runtime startup passes exact scoped Plugin Skill sources into the shared loader')
 
   // The public SDK wrapper remains async and uses the same bounded manifest.
   const sdkManifest = await listZyraPromptResources({ project, projectTrusted: true })

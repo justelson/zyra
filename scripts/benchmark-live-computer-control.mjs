@@ -12,6 +12,12 @@ const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roami
 const descriptorPath = process.env.ZYRA_BENCHMARK_BRIDGE_DESCRIPTOR || path.join(roaming, 'Zyra-dev', 'browser-assistant-bridge.json')
 const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`
 const title = `__zyra-control-benchmark-${label}-${runId}`
+const existingSessionId = String(process.env.ZYRA_BENCHMARK_EXISTING_SESSION_ID || '').trim()
+const requiresVisibleBrowserChat = /\b(?:browser_(?:access|observe|perform|session|tabs)|in-app\s+browser|zyra(?:'s)?\s+browser)\b/i.test(prompt)
+if (requiresVisibleBrowserChat && !existingSessionId) {
+    throw new Error('In-app Browser benchmarks require ZYRA_BENCHMARK_EXISTING_SESSION_ID for a Chat already selected in the development renderer.')
+}
+let ownsSession = false
 let sessionId = ''
 let sessionPath = ''
 let eventJournalPath = ''
@@ -22,9 +28,17 @@ const wallStartedAt = Date.now()
 try {
     const initial = await invoke('getSnapshot')
     originalSessionId = String(initial.snapshot?.selectedSessionId || initial.selectedSessionId || '')
-    const created = await invoke('createSession', [{ title, mode: 'work' }])
-    sessionId = String(created.sessionId || '')
-    if (!sessionId) throw new Error('Zyra did not return a local benchmark session id.')
+    if (existingSessionId) {
+        const sessions = initial.snapshot?.sessions || initial.sessions || []
+        if (!sessions.some((session) => session.id === existingSessionId)) throw new Error('The requested existing benchmark Chat does not exist.')
+        if (originalSessionId !== existingSessionId) throw new Error('Visible Browser benchmarks require the existing Chat to already be selected.')
+        sessionId = existingSessionId
+    } else {
+        const created = await invoke('createSession', [{ title, mode: 'work' }])
+        sessionId = String(created.sessionId || '')
+        if (!sessionId) throw new Error('Zyra did not return a local benchmark session id.')
+        ownsSession = true
+    }
     console.log(JSON.stringify({
         stage: 'started', label, sessionId,
         model: process.env.ZYRA_BENCHMARK_MODEL || 'openai-codex/gpt-5.6-sol',
@@ -53,36 +67,38 @@ try {
     const summary = analyzeTrace(sessionPath, wallStartedAt)
     console.log(JSON.stringify({ stage: 'measured', label, summary }))
 } finally {
-    if (sessionId) {
+    if (ownsSession && sessionId) {
         try {
             const deleted = await invoke('deleteSession', [sessionId])
             cleanup.serviceDeleted = deleted.success !== false
         } catch {}
     }
-    if (originalSessionId) {
+    if (ownsSession && originalSessionId) {
         try {
             const restored = await invoke('selectSession', [originalSessionId])
             cleanup.originalSelectionRestored = restored.success !== false
         } catch {}
     }
-    if (sessionPath && existsSync(sessionPath) && /[\\/]\.zyra[\\/]sessions[\\/][^\\/]+\.jsonl$/i.test(sessionPath)) {
+    if (ownsSession && sessionPath && existsSync(sessionPath) && /[\\/]\.zyra[\\/]sessions[\\/][^\\/]+\.jsonl$/i.test(sessionPath)) {
         rmSync(sessionPath, { force: true })
         cleanup.rawTraceDeleted = !existsSync(sessionPath)
     }
-    if (eventJournalPath && existsSync(eventJournalPath) && /[\\/]agent-events[\\/][a-f0-9]{64}\.jsonl$/i.test(eventJournalPath)) {
+    if (ownsSession && eventJournalPath && existsSync(eventJournalPath) && /[\\/]agent-events[\\/][a-f0-9]{64}\.jsonl$/i.test(eventJournalPath)) {
         rmSync(eventJournalPath, { force: true })
         cleanup.eventJournalDeleted = !existsSync(eventJournalPath)
         if (cleanup.eventJournalDeleted) cleanup.eventReplayFilesDeleted += 1
     }
-    const eventJournalDirectory = path.join(roaming, 'Zyra-dev', 'assistant', 'agent-server', 'agent-events')
-    try {
-        for (const name of readdirSync(eventJournalDirectory).filter((entry) => /^[a-f0-9]{64}\.jsonl$/i.test(entry))) {
-            const file = path.join(eventJournalDirectory, name)
-            if (!readFileSync(file, 'utf8').includes(prompt)) continue
-            rmSync(file, { force: true })
-            cleanup.eventReplayFilesDeleted += 1
-        }
-    } catch {}
+    if (ownsSession) {
+        const eventJournalDirectory = path.join(roaming, 'Zyra-dev', 'assistant', 'agent-server', 'agent-events')
+        try {
+            for (const name of readdirSync(eventJournalDirectory).filter((entry) => /^[a-f0-9]{64}\.jsonl$/i.test(entry))) {
+                const file = path.join(eventJournalDirectory, name)
+                if (!readFileSync(file, 'utf8').includes(prompt)) continue
+                rmSync(file, { force: true })
+                cleanup.eventReplayFilesDeleted += 1
+            }
+        } catch {}
+    }
     console.log(JSON.stringify({ stage: 'cleanup', label, cleanup }))
 }
 
@@ -163,6 +179,7 @@ function analyzeTrace(file, fallbackStartAt) {
     let providerDecisionMs = 0
     let toolRuntimeMs = 0
     let observationCharacters = 0
+    let grantRequestCount = 0
     let endAt = startAt
     let finalText = ''
     for (const entry of turn) {
@@ -177,6 +194,10 @@ function analyzeTrace(file, fallbackStartAt) {
                 for (const call of toolCalls) {
                     calls.set(call.id, { at, name: call.name })
                     toolCounts.set(call.name, (toolCounts.get(call.name) || 0) + 1)
+                    const requestsGrant = call.name === 'computer_request_access'
+                        || call.name === 'computer_use_app'
+                        || (call.name === 'browser_access' && call.arguments?.operation === 'request')
+                    if (requestsGrant) grantRequestCount += 1
                 }
             }
             const text = messageText(message)
@@ -198,7 +219,7 @@ function analyzeTrace(file, fallbackStartAt) {
                 toolTimings.push({ tool: call.name, seconds: seconds(runtimeMs) })
             }
             const text = messageText(message)
-            if (message.toolName?.startsWith('computer_')) observationCharacters += text.includes('"elements"') ? text.length : 0
+            if (message.toolName?.startsWith('computer_') || message.toolName?.startsWith('browser_')) observationCharacters += text.includes('"elements"') ? text.length : 0
             if (message.isError || /operation failed|control failed|grant expired|is read-only|field is read-only/i.test(text)) {
                 failures.push({ tool: message.toolName, code: message.details?.code || null, message: text.replace(/\s+/g, ' ').slice(0, 240) })
             }
@@ -215,8 +236,9 @@ function analyzeTrace(file, fallbackStartAt) {
         otherSeconds: seconds(Math.max(0, totalMs - providerDecisionMs - toolRuntimeMs)),
         toolCalls: Object.fromEntries([...toolCounts].sort(([left], [right]) => left.localeCompare(right))),
         computerToolCallCount: [...toolCounts].reduce((total, [name, count]) => total + (name === 'tool_search' || name.startsWith('computer_') ? count : 0), 0),
-        grantRequestCount: (toolCounts.get('computer_request_access') || 0) + (toolCounts.get('computer_use_app') || 0),
-        explicitObserveCount: toolCounts.get('computer_observe') || 0,
+        browserToolCallCount: [...toolCounts].reduce((total, [name, count]) => total + (name.startsWith('browser_') ? count : 0), 0),
+        grantRequestCount,
+        explicitObserveCount: (toolCounts.get('computer_observe') || 0) + (toolCounts.get('browser_observe') || 0),
         failedToolResults: failures.length,
         failures: failures.slice(0, 12),
         observationCharacters,

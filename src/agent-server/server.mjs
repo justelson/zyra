@@ -4,6 +4,7 @@ import net from "node:net";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { AgentBridgeWorker } from "./bridge-worker.mjs";
+import { ServerPluginAuthority } from "./plugin-authority.mjs";
 import { AgentEventJournal } from "./event-journal.mjs";
 import { CanonicalChatCatalog } from "./catalog.mjs";
 import { getAgentServerPaths } from "./paths.mjs";
@@ -61,6 +62,7 @@ export class ZyraAgentServer extends EventEmitter {
     this.catalog = options.catalog || new CanonicalChatCatalog(options);
     this.clients = new Map();
     this.sessions = new Map();
+    this.pluginAuthority = new ServerPluginAuthority();
     this.utilityWorker = null;
     this.canonicalMessageQueues = new Map();
     this.desktopWorkspaceRequests = new Map();
@@ -346,6 +348,17 @@ export class ZyraAgentServer extends EventEmitter {
       this.broadcastCatalogChanged({ canonicalChatId: chat.canonicalChatId, metadata: true });
       return { chat: { ...chat, presence: this.sessionPresence(chat.canonicalChatId) } };
     }
+    if (method === "session.pluginAuthority") {
+      if (!client.canControl) throw new AgentServerProtocolError('Plugin revocation requires verified Desktop authority.', 'AGENT_SERVER_AUTH_FAILED');
+      this.pluginAuthority.update(params, (key) => this.catalog.resolveAlias(key));
+      const affected = [...new Set(this.sessions.values())].filter((session) =>
+        !this.pluginAuthority.allows(session.sessionKey, session.pluginSkillSources));
+      const results = await Promise.allSettled(affected.map((session) => session.revokePluginAuthority()));
+      if (results.some((result) => result.status === 'rejected')) {
+        throw new AgentServerProtocolError('Plugin authority is blocked, but runtime cleanup could not be confirmed.', 'AGENT_SERVER_PLUGIN_CLEANUP_FAILED');
+      }
+      return { revoked: affected.map((session) => session.sessionKey) };
+    }
     if (method === "session.attach") return this.attachSession(client, params);
     const session = this.requireSession(params.sessionKey);
     if (!session.clients.has(client)) {
@@ -538,6 +551,9 @@ export class ZyraAgentServer extends EventEmitter {
     const provisionalKey = requestedCanonicalId || `pending:${assertAgentServerIdentifier(params.localThreadId || randomUUID(), "local thread id")}`;
     let session = this.sessions.get(provisionalKey);
     const connectionPayload = { ...params, cwd: sessionCwd };
+    this.pluginAuthority.assertAllowed(provisionalKey, params.pluginSkillSources || []);
+    if (session?.revocationPromise) await session.revocationPromise;
+    if (session?.disposed) session = null;
     if (session?.requiresAuthorityReconnect(connectionPayload)) {
       if (session.activeRequests > 0 || session.hasBackgroundWork()) {
         throw new AgentServerProtocolError(
@@ -570,6 +586,9 @@ export class ZyraAgentServer extends EventEmitter {
         providerThreadId: requested?.sessionPath || params.session
       });
       const canonicalChatId = String(connected.threadId || connected.providerThreadId || requestedCanonicalId || provisionalKey);
+      this.pluginAuthority.bindCanonicalKey(provisionalKey, canonicalChatId);
+      this.pluginAuthority.assertAllowed(canonicalChatId, params.pluginSkillSources || []);
+      if (session.disposed || session.revocationPromise) throw new AgentServerProtocolError('Chat Plugin authority was revoked during connect.', 'AGENT_SERVER_PLUGIN_AUTHORITY_REVOKED');
       session.connectedResult = {
         ...connected,
         sessionName: connected.sessionName || requested?.title || undefined,
@@ -590,8 +609,11 @@ export class ZyraAgentServer extends EventEmitter {
       });
       this.broadcastCatalogChanged({ canonicalChatId, project: sessionProject });
     } catch (error) {
-      session.dispose("Session connection failed.");
-      this.removeSession(session);
+      if (session.revocationPromise) await session.revocationPromise.catch(() => undefined);
+      else {
+        session.dispose("Session connection failed.");
+        this.removeSession(session);
+      }
       throw error;
     }
     session.attach(client);
@@ -615,6 +637,11 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   routeControlRequest(session, message) {
+    if ((session.disposed || session.revocationPromise) && message.type !== 'control.cancel' && message.operation?.operation !== 'revoke_current_principal') {
+      session.worker.sendControlResponse({ type: 'control.response', requestId: message.requestId, ok: false,
+        error: { code: 'CONTROL_CANCELLED', message: 'Chat Plugin authority was revoked.', retryable: false } });
+      return;
+    }
     if (message.type === "control.cancel") {
       const owner = session.controlOwners.get(message.requestId);
       if (owner) this.send(owner, { ...message, sessionKey: session.sessionKey, requestContext: session.activeRequestContext });
@@ -739,12 +766,22 @@ function canonicalConnectionAuthorityKey(payload) {
         access: root?.access === "read-only" ? "read-only" : "read-write"
       }))
     : [];
+  const pluginSkillSources = Array.isArray(payload?.pluginSkillSources)
+    ? payload.pluginSkillSources.slice(0, 24).map((source) => ({
+        pluginId: String(source?.pluginId || ""),
+        releaseId: String(source?.releaseId || ""),
+        contentDigest: String(source?.contentDigest || ""),
+        dir: normalizePath(source?.dir),
+        scope: source?.scope === "project" ? "project" : "personal"
+      }))
+    : [];
   return JSON.stringify({
     cwd: normalizePath(payload?.cwd),
     projectId: String(scope?.projectId || ""),
     revision: Number(scope?.revision) || 0,
     workingRoot: normalizePath(scope?.workingRoot),
-    roots
+    roots,
+    pluginSkillSources
   });
 }
 
@@ -772,6 +809,8 @@ class ServerOwnedSession {
     this.connectPromise = null;
     this.connectedResult = null;
     this.connectionAuthorityKey = null;
+    this.pluginSkillSources = [];
+    this.revocationPromise = null;
     this.latestFleetSnapshot = null;
     this.idleTimer = null;
     this.disposed = false;
@@ -795,6 +834,7 @@ class ServerOwnedSession {
     if (this.connectedResult) return Promise.resolve(this.connectedResult);
     if (!this.connectPromise) {
       this.connectionAuthorityKey = canonicalConnectionAuthorityKey(payload);
+      this.pluginSkillSources = structuredClone(payload.pluginSkillSources || []);
       this.connectPromise = this.worker.request("connect", payload, { timeoutMs: BRIDGE_CONNECT_TIMEOUT_MS })
         .then((result) => {
           const connected = projectConnectedResult(result);
@@ -885,6 +925,8 @@ class ServerOwnedSession {
   }
 
   async request(client, typeValue, payload, requestContextValue) {
+    if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('Chat Plugin authority was revoked.', 'AGENT_SERVER_PLUGIN_AUTHORITY_REVOKED');
+    this.server.pluginAuthority.assertAllowed(this.sessionKey, this.pluginSkillSources);
     const type = String(typeValue || "");
     if (!BRIDGE_REQUEST_PATTERN.test(type)) throw new AgentServerProtocolError(`Bridge request type is not allowed: ${type || "missing"}.`);
     let userInputResponsePromise = null;
@@ -973,6 +1015,9 @@ class ServerOwnedSession {
   }
 
   publish(event) {
+    if (this.revocationPromise && (event?.type === 'agent_end' || event?.type === 'zyra_server_turn_completed')) {
+      event = { type: 'zyra_server_turn_completed', outcome: 'interrupted', turnId: event.turnId || this.latestTurn?.id };
+    }
     const userInputResponseState = event?.type === "user_input_resolved" && event.requestId
       ? this.userInputResponseStates.get(String(event.requestId))
       : null;
@@ -1165,6 +1210,27 @@ class ServerOwnedSession {
       this.server.removeSession(this);
     }, this.idleTimeoutMs);
     this.idleTimer.unref?.();
+  }
+
+  revokePluginAuthority() {
+    if (this.revocationPromise) return this.revocationPromise;
+    // Install the barrier before invoking any asynchronous worker cleanup.
+    this.revocationPromise = Promise.resolve().then(async () => {
+      const turnId = this.activeRequestContext?.turnId;
+      for (const [requestId, owner] of this.controlOwners) {
+        this.server.send(owner, { type: 'control.cancel', requestId, sessionKey: this.sessionKey });
+      }
+      if (turnId) this.publish({ type: 'zyra_server_turn_completed', outcome: 'interrupted', turnId });
+      try {
+        const result = await this.worker.request('plugin.revoke', {}, { timeoutMs: 15_000 });
+        if (result?.revoked !== true) throw new Error('Worker did not acknowledge Plugin cleanup.');
+      } finally {
+        if (turnId) this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, turnId);
+        this.dispose('Chat Plugin authority revoked.');
+        this.server.removeSession(this);
+      }
+    });
+    return this.revocationPromise;
   }
 
   dispose(reason) {

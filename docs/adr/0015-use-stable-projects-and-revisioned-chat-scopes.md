@@ -43,7 +43,11 @@ The development and production databases run the migration independently. Determ
 
 Each desktop installation also owns a separate canonical agent-server namespace under `<userData>/assistant/agent-server`. Its descriptor, authority file, endpoint identity, lock, journal, and catalog cannot be shared with another installation. The endpoint identity includes the state directory as well as channel and protocol version, preventing a development desktop from attaching to a live packaged server on the same account.
 
-The selected Chat scope travels with runtime connection metadata. Direct file tools are checked against every scoped root. Out-of-scope paths and writes targeting read-only roots are blocked before permission-mode review, so Full access and chat approval cannot widen the saved scope. Shell checks reject explicit out-of-scope paths and conservatively restrict commands from or against read-only roots. This is an application authority boundary, not an operating-system filesystem sandbox.
+The selected Chat scope travels with runtime connection metadata. Direct file tools use the pinned Pi tool path resolver, including home expansion, file URLs, supported prefixes and read-time filename variants. Checks use canonical paths and the nearest existing ancestor for new files, so directory aliases cannot bypass an outside-root or read-only decision. These denials run before permission-mode review; Full access and chat approval cannot widen the saved Project scope. Shell checks reject explicit out-of-scope paths and conservatively restrict commands from or against read-only roots.
+
+Host-approved Skill instructions and contained references have a separate, read-only resource boundary. Only the single-file `read` tool can use it. The loader records canonical destinations, replaces authority on reload, and clears it on revocation or failed reload. Skill resources never become writable Project roots or shell-execution grants. Standalone Markdown Skills receive exact-file access rather than access to their containing directory.
+
+These are application authority checks, not an operating-system filesystem sandbox. Authorization cannot eliminate filesystem changes racing a subsequent native file open or constrain arbitrary effects of a separately authorized shell process.
 
 Project-home instructions are always included in the Chat prompt. Root-level instructions from other scoped Folders are labeled as folder-local and apply only while work touches that Folder.
 

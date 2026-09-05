@@ -131,7 +131,7 @@ export class BrowserSurfaceHost {
     commandTab(
         principal: ControlPrincipal,
         target: BrowserTarget,
-        mode: 'refresh' | 'external',
+        mode: 'refresh' | 'navigate' | 'external',
         url: string | null,
         signal?: AbortSignal
     ): Promise<BrowserTarget> {
@@ -248,7 +248,7 @@ export class BrowserSurfaceHost {
         }
         this.assertMatchesRequest(pending, value)
         const mode = pending.request.mode || 'open'
-        if (value.success && ['close', 'refresh', 'external'].includes(mode) && pending.phase !== 'claimed') {
+        if (value.success && ['close', 'refresh', 'navigate', 'external'].includes(mode) && pending.phase !== 'claimed') {
             const taken = this.takePending(requestId)
             taken?.reject(new AgentControlError('CONTROL_SCOPE_DENIED', 'The Browser command was not atomically claimed before completion.'))
             return Boolean(taken)
@@ -333,7 +333,7 @@ export class BrowserSurfaceHost {
                         ? 'The Browser tab was accepted but did not register as a trusted control target in time.'
                         : mode === 'close'
                             ? 'The Browser workspace accepted the request but did not close the selected tab in time.'
-                            : ['refresh', 'external'].includes(mode)
+                            : ['refresh', 'navigate', 'external'].includes(mode)
                                 ? 'The Browser workspace accepted the tab command but did not finish it in time.'
                                 : 'The Browser workspace accepted the request but did not reveal the selected tab in time.'
             ))

@@ -247,12 +247,16 @@ export class AssistantPersistence {
     }
 
     async createProject(input: AssistantCreateProjectInput, candidateId?: string): Promise<AssistantProject> {
-        if (this.isInternalProjectPath(input.folderPath)) throw new Error('Zyra installation and internal workspace folders cannot become Projects.')
         await this.ensureInitialized()
         return this.enqueue(() => {
             const project = createAssistantProject(this.requireDb(), input, {
                 projectHomesRoot: this.projectHomesRoot,
-                candidateId
+                candidateId,
+                validateFolderPath: (path) => {
+                    if (this.isInternalProjectPath(path)) {
+                        throw new Error('Zyra installation and internal workspace folders cannot become Projects.')
+                    }
+                }
             })
             this.scheduleFlush()
             return project

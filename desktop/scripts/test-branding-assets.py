@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from PIL import Image, ImageChops
@@ -167,7 +168,8 @@ def main() -> None:
     assert "runtimeIdentity.isDevRuntime ? 'dev' : 'prod'" in main_source, 'runtime filenames still distinguish dev and production metadata'
     assert "nativeTheme.shouldUseDarkColors ? 'dark' : 'light'" in main_source, 'runtime window icon filenames still follow the OS theme'
     assert "process.platform === 'win32' ? 'ico' : 'png'" in main_source, 'Windows runtime icons must use real size-specific ICO mip levels'
-    assert "nativeTheme.on('updated', syncOpenWindowIcons)" in main_source, 'open windows must refresh after an OS theme change'
+    theme_update = re.search(r"nativeTheme\.on\('updated',\s*\(\)\s*=>\s*\{(.*?)\}\)", main_source, re.S)
+    assert theme_update and 'syncOpenWindowIcons()' in theme_update.group(1), 'open windows must refresh after an OS theme change, including when the handler also refreshes overlays'
 
     generator_source = (ROOT / 'scripts' / 'maint' / 'generate_branding_assets.py').read_text(encoding='utf-8')
     assert 'ImageEnhance' not in generator_source, 'the generator cannot reintroduce tonal or gradient treatments'

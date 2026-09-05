@@ -1,6 +1,8 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { migrateLegacyExplorerShellLaunchRoute } from '@shared/assistant/files-shell-launch-route'
+import { isQuickPreviewRoute } from '@shared/file-preview-route'
+import QuickOpenWindow from './pages/QuickOpenWindow'
 import TitleBar from './components/layout/TitleBar'
 import { AppBootSkeleton, AppRouteSkeleton } from './components/ui/AppRouteSkeleton'
 import { SettingsProvider, useSettings } from './lib/settings'
@@ -9,14 +11,12 @@ import CommandPalette from './components/CommandPalette'
 import LinkHoverStatus from './components/ui/LinkHoverStatus'
 import { UpdatePromptCenter } from './components/updates/UpdatePromptCenter'
 import { AppUpdatesProvider } from './lib/app-updates'
+import { ProjectCreationProvider } from './lib/projects/project-creation'
 import { AssistantTitleBarProvider } from './lib/assistant/assistant-title-bar'
 import { OnboardingProvider } from './lib/onboarding'
 import { OnboardingGate } from './onboarding/OnboardingGate'
 import { AssistantRouteShell } from './pages/assistant/AssistantRouteShell'
-import {
-    ASSISTANT_LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
-    resolveStoredAssistantLeftSidebarWidth
-} from './pages/assistant/assistant-pane-layout'
+import { AssistantWorkspaceLifetime } from './pages/assistant/AssistantWorkspaceLifetime'
 import {
     loadAboutSettings,
     loadAccountSettings,
@@ -43,6 +43,7 @@ import {
 const loadAssistantRoute = () => import('./pages/Assistant')
 const Assistant = lazy(loadAssistantRoute)
 const InstructorVoiceLab = lazy(() => import('./pages/assistant/InstructorVoiceLab'))
+const PluginWorkspace = lazy(() => import('./pages/plugins/PluginWorkspace'))
 const SettingsShell = lazy(loadSettingsShell)
 const SettingsOverview = lazy(loadSettingsOverview)
 const GeneralSettings = lazy(loadGeneralSettings)
@@ -97,15 +98,11 @@ function PageLoader() {
 
 function AssistantRoute() {
     const { settings } = useSettings()
-    const sidebarWidth = resolveStoredAssistantLeftSidebarWidth(
-        localStorage.getItem(ASSISTANT_LEFT_SIDEBAR_WIDTH_STORAGE_KEY)
-    )
-
     return (
         <Suspense fallback={(
             <AssistantRouteShell
-                sidebarCollapsed={settings.sidebarCollapsed}
-                sidebarWidth={sidebarWidth}
+                sidebarCollapsed
+                sidebarWidth={0}
                 agentInboxEnabled={settings.assistantAgentInboxSidebarEnabled}
             />
         )}>
@@ -140,9 +137,12 @@ function MainContent() {
             <Suspense fallback={<PageLoader />}>
                 <Routes>
                     <Route path="/" element={<Navigate to="/assistant" replace />} />
-                    <Route path="/assistant" element={<AssistantRoute />} />
+                    <Route element={<AssistantWorkspaceLifetime />}>
+                        <Route path="/assistant" element={<AssistantRoute />} />
+                        <Route path="/assistant/*" element={<AssistantRoute />} />
+                        <Route path="/plugins" element={<PluginWorkspace />} />
+                    </Route>
                     <Route path="/assistant/instructor" element={<InstructorVoiceLab />} />
-                    <Route path="/assistant/*" element={<AssistantRoute />} />
                     <Route path="/settings" element={<SettingsShell />}>
                         <Route index element={<Navigate to="/settings/app" replace />} />
                         <Route path="app" element={<SettingsOverview />} />
@@ -204,7 +204,6 @@ function MainContent() {
                     <Route path="/terminals" element={<Navigate to="/assistant" replace />} />
                     <Route path="/terminals/*" element={<Navigate to="/assistant" replace />} />
                     <Route path="/skills" element={<Navigate to="/assistant" replace />} />
-                    <Route path="/quick-open" element={<Navigate to="/assistant" replace />} />
                     <Route path="*" element={<Navigate to="/assistant" replace />} />
                 </Routes>
             </Suspense>
@@ -289,9 +288,11 @@ function NormalDesktopApp() {
                 <TerminalContextProvider>
                     <HashRouter>
                         <AssistantTitleBarProvider>
-                            <AppContent />
-                            <CommandPalette />
-                            <UpdatePromptCenter />
+                            <ProjectCreationProvider>
+                                <AppContent />
+                                <CommandPalette />
+                                <UpdatePromptCenter />
+                            </ProjectCreationProvider>
                         </AssistantTitleBarProvider>
                     </HashRouter>
                 </TerminalContextProvider>
@@ -301,6 +302,7 @@ function NormalDesktopApp() {
 }
 
 function App() {
+    if (isQuickPreviewRoute(window.location.hash)) return <QuickOpenWindow />
     const assistantUtilityWindow = /^#\/assistant-utility(?:[/?]|$)/.test(window.location.hash)
     if (assistantUtilityWindow) {
         return (

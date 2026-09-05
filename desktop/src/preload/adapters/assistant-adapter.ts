@@ -20,11 +20,18 @@ import type {
     AssistantGetReviewIndexInput,
     AssistantGetTurnDetailInput,
     AssistantIngestRealtimeVoiceEventInput,
+    AssistantCreatePluginChatInput,
+    AssistantPluginDownloadInput,
+    AssistantStartPluginDownloadInput,
+    AssistantInspectLocalPluginInput,
+    AssistantInstallInspectedPluginInput,
     AssistantPersistClipboardImageInput,
     AssistantRealtimeVoiceEvent,
     AssistantRedeemAccountResetInput,
     AssistantResolveClipboardAttachmentInput,
     AssistantRemoveProjectFolderInput,
+    AssistantRefreshChatPluginScopeInput,
+    AssistantRollbackPluginInput,
     AssistantSearchChatsInput,
     AssistantSearchTurnsInput,
     AssistantSendPromptOptions,
@@ -33,6 +40,8 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetPluginSetInput,
+    AssistantSetPluginStateInput,
     AssistantSetSessionProjectInput,
     AssistantTranscribeVoiceInput,
     AssistantUpdateProjectInput,
@@ -60,6 +69,23 @@ export function createAssistantAdapter() {
             getSessionTurnUsage: (input?: { sessionId?: string }) => ipcRenderer.invoke(ASSISTANT_IPC.getSessionTurnUsage, input),
             listModels: (forceRefresh = false) => ipcRenderer.invoke(ASSISTANT_IPC.listModels, forceRefresh),
             listProjects: () => ipcRenderer.invoke(ASSISTANT_IPC.listProjects),
+            getPluginCatalog: () => ipcRenderer.invoke(ASSISTANT_IPC.getPluginCatalog),
+            startPluginDownload: (input: AssistantStartPluginDownloadInput) => ipcRenderer.invoke(ASSISTANT_IPC.startPluginDownload, input),
+            getPluginDownload: (input: AssistantPluginDownloadInput) => ipcRenderer.invoke(ASSISTANT_IPC.getPluginDownload, input),
+            cancelPluginDownload: (input: AssistantPluginDownloadInput) => ipcRenderer.invoke(ASSISTANT_IPC.cancelPluginDownload, input),
+            createPluginChat: (input: AssistantCreatePluginChatInput) => ipcRenderer.invoke(ASSISTANT_IPC.createPluginChat, input),
+            inspectLocalPlugin: (input: AssistantInspectLocalPluginInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.inspectLocalPlugin, input),
+            installInspectedPlugin: (input: AssistantInstallInspectedPluginInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.installInspectedPlugin, input),
+            setPluginSet: (input: AssistantSetPluginSetInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.setPluginSet, input),
+            refreshChatPluginScope: (input: AssistantRefreshChatPluginScopeInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.refreshChatPluginScope, input),
+            setPluginState: (input: AssistantSetPluginStateInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.setPluginState, input),
+            rollbackPlugin: (input: AssistantRollbackPluginInput) =>
+                ipcRenderer.invoke(ASSISTANT_IPC.rollbackPlugin, input),
             createProject: (input: AssistantCreateProjectInput, candidateId?: string) =>
                 ipcRenderer.invoke(ASSISTANT_IPC.createProject, input, candidateId),
             associateProjectFolder: (input: AssistantAssociateProjectFolderInput) =>

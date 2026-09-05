@@ -12,6 +12,7 @@ import type {
     AssistantChatScope,
     AssistantInteractionMode,
     AssistantModelInfo,
+    AssistantPluginSkillSource,
     AssistantReasoningEffort,
     AssistantRuntimeEvent,
     AssistantRuntimeMode,
@@ -40,6 +41,7 @@ import {
     hasAssistantThinkingText
 } from './assistant-message-content'
 import { getAgentControlBroker } from '../agent-control'
+import { revokePluginChatControl } from './assistant-plugin-control'
 import { AgentControlError, toAgentControlError } from '../agent-control/control-errors'
 import { assertControlPrincipal } from '../../shared/agent-control/validation'
 import {
@@ -47,6 +49,7 @@ import {
     type CanonicalAgentChat,
     type CanonicalAgentChatHistory,
     type CanonicalAgentChatHistoryOptions,
+    type PluginAuthorityUpdate,
     type ZyraWorkerEventMetadata,
     type ZyraWorkerLike
 } from './zyra-agent-server-worker'
@@ -141,6 +144,7 @@ type ZyraSessionContext = {
     reconnectPromise: Promise<void> | null
     cwd: string
     filesystemScope?: AssistantChatScope | null
+    pluginSkillSources: AssistantPluginSkillSource[]
     model: string
     thinking: AssistantReasoningEffort
     runtimeMode: AssistantRuntimeMode
@@ -1607,7 +1611,12 @@ export class ZyraPiRuntime extends EventEmitter {
         }
     }
 
-    async connect(thread: AssistantThread, cwd: string, filesystemScope?: AssistantChatScope | null): Promise<void> {
+    async connect(
+        thread: AssistantThread,
+        cwd: string,
+        filesystemScope?: AssistantChatScope | null,
+        pluginSkillSources: AssistantPluginSkillSource[] = []
+    ): Promise<void> {
         const existingContext = this.getSessionContext(thread.id)
             || (thread.providerThreadId ? this.getSessionContext(thread.providerThreadId) : null)
         if (existingContext) {
@@ -1642,6 +1651,7 @@ export class ZyraPiRuntime extends EventEmitter {
             reconnectPromise: null,
             cwd,
             filesystemScope: filesystemScope || null,
+            pluginSkillSources: structuredClone(pluginSkillSources),
             model,
             thinking: isAssistantReasoningEffort(thread.thinking)
                 ? thread.thinking
@@ -1980,6 +1990,7 @@ export class ZyraPiRuntime extends EventEmitter {
             connectPromise: null,
             reconnectPromise: null,
             cwd: configuration.cwd,
+            pluginSkillSources: [],
             model,
             thinking: effort,
             runtimeMode,
@@ -2188,6 +2199,22 @@ export class ZyraPiRuntime extends EventEmitter {
         }
         if (typeof context.unsubscribe === 'function') context.unsubscribe()
         context.worker.dispose()
+    }
+
+    async updatePluginAuthority(input: PluginAuthorityUpdate, affectedThreadIds: string[] = []): Promise<void> {
+        const chatIds = new Set(input.chats.map((chat) => chat.sessionKey))
+        const affected = [...new Set(this.sessions.values())].filter((context) =>
+            chatIds.has(context.localThreadId) || chatIds.has(context.providerThreadId)
+            || input.state === 'disabled' && context.pluginSkillSources.some((source) => source.pluginId === input.pluginId))
+        try {
+            await this.getAgentServerConnection(resolveZyraRoot()).updatePluginAuthority(input)
+        } finally {
+            // Do not reuse a context whose Skill instructions predate this mutation,
+            // even when cleanup failed and the server has left authority blocked.
+            const controlThreadIds = new Set([...affectedThreadIds, ...chatIds, ...affected.map((context) => context.localThreadId)])
+            if (controlThreadIds.size) revokePluginChatControl(getAgentControlBroker(), controlThreadIds)
+            for (const context of affected) this.disconnect(context.localThreadId)
+        }
     }
 
     disconnect(threadId: string): void {
@@ -2427,6 +2454,7 @@ export class ZyraPiRuntime extends EventEmitter {
                 result = await context.worker.request('connect', {
                     cwd: context.cwd,
                     filesystemScope: context.filesystemScope || undefined,
+                    pluginSkillSources: context.pluginSkillSources,
                     localThreadId: context.localThreadId,
                     threadId: requestedThreadId,
                     providerThreadId: requestedThreadId,

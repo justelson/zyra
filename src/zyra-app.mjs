@@ -225,6 +225,7 @@ async function runUpdate() {
         "-File",
         tempScript,
         ...(sourceDirectory ? ["-SourceDirectory", sourceDirectory] : []),
+        ...(process.env.ZYRA_UPDATE_NO_PATH_UPDATE === "1" ? ["-NoPathUpdate"] : []),
       ], { stdio: "inherit", cwd: os.tmpdir() });
     } finally {
       rmSync(tempScript, { force: true });

@@ -449,10 +449,11 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
 
     return (
         <>
+            <div className="shrink-0 space-y-0.5 pb-3">
             {props.headerActions}
             {projectGroups.length > 0 ? (
-                <div ref={menuRef} className="relative shrink-0 pb-2">
-                    <button type="button" aria-label="Filter chats by project" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((open) => !open)} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-sparkle-text-muted outline-none hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/45">{scopedProject ? <ProjectMark group={scopedProject} /> : <Folder size={16} className="shrink-0 text-sparkle-text-muted/80" />}<span className="min-w-0 flex-1 truncate">{scopedProject?.label || 'All projects'}</span><ChevronDown size={16} className="shrink-0 text-sparkle-text-muted/70" /></button>
+                <div ref={menuRef} className="relative mx-0.5">
+                    <button type="button" aria-label="Filter chats by project" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((open) => !open)} className="flex h-7 w-full min-w-0 items-center gap-2 rounded-[9px] px-2.5 text-left text-[13px] leading-none text-sparkle-text-secondary outline-none hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]/35">{scopedProject ? <ProjectMark group={scopedProject} /> : <Folder size={16} className="shrink-0 text-sparkle-text-muted/80" />}<span className="min-w-0 flex-1 truncate">{scopedProject?.label || 'All projects'}</span><ChevronDown size={16} className="shrink-0 text-sparkle-text-muted/70" /></button>
                     {projectMenuOpen ? (
                         <div className="absolute left-0 right-0 top-[34px] z-50 max-h-72 overflow-y-auto rounded-lg border border-[var(--surface-divider)] bg-[var(--surface-floating)] p-1 shadow-[0_16px_48px_rgba(0,0,0,0.34)]">
                             <button type="button" onClick={() => { setScope(ALL_PROJECTS); setProjectMenuOpen(false) }} className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-sparkle-text-secondary hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><Folder size={16} /><span className="min-w-0 flex-1 truncate">All projects</span>{scope === ALL_PROJECTS ? <Check size={13} /> : null}</button>
@@ -461,6 +462,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                     ) : null}
                 </div>
             ) : null}
+            </div>
             <div ref={scrollRef} className="assistant-chat-scrollbar assistant-sidebar-scrollbar min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5">
                 <ul ref={listRef} role="list" className="flex flex-col gap-px">
                     {activeWorkItems.length > 0 ? (

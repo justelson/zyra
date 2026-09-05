@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { assertVoiceConnectOrder, assertVoiceHistoryPreloadOrder } from './helpers/voice-connect-order'
 import type { AssistantMessage } from '../src/shared/assistant/contracts'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -1132,11 +1133,7 @@ assert.match(
     /assistant\.connect\(\{[\s\S]{0,250}sessionId: binding\.sessionId,[\s\S]{0,250}voicePreparation: options\.executionConfiguration[\s\S]{0,500}getUserMedia/u,
     'the canonical assistant connection and primary-agent preparation must overlap microphone and WebRTC setup'
 )
-assert.match(
-    assistantServiceSource,
-    /async connect\(options\?: AssistantConnectOptions\)[\s\S]{0,350}const result = await connectAssistantSession\(this\.actionDeps, options\)[\s\S]{0,1200}prepareVoicePrimaryWorker\([\s\S]{0,300}return result/u,
-    'cold canonical startup must finish before the private Voice worker starts so both bridges cannot exhaust the startup timeout together'
-)
+await assertVoiceConnectOrder(assistantServiceSource)
 assert.match(
     assistantServiceSource,
     /const hasVoiceState = Boolean\([\s\S]{0,400}if \(!hasVoiceState\) return \{ success: true as const \}[\s\S]{0,120}await this\.cancelPendingCanonicalVoiceStart\(\)/u,
@@ -1231,11 +1228,7 @@ assert.match(
     /filesystemScope: configuration\.filesystemScope \|\| undefined/u,
     'private Voice primary workers inherit the revisioned Chat filesystem scope'
 )
-assert.match(
-    assistantServiceSource,
-    /const historyPreload = record\.thread\.providerThreadId[\s\S]{0,1200}runtime\.connect[\s\S]{0,1200}if \(historyPreload\) await historyPreload/u,
-    'cold Voice overlaps canonical history hydration with the already-required Assistant connection'
-)
+await assertVoiceHistoryPreloadOrder(assistantServiceSource)
 assert.match(
     realtimeForegroundAdapterSource,
     /requestSpeech\(item\.text, item\.canonicalMessageId\)/u,

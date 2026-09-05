@@ -3,6 +3,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode
 } from 'react'
@@ -12,7 +13,7 @@ import type {
 } from '@shared/contracts/devscope-api'
 import { reportHostDesktopVersion } from './release-build-metadata'
 
-type UpdatePendingAction = 'check' | 'download' | 'install' | null
+import { installableUpdateVersion, type UpdatePendingAction } from './app-update-presentation'
 
 interface UpdateSuccessToastState {
     versionLabel: string
@@ -22,6 +23,10 @@ interface UpdateSuccessToastState {
 interface AppUpdatesContextValue {
     updateState: DevScopeUpdateState | null
     pendingAction: UpdatePendingAction
+    actionError: string | null
+    installConfirmationVersion: string | null
+    confirmInstallUpdate: () => Promise<DevScopeUpdateActionResult | null>
+    cancelInstallUpdate: () => void
     isModalOpen: boolean
     shouldShowPrompt: boolean
     skippedVersion: string | null
@@ -104,23 +109,41 @@ function resolveUpdateTone(updateState: DevScopeUpdateState | null): AppUpdatesC
 export function AppUpdatesProvider({ children }: { children: ReactNode }) {
     const [updateState, setUpdateState] = useState<DevScopeUpdateState | null>(null)
     const [pendingAction, setPendingAction] = useState<UpdatePendingAction>(null)
+    const pendingActionRef = useRef<UpdatePendingAction>(null)
+    const stateRef = useRef<DevScopeUpdateState | null>(null)
+    const eventRevision = useRef(0)
+    const [actionError, setActionError] = useState<string | null>(null)
+    const [installConfirmationVersion, setInstallConfirmationVersion] = useState<string | null>(null)
+    const installConfirmationRef = useRef<string | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [skippedVersion, setSkippedVersion] = useState<string | null>(() => readSkippedVersion())
     const [laterDownloadedVersion, setLaterDownloadedVersion] = useState<string | null>(null)
     const [updateSuccessToast, setUpdateSuccessToast] = useState<UpdateSuccessToastState | null>(null)
 
+    const receiveState = (state: DevScopeUpdateState) => {
+        stateRef.current = reportHostDesktopVersion(state)
+        setUpdateState(stateRef.current)
+        if (installConfirmationRef.current !== installableUpdateVersion(state)) {
+            installConfirmationRef.current = null
+            setInstallConfirmationVersion(null)
+        }
+    }
+
     useEffect(() => {
         let mounted = true
+        const initialRevision = eventRevision.current
 
         void window.devscope.updates.getState().then((state) => {
-            if (mounted) {
-                setUpdateState(reportHostDesktopVersion(state))
-            }
-        }).catch(() => undefined)
+            if (mounted && eventRevision.current === initialRevision) receiveState(state)
+        }).catch(() => {
+            if (mounted && eventRevision.current === initialRevision) setActionError('Could not read update status. Try again.')
+        })
 
         const unsubscribe = window.devscope.updates.onStateChange((state) => {
             if (mounted) {
-                setUpdateState(reportHostDesktopVersion(state))
+                eventRevision.current += 1
+                setActionError(null)
+                receiveState(state)
             }
         })
 
@@ -178,19 +201,31 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         action: Exclude<UpdatePendingAction, null>,
         callback: () => Promise<DevScopeUpdateActionResult>
     ): Promise<DevScopeUpdateActionResult | null> => {
+        if (pendingActionRef.current) return null
+        pendingActionRef.current = action
         setPendingAction(action)
+        setActionError(null)
+        const startingRevision = eventRevision.current
+        let awaitingRestart = false
         try {
             const result = await callback()
-            setUpdateState(reportHostDesktopVersion(result.state))
+            // Live progress is newer than a delayed action response or initial read.
+            if (eventRevision.current === startingRevision) receiveState(result.state)
             if (!result.accepted || !result.completed) {
+                setActionError(result.state.message || 'The update action could not finish. Try again.')
                 setIsModalOpen(true)
             }
+            awaitingRestart = action === 'install' && result.accepted && result.completed
             return result
         } catch {
+            setActionError(action === 'install' ? 'Could not start the installation. Try again.' : action === 'download' ? 'Could not download the update. Try again.' : 'Could not check for updates. Try again.')
             setIsModalOpen(true)
             return null
         } finally {
-            setPendingAction(null)
+            if (!awaitingRestart) {
+                pendingActionRef.current = null
+                setPendingAction(null)
+            }
         }
     }
 
@@ -199,7 +234,26 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         setLaterDownloadedVersion(null)
         return runAction('download', () => window.devscope.updates.downloadUpdate())
     }
-    const installUpdate = () => runAction('install', () => window.devscope.updates.installUpdate())
+    // Every renderer entry point requests confirmation; only confirmation calls IPC.
+    const installUpdate = async (): Promise<DevScopeUpdateActionResult | null> => {
+        if (pendingActionRef.current) return null
+        const version = installableUpdateVersion(stateRef.current)
+        if (!version) { setIsModalOpen(true); return null }
+        installConfirmationRef.current = version
+        setInstallConfirmationVersion(version)
+        setIsModalOpen(false)
+        return null
+    }
+    const cancelInstallUpdate = () => {
+        installConfirmationRef.current = null
+        setInstallConfirmationVersion(null)
+    }
+    const confirmInstallUpdate = async (): Promise<DevScopeUpdateActionResult | null> => {
+        const version = installConfirmationRef.current
+        cancelInstallUpdate()
+        if (!version || version !== installableUpdateVersion(stateRef.current) || pendingActionRef.current) return null
+        return runAction('install', () => window.devscope.updates.installUpdate())
+    }
 
     const skipAvailableVersion = () => {
         if (!updateState?.availableVersion) return
@@ -255,6 +309,10 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
     const value: AppUpdatesContextValue = {
         updateState,
         pendingAction,
+        actionError,
+        installConfirmationVersion,
+        confirmInstallUpdate,
+        cancelInstallUpdate,
         isModalOpen,
         shouldShowPrompt,
         skippedVersion,

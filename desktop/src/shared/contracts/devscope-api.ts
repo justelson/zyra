@@ -6,6 +6,7 @@ import type {
     AssistantAttachSessionToPlaygroundLabInput,
     AssistantBootstrapPayload,
     AssistantClearLogsInput,
+    AssistantChatPluginScope,
     AssistantConnectOptions,
     AssistantCreatePlaygroundLabInput,
     AssistantCreateProjectInput,
@@ -26,13 +27,24 @@ import type {
     AssistantGetSessionTurnUsageInput,
     AssistantGetTurnDetailInput,
     AssistantIngestRealtimeVoiceEventInput,
+    AssistantCreatePluginChatInput,
+    AssistantPluginDownload,
+    AssistantPluginDownloadInput,
+    AssistantStartPluginDownloadInput,
+    AssistantInspectLocalPluginInput,
+    AssistantInstallInspectedPluginInput,
     AssistantModelInfo,
+    AssistantPluginCatalog,
+    AssistantPluginInspection,
+    AssistantPluginScopeDiff,
     AssistantPlaygroundResultPayload,
     AssistantProject,
     AssistantProjectCatalog,
     AssistantPromptResourcesPayload,
     AssistantRemoveProjectFolderInput,
     AssistantPersistClipboardImageInput,
+    AssistantRefreshChatPluginScopeInput,
+    AssistantRollbackPluginInput,
     AssistantRealtimeVoiceEvent,
     AssistantRedeemAccountResetInput,
     AssistantRedeemAccountResetPayload,
@@ -49,6 +61,8 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetPluginSetInput,
+    AssistantSetPluginStateInput,
     AssistantSetSessionProjectInput,
     AssistantSessionTurnUsageResultPayload,
     AssistantShellSnapshot,
@@ -597,6 +611,20 @@ export interface DevScopeAssistantApi {
     getSessionTurnUsage: (input?: AssistantGetSessionTurnUsageInput) => Promise<DevScopeResult<AssistantSessionTurnUsageResultPayload>>
     listModels: (forceRefresh?: boolean) => Promise<DevScopeResult<{ models: AssistantModelInfo[] }>>
     listProjects: () => Promise<DevScopeResult<{ catalog: AssistantProjectCatalog }>>
+    getPluginCatalog: () => Promise<DevScopeResult<{ catalog: AssistantPluginCatalog }>>
+    startPluginDownload: (input: AssistantStartPluginDownloadInput) => Promise<DevScopeResult<{ download: AssistantPluginDownload }>>
+    getPluginDownload: (input: AssistantPluginDownloadInput) => Promise<DevScopeResult<{ download: AssistantPluginDownload }>>
+    cancelPluginDownload: (input: AssistantPluginDownloadInput) => Promise<DevScopeResult>
+    createPluginChat: (input: AssistantCreatePluginChatInput) => Promise<DevScopeResult<{ sessionId: string; snapshot?: AssistantSnapshot }>>
+    inspectLocalPlugin: (input: AssistantInspectLocalPluginInput) => Promise<DevScopeResult<{ inspection: AssistantPluginInspection }>>
+    installInspectedPlugin: (input: AssistantInstallInspectedPluginInput) => Promise<DevScopeResult<{ catalog: AssistantPluginCatalog }>>
+    setPluginSet: (input: AssistantSetPluginSetInput) => Promise<DevScopeResult<{ catalog: AssistantPluginCatalog }>>
+    refreshChatPluginScope: (input: AssistantRefreshChatPluginScopeInput) => Promise<DevScopeResult<{
+        scope: AssistantChatPluginScope
+        diff: AssistantPluginScopeDiff
+    }>>
+    setPluginState: (input: AssistantSetPluginStateInput) => Promise<DevScopeResult<{ catalog: AssistantPluginCatalog }>>
+    rollbackPlugin: (input: AssistantRollbackPluginInput) => Promise<DevScopeResult<{ catalog: AssistantPluginCatalog }>>
     createProject: (input: AssistantCreateProjectInput, candidateId?: string) => Promise<DevScopeResult<{ project: AssistantProject }>>
     associateProjectFolder: (input: AssistantAssociateProjectFolderInput) => Promise<DevScopeResult<{ project: AssistantProject }>>
     removeProjectFolder: (input: AssistantRemoveProjectFolderInput) => Promise<DevScopeResult<{ project: AssistantProject }>>

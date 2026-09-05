@@ -1,0 +1,22 @@
+.update-install-confirmation {
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 0;
+    overflow: auto;
+    border: 1px solid var(--settings-border-strong);
+    border-radius: 10px;
+    background: var(--settings-popover);
+    color: var(--settings-text);
+    box-shadow: 0 20px 70px #0004;
+}
+.update-install-confirmation::backdrop { background: color-mix(in srgb, var(--color-bg) 65%, transparent); backdrop-filter: blur(3px); }
+.update-install-confirmation-body { padding: 20px; }
+.update-install-confirmation h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.update-install-confirmation p { margin: 8px 0 0; font-size: 13px; line-height: 1.6; color: var(--settings-text-secondary); }
+.update-install-confirmation footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--settings-divider); }
+.update-install-confirmation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--settings-border); color: var(--settings-text-secondary); background: var(--settings-control); font-size: 13px; cursor: pointer; }
+.update-install-confirmation button:hover { background: var(--settings-control-hover); }
+.update-install-confirmation button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.update-install-confirmation .update-install-confirm { color: var(--accent-on-primary); background: var(--accent-primary); border-color: transparent; }
+.update-install-confirmation .update-install-confirm:hover { filter: brightness(1.08); }

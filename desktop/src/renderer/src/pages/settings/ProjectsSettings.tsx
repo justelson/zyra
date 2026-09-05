@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Archive, FolderOpen, FolderPlus, Image, Plus, RefreshCw, RotateCcw, X } from 'lucide-react'
 import ProjectIcon from '@/components/ui/ProjectIcon'
 import { useSettings } from '@/lib/settings'
+import { useProjectCreation } from '@/lib/projects/project-creation'
 import {
     SettingsButton,
     SettingsNotice,
@@ -18,15 +19,13 @@ export default function ProjectsSettings() {
     const { settings, updateSettings } = useSettings()
     const [indexing, setIndexing] = useState(false)
     const [indexResult, setIndexResult] = useState<IndexResult | null>(null)
-    const [newProjectName, setNewProjectName] = useState('')
+    const requestProjectCreation = useProjectCreation()
     const [projectActionPending, setProjectActionPending] = useState(false)
     const {
         catalog,
         loading: projectsLoading,
         error: projectsError,
         refresh: refreshProjects,
-        importCandidate,
-        createProject,
         associateFolder,
         removeFolder,
         dismissCandidate,
@@ -53,13 +52,11 @@ export default function ProjectsSettings() {
         setIndexResult(null)
     }
 
-    const createEmptyProject = async () => {
-        const name = newProjectName.trim()
-        if (!name || projectActionPending) return
+    const createProject = async () => {
+        if (projectActionPending) return
         setProjectActionPending(true)
         try {
-            const project = await createProject({ name })
-            if (project) setNewProjectName('')
+            await requestProjectCreation()
         } finally {
             setProjectActionPending(false)
         }
@@ -124,22 +121,11 @@ export default function ProjectsSettings() {
             <SettingsSection title="Project catalog">
                 <SettingsRow
                     title="New Project"
-                    description="Creates a named Project with its own Zyra-managed home. Folders can be associated afterward."
+                    description="Choose a name and the folders involved before creating your Project."
                     control={(
-                        <div className="flex items-center gap-2">
-                            <input
-                                value={newProjectName}
-                                onChange={(event) => setNewProjectName(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') void createEmptyProject()
-                                }}
-                                placeholder="Project name"
-                                className="h-8 w-44 rounded-md border border-[var(--surface-divider)] bg-[var(--surface-panel)] px-2 text-xs text-sparkle-text-primary outline-none focus:border-[var(--accent-primary)]/45"
-                            />
-                            <SettingsButton onClick={() => void createEmptyProject()} disabled={!newProjectName.trim() || projectActionPending}>
-                                <Plus size={13} />Create
-                            </SettingsButton>
-                        </div>
+                        <SettingsButton onClick={() => void createProject()} disabled={projectActionPending}>
+                            <Plus size={13} />New project
+                        </SettingsButton>
                     )}
                 />
                 {projectsLoading ? <SettingsNotice>Loading Project catalog…</SettingsNotice> : null}
@@ -198,7 +184,7 @@ export default function ProjectsSettings() {
                         statusTone="warning"
                         control={(
                             <div className="flex gap-2">
-                                <SettingsButton onClick={() => void importCandidate(candidate)}>Import</SettingsButton>
+                                <SettingsButton onClick={() => void requestProjectCreation({ name: candidate.suggestedName, folderPaths: [candidate.path], candidateId: candidate.id, candidatePath: candidate.path })}>Review & import</SettingsButton>
                                 <SettingsButton variant="ghost" onClick={() => void dismissCandidate(candidate.id)}><X size={13} />Dismiss</SettingsButton>
                             </div>
                         )}

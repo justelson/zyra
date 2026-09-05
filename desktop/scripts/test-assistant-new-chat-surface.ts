@@ -3,6 +3,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { deriveAssistantConversationSurfaceMode } from '../src/renderer/src/pages/assistant/assistant-conversation-surface-mode'
 import { clearMentionIndex, getOrCreateMentionIndex } from '../src/renderer/src/pages/assistant/assistant-composer-mentions'
+import { resolveAssistantProjectLabel } from '../src/renderer/src/pages/assistant/assistant-project-label'
+
+const managedId = 'project_0123456789abcdef0123456789abcdef'
+assert.equal(resolveAssistantProjectLabel('Website', managedId, `C:/managed/${managedId}`), 'Website')
+assert.equal(resolveAssistantProjectLabel(null, managedId, `C:/managed/${managedId}`), '', 'loading a catalog must not flash a managed identifier')
+assert.equal(resolveAssistantProjectLabel(null, null, `C:/managed/${managedId}`), '', 'legacy managed paths must not leak identifiers either')
+assert.equal(resolveAssistantProjectLabel(null, null, 'C:/projects/legacy-app'), 'legacy-app')
+assert.equal(resolveAssistantProjectLabel(null, null, null), '')
 
 assert.equal(
     deriveAssistantConversationSurfaceMode({
@@ -60,9 +68,11 @@ assert.match(placementMotionSource, /translate: `\$\{deltaX\}px \$\{deltaY\}px`[
 assert.match(placementMotionSource, /prefers-reduced-motion: reduce/u, 'composer placement motion should respect reduced-motion preferences')
 assert.match(projectChipSource, /data-assistant-new-chat-project-chip="true"/u, 'New Chat should expose its project context on the composer seam')
 assert.match(projectChipSource, /No project/u, 'detached New Chat context must be explicit')
-assert.match(projectChipSource, /Choose folder…/u, 'the project context menu must retain the real folder picker path')
+assert.match(projectChipSource, /New project…/u, 'the project context menu opens reviewed Project creation directly')
+assert.doesNotMatch(projectChipSource, /Detected folders|Choose folder…/u, 'discovery lists stay out of the compact project picker')
+assert.match(paneSource, /resolveAssistantProjectLabel\(displayProjectName, displayProjectId, displayProjectPath\)/u, 'the greeting uses the durable Project name instead of its managed directory ID')
 assert.match(projectCatalogSource, /assistant\.listProjects\(\)/u, 'New Chat Project choices come from the durable catalog even when no Chat references a folder')
-assert.match(paneSource, /projectCatalogState\.catalog\.candidates/u, 'detected configured folders remain explicit review candidates in New Chat')
+assert.match(paneSource, /handleCreateNewChatProject[\s\S]*await requestProjectCreation\(\)/u, 'the new-project action starts with the setup modal, not an OS folder picker')
 assert.match(composerSource, /surface-floating[\s\S]{0,260}shadow-\[0_22px_68px/u, 'the centered composer should use the raised floating-surface edge language')
 
 const originalWindow = (globalThis as { window?: unknown }).window

@@ -6,6 +6,7 @@ import { normalizeAgentSurfaceTool } from "./agent-surface.mjs";
 import { formatRequestUserInputContinuationPrompt, normalizeRequestUserInputQuestions } from "./request-user-input.mjs";
 import { classifyRecoveryError } from "./network-recovery.mjs";
 import { AgentControlBridgeClient } from "./agent-control/bridge-client.mjs";
+import { revokePluginRuntime } from "./plugins/revoke-runtime.mjs";
 import { startTemporaryBrowserRelay } from "./agent-control/temporary-browser-relay.mjs";
 import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./agent-server/canonical-message-ledger.mjs";
 import { resolveLiveContextUsage } from "./live-context-usage.mjs";
@@ -222,6 +223,7 @@ async function handleConnect(payload) {
   const createRuntime = (overrides = {}) => sdk.createZyraSession({
     project: payload.cwd,
     filesystemScope: payload.filesystemScope,
+    pluginSkillSources: Array.isArray(payload.pluginSkillSources) ? payload.pluginSkillSources : [],
     session: requestedThreadId,
     noSession: Boolean(payload.noSession),
     model: payload.model,
@@ -999,6 +1001,9 @@ function summarizeFleetEvent(event) {
   };
 }
 
+let pluginRevocationPromise;
+let pendingConnect;
+
 async function handleMessage(message) {
   if (message?.type === "control.response") {
     controlBridgeClient.handleResponse(message);
@@ -1006,8 +1011,24 @@ async function handleMessage(message) {
   }
   const id = message?.id;
   try {
+    if (message?.type === 'plugin.revoke') {
+      pluginRevocationPromise ??= Promise.resolve().then(async () => {
+        await pendingConnect?.catch(() => undefined);
+        declinePendingPermissions('Chat Plugin authority revoked.');
+        abandonPendingUserInputs();
+        stopTemporaryBrowserRelay();
+        permissionReviewer?.dispose?.();
+        await revokePluginRuntime(runtime);
+        controlBridgeClient.dispose();
+      });
+      await pluginRevocationPromise;
+      sendResponse(id, true, { result: { revoked: true } });
+      return;
+    }
+    if (pluginRevocationPromise && message?.type !== 'dispose') throw new Error('Chat Plugin authority revoked.');
     if (message?.type === "connect") {
-      sendResponse(id, true, { result: await handleConnect(message.payload ?? {}) });
+      pendingConnect = handleConnect(message.payload ?? {});
+      sendResponse(id, true, { result: await pendingConnect });
       return;
     }
     if (message?.type === "prompt") {

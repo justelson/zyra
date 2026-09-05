@@ -232,6 +232,7 @@ async function loadZyraToolModules() {
     createBrowserControlTool: browserControl.createBrowserControlTool,
     createBrowserToolSet: browserToolset.createBrowserToolSet,
     applyBrowserLoaderOnlyState: browserToolset.applyBrowserLoaderOnlyState,
+    installBrowserToolTurnCleanup: browserToolset.installBrowserToolTurnCleanup,
     browserToolsetNames: browserToolset.BROWSER_TOOLSET_NAMES,
     browserLoaderToolName: browserToolset.BROWSER_LOADER_TOOL_NAME,
     createComputerToolSet: computerToolset.createComputerToolSet,
@@ -349,6 +350,7 @@ function createZyraBuiltinExtensions(options = {}) {
     extensions.push(createZyraPermissionGateExtension({
       project: options.project,
       filesystemScope: options.filesystemScope,
+      getSkillReadResources: options.getSkillReadResources,
       requestPermission: options.permissionRequest,
       reviewPermission: options.permissionReview,
       getPermissionMode: options.getPermissionMode,
@@ -431,7 +433,10 @@ function createFastResourceLoader(project, options = {}) {
   const runtime = options.extensionRuntime ?? createEmptyExtensionRuntime();
   let skillsResult = options.skillsResult ?? { skills: [], diagnostics: [] };
   const extensionsResult = {
-    extensions: createZyraBuiltinExtensions(options),
+    extensions: createZyraBuiltinExtensions({
+      ...options,
+      getSkillReadResources: () => skillsResult.skillReadResources ?? [],
+    }),
     errors: [],
     runtime,
   };
@@ -446,6 +451,7 @@ function createFastResourceLoader(project, options = {}) {
     extendResources: () => {},
     reload: async () => {
       if (typeof options.loadSkills === "function") {
+        skillsResult = { skills: [], diagnostics: [] };
         skillsResult = await options.loadSkills();
       }
     },
@@ -461,10 +467,20 @@ async function createZyraResourceLoader(project, options = {}) {
   const agentDir = getAgentDir();
   const projectTrusted = options.projectTrusted === true;
   const settingsManager = SettingsManager.create(project, agentDir, { projectTrusted });
-  const skillSources = await resolveZyraSkillSources({ project, root: ROOT, projectTrusted });
+  const skillSources = await resolveZyraSkillSources({
+    project,
+    root: ROOT,
+    projectTrusted,
+    pluginSkillSources: options.pluginSkillSources,
+  });
   const loadSkills = async () => loadZyraSkills(project, {
     projectTrusted,
-    sources: await resolveZyraSkillSources({ project, root: ROOT, projectTrusted }),
+    sources: await resolveZyraSkillSources({
+      project,
+      root: ROOT,
+      projectTrusted,
+      pluginSkillSources: options.pluginSkillSources,
+    }),
   });
   if (options.enablePiExtensions) {
     let zyraSkills = await loadSkills();
@@ -481,7 +497,9 @@ async function createZyraResourceLoader(project, options = {}) {
       settingsManager,
       resourceLoader: withZyraBuiltinExtensions(loader, {
         ...options,
+        getSkillReadResources: () => zyraSkills.skillReadResources ?? [],
         beforeReload: async () => {
+          zyraSkills = { skills: [], diagnostics: [] };
           zyraSkills = await loadSkills();
         },
       }),
@@ -489,6 +507,7 @@ async function createZyraResourceLoader(project, options = {}) {
   }
   const resourceLoader = createFastResourceLoader(project, {
     project,
+    filesystemScope: options.filesystemScope,
     codexServiceTierState: options.codexServiceTierState,
     thinkingState: options.thinkingState,
     permissionRequest: options.permissionRequest,
@@ -738,9 +757,29 @@ export function ensureComputerToolState(session, enabled, applySearchOnly, compu
   return JSON.stringify(before) !== JSON.stringify(session.getActiveToolNames());
 }
 
+export function isDirectBrowserControlPrompt(promptValue) {
+  const prompt = String(promptValue || "").trim();
+  const explicitControl = /\b(?:use|using|with|via)\s+(?:zyra(?:'s)?\s+)?(?:in-app\s+)?browser[ -]?control\b/i.test(prompt);
+  const explicitSurface = /\b(?:zyra(?:'s)?\s+)?in-app\s+browser\b/i.test(prompt);
+  return explicitControl || explicitSurface && /\b(?:browse|check|inspect|navigate|open|read|retest|test|use|visit)\b/i.test(prompt);
+}
+
+export function prepareZyraBrowserToolsForPrompt(runtime, promptValue) {
+  const session = runtime?.session;
+  const names = Array.isArray(runtime?.browserToolsetNames) ? runtime.browserToolsetNames : [];
+  if (!runtime?.browserToolsAvailable || !isDirectBrowserControlPrompt(promptValue) || !session?.getActiveToolNames || !session?.setActiveToolsByName) return false;
+  const active = new Set(session.getActiveToolNames());
+  active.delete("browser_control");
+  active.delete(runtime.browserLoaderToolName || "browser_use");
+  for (const name of names) active.add(name);
+  session.setActiveToolsByName([...active]);
+  return true;
+}
+
 export function isDirectComputerControlPrompt(promptValue) {
   const prompt = String(promptValue || "").trim();
   return /\b(?:use|using|with|via)\s+(?:windows\s+)?computer[ -]?control\b/i.test(prompt)
+    || /\b(?:use|using|with|via)\b[\s\S]{0,160}\bwindows\s+computer[ -]?control\b/i.test(prompt)
     || /\bcomputer[ -]?control\s+(?:to|and|for)\b/i.test(prompt)
     || /\b(?:control|operate)\s+(?:my|the)\s+(?:windows\s+)?(?:computer|desktop)\b/i.test(prompt);
 }
@@ -854,7 +893,9 @@ export async function createZyraSession(options = {}) {
     createBrowserControlTool,
     createBrowserToolSet,
     applyBrowserLoaderOnlyState,
+    installBrowserToolTurnCleanup,
     browserToolsetNames,
+    browserLoaderToolName,
     createComputerToolSet,
     applyComputerSearchOnlyState,
     installComputerToolTurnCleanup,
@@ -879,6 +920,7 @@ export async function createZyraSession(options = {}) {
   const profile = ensureSessionProfile(sessionManager, { project, preferences, persist: !options.noSession, requested: options.profile });
   const codexServiceTierState = { value: startupPreferences.codexServiceTier };
   const startupResources = await createZyraResourceLoader(project, {
+    filesystemScope: options.filesystemScope,
     enablePiExtensions: options.enablePiExtensions || process.env.ZYRA_ENABLE_PI_EXTENSIONS === "1",
     codexServiceTierState,
     thinkingState,
@@ -888,6 +930,7 @@ export async function createZyraSession(options = {}) {
     getPermissionMode: options.getPermissionMode,
     project,
     projectTrusted: options.projectTrusted === true || preferences.projectTrusted === true,
+    pluginSkillSources: Array.isArray(options.pluginSkillSources) ? options.pluginSkillSources : [],
   });
   const cwd = sessionManager.getCwd?.() ?? project;
   const managedBash = createManagedBashState();
@@ -948,6 +991,7 @@ export async function createZyraSession(options = {}) {
 
   browserSessionRef.current = result.session;
   computerSessionRef.current = result.session;
+  installBrowserToolTurnCleanup(result.session);
   installComputerToolTurnCleanup(result.session);
   installDeferredUserInputTurnStop(result.session);
   installZyraNextTurnCheckpoint(result.session, managedBash, {
@@ -1079,6 +1123,9 @@ export async function createZyraSession(options = {}) {
     codexServiceTier: startupPreferences.codexServiceTier,
     codexServiceTierState,
     managedBash,
+    browserToolsAvailable: Boolean(options.controlBridgeClient),
+    browserToolsetNames,
+    browserLoaderToolName,
     computerToolsAvailable: Boolean(options.controlBridgeClient),
     computerToolsetNames,
     computerToolSearchName,
@@ -1565,6 +1612,7 @@ function memoryRunner(root = defaults.dataRoot) {
 }
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
+  prepareZyraBrowserToolsForPrompt(runtime, prompt);
   prepareZyraComputerToolsForPrompt(runtime, prompt);
   const promptResource = expandZyraPromptResource(runtime, prompt);
   const expanded = expandFileMentions(runtime, promptResource);
@@ -1591,6 +1639,7 @@ export async function runZyraPrompt(runtime, prompt, options = {}) {
 }
 
 export async function queueZyraMidRunInput(runtime, prompt, options = {}) {
+  prepareZyraBrowserToolsForPrompt(runtime, prompt);
   prepareZyraComputerToolsForPrompt(runtime, prompt);
   const mode = normalizeInterruptModePreference(options.mode) ?? runtime.interruptMode ?? "steer";
   const promptResource = expandZyraPromptResource(runtime, prompt);
@@ -1608,6 +1657,8 @@ export async function queueZyraMidRunInput(runtime, prompt, options = {}) {
 export async function runZyraBackgroundTextPrompt(runtime, prompt) {
   const normalizedPrompt = String(prompt ?? '').trim();
   if (!normalizedPrompt) throw new Error('Prompt is required.');
+  prepareZyraBrowserToolsForPrompt(runtime, normalizedPrompt);
+  prepareZyraComputerToolsForPrompt(runtime, normalizedPrompt);
   await runtime.session.prompt(normalizedPrompt, { source: 'print' });
   const lastMessage = assertFinalAssistantMessageSucceeded(runtime);
   if (lastMessage?.role !== 'assistant') return '';
@@ -2741,19 +2792,44 @@ async function loadZyraSkills(project, options = {}) {
       const pathKey = `${source.sourceId}:${normalizedFile}`;
       if (sourceRealPaths.has(pathKey)) continue;
       sourceRealPaths.add(pathKey);
+      // Snapshot authority from the host-selected source, never from tool input.
+      // Standalone Markdown gets no access to its siblings or parent directory.
+      let skillReadResource;
+      try {
+        const sourceRoot = realpathSync.native(source.dir);
+        const directory = path.dirname(resolvedFile);
+        const canonicalDirectory = realpathSync.native(directory);
+        const inside = (file, root) => {
+          const relative = path.relative(root, file);
+          return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+        };
+        if (inside(canonicalDirectory, sourceRoot) && inside(canonicalFile, canonicalDirectory)
+          && statSync(canonicalFile).isFile()) {
+          skillReadResource = path.basename(resolvedFile) === "SKILL.md"
+            ? { path: directory, realPath: canonicalDirectory, directory: true }
+            : { path: resolvedFile, realPath: canonicalFile, directory: false };
+        }
+      } catch {}
       const candidates = candidatesByName.get(skill.name) ?? [];
       candidates.push({
+        skillReadResource,
         ...skill,
         zyraScope: source.scope,
         zyraSourceId: source.sourceId,
         zyraSourceLabel: source.sourceLabel,
         zyraSourceOrder: sourceOrder,
+        ...(source.pluginId ? {
+          zyraPluginId: source.pluginId,
+          zyraPluginReleaseId: source.releaseId,
+          zyraPluginContentDigest: source.contentDigest,
+        } : {}),
       });
       candidatesByName.set(skill.name, candidates);
     }
   }
 
   const skills = [];
+  const skillReadResources = [];
   for (const [name, candidates] of candidatesByName) {
     const highestScope = Math.max(...candidates.map((candidate) => scopePriority[candidate.zyraScope] ?? -1));
     const scoped = candidates.filter((candidate) => (scopePriority[candidate.zyraScope] ?? -1) === highestScope);
@@ -2772,12 +2848,14 @@ async function loadZyraSkills(project, options = {}) {
         path: winner.filePath,
       });
     }
-    const { zyraSourceOrder: _sourceOrder, ...publicSkill } = winner;
+    const { zyraSourceOrder: _sourceOrder, skillReadResource, ...publicSkill } = winner;
+    if (skillReadResource) skillReadResources.push(skillReadResource);
     skills.push(publicSkill);
   }
 
   return {
     skills: skills.sort((a, b) => a.name.localeCompare(b.name)),
+    skillReadResources,
     diagnostics,
   };
 }

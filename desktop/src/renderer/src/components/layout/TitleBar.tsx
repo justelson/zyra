@@ -45,6 +45,7 @@ function getContextualTitleParts(pathname: string) {
         return section.id === 'home' ? ['Settings'] : ['Settings', section.label]
     }
     if (pathname === '/assistant/instructor') return ['Instructor Voice Lab']
+    if (pathname.startsWith('/plugins')) return ['Plugins']
     return []
 }
 
@@ -78,7 +79,7 @@ export default function TitleBar() {
     const [appHistory, setAppHistory] = useState<{ entries: AppNavEntry[]; index: number }>({ entries: [], index: -1 })
     const assistantWorkspaceActive = location.pathname.startsWith('/assistant') && location.pathname !== '/assistant/instructor'
     const settingsPageActive = location.pathname.startsWith('/settings')
-    const sidebarWorkspaceActive = assistantWorkspaceActive || settingsPageActive
+    const sidebarWorkspaceActive = assistantWorkspaceActive || settingsPageActive || location.pathname.startsWith('/plugins')
     const contextualTitleParts = getContextualTitleParts(location.pathname)
     const nativeDesktop = runtime.platform !== 'browser'
     const isMac = runtime.platform === 'darwin'
@@ -280,6 +281,7 @@ export default function TitleBar() {
         ],
         [
             ...(sidebarWorkspaceActive ? [{ id: 'sidebar', label: sidebarActionLabel, action: handleToggleSidebar }] : []),
+            { id: 'plugins', label: 'Plugins', action: () => navigate('/plugins') },
             { id: 'settings', label: 'Settings', shortcut: isMac ? '⌘,' : undefined, action: () => navigate('/settings') },
             { id: 'reload', label: 'Reload UI', shortcut: `${primaryShortcut}R`, action: () => window.location.reload() }
         ],

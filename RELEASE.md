@@ -9,13 +9,13 @@ The CLI/runtime and Desktop ship as one Zyra product version. These four values 
 - `package.json` and the root entry in `package-lock.json`;
 - `desktop/package.json` and the root entry in `desktop/package-lock.json`.
 
-For v0.6.0 they are all `0.6.0`. The internal Desktop package is `zyra-desktop`; the visible product remains **Zyra** and the stable application identifier remains `app.zyra.desktop`. Desktop and the local Browser surface both report the Desktop package version injected by the two Vite builds.
+For v0.6.1 they are all `0.6.1`. The internal Desktop package is `zyra-desktop`; the visible product remains **Zyra** and the stable application identifier remains `app.zyra.desktop`. Desktop and the local Browser surface both report the Desktop package version injected by the two Vite builds.
 
 Do not independently bump the CLI/runtime or Desktop. Run the release contract after every version change:
 
 ```bash
 bun run --cwd desktop test:release-infra
-node desktop/scripts/release/preflight.mjs --mode=contract --expected-version=0.6.0
+node desktop/scripts/release/preflight.mjs --mode=contract --expected-version=0.6.1
 ```
 
 ## Version rule
@@ -30,7 +30,7 @@ Prereleases use `-alpha.N` or `-beta.N`. Semantic core numbers sort first; for a
 
 ## Desktop compatibility baseline
 
-v0.6.0 deliberately pins:
+The v0.6.x line deliberately pins:
 
 - CastLabs Electron for Content Security `43.2.0+wvcus` (Chromium 150, Node 24.18.0, Widevine installed through Google's component updater);
 - electron-builder `26.15.3`;
@@ -85,11 +85,11 @@ All artifacts include version, OS, and architecture in noncolliding names.
 
 | Platform | Target | Release assets | Updater metadata |
 | --- | --- | --- | --- |
-| Windows x64 | NSIS, assisted install | `Zyra-Desktop-0.6.0-Windows-x64.exe` and `.blockmap` | `latest.yml` |
-| macOS universal | DMG and ZIP | `Zyra-Desktop-0.6.0-macOS-universal.dmg`, `.zip`, and ZIP `.blockmap` | `latest-mac.yml` |
-| Linux x64 | AppImage and deb | `Zyra-Desktop-0.6.0-Linux-x64.AppImage` and `.deb` (the AppImage carries its blockmap internally) | `latest-linux.yml` |
+| Windows x64 | NSIS, assisted install | `Zyra-Desktop-0.6.1-Windows-x64.exe` and `.blockmap` | `latest.yml` |
+| macOS universal | DMG and ZIP | `Zyra-Desktop-0.6.1-macOS-universal.dmg`, `.zip`, and ZIP `.blockmap` | `latest-mac.yml` |
+| Linux x64 | AppImage and deb | `Zyra-Desktop-0.6.1-Linux-x64.AppImage` and `.deb` (the AppImage carries its blockmap internally) | `latest-linux.yml` |
 
-The assembled release also contains the four lockstep `Zyra-TUI-0.6.0-*` executables, the repository Apache-2.0 license inside every installed app/runtime, and one `SHA256SUMS` file covering the complete upload set.
+The assembled release also contains the four lockstep `Zyra-TUI-0.6.1-*` executables, the repository Apache-2.0 license inside every installed app/runtime, and one `SHA256SUMS` file covering the complete upload set.
 
 Windows retains the assisted NSIS flow, changeable install directory, icons, and Explorer shell integration in `desktop/build/installer.nsh`. The self-contained `win-x64` .NET computer-use sidecar is built and included only on Windows. The browser-control extension is built and packaged on every OS.
 
@@ -130,7 +130,7 @@ npm --prefix desktop run update:test-feed -- --platform linux --arch x64 --curre
 Serve already-built local assets without publishing:
 
 ```bash
-npm --prefix desktop run update:serve-feed -- --platform windows --dir dist/releases/v0.6.0/windows/upload
+npm --prefix desktop run update:serve-feed -- --platform windows --dir dist/releases/v0.6.1/windows/upload
 ```
 
 Set `ZYRA_DESKTOP_UPDATE_FEED_URL` to the printed loopback URL when launching an older packaged build. The server validates the platform metadata and complete artifact set before listening.
@@ -167,7 +167,7 @@ The full release-system work must define and test the signed metadata schema, ch
 
 `.github/workflows/desktop-release.yml` supports:
 
-- `workflow_dispatch`: unsigned native rehearsal builds from `master`; it uploads the complete assembled workflow artifact and places the same validated files in the private `v<version>` GitHub draft;
+- `workflow_dispatch`: unsigned native rehearsal builds from `master`; it uploads the complete assembled workflow artifact and places the same validated files in a private `rehearsal-v<version>-<run-id>` GitHub draft, without creating the production tag;
 - `v*` tag pushes: signed/notarized publication candidates that refresh and validate the existing draft before publication.
 
 The tag path requires all of the following before any public release exists:

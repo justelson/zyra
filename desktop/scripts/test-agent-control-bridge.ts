@@ -2,6 +2,40 @@ import assert from 'node:assert/strict'
 import { AgentControlBroker } from '../src/main/agent-control/agent-control-broker'
 import { FakeControlDriver } from '../src/main/agent-control/drivers/fake-driver'
 
+class RestoringWindowsDriver extends FakeControlDriver {
+    private opened = false
+    actionCalls = 0
+
+    constructor() {
+        super('windows-window')
+    }
+
+    override async openApp(application: string) {
+        this.opened = true
+        return await super.openApp(application)
+    }
+
+    override async listWindows() {
+        return this.opened ? await super.listWindows() : []
+    }
+
+    override async observe(target: any, options: any) {
+        const observation = await super.observe(target, options)
+        return {
+            ...observation,
+            title: '*Restored document - Fixture',
+            elements: observation.elements.map((element) => element.name === 'Smoke input'
+                ? { ...element, value: 'existing user text' }
+                : element)
+        }
+    }
+
+    override async act(target: any, action: any, context: any) {
+        this.actionCalls += 1
+        return await super.act(target, action, context)
+    }
+}
+
 const driver = new FakeControlDriver()
 const windowsDriver = new FakeControlDriver('windows-window')
 const broker = new AgentControlBroker({ drivers: [driver, windowsDriver] })
@@ -123,6 +157,25 @@ await assert.rejects(() => broker.handleToolOperation(principal, {
 }, undefined, { permissionMode: 'full-access' }), /canonical side-effect review/)
 assert.notEqual(broker.grants.list().find((entry) => entry.grantId === directAppAccess.grant.grantId)?.state, 'active', 'new exact app access never leaves an older Windows grant active for the same turn')
 assert.equal(windowsDriver.retainedTargetCount(), 0, 'a rejected embedded sequence revokes its otherwise unusable grant')
+
+const restoringWindowsDriver = new RestoringWindowsDriver()
+const restoringBroker = new AgentControlBroker({ drivers: [restoringWindowsDriver] })
+await assert.rejects(() => restoringBroker.handleToolOperation(principal, {
+    operation: 'use_app',
+    application: 'Fixture',
+    capabilities: ['observe.structure', 'keyboard.type'],
+    durationMs: 30_000,
+    maxActions: 3,
+    requestId: 'use-app:restored-document',
+    steps: [{ type: 'type', role: 'edit', name: 'Smoke input', text: 'must not be typed', replace: false, sideEffect: 'none' }]
+}, undefined, { permissionMode: 'full-access' }), (error: any) => (
+    error.code === 'CONTROL_TARGET_BLOCKED'
+    && /restored existing or unreadable text/.test(error.message)
+))
+assert.equal(restoringWindowsDriver.actionCalls, 0, 'a launched app that restores content is blocked before the first embedded action')
+assert.equal(restoringBroker.grants.list().some((entry) => entry.state === 'active'), false, 'the blocked launched-app sequence revokes its new grant')
+await restoringBroker.dispose()
+
 const requestPromise = broker.handleToolOperation(principal, {
     operation: 'request_grant', targetId, capabilities: ['observe.structure'], durationMs: 30_000, maxActions: 2
 }) as Promise<any>

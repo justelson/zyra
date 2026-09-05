@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CONTROL_CAPABILITIES, unavailableControlResult } from "./contracts.mjs";
+import { controlObservationSummary as observationSummary, formatControlObservation as formatObservation } from "./observation-feedback.mjs";
 
 export const COMPUTER_TOOL_SEARCH_NAME = "tool_search";
 export const COMPUTER_TOOLSET_NAMES = Object.freeze([
@@ -96,13 +97,17 @@ const semanticTargetSchema = {
   name: Type.String({ description: "Exact semantic name from the latest observation or a confidently known app label.", minLength: 1, maxLength: 512 }),
 };
 const routineSideEffect = Type.Literal("none", { description: "Sequences support routine side-effect-free work only." });
+const routineSequenceKey = Type.Union([
+  "Tab", "Escape", "Home", "End", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "A", "Z", "Y",
+].map((value) => Type.Literal(value)), { description: "Routine navigation key or Ctrl+A/Z/Y shortcut. Text, digits, Enter, and other keys require another action path." });
+const routineSequenceModifier = Type.Union([Type.Literal("Ctrl"), Type.Literal("Shift")]);
 const sequenceStepSchema = Type.Union([
   Type.Object({ type: Type.Literal("click"), ...semanticTargetSchema, sideEffect: routineSideEffect }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("type"), ...semanticTargetSchema, text: Type.String(), replace: Type.Boolean({ description: "Replace the exact field value, or preserve its current selection/caret before typing." }), sideEffect: routineSideEffect }, { additionalProperties: false }),
   Type.Object({
     type: Type.Literal("key"),
-    key: Type.String({ description: "Routine navigation key or Ctrl+A/Z/Y shortcut.", minLength: 1, maxLength: 64 }),
-    modifiers: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 24 }), { maxItems: 4 })),
+    key: routineSequenceKey,
+    modifiers: Type.Optional(Type.Array(routineSequenceModifier, { maxItems: 2 })),
     sideEffect: routineSideEffect,
   }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), durationMs: Type.Number({ minimum: 0, maximum: 2000 }), sideEffect: routineSideEffect }, { additionalProperties: false }),
@@ -160,7 +165,7 @@ export function createComputerToolSet(options = {}) {
     bridgeTool({
       name: "computer_use_app",
       label: "Use Windows app",
-      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities, and optionally run already-clear routine semantic steps in the same call. Returns the latest observation and replaces an older Windows grant for the same turn only after the new grant succeeds. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
+      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities, and optionally run already-clear routine semantic steps in the same call. Returns the latest observation and replaces an older Windows grant for the same turn only after the new grant succeeds. Embedded typing into a newly launched app requires a provably blank target and stops before input if the app restores existing, dirty, or unreadable text. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
       parameters: useAppSchema,
       client: options.client,
       waitsForUser: true,
@@ -395,64 +400,6 @@ function formatWindowMatches(queryValue, windowsValue) {
     ...windows.slice(0, 16).map((entry, index) => `- match ${index + 1}: application ${JSON.stringify(String(entry.applicationName || "unknown").slice(0, 128))}; candidateRef ${String(entry.windowToken || "").slice(0, 512)}`),
     "Choose the matching candidateRef with computer_request_access. Exact window details appear in Chat approval before access begins.",
   ].join("\n");
-}
-
-function formatObservation(prefix, observation) {
-  const sourceElements = Array.isArray(observation?.elements) ? observation.elements : [];
-  const elements = sourceElements
-    .filter((element) => isUsefulObservationElement(element, observation))
-    .slice(0, 256)
-    .map(compactObservationElement);
-  return `${prefix}\n${JSON.stringify({
-    targetId: observation?.targetId,
-    revision: observation?.revision,
-    state: observation?.targetState,
-    title: observation?.title,
-    focusedElementRef: observation?.focusedElementRef,
-    elements,
-    ...(elements.length < sourceElements.length ? { omittedElementCount: sourceElements.length - elements.length } : {}),
-    truncation: observation?.truncation,
-    redactions: observation?.redactions || [],
-  }, null, 2)}`;
-}
-
-function isUsefulObservationElement(element, observation) {
-  if (!element) return false;
-  const actions = Array.isArray(element.actions) ? element.actions : [];
-  const states = Array.isArray(element.states) ? element.states : [];
-  if (states.includes("offscreen")) return false;
-  if (actions.length > 0 || element.sensitive || element.value !== undefined && element.value !== "" || element.description) return true;
-  const name = String(element.name || "").trim();
-  if (!name || name === "System" || name === "System Menu Bar") return false;
-  const role = String(element.role || "control");
-  if ((role === "window" || role === "titlebar") && name === String(observation?.title || "").trim()) return false;
-  return true;
-}
-
-function compactObservationElement(element) {
-  const actions = Array.isArray(element.actions) ? element.actions : [];
-  const states = Array.isArray(element.states) ? element.states.filter((state) => state !== "enabled") : [];
-  return {
-    ...(actions.length ? { elementRef: element.elementRef } : {}),
-    role: element.role,
-    ...(element.name ? { name: element.name } : {}),
-    ...(element.value !== undefined && element.value !== "" ? { value: element.value } : {}),
-    ...(element.description ? { description: element.description } : {}),
-    ...(actions.length ? { actions } : {}),
-    ...(states.length ? { states } : {}),
-    ...(element.sensitive ? { sensitive: true } : {}),
-  };
-}
-
-function observationSummary(observation) {
-  return {
-    targetId: observation?.targetId,
-    revision: observation?.revision,
-    state: observation?.targetState,
-    elementCount: Array.isArray(observation?.elements) ? observation.elements.length : 0,
-    screenshotAttached: Boolean(observation?.screenshotRef),
-    redactions: observation?.redactions || [],
-  };
 }
 
 function grantSummary(grant) {

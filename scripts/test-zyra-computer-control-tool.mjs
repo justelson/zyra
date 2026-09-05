@@ -69,6 +69,7 @@ assert(session.active.includes(COMPUTER_TOOL_SEARCH_NAME))
 assert(!session.active.includes('computer_control'))
 assert(COMPUTER_TOOLSET_NAMES.every((name) => !session.active.includes(name)))
 assert.equal(isDirectComputerControlPrompt('Open Calculator and use computer control to calculate 123 × 45.'), true)
+assert.equal(isDirectComputerControlPrompt("Use Zyra's in-app Browser control and Windows computer control only."), true)
 assert.equal(isDirectComputerControlPrompt('Refactor the computer-control TypeScript module.'), false)
 assert.equal(prepareZyraComputerToolsForPrompt({
   session,
@@ -87,6 +88,11 @@ assert(COMPUTER_TOOLSET_NAMES.every((name) => session.active.includes(name)))
 
 const useApp = tools.find((tool) => tool.name === 'computer_use_app')
 assert(useApp, 'the common exact-app access path needs one provider round trip')
+const sequenceKeyVariant = useApp.parameters.properties.steps.items.anyOf.find((entry) => entry.properties?.type?.const === 'key')
+const advertisedSequenceKeys = sequenceKeyVariant.properties.key.anyOf.map((entry) => entry.const)
+assert(advertisedSequenceKeys.includes('Escape'))
+assert(!advertisedSequenceKeys.includes('3'), 'sequence schemas do not advertise numeric typing that the broker must reject')
+assert(!advertisedSequenceKeys.includes('Enter'), 'sequence schemas keep Enter on the individual reviewed action path')
 const initialSteps = [{ type: 'click', role: 'button', name: 'Seven', sideEffect: 'none' }]
 const used = await useApp.execute('tool:use-app', { application: 'Calculator', access: ['observe', 'click', 'key'], steps: initialSteps })
 assert.match(used.content[0].text, /Computer access granted/)

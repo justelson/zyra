@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAssistantSessionsRailStore } from '@/lib/assistant/store'
 import { useSettings } from '@/lib/settings'
+import { useProjectCreation } from '@/lib/projects/project-creation'
 import type { AssistantToastInput } from './AssistantPageHelpers'
 import { AssistantChatSessionsRail } from './AssistantChatSessionsRail'
 import type {
@@ -39,6 +40,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
     const { settings } = useSettings()
     const controlState = useAgentControlState()
     const projectCatalogState = useAssistantProjectCatalog()
+    const requestProjectCreation = useProjectCreation()
     const pendingControlThreadIds = useMemo(() => new Set([
         ...(controlState?.pendingGrants || []),
         ...(controlState?.pendingActionApprovals || [])
@@ -100,14 +102,19 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
                 return
             }
 
-            const result = await railController.createProjectSessionResult()
-            if (!result?.success && !(result as any)?.cancelled) {
-                onShowToast({ message: (result as any)?.error || 'Could not create project chat.', tone: 'error' })
+            const project = await requestProjectCreation()
+            if (!project) return
+            const workingRoot = project.folders[0]?.path || project.homePath
+            const result = await createAssistantChatAndNavigate(railController, navigate, {
+                mode: 'work', projectId: project.id, projectPath: workingRoot, workingRoot
+            })
+            if (!result.success) {
+                onShowToast({ message: result.error || 'Project created, but its chat could not be opened.', tone: 'error' })
             }
         } finally {
             creatingProjectChatRef.current = false
         }
-    }, [onShowToast, railController])
+    }, [navigate, onShowToast, railController, requestProjectCreation])
 
     return (
         <AssistantChatSessionsRail

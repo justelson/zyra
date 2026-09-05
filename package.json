@@ -1,6 +1,6 @@
 {
   "name": "zyra",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
@@ -21,7 +21,8 @@
     "test:desktop-install": "node scripts/test-zyra-desktop-install.mjs && bun run --cwd desktop test:release-infra",
     "test:agent-platform-integration": "bun desktop/scripts/test-agent-platform-integration.ts",
     "test:agent-server": "node scripts/test-zyra-chat-index.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-zyra-agent-server-bridge.mjs && bun run --cwd desktop test:agent-server && bun run --cwd desktop test:assistant-project",
-    "test:permissions": "node scripts/test-zyra-permission-gate.mjs && node scripts/test-zyra-permission-reviewer.mjs && node scripts/test-zyra-cli-permissions.mjs",
+    "test:permissions": "node scripts/test-zyra-permission-paths.mjs && node scripts/test-zyra-filesystem-scope-runtime.mjs && node scripts/test-zyra-permission-gate.mjs && node scripts/test-zyra-permission-reviewer.mjs && node scripts/test-zyra-cli-permissions.mjs",
+    "test:plugins": "node scripts/test-zyra-plugin-system.mjs && node scripts/test-zyra-plugin-availability.mjs && node scripts/test-zyra-plugin-download.mjs && node scripts/test-zyra-plugin-logos.mjs && node scripts/test-zyra-plugin-runtime.mjs && node scripts/test-zyra-plugin-revocation-runtime.mjs && node scripts/test-zyra-plugin-revocation-bridge.mjs && node scripts/test-zyra-prompt-resources.mjs && bun run --cwd desktop test:assistant-plugins",
     "test:voice-agent-contracts": "node scripts/validate-voice-agent-contracts.mjs",
     "test:provider-runtime": "node scripts/test-chatgpt-realtime-call.mjs && node scripts/test-codex-realtime-contract-sync.mjs && node scripts/test-provider-runtime-migration.mjs",
     "test:analytics": "node scripts/test-product-analytics.mjs",

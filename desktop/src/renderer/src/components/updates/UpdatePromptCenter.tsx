@@ -13,6 +13,7 @@ import {
 import type { DevScopeUpdateState, DevScopeUpdateStatus } from '@shared/contracts/devscope-api'
 import { getUpdateActionLabel, useAppUpdates } from '@/lib/app-updates'
 import { cn } from '@/lib/utils'
+import { UpdateInstallConfirmation } from './UpdateInstallConfirmation'
 
 function formatCheckedAt(checkedAt: string | null): string | null {
     if (!checkedAt) return null
@@ -266,6 +267,7 @@ function UpdateActionRow() {
 export function UpdatePromptCenter() {
     const {
         updateState,
+        actionError,
         isModalOpen,
         shouldShowPrompt,
         pendingAction,
@@ -296,9 +298,9 @@ export function UpdatePromptCenter() {
     const statusAccent = resolveStatusAccent(statusTone)
     const statusOrb = resolveStatusOrb(statusTone)
     const downloadPercent = Math.max(0, Math.min(100, updateState.downloadPercent ?? 0))
-    const detailMessage = updateState.message && updateState.message !== updateState.disabledReason
+    const detailMessage = actionError || (updateState.message && updateState.message !== updateState.disabledReason
         ? updateState.message
-        : null
+        : null)
     const offeredVersion = updateState.downloadedDisplayVersion
         || updateState.availableDisplayVersion
         || updateState.downloadedVersion
@@ -545,6 +547,7 @@ export function UpdatePromptCenter() {
             {successToast}
             {prompt}
             {modal}
+            <UpdateInstallConfirmation />
         </>
     )
 }

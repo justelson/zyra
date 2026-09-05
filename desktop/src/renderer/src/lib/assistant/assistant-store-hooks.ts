@@ -81,6 +81,7 @@ const assistantStoreActions = {
     refreshModels: () => assistantStore.refreshModels(true),
     createSession: (input?: AssistantCreateSessionInput) => assistantStore.createSession(input).then(() => undefined),
     createSessionResult: (input?: AssistantCreateSessionInput) => assistantStore.createSession(input),
+    createPluginChatResult: (input: import('@shared/assistant/contracts').AssistantCreatePluginChatInput) => assistantStore.createPluginChat(input),
     selectSession: (sessionId: string, options?: { force?: boolean }) => assistantStore.selectSession(sessionId, options).then(() => undefined),
     selectThread: (input: { sessionId: string; threadId: string }, options?: { force?: boolean }) => assistantStore.selectThread(input, options).then(() => undefined),
     renameSession: (sessionId: string, title: string) => assistantStore.renameSession(sessionId, title).then(() => undefined),

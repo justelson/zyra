@@ -30,6 +30,12 @@ import type {
     AssistantActivity,
     AssistantMessage,
     AssistantModelInfo,
+    AssistantCreatePluginChatInput,
+    AssistantInspectLocalPluginInput,
+    AssistantInstallInspectedPluginInput,
+    AssistantPluginSkillSource,
+    AssistantRefreshChatPluginScopeInput,
+    AssistantSetPluginSetInput,
     AssistantRealtimeVoiceEvent,
     AssistantRemoveProjectFolderInput,
     AssistantRuntimeStatus,
@@ -103,12 +109,14 @@ import {
     readPiFileChangeData,
     ZyraPiRuntime
 } from './zyra-pi-runtime'
-import { deriveSessionTitleFromPrompt, isDefaultSessionTitle, nowIso } from './utils'
+import { createAssistantId, deriveSessionTitleFromPrompt, isDefaultSessionTitle, nowIso } from './utils'
 import { materializeCanonicalImage } from './canonical-media-cache'
 import { getAssistantCanonicalThreadId } from './thread-identity'
 import { createAssistantSessionRecord } from './service-records'
 import type { AssistantServiceActionDeps } from './service-action-deps'
 import { AssistantPersistence } from './persistence'
+import { connectWithStablePluginAuthority, PluginAuthorityMutations } from './assistant-plugin-authority'
+import { AssistantPluginRegistry } from './assistant-plugin-registry'
 import {
     createAssistantDevelopmentChatFixtures,
     isAssistantDevelopmentChatFixtureSessionId
@@ -289,6 +297,9 @@ export class AssistantService {
     private readonly accountService = new ZyraAccountService()
     private readonly realtimeVoiceRuntime = new ChatGptRealtimeVoiceRuntime()
     private readonly persistence = new AssistantPersistence()
+    private readonly pluginRegistry = new AssistantPluginRegistry({
+        rootPath: join(app.getPath('userData'), 'assistant', 'plugins')
+    })
     private foregroundPersistence: ForegroundControllerPersistence | null = null
     private foregroundRoutes: ForegroundRouteController | null = null
     private conversationGateway: ConversationGateway | null = null
@@ -303,6 +314,7 @@ export class AssistantService {
     private pendingCanonicalVoiceStart: PendingCanonicalVoiceStart | null = null
     private canonicalVoiceStopPromise: Promise<void> | null = null
     private navigationSelectionGeneration = 0
+    private readonly pluginAuthorityMutations = new PluginAuthorityMutations()
     private readonly voiceTransitioningThreadIds = new Set<string>()
     private readonly activeVoiceStrongTasks = new Map<string, ActiveVoiceStrongTask>()
     private readonly queuedVoiceStrongRequests = new Map<string, VoiceStrongRequest[]>()
@@ -413,6 +425,8 @@ export class AssistantService {
                 this.appendEvent(type, occurredAt, payload, sessionId, threadId)
             },
             getSessionRuntimeCwd: (session, thread) => this.getSessionRuntimeCwd(session, thread),
+            getSessionPluginSkillSources: (session) => this.getSessionPluginSkillSources(session),
+            connectSessionRuntime: (session, thread) => this.connectSessionRuntime(session, thread),
             createSession: (input?: AssistantCreateSessionInput) => this.createSession(input),
             createPlaygroundLab: (input: AssistantCreatePlaygroundLabInput) => this.createPlaygroundLab(input),
             sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) => this.sendPrompt(prompt, options),
@@ -601,6 +615,100 @@ export class AssistantService {
         }
     }
 
+    async getPluginCatalog() {
+        await this.ensureReady()
+        return { success: true as const, catalog: await this.pluginRegistry.getCatalog() }
+    }
+
+    async startPluginDownload(name: string, ownerId: number) {
+        await this.ensureReady()
+        return { success: true as const, download: await this.pluginRegistry.acquisitions.start(name, ownerId) }
+    }
+
+    getPluginDownload(id: string, ownerId: number) {
+        return { success: true as const, download: this.pluginRegistry.acquisitions.get(id, ownerId) }
+    }
+
+    async cancelPluginDownload(id: string, ownerId: number) {
+        await this.pluginRegistry.acquisitions.cancel(id, ownerId)
+        return { success: true as const }
+    }
+
+    cancelPluginDownloadsForOwner(ownerId: number) {
+        return this.pluginRegistry.acquisitions.cancelOwner(ownerId)
+    }
+
+    async createPluginChat(input: AssistantCreatePluginChatInput) {
+        await this.ensureReady()
+        if (!input || typeof input.pluginId !== 'string' || typeof input.releaseId !== 'string' || !/^[a-f0-9]{64}$/.test(input.contentDigest)) throw new Error('Choose an installed Plugin release.')
+        return this.createSessionWithPluginScope({ mode: 'work' }, input)
+    }
+
+    async inspectLocalPlugin(input: AssistantInspectLocalPluginInput, ownerId?: number) {
+        await this.ensureReady()
+        return { success: true as const, inspection: await this.pluginRegistry.inspectLocalPlugin(input, ownerId) }
+    }
+
+    async installInspectedPlugin(input: AssistantInstallInspectedPluginInput, ownerId?: number) {
+        await this.ensureReady()
+        return this.pluginRegistry.installInspectedPlugin(input, ownerId)
+    }
+
+    async setPluginSet(input: AssistantSetPluginSetInput) {
+        await this.ensureReady()
+        const projectId = String(input.projectId || '').trim()
+        if (projectId) {
+            const catalog = await this.persistence.listProjects()
+            if (!catalog.projects.some((project) => project.id === projectId)) throw new Error('Project was not found.')
+        }
+        return this.pluginRegistry.setPluginSet({ ...input, projectId: projectId || null })
+    }
+
+    async refreshChatPluginScope(input: AssistantRefreshChatPluginScopeInput) {
+        await this.ensureReady()
+        const session = this.state.snapshot.sessions.find((entry) => entry.id === input.sessionId)
+        if (!session) throw new Error('Assistant session not found.')
+        return this.pluginAuthorityMutations.run([session.id], async () => {
+            await this.runtime.updatePluginAuthority({ chats: [] })
+            const result = await this.pluginRegistry.refreshChatScope(
+                input,
+                session.projectId || session.chatScope?.projectId || null
+            )
+            await this.syncSessionPluginAuthority(session)
+            return result
+        })
+    }
+
+    async setPluginState(pluginId: string, state: 'active' | 'disabled') {
+        await this.ensureReady()
+        if (state !== 'active' && state !== 'disabled') throw new Error('Plugin state is invalid.')
+        pluginId = String(pluginId || '').trim()
+        const catalog = await this.pluginRegistry.getCatalog()
+        const affectedSessionIds = catalog.chatScopes
+            .filter((scope) => scope.plugins.some((plugin) => plugin.pluginId === pluginId))
+            .map((scope) => scope.sessionId)
+        return this.pluginAuthorityMutations.run(affectedSessionIds, async () => {
+            // Refuse an unavailable/older server before committing registry state.
+            await this.runtime.updatePluginAuthority({ chats: [] })
+            const result = await this.pluginRegistry.setPluginState(pluginId, state)
+            // The server selects by loaded Plugin identity too, so detached Chats
+            // and connections still being established cannot escape revocation.
+            const affectedIds = new Set(result.catalog.chatScopes
+                .filter((scope) => scope.plugins.some((plugin) => plugin.pluginId === pluginId))
+                .map((scope) => scope.sessionId))
+            const threadIds = state === 'disabled' ? this.state.snapshot.sessions
+                .filter((session) => affectedIds.has(session.id))
+                .flatMap((session) => session.threads.flatMap((thread) => [thread.id, getAssistantCanonicalThreadId(thread)])) : []
+            await this.runtime.updatePluginAuthority({ pluginId, state, chats: [] }, threadIds)
+            return result
+        })
+    }
+
+    async rollbackPlugin(pluginId: string, releaseId: string, confirmed: boolean) {
+        await this.ensureReady()
+        return this.pluginRegistry.rollbackPlugin(pluginId, releaseId, confirmed)
+    }
+
     async createProject(input: AssistantCreateProjectInput, candidateId?: string) {
         await this.ensureReady()
         return {
@@ -686,13 +794,14 @@ export class AssistantService {
         if (thread.providerThreadId) {
             const record = findThreadRecord(this.state.snapshot, localThreadId)
             try {
-                await this.runtime.connect(
-                    thread,
-                    record
-                        ? this.getSessionRuntimeCwd(record.session, thread)
-                        : this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot(),
-                    record?.session.chatScope
-                )
+                if (record) {
+                    await this.connectSessionRuntime(record.session, thread)
+                } else {
+                    await this.runtime.connect(
+                        thread,
+                        this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot()
+                    )
+                }
                 const result = await this.runtime.requestFleetOperation(localThreadId, 'agents', 'list', {})
                 refreshed = (result['snapshot'] || result['fleet']) as FleetSnapshot | null
             } catch (error) {
@@ -719,13 +828,14 @@ export class AssistantService {
         if (isAssistantDevelopmentChatFixtureSessionId(record?.session.id)) {
             throw new Error('Development TEST Chats are read-only local fixtures.')
         }
-        await this.runtime.connect(
-            thread,
-            record
-                ? this.getSessionRuntimeCwd(record.session, thread)
-                : this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot(),
-            record?.session.chatScope
-        )
+        if (record) {
+            await this.connectSessionRuntime(record.session, thread)
+        } else {
+            await this.runtime.connect(
+                thread,
+                this.resolveCanonicalProjectPath(thread.cwd) || this.persistence.getGlobalWorkspaceRoot()
+            )
+        }
         const result = await this.runtime.requestFleetOperation(localThreadId, namespace, input.action, input.payload || {})
         const snapshot = (result['snapshot'] || result['fleet']) as FleetSnapshot | undefined
         if (snapshot) {
@@ -807,7 +917,13 @@ export class AssistantService {
     }
 
     async createSession(input?: AssistantCreateSessionInput) {
-        await this.stopCanonicalVoiceForNavigation()
+        return this.createSessionWithPluginScope(input)
+    }
+
+    private async createSessionWithPluginScope(input?: AssistantCreateSessionInput, pluginSelection?: AssistantCreatePluginChatInput) {
+        if (!pluginSelection) await this.stopCanonicalVoiceForNavigation()
+        const plannedSessionId = createAssistantId('assistant-session')
+        let sessionCreated = false
         try {
             const requestedPath = String(input?.workingRoot || input?.projectPath || '').trim()
             const project = input?.projectId || input?.mode === 'playground'
@@ -817,10 +933,13 @@ export class AssistantService {
             const chatScope = projectId
                 ? await this.persistence.createProjectChatScope(projectId, requestedPath || null)
                 : null
+            await this.pluginRegistry.createChatScope(plannedSessionId, projectId || null, input?.mode !== 'playground', pluginSelection)
+            if (pluginSelection) await this.stopCanonicalVoiceForNavigation()
             const result = await createAssistantSessionAction(this.actionDeps, {
                 ...input,
                 ...(chatScope ? { projectPath: chatScope.workingRoot } : {})
-            })
+            }, { sessionId: plannedSessionId })
+            sessionCreated = true
             if (chatScope) {
                 const occurredAt = nowIso()
                 this.appendEvent('session.updated', occurredAt, {
@@ -837,6 +956,7 @@ export class AssistantService {
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'completed' } })
             return result
         } catch (error) {
+            if (!sessionCreated) await this.pluginRegistry.removeChatScope(plannedSessionId).catch(() => undefined)
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
             throw error
         }
@@ -1140,6 +1260,7 @@ export class AssistantService {
             delete this.state.snapshot.fleetByThreadId[threadId]
             this.persistence.deleteFleet(threadId)
         }
+        await this.pluginRegistry.removeChatScope(sessionId)
         return result
     }
 
@@ -1161,7 +1282,9 @@ export class AssistantService {
         const chatScope = input.projectId
             ? await this.persistence.createProjectChatScope(input.projectId, input.workingRoot)
             : null
-        return this.applySessionProjectScope(sessionId, chatScope)
+        const result = await this.applySessionProjectScope(sessionId, chatScope)
+        await this.resetSessionPluginScope(sessionId, chatScope?.projectId || null)
+        return result
     }
 
     async setSessionProjectPath(sessionId: string, projectPath: string | null) {
@@ -1170,7 +1293,9 @@ export class AssistantService {
             ? await this.persistence.ensureProjectForFolder(normalizedPath)
                 .then((project) => this.persistence.createProjectChatScope(project.id, normalizedPath))
             : null
-        return this.applySessionProjectScope(sessionId, chatScope)
+        const result = await this.applySessionProjectScope(sessionId, chatScope)
+        await this.resetSessionPluginScope(sessionId, chatScope?.projectId || null)
+        return result
     }
 
     private async applySessionProjectScope(
@@ -1657,6 +1782,7 @@ export class AssistantService {
             this.canonicalRealtimeAdapter?.dispose()
             this.realtimeVoiceRuntime.dispose()
             this.runtime.dispose()
+            await this.pluginRegistry.dispose()
             await this.persistence.close()
             this.foregroundPersistence?.close()
         })()
@@ -1669,12 +1795,19 @@ export class AssistantService {
     }
 
     private async initialize() {
-        const loaded = await this.persistence.load()
+        const [loaded] = await Promise.all([
+            this.persistence.load(),
+            this.pluginRegistry.initialize()
+        ])
         this.state = {
             snapshot: loaded.snapshot || createDefaultSnapshot(),
             events: loaded.events || []
         }
         this.state.snapshot.fleetByThreadId ||= {}
+        await this.pluginRegistry.ensureLegacyChatScopes(this.state.snapshot.sessions.map((session) => ({
+            sessionId: session.id,
+            projectId: session.projectId || session.chatScope?.projectId || null
+        })))
         await this.importCanonicalChats()
         void this.recoverActiveCanonicalRuntimes().catch((error) => {
             log.warn('[Assistant] Active canonical runtime recovery failed', error)
@@ -1706,7 +1839,7 @@ export class AssistantService {
 
         await Promise.allSettled(activeCanonicalThreads.map(async ({ session, thread }) => {
             try {
-                await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread), session.chatScope)
+                await this.connectSessionRuntime(session, thread)
                 this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'recover', outcome: 'recovered' } })
             } catch (error) {
                 this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'recover', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
@@ -1839,11 +1972,7 @@ export class AssistantService {
             : null
         const runtimeThreadId = record.thread.providerThreadId || record.thread.id
         if (!this.runtime.hasSession(runtimeThreadId)) {
-            await this.runtime.connect(
-                record.thread,
-                this.getSessionRuntimeCwd(record.session, record.thread),
-                record.session.chatScope
-            )
+            await this.connectSessionRuntime(record.session, record.thread)
             throwIfVoiceStartAborted(signal)
         }
         const connected = findThreadRecord(this.state.snapshot, record.thread.id)
@@ -2397,7 +2526,7 @@ export class AssistantService {
         if (!session || !thread) return null
 
         try {
-            await this.runtime.connect(thread, this.getSessionRuntimeCwd(session, thread), session.chatScope)
+            await this.connectSessionRuntime(session, thread)
         } catch (error) {
             log.warn('[Assistant] Failed to attach the selected canonical chat during navigation', error)
         }
@@ -3028,6 +3157,66 @@ export class AssistantService {
             if (candidate && !this.persistence.isInternalProjectPath(candidate)) return candidate
         }
         return null
+    }
+
+    private async connectSessionRuntime(session: AssistantSession, thread: AssistantThread): Promise<void> {
+        await connectWithStablePluginAuthority({
+            getGeneration: () => this.pluginAuthorityMutations.generation(session.id),
+            waitForSettled: () => this.pluginAuthorityMutations.wait(session.id),
+            resolve: async () => {
+                const currentSession = this.state.snapshot.sessions.find((entry) => entry.id === session.id)
+                if (!currentSession) throw new Error('Assistant session not found.')
+                const currentThread = currentSession.threads.find((entry) => entry.id === thread.id) || thread
+                return {
+                    session: currentSession,
+                    thread: currentThread,
+                    pluginSkillSources: await this.getSessionPluginSkillSources(currentSession)
+                }
+            },
+            connect: ({ session: currentSession, thread: currentThread, pluginSkillSources }) => this.runtime.connect(
+                currentThread,
+                this.getSessionRuntimeCwd(currentSession, currentThread),
+                currentSession.chatScope,
+                pluginSkillSources
+            ),
+            disconnect: ({ thread: currentThread }) => this.runtime.disconnect(getAssistantCanonicalThreadId(currentThread))
+        })
+    }
+
+    private async getSessionPluginSkillSources(session: AssistantSession): Promise<AssistantPluginSkillSource[]> {
+        const projectId = session.projectId || session.chatScope?.projectId || null
+        const expectedOwnerKind = projectId ? 'project' : 'global'
+        const expectedOwnerId = projectId || 'global'
+        let scope = await this.pluginRegistry.getChatScope(session.id)
+        if (!scope) {
+            scope = await this.pluginRegistry.ensureLegacyChatScope(session.id, projectId)
+        } else if (scope.ownerKind !== expectedOwnerKind || scope.ownerId !== expectedOwnerId || session.mode === 'playground' && scope.plugins.length > 0) {
+            await this.resetSessionPluginScope(session.id, projectId)
+            scope = await this.pluginRegistry.getChatScope(session.id)
+            if (!scope) throw new Error('Chat Plugin scope could not be reset.')
+        }
+        return scope.plugins.length > 0 ? this.pluginRegistry.getChatSkillSources(session.id) : []
+    }
+
+    private async resetSessionPluginScope(sessionId: string, projectId: string | null): Promise<void> {
+        await this.pluginAuthorityMutations.run([sessionId], async () => {
+            await this.runtime.updatePluginAuthority({ chats: [] })
+            await this.pluginRegistry.resetChatScope(sessionId, projectId)
+            const session = this.state.snapshot.sessions.find((entry) => entry.id === sessionId)
+            if (session) await this.syncSessionPluginAuthority(session)
+        })
+    }
+
+    private async syncSessionPluginAuthority(session: AssistantSession): Promise<void> {
+        let sources: AssistantPluginSkillSource[] | null = null
+        try {
+            sources = await this.pluginRegistry.getChatSkillSources(session.id)
+        } finally {
+            // A verification failure blocks the Chat rather than retaining old authority.
+            await this.runtime.updatePluginAuthority({ chats: session.threads.map((thread) => ({
+                sessionKey: getAssistantCanonicalThreadId(thread), sources
+            })) }, session.threads.map((thread) => thread.id))
+        }
     }
 
     private getSessionRuntimeCwd(

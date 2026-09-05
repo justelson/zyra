@@ -10,6 +10,7 @@ import { getParentFolderPath } from '@/lib/filesystem/fileSystemPaths'
 import { getAppearanceCodeFontStack, useSettings } from '@/lib/settings'
 import { isEditableFileType, PREVIEW_TERMINAL_MIN_HEIGHT } from './file-preview/modalShared'
 import type { FilePreviewModalProps } from './file-preview/modalTypes'
+import type { PreviewMediaItem } from './file-preview/types'
 import { PreviewModalLayout } from './file-preview/PreviewModalLayout'
 import { PreviewPythonOutputPanel } from './file-preview/PreviewPythonOutputPanel'
 import { PreviewTerminalPanel } from './file-preview/PreviewTerminalPanel'
@@ -28,6 +29,9 @@ import {
     FILE_PREVIEW_TOGGLE_NAVIGATOR_EVENT,
     publishFilePreviewFocusState
 } from './file-preview/filePreviewFocusMode'
+
+// Navigation history tracks media-list identity; a fresh fallback would retrigger it after every state update.
+const EMPTY_PREVIEW_MEDIA_ITEMS: PreviewMediaItem[] = []
 
 export function FilePreviewModal({
     file,
@@ -53,7 +57,7 @@ export function FilePreviewModal({
     onClosePreviewTab,
     onReorderPreviewTabs,
     previewBody,
-    mediaItems = [],
+    mediaItems = EMPTY_PREVIEW_MEDIA_ITEMS,
     navigationSidebar,
     onSaved,
     onShowToast,

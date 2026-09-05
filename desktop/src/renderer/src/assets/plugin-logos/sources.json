@@ -1,0 +1,501 @@
+{
+  "catalogCommit": "1e285826e604f66f7208f7ac4dba0fe8341d1f57",
+  "logos": [
+    {
+      "name": "linear",
+      "file": "linear.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/linear",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/linear/assets/logo.png",
+      "bytes": 19496,
+      "sha256": "c5114902ad243dbb36ebd4e250f318871bfafd152d346b7ffea027124133b879"
+    },
+    {
+      "name": "atlassian-rovo",
+      "file": "atlassian-rovo.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/atlassian-rovo",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/atlassian-rovo/assets/logo.png",
+      "bytes": 7690,
+      "sha256": "7205fb2631152725e0aedd16534a020a0bd89a2c1acfc726a2b3fd5b52838722"
+    },
+    {
+      "name": "google-calendar",
+      "file": "google-calendar.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/google-calendar",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/google-calendar/assets/logo.png",
+      "bytes": 44459,
+      "sha256": "57529d8fa96aa62e995d5cf45df9b4835f6121bff93bb28eeb24bf3e4bc2bbc4"
+    },
+    {
+      "name": "gmail",
+      "file": "gmail.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/gmail",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/gmail/assets/gmail.png",
+      "bytes": 41731,
+      "sha256": "94b90b1c5fca7defb96588f4d7032af87f9514c895cc9f2f3846d829ca9c7cba"
+    },
+    {
+      "name": "slack",
+      "file": "slack.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/slack",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/slack/assets/logo.png",
+      "bytes": 23428,
+      "sha256": "22860d9a3bdf29402f53345ae9bc8ee0cd057c652eda418ef8433ff0c363fb02"
+    },
+    {
+      "name": "teams",
+      "file": "teams.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/teams",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/teams/assets/logo.png",
+      "bytes": 19035,
+      "sha256": "982be6162f987a43a75a220ef890ddf048d657d013141b423598649d44a0b8a8"
+    },
+    {
+      "name": "sharepoint",
+      "file": "sharepoint.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/sharepoint",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/sharepoint/assets/logo.png",
+      "bytes": 21442,
+      "sha256": "29baa18ad6db89408509eb925ce6ba5fe50676387de34fdb0372f068f8869343"
+    },
+    {
+      "name": "outlook-email",
+      "file": "outlook-email.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/outlook-email",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/outlook-email/assets/logo.png",
+      "bytes": 23322,
+      "sha256": "5335d7747d4a58b3a99ece47d142a127fbc4a5acec2e335fab6d17b42f4ec16d"
+    },
+    {
+      "name": "outlook-calendar",
+      "file": "outlook-calendar.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/outlook-calendar",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/outlook-calendar/assets/logo.png",
+      "bytes": 23322,
+      "sha256": "5335d7747d4a58b3a99ece47d142a127fbc4a5acec2e335fab6d17b42f4ec16d"
+    },
+    {
+      "name": "canva",
+      "file": "canva.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/canva",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/canva/assets/logo.png",
+      "bytes": 44919,
+      "sha256": "afb54276bf45167125048872621a14156c03034484519d81b5160cb73c2d7c20"
+    },
+    {
+      "name": "figma",
+      "file": "figma.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/figma",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/figma/assets/logo-padded.png",
+      "bytes": 18308,
+      "sha256": "a971e2841f6f8edf8b9c6e0b0c4904658f8f466d4cd0a1fc07d1c6f6db4e110f"
+    },
+    {
+      "name": "stripe",
+      "file": "stripe.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/stripe",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/stripe/assets/logo.png",
+      "bytes": 2370,
+      "sha256": "8034d1975f2ff4408cb399089eb6c4b575a7ebe267063c2074327e64a710732c"
+    },
+    {
+      "name": "vercel",
+      "file": "vercel.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/vercel",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/vercel/assets/logo.png",
+      "bytes": 2254,
+      "sha256": "3e4a7d38560781583cbe7356c4e538f22fbf222fd490551cbc61c00ebdf4475c"
+    },
+    {
+      "name": "game-studio",
+      "file": "game-studio.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/game-studio",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/game-studio/assets/app-icon.png",
+      "bytes": 8885,
+      "sha256": "5b3b083e4acc72b2d905e08b99dff08b811c1140aeb25adfc878a278e6dff20e"
+    },
+    {
+      "name": "superpowers",
+      "file": "superpowers.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/superpowers",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/superpowers/.codex-plugin/assets/logo.png",
+      "bytes": 48231,
+      "sha256": "b7477eb39b5109617fe37e51dd65d8bdd8dff6c40fda49adfbc21eec445777ee"
+    },
+    {
+      "name": "github",
+      "file": "github.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/github",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/github/assets/github.png",
+      "bytes": 9380,
+      "sha256": "07e4d8c81c906dc6fffa42f2686f446724c86c2079b23aa6c77ab9dab782fdea"
+    },
+    {
+      "name": "circleci",
+      "file": "circleci.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/circleci",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/circleci/assets/logo.png",
+      "bytes": 10488,
+      "sha256": "2cfb69f15521888cedce9adf3c6554976f2b8d780b48414068c25b3da57d5d6c"
+    },
+    {
+      "name": "google-drive",
+      "file": "google-drive.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/google-drive",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/google-drive/assets/logo.png",
+      "bytes": 56020,
+      "sha256": "585b2c8a695f8167559e9177e6aa9a73b0347a238e21b82df0f669b819670c6c"
+    },
+    {
+      "name": "notion",
+      "file": "notion.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/notion",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/notion/assets/notion.png",
+      "bytes": 3581,
+      "sha256": "e20b9668553aeb46b55a366d0a8eddd9051b5ac55207ab067ed347029a53434e"
+    },
+    {
+      "name": "cloudflare",
+      "file": "cloudflare.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/cloudflare",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/cloudflare/assets/cloudflare.png",
+      "bytes": 1187,
+      "sha256": "ccef528d73dfe224cfb4817bcb7e15d63922421249d688031ff48c5eef2a2189"
+    },
+    {
+      "name": "sentry",
+      "file": "sentry.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/sentry",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/sentry/assets/sentry.png",
+      "bytes": 1998,
+      "sha256": "b61e0534635a275cf56f7dad26ac7cc36504b7bd9a60c95791d6e72634129fb1"
+    },
+    {
+      "name": "build-ios-apps",
+      "file": "build-ios-apps.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-ios-apps",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-ios-apps/assets/app-icon.png",
+      "bytes": 4722,
+      "sha256": "d5389b5252eb373894508c6a8b1f65d8a7837b2672c3955276ee8cdd75780e4d"
+    },
+    {
+      "name": "build-macos-apps",
+      "file": "build-macos-apps.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-macos-apps",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-macos-apps/assets/app-icon.png",
+      "bytes": 4722,
+      "sha256": "d5389b5252eb373894508c6a8b1f65d8a7837b2672c3955276ee8cdd75780e4d"
+    },
+    {
+      "name": "build-web-apps",
+      "file": "build-web-apps.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-web-apps",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-web-apps/assets/app-icon.png",
+      "bytes": 4049,
+      "sha256": "d83c4aebc93b4d894973ef6891e2135709e0ec4a91cdf51f1af7c9f9075f632a"
+    },
+    {
+      "name": "build-web-data-visualization",
+      "file": "build-web-data-visualization.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-web-data-visualization",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/build-web-data-visualization/assets/app-icon.svg",
+      "bytes": 969,
+      "sha256": "98cb142b8fcff83824dd96eb86b66796546b583099947a1dd85588e3ab586a72"
+    },
+    {
+      "name": "test-android-apps",
+      "file": "test-android-apps.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/test-android-apps",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/test-android-apps/assets/app-icon.png",
+      "bytes": 79014,
+      "sha256": "3e9984bfb849473e25a31b2df5b030209f27f76c0a5754008aa0460599ee34b4"
+    },
+    {
+      "name": "life-science-research",
+      "file": "life-science-research.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/life-science-research",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/life-science-research/assets/app-icon.png",
+      "bytes": 17108,
+      "sha256": "02ad1294721616472a6a58783a8e0a3b16fb858acb87eae8921f2ca231e40717"
+    },
+    {
+      "name": "zotero",
+      "file": "zotero.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/zotero",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/zotero/assets/icon.png",
+      "bytes": 9908,
+      "sha256": "7ac4579b4a075173126862ebf70243ff0a447ffe843e7fbdf16ea2681f4fff13"
+    },
+    {
+      "name": "expo",
+      "file": "expo.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/expo",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/expo/assets/expo.png",
+      "bytes": 10299,
+      "sha256": "8a0da01fdd368341cb7d5103c6435d7b94a8a09521da6c65d57be34e97c4cb2a"
+    },
+    {
+      "name": "coderabbit",
+      "file": "coderabbit.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/coderabbit",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/coderabbit/assets/logo.png",
+      "bytes": 32140,
+      "sha256": "d985c31648830e07899c7b28c92f29e021bcfb230a64b6b07cc48031ecdd741d"
+    },
+    {
+      "name": "remotion",
+      "file": "remotion.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/remotion",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/remotion/.codex-plugin/assets/logo.png",
+      "bytes": 37249,
+      "sha256": "d8a7965be77f75b74ef010a18f581b77d43770e9e9961b669636a14a860660eb"
+    },
+    {
+      "name": "plugin-eval",
+      "file": "plugin-eval.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/plugin-eval",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/plugin-eval/assets/plugin-eval.svg",
+      "bytes": 547,
+      "sha256": "380b1c2dfbc55538d7ea0ad1fa86a3aab8e8ccf53d07cbd42f47e9a1a2fad9d5"
+    },
+    {
+      "name": "granola",
+      "file": "granola.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/granola",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/granola/assets/logo.png",
+      "bytes": 18723,
+      "sha256": "1360b28dec57099b071790a9d709cc9f2c1cc3039c543ae7e39e51b06802bdd0"
+    },
+    {
+      "name": "monday-com",
+      "file": "monday-com.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/monday-com",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/monday-com/assets/logo.png",
+      "bytes": 8185,
+      "sha256": "72b2fddc2db8d7490fdf98f015e97291ded5b60d891a26c7b5fab858764593eb"
+    },
+    {
+      "name": "temporal",
+      "file": "temporal.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/temporal",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/temporal/.codex-plugin/assets/logo.svg",
+      "bytes": 1463,
+      "sha256": "3327f51e319e1f3071d953887cfa9b86b9369a519975cae357a56e0fcda72b58"
+    },
+    {
+      "name": "hyperframes",
+      "file": "hyperframes.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/hyperframes",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/hyperframes/assets/logo.png",
+      "bytes": 60586,
+      "sha256": "0328eb84e11871561739d8541bc30d4bdca81ceae09730be779e5c38ee8b7c60"
+    },
+    {
+      "name": "supabase",
+      "file": "supabase.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/supabase",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/supabase/assets/logo.png",
+      "bytes": 8859,
+      "sha256": "3fba9515ad8fc71691380d71f2f414285176a077c09eb2e55e170fe5c1c720a7"
+    },
+    {
+      "name": "codex-security",
+      "file": "codex-security.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/codex-security",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/codex-security/assets/logo.png",
+      "bytes": 99567,
+      "sha256": "9b9c2b09b2fa064611fb62307d321d5c2ea70cf0789f7ce34cdb0fc0d9190b3a"
+    },
+    {
+      "name": "twilio-developer-kit",
+      "file": "twilio-developer-kit.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/twilio-developer-kit",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/twilio-developer-kit/assets/logo.svg",
+      "bytes": 461,
+      "sha256": "bf7334b5a3d8ff2a15f7a8e7bd07457bac16deb37195646c6b2141412d723ba7"
+    },
+    {
+      "name": "openai-developers",
+      "file": "openai-developers.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/openai-developers",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/openai-developers/assets/logo.png",
+      "bytes": 2699,
+      "sha256": "776310bcb0f0f191c616f31a13fcb8de8cc94d920c77625c271b3a034199ac43"
+    },
+    {
+      "name": "datadog",
+      "file": "datadog.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/datadog",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/datadog/assets/logo.png",
+      "bytes": 25836,
+      "sha256": "68b0dd3f7a70a6f5ef1d4ca3b2676939e4be1a3b9cca44771e836da3c6a49910"
+    },
+    {
+      "name": "zoom",
+      "file": "zoom.jpg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/zoom",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/zoom/assets/logo.jpg",
+      "bytes": 10596,
+      "sha256": "41efa89aafc51c7e09fdfc48e35447df365e72dc67618d28b29613f1b269ab8d"
+    },
+    {
+      "name": "mixpanel-headless",
+      "file": "mixpanel-headless.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/mixpanel-headless",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/mixpanel-headless/assets/logo.png",
+      "bytes": 10093,
+      "sha256": "3ebcb85818875354ca119b5651b1eee0467fa50d3ddf4243104dada9381ed8c2"
+    },
+    {
+      "name": "airtable",
+      "file": "airtable.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/airtable",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/airtable/assets/logo.png",
+      "bytes": 7292,
+      "sha256": "96fd36205f1a420a5289b833b9427af71237b004c54474a3ad30492865979103"
+    },
+    {
+      "name": "nvidia",
+      "file": "nvidia.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/nvidia",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/nvidia/assets/nvidia.png",
+      "bytes": 43889,
+      "sha256": "df380ee7463646f242f3da851f1754f31fc1d9dafb65fcb9ebe55c6c19fb6bf3"
+    },
+    {
+      "name": "posthog",
+      "file": "posthog.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/posthog",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/posthog/assets/logo.png",
+      "bytes": 13481,
+      "sha256": "9a9a8b10a1e479a848af0f1987e059c377ac0ad60b1d32c5799515e79e052bc8"
+    },
+    {
+      "name": "ngs-analysis",
+      "file": "ngs-analysis.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/ngs-analysis",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/ngs-analysis/assets/app-icon.png",
+      "bytes": 39140,
+      "sha256": "de2f5931b97d9b2ce6325208dd514c69ee9bf13201af635d8fb17345a5ef4737"
+    },
+    {
+      "name": "shopify",
+      "file": "shopify.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/shopify",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/shopify/assets/logo.png",
+      "bytes": 17979,
+      "sha256": "c450cd06ca1b37d51f8f6aa90fa2bdb1c54411ca4d562cdaf27bef6f895446e2"
+    },
+    {
+      "name": "magicpath",
+      "file": "magicpath.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/magicpath",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/magicpath/assets/magicpath.png",
+      "bytes": 20296,
+      "sha256": "d3c261c132e56841924c7db046eb3958036f0dc29fb6066235d4c2e9a4ed3668"
+    },
+    {
+      "name": "openai-ads-conversions",
+      "file": "openai-ads-conversions.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/openai-ads-conversions",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/openai-ads-conversions/assets/icon.svg",
+      "bytes": 2605,
+      "sha256": "50a4d42fae4d94cce0112e31637d88570d4890b7d9eef903dc1f9b4b3afe6a1e"
+    },
+    {
+      "name": "boltz-api-cli",
+      "file": "boltz-api-cli.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/boltz-api-cli",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/boltz-api-cli/assets/app-icon.png",
+      "bytes": 19604,
+      "sha256": "740df6167e01959f2b1cadbcabb6e3d63e9da654d193f29f9d582fe2df02c1c2"
+    },
+    {
+      "name": "dropbox",
+      "file": "dropbox.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/dropbox",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/dropbox/assets/logo.png",
+      "bytes": 10621,
+      "sha256": "d543e555eb1c376f21c2b1d08d4fc76e3b348ab6b3ccf10ccc682f8dc2cbe273"
+    },
+    {
+      "name": "product-design",
+      "file": "product-design.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/product-design",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/product-design/assets/logo.png",
+      "bytes": 121628,
+      "sha256": "a1f718f71e727e6573b5810fee5ea33c887d1161203037746dfcdf856df2db3d"
+    },
+    {
+      "name": "data-analytics",
+      "file": "data-analytics.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/data-analytics",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/data-analytics/assets/datascience.png",
+      "bytes": 96096,
+      "sha256": "43494b72f2b1ca063b775ba114130ae85d378bf3b3f6257a2e0e44e4830863a1"
+    },
+    {
+      "name": "creative-production",
+      "file": "creative-production.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/creative-production",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/creative-production/assets/logo.png",
+      "bytes": 133263,
+      "sha256": "86aa0eec7dfe1379b699a3ac05421f1b9447752634817c44105eeab583c1ce97"
+    },
+    {
+      "name": "public-equity-investing",
+      "file": "public-equity-investing.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/public-equity-investing",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/public-equity-investing/assets/logo.png",
+      "bytes": 112798,
+      "sha256": "dc1a228daed9bbcd5ce9266f79353f2ff40558e5cda9af41407bd812d29f9014"
+    },
+    {
+      "name": "adobe",
+      "file": "adobe.svg",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/adobe",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/adobe/skills/adobe-batch-edit-photos/assets/icon-large.svg",
+      "bytes": 488,
+      "sha256": "1c585a9a56315edec99a2655c3b404fd66d50e75f45d2d75b769b8119b3872fb"
+    },
+    {
+      "name": "lovable",
+      "file": "lovable.png",
+      "sourcePage": "https://docs.lovable.dev/introduction/welcome",
+      "sourceUrl": "https://docs.lovable.dev/mintlify-assets/_mintlify/favicons/lovable-f9060f1e/AU_uVgnksniw8mje/_generated/favicon/android-chrome-192x192.png",
+      "bytes": 6607,
+      "sha256": "3ddad9dc9ef650381413c0749d46b2dca8eea4e39e40220ec309c38829d1cc7d"
+    },
+    {
+      "name": "clickup",
+      "file": "clickup.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/clickup",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/clickup/assets/logo.png",
+      "bytes": 34700,
+      "sha256": "218b96eecc8b8039227db1f6edbf6c64dfaaffc08dd2c6465f6a4a355e9d2248"
+    },
+    {
+      "name": "consensus",
+      "file": "consensus.png",
+      "sourcePage": "https://consensus.app/",
+      "sourceUrl": "https://consensus.app/images/icon-384.png",
+      "bytes": 6322,
+      "sha256": "b54bcc8e7c4ee839af34b719bdfcf4c9e2e279653089fffb270a2671c32c7812"
+    },
+    {
+      "name": "chatcut",
+      "file": "chatcut.png",
+      "sourcePage": "https://github.com/openai/plugins/tree/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/chatcut",
+      "sourceUrl": "https://raw.githubusercontent.com/openai/plugins/1e285826e604f66f7208f7ac4dba0fe8341d1f57/plugins/chatcut/.codex-plugin/assets/logo.png",
+      "bytes": 57172,
+      "sha256": "521cc2088a18d6d38211e34dcf816a52ad8cfd06a0583ace65f6307d49f0b26e"
+    },
+    {
+      "name": "higgsfield",
+      "file": "higgsfield.png",
+      "sourcePage": "https://higgsfield.ai/",
+      "sourceUrl": "https://higgsfield.ai/apple-icon.png",
+      "bytes": 8365,
+      "sha256": "47f5136c65f9dd2360c59d2b65d06d9e7289230aa4edd7b150f28e6f0582bf1c"
+    }
+  ]
+}

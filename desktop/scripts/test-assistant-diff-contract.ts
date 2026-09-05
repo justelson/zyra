@@ -542,9 +542,10 @@ assert.equal(
     false,
     'the retired classic diff panel source stays deleted'
 )
-assert.equal(pageSource.includes('paneLayout.autoCollapseLeftSidebar'), true, 'the left rail collapses when the panes would violate the minimum chat width')
+const workspaceLayoutSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantWorkspaceLayout.tsx', import.meta.url), 'utf8')
+assert.equal(workspaceLayoutSource.includes('paneLayout.autoCollapseLeftSidebar'), true, 'the left rail collapses when the panes would violate the minimum chat width')
 assert.equal(pageSource.includes('maxWidth={paneLayout.maxInspectorWidth}'), true, 'Inspector resizing reserves the minimum chat width during the drag')
-assert.equal(pageSource.includes('autoCollapsedLeftSidebarRef.current'), true, 'the left rail restores only when the pane layout collapsed it')
+assert.equal(workspaceLayoutSource.includes('autoCollapsedLeftSidebarRef.current'), true, 'the left rail restores only when the pane layout collapsed it')
 assert.equal(pageSource.includes('onViewDiff={undefined}'), false)
 
 const panelSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantDiffPanel.tsx', import.meta.url), 'utf8')

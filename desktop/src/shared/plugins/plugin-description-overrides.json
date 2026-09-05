@@ -1,0 +1,8 @@
+{
+  "canva": {
+    "longDescription": "Canva's package includes Skills for design review, resizing, and brand-template workflows. Zyra can load these instructions. Canva account connections, direct editing in Canva, and connected bulk generation are not available through Zyra's plugin runtime."
+  },
+  "adobe": {
+    "longDescription": "Adobe's package includes Skills for creative and document workflows. Zyra can load these instructions. Creative Cloud and Acrobat connections, direct cloud editing, and Adobe account features are not available through Zyra's plugin runtime."
+  }
+}

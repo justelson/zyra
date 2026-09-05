@@ -20,6 +20,7 @@ const METHOD_NAMES = new Set([
   "catalog.message.append",
   "catalog.message.find",
   "session.attach",
+  "session.pluginAuthority",
   "session.request",
   "session.detach",
   "session.stop",

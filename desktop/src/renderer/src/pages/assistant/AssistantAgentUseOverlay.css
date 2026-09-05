@@ -12,9 +12,10 @@
     inset: 0;
     overflow: hidden;
     box-shadow:
-        inset 0 0 0 1px rgb(var(--accent-secondary-rgb) / 0.34),
-        inset 0 0 14px rgb(var(--accent-primary-rgb) / 0.25),
-        inset 0 0 44px rgb(var(--accent-primary-rgb) / 0.08);
+        inset 0 0 30px rgb(var(--accent-primary-rgb) / 0.33),
+        inset 0 0 86px rgb(var(--accent-primary-rgb) / 0.155),
+        inset 0 0 138px rgb(var(--accent-primary-rgb) / 0.065);
+    animation: assistant-agent-edge-enter 460ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .assistant-agent-use-wave {
@@ -70,102 +71,84 @@
 
 .assistant-agent-use-indicator {
     position: absolute;
-    top: 12px;
+    top: 16px;
     left: 50%;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 24px;
     max-width: calc(100% - 32px);
-    height: 32px;
-    padding: 0 10px;
+    min-height: 52px;
+    padding: 12px 18px;
     transform: translateX(-50%);
-    border: 1px solid var(--surface-divider);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--surface-floating) 94%, transparent);
-    box-shadow:
-        0 12px 34px color-mix(in srgb, var(--color-bg) 46%, transparent),
-        inset 2px 0 0 var(--accent-primary);
+    border: 1px solid var(--surface-panel-divider);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-floating) 96%, transparent);
+    box-shadow: 0 16px 42px color-mix(in srgb, var(--color-bg) 42%, transparent);
     color: var(--color-text);
-    font-size: 11px;
-    font-weight: 580;
-    letter-spacing: -0.005em;
+    font-size: 13px;
+    font-weight: 520;
+    letter-spacing: -0.01em;
+    line-height: 1;
     white-space: nowrap;
-    backdrop-filter: blur(14px);
-}
-
-.assistant-agent-use-signal {
-    position: relative;
-    width: 8px;
-    height: 8px;
-    flex: 0 0 auto;
-    border-radius: 50%;
-    background: var(--accent-secondary);
-    box-shadow:
-        0 0 0 4px rgb(var(--accent-primary-rgb) / 0.1),
-        0 0 15px rgb(var(--accent-primary-rgb) / 0.52);
-}
-
-.assistant-agent-use-signal::after {
-    position: absolute;
-    inset: -4px;
-    border: 1px solid rgb(var(--accent-secondary-rgb) / 0.38);
-    border-radius: 50%;
-    content: "";
-    animation: assistant-agent-signal-pulse 2.4s ease-out infinite;
-}
-
-.assistant-agent-use-app-icon {
-    display: inline-grid;
-    width: 18px;
-    height: 18px;
-    flex: 0 0 auto;
-    place-items: center;
-    border: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
-    border-radius: 5px;
-    background: rgb(var(--accent-primary-rgb) / 0.13);
-    color: var(--accent-secondary);
+    backdrop-filter: blur(18px);
+    animation: assistant-agent-indicator-enter 340ms 55ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .assistant-agent-use-label {
+    display: flex;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    align-items: baseline;
+    gap: 5px;
+    color: var(--color-text-secondary);
+}
+
+.assistant-agent-use-label > span {
+    flex: 0 0 auto;
 }
 
 .assistant-agent-use-label strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text);
     font-weight: 650;
-}
-
-.assistant-agent-use-divider {
-    width: 1px;
-    height: 14px;
-    flex: 0 0 auto;
-    background: var(--surface-divider);
+    text-overflow: ellipsis;
 }
 
 .assistant-agent-use-stop {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
-    gap: 5px;
+    gap: 7px;
     color: var(--color-text-secondary);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
 }
 
 .assistant-agent-use-stop kbd {
-    min-width: 26px;
-    height: 20px;
+    min-width: 30px;
+    height: 26px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 6px;
-    border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
-    border-bottom-color: color-mix(in srgb, var(--color-text) 24%, transparent);
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+    padding: 0 9px;
+    border: 1px solid color-mix(in srgb, var(--color-text) 16%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--color-text) 28%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--color-text) 7%, var(--surface-floating));
     color: var(--color-text);
-    box-shadow: 0 1px 1px color-mix(in srgb, var(--color-bg) 42%, transparent);
-    font: 600 9px/1 var(--font-ui, "Bricolage Grotesque", "Hanken Grotesk", "Segoe UI", system-ui, sans-serif);
+    box-shadow: 0 1px 1px color-mix(in srgb, var(--color-bg) 36%, transparent);
+    font: 600 10px/1 var(--font-ui, "Bricolage Grotesque", "Hanken Grotesk", "Segoe UI", system-ui, sans-serif);
+}
+
+@keyframes assistant-agent-edge-enter {
+    from { opacity: 0; filter: saturate(0.78); }
+    to { opacity: 1; filter: saturate(1); }
+}
+
+@keyframes assistant-agent-indicator-enter {
+    from { opacity: 0; transform: translateX(-50%) translateY(-9px) scale(0.98); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 @keyframes assistant-agent-wave-horizontal {
@@ -188,33 +171,26 @@
     to { transform: rotate(180deg) translate3d(-4px, 3%, 0) scaleY(1.04); }
 }
 
-@keyframes assistant-agent-signal-pulse {
-    0% { transform: scale(0.72); opacity: 0.72; }
-    72%, 100% { transform: scale(1.58); opacity: 0; }
-}
-
 .compact-mode .assistant-agent-use-indicator {
-    top: 10px;
-    height: 30px;
-    padding-inline: 9px;
-    font-size: 10px;
-}
-
-.compact-mode .assistant-agent-use-app-icon {
-    width: 16px;
-    height: 16px;
+    top: 12px;
+    min-height: 46px;
+    gap: 18px;
+    padding: 10px 15px;
+    font-size: 12px;
 }
 
 .compact-mode .assistant-agent-use-stop kbd {
-    height: 18px;
+    height: 24px;
 }
 
 @media (max-width: 520px) {
     .assistant-agent-use-indicator {
         top: 10px;
-        height: 30px;
-        transform: translateX(-50%) scale(0.9);
-        transform-origin: top center;
+        max-width: calc(100% - 20px);
+        min-height: 46px;
+        gap: 12px;
+        padding: 10px 12px;
+        font-size: 12px;
     }
 
     .assistant-agent-use-stop > span {
@@ -222,9 +198,15 @@
     }
 }
 
+.zyra-reduce-motion .assistant-agent-use-edge,
+.zyra-reduce-motion .assistant-agent-use-indicator {
+    animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .assistant-agent-use-wave,
-    .assistant-agent-use-signal::after {
+    .assistant-agent-use-edge,
+    .assistant-agent-use-indicator,
+    .assistant-agent-use-wave {
         animation: none;
     }
 }

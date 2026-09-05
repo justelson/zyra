@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import type { DevScopeUpdateState } from '../src/shared/contracts/devscope-api'
+import { installableUpdateVersion, sidebarUpdatePresentation } from '../src/renderer/src/lib/app-update-presentation'
+
+const state: DevScopeUpdateState = { enabled: true, status: 'idle', currentVersion: '0.6.0', currentDisplayVersion: 'v0.6.0', channel: 'stable', repository: 'fixture', releasePageUrl: 'https://example.test/releases', disabledReason: null, availableVersion: '0.6.1', availableDisplayVersion: 'v0.6.1', downloadedVersion: null, downloadedDisplayVersion: null, downloadPercent: null, checkedAt: null, message: null, errorContext: null, canRetry: false }
+assert.equal(sidebarUpdatePresentation(null, null).disabled, true)
+assert.equal(sidebarUpdatePresentation({ ...state, enabled: false }, null).action, 'details')
+assert.equal(sidebarUpdatePresentation(state, null).action, 'check')
+assert.equal(sidebarUpdatePresentation({ ...state, status: 'up-to-date' }, null).action, 'check')
+assert.equal(sidebarUpdatePresentation({ ...state, status: 'available' }, null).label, 'Download')
+assert.equal(sidebarUpdatePresentation({ ...state, status: 'available' }, 'download').action, 'details')
+assert.equal(sidebarUpdatePresentation({ ...state, status: 'downloading', downloadPercent: 37.8 }, null).label, '38%')
+for (const [input, expected] of [[-4, 0], [104, 100], [NaN, null], [Infinity, null], [null, null]] as const) assert.equal(sidebarUpdatePresentation({ ...state, status: 'downloading', downloadPercent: input }, null).percent, expected)
+const downloaded = { ...state, status: 'downloaded' as const, downloadedVersion: '0.6.1' }
+assert.equal(sidebarUpdatePresentation(downloaded, null).label, 'Install')
+assert.equal(sidebarUpdatePresentation(downloaded, null).action, 'install')
+assert.equal(sidebarUpdatePresentation({ ...downloaded, downloadedVersion: null }, null).action, 'details')
+assert.equal(sidebarUpdatePresentation(downloaded, 'install').disabled, true)
+assert.equal(sidebarUpdatePresentation(downloaded, 'install').label, 'Restarting')
+assert.equal(sidebarUpdatePresentation(state, null, 'Failed').status, 'error')
+assert.equal(sidebarUpdatePresentation(null, null, 'Failed').action, 'check')
+assert.equal(installableUpdateVersion(downloaded), '0.6.1')
+assert.equal(installableUpdateVersion({ ...downloaded, enabled: false }), null)
+assert.equal(installableUpdateVersion({ ...downloaded, status: 'available' }), null)
+const source = (path: string) => readFileSync(resolve(import.meta.dir, '../src/renderer/src', path), 'utf8')
+const provider = source('lib/app-updates.tsx')
+assert.equal((provider.match(/window\.devscope\.updates\.installUpdate\(/g) || []).length, 1, 'one confirmed renderer path calls install IPC')
+assert.match(provider, /const confirmInstallUpdate[\s\S]*version !== installableUpdateVersion\(stateRef.current\)[\s\S]*runAction\('install'/)
+assert.match(provider, /if \(pendingActionRef.current\) return null/, 'duplicate clicks cannot start concurrent operations')
+assert.match(provider, /eventRevision.current === initialRevision/, 'a late initial read cannot erase a new version')
+assert.match(provider, /eventRevision.current === startingRevision/, 'late responses cannot erase newer live progress')
+assert.match(source('components/updates/UpdatePromptCenter.tsx'), /<UpdateInstallConfirmation \/>/)
+assert.match(source('components/updates/UpdateInstallConfirmation.tsx'), /showModal\(\)/)
+assert.match(source('components/updates/UpdateInstallConfirmation.tsx'), /Save any unsent messages or unsaved work/)
+assert.match(source('components/updates/UpdateInstallConfirmation.tsx'), /onClick=\{onCancel\} autoFocus/, 'cancel receives initial focus')
+assert.match(source('pages/assistant/AssistantChatSessionsRail.tsx'), /<AssistantSidebarFooter agentInboxEnabled=\{agentInboxEnabled\} \/>/)
+const footer = source('pages/assistant/AssistantSidebarFooter.tsx')
+assert.match(footer, /navigate\('\/settings'\)/)
+assert.match(footer, /<SidebarUpdateButton \/>/)
+assert.match(source('components/updates/sidebar-update.css'), /:focus-visible \.sidebar-update-label/)
+assert.match(source('components/updates/sidebar-update.css'), /prefers-reduced-motion: reduce/)
+assert.match(source('components/updates/sidebar-update.css'), /body\.zyra-reduce-motion/)
+console.log('Sidebar update states, progress bounds, real Settings navigation, one confirmation-gated install path, and motion contracts: ok')

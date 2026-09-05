@@ -68,7 +68,7 @@ export type BrowserSurfaceController = {
     commandTab(
         principal: ControlPrincipal,
         target: Extract<ControlTarget, { kind: 'zyra-browser' }>,
-        mode: 'refresh' | 'external',
+        mode: 'refresh' | 'navigate' | 'external',
         url: string | null,
         signal?: AbortSignal
     ): Promise<Extract<ControlTarget, { kind: 'zyra-browser' }>>
@@ -1157,9 +1157,14 @@ export class AgentControlBroker extends EventEmitter {
                 }
                 const revealed = principal.type === 'root' && operation.reveal === true
                 const sessionMode = operation.sessionMode || 'incognito'
+                const requestedUrl = String(operation.url || '').trim()
+                if (requestedUrl && (!normalizedOrigin(requestedUrl) || requestedUrl.length > CONTROL_BOUNDS.maxUrlLength)) {
+                    throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Opening a Browser tab requires a bounded HTTP(S) URL.')
+                }
                 const target = await this.browserSurface.openTab(principal, revealed, sessionMode, signal)
                 this.assertBrowserTargetOwnedByPrincipal(principal, target)
-                return { target, revealed }
+                if (requestedUrl) await this.browserSurface.commandTab(principal, target, 'navigate', requestedUrl, signal)
+                return { target, revealed, ...(requestedUrl ? { url: requestedUrl } : {}) }
             }
             case 'list_targets': {
                 const kind = operation.targetKind
@@ -1196,8 +1201,10 @@ export class AgentControlBroker extends EventEmitter {
                 }
                 assertGrantSupportsTarget(grant, target)
                 await this.browserSurface.closeTab(principal, target, signal)
-                this.grants.consume(grant.grantId)
-                this.grants.revoke(grant.grantId)
+                if (grant.state === 'active') {
+                    this.grants.consume(grant.grantId)
+                    this.grants.revoke(grant.grantId)
+                }
                 this.audit.append({
                     eventType: 'action', principal, targetId: target.targetId, targetKind: target.kind,
                     grantId: grant.grantId, outcome: 'completed', message: 'Browser tab closed through bounded tab management.', redactions: []
@@ -1322,6 +1329,7 @@ export class AgentControlBroker extends EventEmitter {
                 }
                 let sequence: ControlSemanticActionSequenceResult
                 try {
+                    if (opened.launched) assertLaunchedSequenceHasBlankTypingTargets(requestedSequence.steps, observation)
                     sequence = await this.semanticActionSequence(principal, {
                         version: 1,
                         requestId: requestedSequence.requestId,
@@ -1374,10 +1382,11 @@ export class AgentControlBroker extends EventEmitter {
                     || (options.permissionMode === 'auto-review' && requestedTarget.kind === 'zyra-browser')
                 )
                 const completeGrant = async (request: ReturnType<AgentControlBroker['requestGrant']>, grant: ControlGrant) => {
-                    const observation = requestedTarget.kind === 'windows-window' && grant.capabilities.includes('observe.structure')
+                    const observation = requestedTarget.kind !== 'chrome-tab' && grant.capabilities.includes('observe.structure')
                         ? await this.observe(principal, grant.grantId, requestedTarget.targetId, false, signal, 'structure')
                         : undefined
-                    return { pending: false, request, grant, ...(observation ? { observation } : {}) }
+                    const currentGrant = this.grants.listForPrincipal(principal).find((entry) => entry.grantId === grant.grantId) || grant
+                    return { pending: false, request, grant: currentGrant, ...(observation ? { observation } : {}) }
                 }
                 const request = this.requestGrant({
                     principal,
@@ -1960,6 +1969,25 @@ function compactCompletedSequenceObservation(initial: ControlObservation, final:
         truncation: selected.length < (final.truncation?.totalElements ?? final.elements.length)
             ? { totalElements: final.truncation?.totalElements ?? final.elements.length, returnedElements: selected.length }
             : undefined
+    }
+}
+
+function assertLaunchedSequenceHasBlankTypingTargets(
+    steps: ControlSemanticActionStep[],
+    observation: ControlObservation
+): void {
+    for (const [index, step] of steps.entries()) {
+        if (step.type !== 'type') continue
+        const action = resolveSemanticSequenceAction(step, observation, index)
+        if (action.type !== 'type') continue
+        const element = observation.elements.find((entry) => entry.elementRef === action.elementRef)
+        const currentValue = element?.value ?? element?.text
+        if (typeof currentValue === 'string' && currentValue.length === 0 && !/^\s*\*/.test(String(observation.title || ''))) continue
+        throw new AgentControlError(
+            'CONTROL_TARGET_BLOCKED',
+            `The newly launched app restored existing or unreadable text in ${JSON.stringify(step.name)}. Embedded typing stopped before input; inspect the initial app state before changing it.`,
+            { freshRevision: observation.revision }
+        )
     }
 }
 

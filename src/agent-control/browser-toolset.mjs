@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CONTROL_CAPABILITIES, unavailableControlResult } from "./contracts.mjs";
+import { formatControlObservation } from "./observation-feedback.mjs";
 
 export const BROWSER_LOADER_TOOL_NAME = "browser_use";
 export const BROWSER_TOOLSET_NAMES = Object.freeze([
@@ -100,9 +101,10 @@ export function createBrowserToolSet(options = {}) {
     bridgeTool({
       name: "browser_tabs",
       label: "Browser tabs",
-      description: "Discover, open, reveal, arrange, resize, refresh, close, or externally hand off retained in-app Browser tabs. New tabs default to incognito; choose normal only when the task needs saved sign-in or site state.",
+      description: "Discover, open, reveal, arrange, resize, refresh, close, or externally hand off retained in-app Browser tabs. New tabs default to incognito; choose normal only when the task needs saved sign-in or site state. Closing requires an exact tab.manage grantId; refreshing requires navigate; external handoff requires tab.manage plus the exact allowed origin.",
       parameters: browserTabsSchema,
       client: options.client,
+      timeoutMs: 60_000,
       toOperation: (input) => ({
         ...input,
         operation: ({ list: "list_targets", open: "open_tab", reveal: "reveal_tab", layout: "set_tab_layout", resize: "resize_inspector", refresh: "refresh_tab", close: "close_tab", open_external: "open_external" })[input.operation],
@@ -111,9 +113,10 @@ export function createBrowserToolSet(options = {}) {
     bridgeTool({
       name: "browser_access",
       label: "Browser access",
-      description: "Request an exact-target, user-approved Browser grant or release an existing grant.",
+      description: "Request an exact-target, user-approved Browser grant or release an existing grant. A grant containing observe.structure returns its initial structural observation, so do not call browser_observe again unless the page changes or another action is needed.",
       parameters: browserAccessSchema,
       client: options.client,
+      timeoutMs: 10 * 60 * 1000,
       toOperation: (input) => input.operation === "request"
         ? { ...input, operation: "request_grant" }
         : { operation: "release", grantId: input.grantId },
@@ -124,6 +127,7 @@ export function createBrowserToolSet(options = {}) {
       description: "Capture a current visual, structural, or combined observation of one granted Browser target.",
       parameters: browserObserveSchema,
       client: options.client,
+      timeoutMs: 30_000,
       toOperation: (input) => ({ operation: "observe", ...input, mode: input.mode || "both", includeScreenshot: input.includeScreenshot ?? input.mode !== "structure" }),
     }),
     bridgeTool({
@@ -166,6 +170,13 @@ export function applyBrowserLoaderOnlyState(session) {
   active.add(BROWSER_LOADER_TOOL_NAME);
   session.setActiveToolsByName([...active]);
   return [...active];
+}
+
+export function installBrowserToolTurnCleanup(session) {
+  if (!session?.subscribe) return () => {};
+  return session.subscribe((event) => {
+    if (event?.type === "agent_end") applyBrowserLoaderOnlyState(session);
+  });
 }
 
 function createActivationController(sessionRef) {
@@ -231,7 +242,8 @@ function formatResult(name, input, result) {
     return `Available Browser tabs and grants:\n${JSON.stringify({ targets: result.targets || [], grants: result.grants || [], workspace: result.workspace || null }, null, 2)}`;
   }
   if (name === "browser_access" && input.operation === "request") {
-    return `Control grant issued.\n${JSON.stringify({ grantId: result.grant?.grantId, targetId: result.grant?.targetId, capabilities: result.grant?.capabilities, expiresAt: result.grant?.expiresAt, remainingActions: Math.max(0, Number(result.grant?.maxActions) - Number(result.grant?.actionCount)) }, null, 2)}`;
+    const grant = `Control grant issued.\n${JSON.stringify({ grantId: result.grant?.grantId, targetId: result.grant?.targetId, capabilities: result.grant?.capabilities, expiresAt: result.grant?.expiresAt, remainingActions: Math.max(0, Number(result.grant?.maxActions) - Number(result.grant?.actionCount)) }, null, 2)}`;
+    return result.observation ? `${grant}\n${formatBrowserObservation("Initial Browser observation ready.", result)}` : grant;
   }
   if (name === "browser_perform") {
     const summary = {
@@ -244,12 +256,22 @@ function formatResult(name, input, result) {
       screenshotAttached: Boolean(result.screenshot),
       pause: result.pause || null,
     };
-    return `${result.outcome === "paused" ? "Browser stage paused at a clean boundary. Explain the target-local evidence and ask the user to choose: Continue with your changes, Replan from here, or I'm taking over. Do not replay the interrupted stage." : "Browser stage completed."}\n${JSON.stringify(summary, null, 2)}`;
+    const checkpoint = result.observation ? `\n${formatBrowserObservation("Browser checkpoint observation ready.", result)}` : "";
+    return `${result.outcome === "paused" ? "Browser stage paused at a clean boundary. Explain the target-local evidence and ask the user to choose: Continue with your changes, Replan from here, or I'm taking over. Do not replay the interrupted stage." : "Browser stage completed."}\n${JSON.stringify(summary, null, 2)}${checkpoint}`;
   }
-  if (result.observation) {
-    return `Browser observation ready.\n${JSON.stringify({ revision: result.observation.revision, targetId: result.observation.targetId, url: result.observation.url, title: result.observation.title, viewport: result.observation.viewport, screenshotAttached: Boolean(result.screenshot), replanningRequired: result.replanningRequired }, null, 2)}`;
-  }
+  if (result.observation) return formatBrowserObservation("Browser observation ready.", result);
   return `Browser operation completed.\n${JSON.stringify(result, null, 2)}`;
+}
+
+function formatBrowserObservation(prefix, result) {
+  const observation = result.observation;
+  return formatControlObservation(prefix, observation, {
+    url: observation?.url,
+    origin: observation?.origin,
+    viewport: observation?.viewport,
+    screenshotAttached: Boolean(result.screenshot),
+    replanningRequired: result.replanningRequired,
+  });
 }
 
 function localToolResult(details) {

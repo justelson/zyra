@@ -92,11 +92,9 @@ export type AssistantComposerProps = {
     projectName?: string | null
     projectRoots?: AssistantComposerProjectRoot[]
     projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
-    detectedProjectChoices?: Array<{ id: string; path: string; label: string }>
     projectContextDisabled?: boolean
     onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
-    onImportDetectedProject?: (candidateId: string) => Promise<void> | void
-    onChooseProjectFolder?: () => Promise<void> | void
+    onCreateProject?: () => Promise<void> | void
     acceptBrowserAnnotations?: boolean
     compact?: boolean
     submitLabel?: string

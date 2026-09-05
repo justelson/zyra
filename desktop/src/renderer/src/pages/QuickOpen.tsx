@@ -2,21 +2,11 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { FileCode2, Loader2, X } from 'lucide-react'
 import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
+import { resolvePreviewType } from '@/components/ui/file-preview/utils'
+import { parseQuickPreviewFilePath } from '@shared/file-preview-route'
 import QuickPreviewTitleBar from './QuickPreviewTitleBar'
 
 const FilePreviewModal = lazy(() => import('@/components/ui/FilePreviewModal'))
-
-function parseFilePathFromSearch(search: string): string | null {
-    const params = new URLSearchParams(search)
-    const encoded = params.get('file')
-    if (!encoded) return null
-    try {
-        const decoded = decodeURIComponent(encoded)
-        return decoded.trim().length > 0 ? decoded : null
-    } catch {
-        return encoded.trim().length > 0 ? encoded : null
-    }
-}
 
 function splitFileNameAndExtension(filePath: string): { fileName: string; extension: string } {
     const normalized = filePath.replace(/\\/g, '/')
@@ -30,7 +20,7 @@ function splitFileNameAndExtension(filePath: string): { fileName: string; extens
 
 export default function QuickOpen() {
     const location = useLocation()
-    const filePath = useMemo(() => parseFilePathFromSearch(location.search), [location.search])
+    const filePath = useMemo(() => parseQuickPreviewFilePath(location.search), [location.search])
     const [loadError, setLoadError] = useState<string | null>(null)
     const {
         previewFile,
@@ -51,6 +41,11 @@ export default function QuickOpen() {
         }
 
         const { fileName, extension } = splitFileNameAndExtension(filePath)
+        if (!resolvePreviewType(fileName, extension)) {
+            closePreview()
+            setLoadError('This file type is not supported by the previewer.')
+            return
+        }
         setLoadError(null)
         void openPreview({ name: fileName, path: filePath }, extension).catch((error: any) => {
             setLoadError(error?.message || 'Failed to open file preview.')

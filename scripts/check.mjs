@@ -21,6 +21,17 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const syntaxTargets = [
+  "src/permission-paths.mjs",
+  "scripts/test-zyra-permission-paths.mjs",
+  "scripts/test-zyra-update-isolation.mjs",
+  "src/agent-server/plugin-authority.mjs",
+  "src/agent-server/protocol.mjs",
+  "src/agent-server/server.mjs",
+  "src/plugins/revoke-runtime.mjs",
+  "scripts/test-zyra-plugin-availability.mjs",
+  "scripts/test-zyra-plugin-revocation-runtime.mjs",
+  "scripts/test-zyra-plugin-revocation-bridge.mjs",
+  "scripts/test-zyra-filesystem-scope-runtime.mjs",
   "bin/zyra.mjs",
   "src/version.mjs",
   "src/analytics/contracts.mjs",
@@ -29,12 +40,19 @@ const syntaxTargets = [
   "src/agent-surface.mjs",
   "src/assistant-action-batch-tool.mjs",
   "src/model-availability.mjs",
+  "src/model-order.mjs",
+  "scripts/test-model-order.mjs",
   "src/chatgpt-account.mjs",
   "src/pi-runtime.mjs",
   "src/chatgpt-realtime-contract.mjs",
   "src/web-search-tool.mjs",
   "src/web-tools-picker.mjs",
   "src/permission-mode.mjs",
+  "src/plugins/plugin-contract.mjs",
+  "src/plugins/plugin-download.mjs",
+  "src/plugins/plugin-package.mjs",
+  "src/plugins/plugin-registry.mjs",
+  "src/plugins/plugin-state.mjs",
   "src/zyra-permission-gate.mjs",
   "src/zyra-permission-reviewer.mjs",
   "src/interrupt-mode-picker.mjs",
@@ -114,6 +132,12 @@ const syntaxTargets = [
   "scripts/test-pi-runtime-auth-sync.mjs",
   "scripts/test-zyra-prompt-errors.mjs",
   "scripts/test-zyra-prompt-resources.mjs",
+  "scripts/test-zyra-plugin-system.mjs",
+  "scripts/test-zyra-plugin-runtime.mjs",
+  "scripts/test-zyra-plugin-download.mjs",
+  "scripts/update-plugin-directory.mjs",
+  "scripts/update-plugin-logos.mjs",
+  "scripts/test-zyra-plugin-logos.mjs",
   "scripts/test-zyra-write-diff.mjs",
   "scripts/test-zyra-version.mjs",
   "scripts/test-product-analytics.mjs",
@@ -122,6 +146,15 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "scripts/test-zyra-permission-paths.mjs",
+  "scripts/test-zyra-update-isolation.mjs",
+  "scripts/test-zyra-plugin-availability.mjs",
+  "scripts/test-zyra-plugin-revocation-runtime.mjs",
+  "scripts/test-zyra-plugin-revocation-bridge.mjs",
+  "scripts/test-zyra-agent-server.mjs",
+  "scripts/test-zyra-agent-server-bridge.mjs",
+  "scripts/test-zyra-filesystem-scope-runtime.mjs",
+  "scripts/test-model-order.mjs",
   "scripts/privacy-check.mjs",
   "scripts/test-product-analytics.mjs",
   "scripts/test-agent-surface-contract.mjs",
@@ -144,6 +177,10 @@ const coreTests = [
   "scripts/test-pi-runtime-auth-sync.mjs",
   "scripts/test-zyra-prompt-errors.mjs",
   "scripts/test-zyra-prompt-resources.mjs",
+  "scripts/test-zyra-plugin-system.mjs",
+  "scripts/test-zyra-plugin-runtime.mjs",
+  "scripts/test-zyra-plugin-download.mjs",
+  "scripts/test-zyra-plugin-logos.mjs",
   "scripts/test-zyra-version.mjs",
   "scripts/test-zyra-ui-render.mjs",
   "scripts/test-zyra-subagents.mjs",
@@ -154,6 +191,10 @@ const coreTests = [
 // Quick mode stays deterministic and side-effect-light. Larger state, UI, and
 // orchestration suites remain in core/full so quick is useful during iteration.
 const quickCoreTests = [
+  "scripts/test-zyra-permission-paths.mjs",
+  "scripts/test-zyra-update-isolation.mjs",
+  "scripts/test-zyra-filesystem-scope-runtime.mjs",
+  "scripts/test-model-order.mjs",
   "scripts/privacy-check.mjs",
   "scripts/test-product-analytics.mjs",
   "scripts/test-agent-surface-contract.mjs",
@@ -174,12 +215,21 @@ const quickCoreTests = [
 ];
 
 const serialCoreTests = new Set([
+  "scripts/test-zyra-plugin-revocation-bridge.mjs",
+  "scripts/test-zyra-agent-server.mjs",
+  "scripts/test-zyra-agent-server-bridge.mjs",
   "scripts/test-zyra-memory.mjs",
   "scripts/test-zyra-codex-mode.mjs",
   "scripts/test-zyra-managed-bash.mjs",
+  "scripts/test-zyra-plugin-runtime.mjs",
 ]);
 
 const desktopTasks = [
+  { label: "desktop:test:update-controls", bunArgs: ["run", "--cwd", "desktop", "test:update-controls"] },
+  { label: "desktop:test:assistant-project-creation", bunArgs: ["run", "--cwd", "desktop", "test:assistant-project-creation"] },
+  { label: "desktop:test:assistant-new-chat-surface", bunArgs: ["desktop/scripts/test-assistant-new-chat-surface.ts"] },
+  { label: "desktop:test:shell-file-preview", bunArgs: ["run", "--cwd", "desktop", "test:shell-file-preview"] },
+  { label: "desktop:test:assistant-model-catalog", bunArgs: ["desktop/scripts/test-assistant-model-catalog.tsx"] },
   { label: "desktop:test:work-timeline-v2", bunArgs: ["run", "--cwd", "desktop", "test:work-timeline-v2"] },
   { label: "desktop:test:action-batch-intent", bunArgs: ["run", "--cwd", "desktop", "test:assistant-action-batch-intent"] },
   { label: "desktop:test:assistant-user-input", bunArgs: ["run", "--cwd", "desktop", "test:assistant-user-input"] },
@@ -190,6 +240,7 @@ const desktopTasks = [
   { label: "desktop:test:assistant-composer-command-menu", bunArgs: ["desktop/scripts/test-assistant-composer-command-menu.ts"] },
   { label: "desktop:test:assistant-fleet", bunArgs: ["run", "--cwd", "desktop", "test:assistant-fleet"] },
   { label: "desktop:test:assistant-inspector-browser", bunArgs: ["run", "--cwd", "desktop", "test:assistant-inspector-browser"] },
+  { label: "desktop:test:assistant-plugins", bunArgs: ["run", "--cwd", "desktop", "test:assistant-plugins"] },
   { label: "desktop:test:agent-platform-integration", bunArgs: ["desktop/scripts/test-agent-platform-integration.ts"] },
 ];
 

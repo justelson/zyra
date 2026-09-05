@@ -45,6 +45,7 @@ import {
     handleAssistantGetFleetSnapshot,
     handleAssistantGetHistoryPage,
     handleAssistantGetHistoryAroundMessage,
+    handleAssistantGetPluginCatalog,
     handleAssistantGetSkillSourceOverview,
     handleAssistantHydrateHistoryBody,
     handleAssistantGetReviewIndex,
@@ -56,19 +57,29 @@ import {
     handleAssistantGetStatus,
     handleAssistantInterruptTurn,
     handleAssistantIngestRealtimeVoiceEvent,
+    handleAssistantStartPluginDownload,
+    handleAssistantGetPluginDownload,
+    handleAssistantCancelPluginDownload,
+    handleAssistantCreatePluginChat,
+    handleAssistantInspectLocalPlugin,
+    handleAssistantInstallInspectedPlugin,
     handleAssistantListModels,
     handleAssistantListProjects,
     handleAssistantListPromptResources,
     handleAssistantNewThread,
     handleAssistantPersistClipboardImage,
     handleAssistantRedeemAccountReset,
+    handleAssistantRefreshChatPluginScope,
     handleAssistantRemoveProjectFolder,
+    handleAssistantRollbackPlugin,
     handleAssistantResolveClipboardAttachment,
     handleAssistantRegenerateSessionTitle,
     handleAssistantRenameSession,
     handleAssistantRespondApproval,
     handleAssistantRespondUserInput,
     handleAssistantSendRealtimeVoiceMessage,
+    handleAssistantSetPluginSet,
+    handleAssistantSetPluginState,
     handleAssistantStartRealtimeVoice,
     handleAssistantStopRealtimeVoice,
     handleAssistantSubscribeRealtimeVoice,
@@ -371,6 +382,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.getSessionTurnUsage, requireCompletedSetup(handleAssistantGetSessionTurnUsage))
     ipcMain.handle(ASSISTANT_IPC.listModels, requireCompletedSetup(handleAssistantListModels))
     ipcMain.handle(ASSISTANT_IPC.listProjects, requireCompletedSetup(handleAssistantListProjects))
+    ipcMain.handle(ASSISTANT_IPC.getPluginCatalog, requireCompletedSetup(handleAssistantGetPluginCatalog))
+    ipcMain.handle(ASSISTANT_IPC.startPluginDownload, requireCompletedSetup(handleAssistantStartPluginDownload))
+    ipcMain.handle(ASSISTANT_IPC.getPluginDownload, requireCompletedSetup(handleAssistantGetPluginDownload))
+    ipcMain.handle(ASSISTANT_IPC.cancelPluginDownload, requireCompletedSetup(handleAssistantCancelPluginDownload))
+    ipcMain.handle(ASSISTANT_IPC.createPluginChat, requireCompletedSetup(handleAssistantCreatePluginChat))
+    ipcMain.handle(ASSISTANT_IPC.inspectLocalPlugin, requireCompletedSetup(handleAssistantInspectLocalPlugin))
+    ipcMain.handle(ASSISTANT_IPC.installInspectedPlugin, requireCompletedSetup(handleAssistantInstallInspectedPlugin))
+    ipcMain.handle(ASSISTANT_IPC.setPluginSet, requireCompletedSetup(handleAssistantSetPluginSet))
+    ipcMain.handle(ASSISTANT_IPC.refreshChatPluginScope, requireCompletedSetup(handleAssistantRefreshChatPluginScope))
+    ipcMain.handle(ASSISTANT_IPC.setPluginState, requireCompletedSetup(handleAssistantSetPluginState))
+    ipcMain.handle(ASSISTANT_IPC.rollbackPlugin, requireCompletedSetup(handleAssistantRollbackPlugin))
     ipcMain.handle(ASSISTANT_IPC.createProject, requireCompletedSetup(handleAssistantCreateProject))
     ipcMain.handle(ASSISTANT_IPC.associateProjectFolder, requireCompletedSetup(handleAssistantAssociateProjectFolder))
     ipcMain.handle(ASSISTANT_IPC.removeProjectFolder, requireCompletedSetup(handleAssistantRemoveProjectFolder))

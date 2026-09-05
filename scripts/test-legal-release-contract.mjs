@@ -33,6 +33,7 @@ assert.match(notices, /Product logos from SVGL[\s\S]*MIT License/);
 assert.match(notices, /Developer-tool logos from Simple Icons[\s\S]*CC0 1\.0 Universal/);
 assert.match(notices, /Material Icon Theme file icons[\s\S]*MIT license/);
 assert.match(notices, /Kenney UI Audio voice cues[\s\S]*CC0 1\.0 Universal/);
+assert.doesNotMatch(licenses, /[ \t]+\r?$/m, 'generated legal text must not introduce trailing whitespace');
 assert.match(licenses, /^Bundled Bun runtime: 1\.3\.9$/m);
 assert.match(licenses, /^Bundled Node\.js runtime: 22\.22\.0$/m);
 assert.equal(rootPackage.author, "justelson");

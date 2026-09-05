@@ -31,6 +31,7 @@ Status vocabulary:
 - [ADR-0014: Share four permission modes across chat and control](0014-share-four-permission-modes-across-chat-and-control.md) — **Accepted and implemented.**
 - [ADR-0015: Use stable Projects and revisioned Chat scopes](0015-use-stable-projects-and-revisioned-chat-scopes.md) — **Accepted and implemented.**
 - [ADR-0016: Preserve inline Work narration and defer Question handoffs](0016-preserve-inline-work-narration-and-defer-question-handoffs.md) — **Accepted and implemented.**
+- [ADR-0017: Use revisioned Plugin scopes and capability-declared contributions](0017-use-revisioned-plugin-scopes-and-capability-declared-contributions.md) — **Accepted. Skill-only phase implemented; later phases planned.**
 
 ## Format
 

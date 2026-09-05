@@ -8,10 +8,14 @@ import { DesktopAgentServerConnection, resolveDesktopAgentServerNamespace } from
 
 class FakeWorker extends EventEmitter {
     activePrompt: ((value: Record<string, unknown>) => void) | null = null
+    connectPayloads: Array<Record<string, unknown>> = []
     disposed = false
     isAlive(): boolean { return !this.disposed }
-    request(type: string): Promise<Record<string, unknown>> {
-        if (type === 'connect') return Promise.resolve({ threadId: 'chat:desktop-test', providerThreadId: sessionPath })
+    request(type: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+        if (type === 'connect') {
+            this.connectPayloads.push(payload)
+            return Promise.resolve({ threadId: 'chat:desktop-test', providerThreadId: sessionPath })
+        }
         if (type === 'prompt') return new Promise((resolve) => { this.activePrompt = resolve })
         return Promise.resolve({})
     }
@@ -40,6 +44,19 @@ assert.deepEqual(
 )
 const project = path.join(stateDirectory, 'project')
 const sessionPath = path.join(project, '.zyra', 'sessions', 'desktop-test.jsonl')
+const pluginSkillSourceV1 = {
+    dir: path.join(stateDirectory, 'plugins', 'release-one', 'skills'),
+    installationRoot: path.join(stateDirectory, 'plugins'),
+    scope: 'project',
+    sourceId: 'plugin:release-helper:release-one',
+    sourceLabel: 'Release Helper',
+    loaderSource: 'project',
+    allowRootMarkdown: false,
+    enabled: true,
+    pluginId: 'plugin-release-helper',
+    releaseId: 'release-one',
+    contentDigest: '1'.repeat(64)
+}
 const catalogModule = await import(pathToFileURL(path.join(root, 'src', 'agent-server', 'catalog.mjs')).href)
 const serverModule = await import(pathToFileURL(path.join(root, 'src', 'agent-server', 'server.mjs')).href)
 const workers: FakeWorker[] = []
@@ -85,7 +102,8 @@ try {
         providerThreadId: 'chat:desktop-test',
         model: 'openai-codex/gpt-5.5',
         thinking: 'medium',
-        profile: 'default'
+        profile: 'default',
+        pluginSkillSources: [pluginSkillSourceV1]
     })
     assert.equal(connected.threadId, 'chat:desktop-test')
     const secondWorker = connection.createWorker(project)
@@ -96,8 +114,10 @@ try {
         cwd: project,
         localThreadId: 'assistant-thread:desktop-test-copy',
         threadId: 'chat:desktop-test',
-        providerThreadId: 'chat:desktop-test'
+        providerThreadId: 'chat:desktop-test',
+        pluginSkillSources: [pluginSkillSourceV1]
     })
+    assert.equal(workers.length, 1, 'the same exact Plugin release reuses the canonical worker')
 
     const internalClient = await (connection as any).getClient()
     const originalRequest = internalClient.request.bind(internalClient)
@@ -140,7 +160,8 @@ try {
         cwd: project,
         localThreadId: 'assistant-thread:desktop-test',
         threadId: 'chat:desktop-test',
-        providerThreadId: 'chat:desktop-test'
+        providerThreadId: 'chat:desktop-test',
+        pluginSkillSources: [pluginSkillSourceV1]
     })
     reconnectWorker.flushReplay()
     assert.equal(replay.length, 2, 'a persisted sequence watermark must skip already-projected events')
@@ -151,6 +172,27 @@ try {
     assert.equal(reconnectWorker.latestSequence, latestSequence, 'transport reconnects must retain the replay watermark')
     reconnectWorker.dispose()
     reconnectConnection.close()
+
+    const changedAuthorityConnection = new DesktopAgentServerConnection(root, { stateDirectory, channel, autoStart: false, authorityProof: 'desktop-test-authority' })
+    const changedAuthorityWorker = changedAuthorityConnection.createWorker(project)
+    await changedAuthorityWorker.request('connect', {
+        cwd: project,
+        localThreadId: 'assistant-thread:desktop-test',
+        threadId: 'chat:desktop-test',
+        providerThreadId: 'chat:desktop-test',
+        pluginSkillSources: [{
+            ...pluginSkillSourceV1,
+            dir: path.join(stateDirectory, 'plugins', 'release-two', 'skills'),
+            sourceId: 'plugin:release-helper:release-two',
+            releaseId: 'release-two',
+            contentDigest: '2'.repeat(64)
+        }]
+    })
+    assert.equal(workers.length, 2, 'a changed Plugin release creates a fresh canonical worker')
+    assert.equal(workers[0].disposed, true, 'the worker holding stale Plugin authority is disposed')
+    assert.equal(workers[1]?.connectPayloads[0]?.pluginSkillSources instanceof Array, true)
+    changedAuthorityWorker.dispose()
+    changedAuthorityConnection.close()
 
     const retryProbe = new DesktopAgentServerConnection(root, { autoStart: false })
     const recoveredClient = { close: () => undefined }

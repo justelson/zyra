@@ -56,6 +56,12 @@ Zyra also displays product marks for other detected editors and developer tools.
 
 Zyra bundles file-type artwork from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme). The package and its MIT license are recorded in `THIRD_PARTY_LICENSES.txt`.
 
+## Plugin catalog metadata and logos
+
+The Plugins directory includes descriptive metadata and publisher logos from the pinned [OpenAI Plugins catalog](https://github.com/openai/plugins). The exact catalog revision is recorded in `desktop/src/shared/plugins/openai-directory.json`; logo source URLs are recorded in `desktop/src/renderer/src/assets/plugin-logos/sources.json`. These marks identify their respective packages and publishers and do not imply sponsorship or endorsement of Zyra. Their trademarks and applicable asset rights remain with their owners; Zyra does not assign them its Apache-2.0 source-code license.
+
+Downloaded Plugin packages are separate from the bundled directory. Each release's own license and provenance require review before installation. Zyra-written directory summaries are marked separately from publisher descriptions.
+
 ## Kenney UI Audio voice cues
 
 The `voice-ready.wav` and `voice-ended.wav` cues are adapted from `switch3.wav` and `switch4.wav` in [Kenney UI Audio](https://kenney.nl/assets/ui-audio). Kenney released the audio under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). The CC0 text is included in `THIRD_PARTY_LICENSES.txt`.

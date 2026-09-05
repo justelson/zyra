@@ -158,6 +158,17 @@ export function addAssistantBrowserTab(
     }
 }
 
+export function resolveAssistantBrowserSurfaceTabSessionMode(
+    selectedTabId: string,
+    request: { tabId: string; mode?: string; sessionMode?: BrowserSessionMode } | null | undefined,
+    trustedSessionMode?: BrowserSessionMode
+): BrowserSessionMode {
+    if (!request || request.tabId !== selectedTabId) return 'normal'
+    return (request.mode || 'open') === 'open'
+        ? request.sessionMode || 'incognito'
+        : trustedSessionMode || 'normal'
+}
+
 export function ensureAssistantBrowserWorkspaceTab(
     state: AssistantBrowserWorkspaceState,
     tabId: string,

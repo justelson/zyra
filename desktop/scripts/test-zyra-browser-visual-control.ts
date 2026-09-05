@@ -15,6 +15,11 @@ import { ObservationStore } from '../src/main/agent-control/observation-store'
 import { isTrustedBrowserTabId } from '../src/main/agent-control/trusted-guest-registry'
 import { resolveZyraRoot } from '../src/main/zyra/zyra-root'
 import { AssistantBrowserAgentCursor } from '../src/renderer/src/pages/assistant/AssistantBrowserAgentCursor'
+import {
+    createAssistantBrowserWorkspaceState,
+    ensureAssistantBrowserWorkspaceTab,
+    resolveAssistantBrowserSurfaceTabSessionMode
+} from '../src/renderer/src/pages/assistant/assistant-browser-workspace-state'
 import type { ControlTarget } from '../src/shared/agent-control/contracts'
 
 const expectedRuntimeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -30,6 +35,22 @@ try {
 assert.equal(isTrustedBrowserTabId('browser:8'), true)
 assert.equal(isTrustedBrowserTabId('browser:agent:visual-open'), true, 'agent-created Browser tabs must pass the trusted binding boundary')
 assert.equal(isTrustedBrowserTabId('browser:agent/escape'), false)
+const orderedSurfaceTabId = 'browser:agent:already-mounted'
+const orderedSurfaceMode = resolveAssistantBrowserSurfaceTabSessionMode(orderedSurfaceTabId, {
+    tabId: orderedSurfaceTabId,
+    mode: 'open',
+    sessionMode: 'incognito'
+})
+const orderedSurfaceState = ensureAssistantBrowserWorkspaceTab(
+    createAssistantBrowserWorkspaceState('browser:existing-blank'),
+    orderedSurfaceTabId,
+    orderedSurfaceMode
+)
+assert.equal(orderedSurfaceState.tabs.find((tab) => tab.id === orderedSurfaceTabId)?.sessionMode, 'incognito', 'an already-mounted Browser workspace preserves an agent open request\'s storage mode before trusted binding')
+assert.equal(resolveAssistantBrowserSurfaceTabSessionMode(orderedSurfaceTabId, {
+    tabId: orderedSurfaceTabId,
+    mode: 'reveal'
+}, 'incognito'), 'incognito', 'existing trusted tabs retain their registered storage mode')
 assert.deepEqual(browserCdpKeyDescriptor('DELETE'), {
     key: 'Delete', code: 'Delete', windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46
 })
@@ -298,6 +319,7 @@ broker.setBrowserSurfaceController({
     },
     closeTab: async (_requestPrincipal, target) => {
         closedBrowserTabs.push(target.targetId)
+        broker.removeTarget(target.targetId, 'Renderer synchronously closed the Browser tab.')
         return target
     },
     commandTab: async (_requestPrincipal, target, mode, url) => {
@@ -328,6 +350,8 @@ const modelGrant = broker.approvePendingGrant({
 })
 const modelGrantResult = await modelGrantPromise
 assert.equal((modelGrantResult.details as any).grant.grantId, modelGrant.grantId)
+assert((modelGrantResult.details as any).observation, 'a Browser structure grant returns its initial observation without a second tool call')
+assert.equal((modelGrantResult.details as any).grant.actionCount, 1, 'the initial Browser observation consumes one bounded action')
 assert.match(String(modelGrantResult.content[0]?.text), new RegExp(modelGrant.grantId))
 broker.revokeGrant(modelGrant.grantId, principal)
 await assert.rejects(
@@ -362,7 +386,14 @@ const dragged = await tool.execute('visual-drag', {
 assert.equal((dragged.details as any).observation.revision, firstRevision + 2)
 cursor = broker.state().cursors.find((entry) => entry.targetId === targetId)
 assert.deepEqual(cursor && { x: cursor.x, y: cursor.y, phase: cursor.phase }, { x: 470, y: 330, phase: 'idle' })
-assert.match(renderToStaticMarkup(createElement(AssistantBrowserAgentCursor, { cursor: cursor || null })), /Zyra Browser cursor/)
+const cursorMarkup = renderToStaticMarkup(createElement(AssistantBrowserAgentCursor, { cursor: cursor || null }))
+assert.match(cursorMarkup, /Zyra Browser cursor/)
+assert.match(cursorMarkup, /M4\.037 4\.688a\.495\.495/, 'the Browser cursor renders the requested MousePointer2 outline')
+assert.match(cursorMarkup, /fill="none"/)
+assert.match(cursorMarkup, /width="24" height="24"/)
+assert.match(cursorMarkup, /drop-shadow\(0 0 5px/)
+assert.match(cursorMarkup, /transition-duration:110ms/, 'zero-duration driver updates still render as smooth bounded movement')
+assert.doesNotMatch(cursorMarkup, /Agent ·|Zyra ·|rounded-full/, 'the Browser cursor has no ring or trailing phase label')
 
 const races = new ObservationStore()
 const base = {
@@ -532,6 +563,7 @@ await broker.handleToolOperation(principal, { operation: 'close_tab', targetId, 
 assert.deepEqual(browserTabCommands.map((entry) => entry.mode), ['refresh', 'external'])
 assert.equal(browserTabCommands.at(-1)?.url, 'http://127.0.0.1/external')
 assert.deepEqual(closedBrowserTabs, [targetId])
+assert.equal(broker.targets.list().some((entry) => entry.target.targetId === targetId), false, 'a synchronous renderer target-removal callback can complete during close')
 assert.equal(broker.grants.list().find((entry) => entry.grantId === managedGrant.grantId)?.state, 'revoked', 'closing a Browser tab immediately ends its tab-management authority')
 
 await broker.emergencyStop()
@@ -568,7 +600,7 @@ assert(panelSource.includes('surfaceRequest={browserSurfaceRequest}'))
 assert(panelSource.includes("'pointer-events-none invisible absolute inset-0 flex'"))
 assert(workspaceSource.includes('ensureAssistantBrowserSurfaceTabs('))
 assert(workspaceSource.includes('transitionToBrowserTab(surfaceRequest.tabId)'))
-assert(workspaceSource.includes("mode === 'close' || mode === 'refresh' || mode === 'external'"))
+assert(workspaceSource.includes("mode === 'close' || mode === 'refresh' || mode === 'navigate' || mode === 'external'"))
 assert(workspaceSource.includes('completeBrowserSurfaceRequest({'))
 assert(workspaceSource.includes('claimBrowserSurfaceRequest({'))
 assert(workspaceSource.includes('knownTargetId !== surfaceRequest.targetId'))
@@ -581,8 +613,22 @@ assert.equal(workspaceSource.includes('rejectGrant('), false, 'Browser chrome ca
 assert(viewportFrameSource.includes("data-assistant-browser-viewport={viewport.mode}"))
 assert(viewportFrameSource.includes('AssistantAgentUseOverlay'))
 assert(agentUseOverlaySource.includes('Zyra is using'))
-assert(agentUseOverlaySource.includes('Globe2'))
+assert.equal(agentUseOverlaySource.includes('Globe2'), false)
+assert.equal(agentUseOverlaySource.includes('assistant-agent-use-signal'), false)
+assert.equal(agentUseOverlaySource.includes('assistant-agent-use-app-icon'), false)
+assert.equal(agentUseOverlaySource.includes('assistant-agent-use-divider'), false)
+assert(agentUseOverlaySource.includes('to stop'))
 assert(agentUseOverlayStyles.includes('var(--accent-primary-rgb)'))
+assert(agentUseOverlayStyles.includes('inset 0 0 30px'))
+assert(agentUseOverlayStyles.includes('inset 0 0 86px'))
+assert(agentUseOverlayStyles.includes('inset 0 0 138px'))
+assert(agentUseOverlayStyles.includes('assistant-agent-edge-enter'))
+assert(agentUseOverlayStyles.includes('assistant-agent-indicator-enter'))
+assert(agentUseOverlayStyles.includes('.zyra-reduce-motion'))
+assert.equal(agentUseOverlayStyles.includes('inset 0 0 0 1px'), false, 'the edge glow should not render hard vertical accent lines')
+assert(agentUseOverlayStyles.includes('var(--font-ui'))
+assert(agentUseOverlayStyles.includes('min-height: 52px'))
+assert.equal(agentUseOverlayStyles.includes('inset 2px 0 0 var(--accent-primary)'), false)
 assert(agentUseOverlayStyles.includes('.compact-mode'))
 assert(agentUseOverlayStyles.includes('prefers-reduced-motion: reduce'))
 assert.equal(workspaceSource.includes('webviewRefs.current.get(activeTab.id)?.focus()'), false, 'revealing Browser never steals physical keyboard focus')
@@ -619,6 +665,7 @@ assert(hostSource.includes("tabId: `browser:agent:${id}`"))
 assert(hostSource.includes('revealTabs('))
 assert(hostSource.includes('resizeInspector('))
 assert(hostSource.includes('closeTab('))
+assert(hostSource.includes("mode: 'refresh' | 'navigate' | 'external'"))
 assert(hostSource.includes('commandTab('))
 assert(hostSource.includes("phase: 'sent' | 'accepted' | 'claimed'"))
 console.log('Zyra visual Browser control contract passed.')

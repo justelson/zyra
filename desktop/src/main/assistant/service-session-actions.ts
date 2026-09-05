@@ -7,6 +7,7 @@ import type {
     AssistantGetSessionTurnUsageInput,
     AssistantRuntimeStatus,
     AssistantSendPromptOptions,
+    AssistantSession,
     AssistantSessionTurnUsagePayload,
     AssistantThread
 } from '../../shared/assistant/contracts'
@@ -57,6 +58,26 @@ import {
 
 const activeUserInputResponses = new WeakMap<AssistantServiceActionDeps, Set<string>>()
 
+async function connectAssistantSessionRuntime(
+    deps: AssistantServiceActionDeps,
+    session: AssistantSession,
+    thread: AssistantThread
+): Promise<void> {
+    if (deps.connectSessionRuntime) {
+        await deps.connectSessionRuntime(session, thread)
+        return
+    }
+    const pluginSkillSources = deps.getSessionPluginSkillSources
+        ? await deps.getSessionPluginSkillSources(session)
+        : []
+    await deps.runtime.connect(
+        thread,
+        deps.getSessionRuntimeCwd(session, thread),
+        session.chatScope,
+        pluginSkillSources
+    )
+}
+
 export async function connectAssistantSession(deps: AssistantServiceActionDeps, options?: AssistantConnectOptions) {
     await deps.ensureReady()
     const snapshot = deps.getSnapshot()
@@ -65,7 +86,7 @@ export async function connectAssistantSession(deps: AssistantServiceActionDeps, 
         : getSelectedSession(snapshot)
     if (!session) throw new Error('Assistant session not found.')
     const thread = requireActiveThread(session)
-    await deps.runtime.connect(thread, deps.getSessionRuntimeCwd(session, thread), session.chatScope)
+    await connectAssistantSessionRuntime(deps, session, thread)
     return { success: true as const, threadId: thread.id }
 }
 
@@ -80,12 +101,16 @@ export async function disconnectAssistantSession(deps: AssistantServiceActionDep
     return { success: true as const }
 }
 
-export async function createAssistantSessionAction(deps: AssistantServiceActionDeps, input?: AssistantCreateSessionInput) {
+export async function createAssistantSessionAction(
+    deps: AssistantServiceActionDeps,
+    input?: AssistantCreateSessionInput,
+    options: { sessionId?: string } = {}
+) {
     await deps.ensureReady()
     const previousThread = getActiveThread(getSelectedSession(deps.getSnapshot()))
     if (previousThread) deps.runtime.disconnect(getAssistantCanonicalThreadId(previousThread))
     const createdAt = nowIso()
-    const sessionId = createAssistantId('assistant-session')
+    const sessionId = options.sessionId || createAssistantId('assistant-session')
     const route = resolveAssistantSessionRoute({
         projectPath: input?.projectPath,
         mode: input?.mode,
@@ -553,7 +578,7 @@ export async function sendAssistantPromptAction(
             deps.appendEvent('thread.message.user', occurredAt, { threadId: thread.id, message: userMessage }, session.id, thread.id)
         }
         if (!hasLiveRuntimeSession) {
-            await deps.runtime.connect({ ...thread, ...updatedThreadPatch }, runtimeCwd, session.chatScope)
+            await connectAssistantSessionRuntime(deps, session, { ...thread, ...updatedThreadPatch })
         }
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             model: options?.model,

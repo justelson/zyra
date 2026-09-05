@@ -39,7 +39,7 @@ export type BrowserSurfaceOpenRequest = {
     version: 1
     requestId: string
     threadId: string
-    mode?: 'open' | 'reveal' | 'layout' | 'resize' | 'close' | 'refresh' | 'external'
+    mode?: 'open' | 'reveal' | 'layout' | 'resize' | 'close' | 'refresh' | 'navigate' | 'external'
     tabId: string
     sessionMode?: BrowserSessionMode
     targetId?: string
@@ -71,7 +71,7 @@ export type RendererControlGrantInput = {
 
 export type AgentControlBridgeOperation =
     | { operation: 'list_targets'; targetKind?: 'zyra-browser' | 'chrome-tab' }
-    | { operation: 'open_tab'; reveal?: boolean; sessionMode?: BrowserSessionMode }
+    | { operation: 'open_tab'; reveal?: boolean; sessionMode?: BrowserSessionMode; url?: string }
     | { operation: 'reveal_tab'; targetId: string }
     | { operation: 'close_tab'; targetId: string; grantId: string }
     | { operation: 'refresh_tab'; targetId: string; grantId: string }

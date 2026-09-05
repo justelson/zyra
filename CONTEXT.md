@@ -40,6 +40,38 @@ _Avoid_: Folder rules
 Rules that govern work performed inside one Folder.
 _Avoid_: Project instructions
 
+**Plugin**:
+A durable installable package that groups one named capability with versioned contributions such as Skills, MCP tools, Commands, and optional visual resources.
+_Avoid_: Skill, MCP server, browser extension
+
+**Plugin source**:
+A catalog or local location from which Zyra can inspect Plugin releases.
+_Avoid_: Plugin, skill source
+
+**Plugin release**:
+One immutable inspected version of a Plugin, identified by its source, semantic version, and content digest.
+_Avoid_: Plugin installation, update channel
+
+**Plugin installation**:
+The device-local record that owns a Plugin's staged releases, active release, lifecycle state, and provenance inside one Zyra installation.
+_Avoid_: Plugin source, Project Plugin
+
+**Plugin contribution**:
+One declared resource supplied by a Plugin, such as a Skill directory, MCP connection, Command directory, or optional visual resource.
+_Avoid_: Plugin, permission
+
+**Project Plugin set**:
+The revisioned set of installed Plugins enabled for one Project.
+_Avoid_: Plugin installation, Chat Plugin scope
+
+**Chat Plugin scope**:
+The immutable snapshot of exact Plugin releases and contributions available to one Chat until the user explicitly refreshes it.
+_Avoid_: Project Plugin set, Chat scope
+
+**Plugin connection**:
+A separately authenticated link between one Plugin contribution and an external service.
+_Avoid_: Plugin installation, permission grant
+
 **Turn**:
 One user message and the assistant work it starts, ending in a completed, failed, or interrupted outcome.
 _Avoid_: Tool call, transport request
@@ -81,6 +113,16 @@ _Avoid_: Approval, blocking tool continuation
 - Every **Chat** has exactly one **Working root** selected from its **Chat scope**.
 - **Project instructions** apply throughout every Chat belonging to their Project.
 - **Folder-local instructions** apply only while work touches their Folder.
+- A **Plugin installation** belongs to exactly one Zyra installation and has one active **Plugin release** at a time.
+- A **Plugin release** is immutable after inspection; an update creates another release with another content digest.
+- A **Plugin** exposes only the **Plugin contributions** declared by its inspected release.
+- A **Project** has one revisioned **Project Plugin set**.
+- A new Project **Chat** snapshots the current **Project Plugin set** into its **Chat Plugin scope**.
+- A global **Chat** snapshots the installation's global Plugin set into its **Chat Plugin scope**.
+- An existing **Chat Plugin scope** changes only through an explicit refresh.
+- Installing, enabling, or connecting a **Plugin** grants no tool, filesystem, Browser, Windows, or external-side-effect authority.
+- Every Plugin-supplied action remains subject to the Chat's permission mode, Chat scope, declared Plugin capability ceiling, critical-action review, interruption, audit, and Emergency Stop rules.
+- A **Plugin connection** stores credentials outside Plugin files, prompts, and logs.
 - A **Turn** owns zero or one **Work summary** and one terminal outcome.
 - A **Work summary** preserves the chronological sequence of **Work narration**, **Action batches**, and lone **Actions**.
 - An **Action batch** contains every consecutive typed **Action** until the next narration or conversation boundary; its hidden title declaration is not itself an Action.
@@ -103,9 +145,12 @@ _Avoid_: Approval, blocking tool continuation
 - Nested legacy paths remain separate Projects until a later explicit merge.
 - Configured discovery locations produce review candidates; discovery never creates Projects automatically.
 - `projectPath` remains a compatibility projection of the Chat's **Working root** during migration.
+- Plugin storage and migration are installation-specific and versioned independently from `PERSISTENCE_VERSION`.
+- Existing Chats receive an empty **Chat Plugin scope** during migration and never gain installed Plugins implicitly.
 
 ## Flagged ambiguities
 
 - "Workspace" already refers to app and terminal work areas. The Project-owned filesystem location is called **Project home**.
 - Existing code often uses a folder path as Project identity. In the domain, a **Project** and an **Associated folder** are distinct.
+- "Extension" currently names Pi runtime extensions and the paired Chrome extension. User-installable capability packages are **Plugins**; those existing mechanisms are adapters or contributions, not synonyms.
 - A moved external Folder is currently shown as unavailable. The product semantics for relinking it while preserving Folder identity remain unresolved; detaching and associating the new path creates a new Folder identity.

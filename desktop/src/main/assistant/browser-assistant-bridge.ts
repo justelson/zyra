@@ -32,6 +32,7 @@ import type {
     AssistantEventStreamPayload,
     AssistantIngestRealtimeVoiceEventInput,
     AssistantPersistClipboardImageInput,
+    AssistantPluginCatalog,
     AssistantRealtimeVoiceEvent,
     AssistantSendRealtimeVoiceMessageInput,
     AssistantStartRealtimeVoiceInput,
@@ -55,6 +56,14 @@ const BROWSER_VOICE_METHODS = new Set<BrowserAssistantBridgeMethod>([
 ])
 const BROWSER_CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 const BROWSER_VOICE_DISCONNECT_GRACE_MS = 2_500
+
+function withoutDesktopPluginPaths(catalog: AssistantPluginCatalog): AssistantPluginCatalog {
+    return {
+        ...catalog,
+        sources: catalog.sources.map((source) => ({ ...source, locator: '' })),
+        releases: catalog.releases.map((release) => ({ ...release, packagePath: '' }))
+    }
+}
 
 type BrowserAssistantBridgeDependencies = {
     service?: AssistantService
@@ -476,6 +485,25 @@ export class BrowserAssistantBridge {
             case 'getSessionTurnUsage': return service.getSessionTurnUsage(args[0] as any)
             case 'listModels': return service.listModels(args[0] === true)
             case 'listProjects': return service.listProjects()
+            case 'getPluginCatalog': {
+                const result = await service.getPluginCatalog()
+                return { ...result, catalog: withoutDesktopPluginPaths(result.catalog) }
+            }
+            case 'setPluginSet': {
+                const result = await service.setPluginSet(args[0] as any)
+                return { ...result, catalog: withoutDesktopPluginPaths(result.catalog) }
+            }
+            case 'refreshChatPluginScope': return service.refreshChatPluginScope(args[0] as any)
+            case 'setPluginState': {
+                const input = args[0] as { pluginId: string; state: 'active' | 'disabled' }
+                const result = await service.setPluginState(input.pluginId, input.state)
+                return { ...result, catalog: withoutDesktopPluginPaths(result.catalog) }
+            }
+            case 'rollbackPlugin': {
+                const input = args[0] as { pluginId: string; releaseId: string; confirmed: true }
+                const result = await service.rollbackPlugin(input.pluginId, input.releaseId, input.confirmed)
+                return { ...result, catalog: withoutDesktopPluginPaths(result.catalog) }
+            }
             case 'createProject': return service.createProject(args[0] as any, args[1] as string | undefined)
             case 'associateProjectFolder': return service.associateProjectFolder(args[0] as any)
             case 'removeProjectFolder': return service.removeProjectFolder(args[0] as any)

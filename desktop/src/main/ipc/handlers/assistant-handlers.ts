@@ -20,10 +20,17 @@ import type {
     AssistantGetSessionTurnUsageInput,
     AssistantGetTurnDetailInput,
     AssistantIngestRealtimeVoiceEventInput,
+    AssistantCreatePluginChatInput,
+    AssistantPluginDownloadInput,
+    AssistantStartPluginDownloadInput,
+    AssistantInspectLocalPluginInput,
+    AssistantInstallInspectedPluginInput,
     AssistantPersistClipboardImageInput,
     AssistantRedeemAccountResetInput,
     AssistantResolveClipboardAttachmentInput,
     AssistantRemoveProjectFolderInput,
+    AssistantRefreshChatPluginScopeInput,
+    AssistantRollbackPluginInput,
     AssistantSearchChatsInput,
     AssistantSearchTurnsInput,
     AssistantSendPromptOptions,
@@ -32,6 +39,8 @@ import type {
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
+    AssistantSetPluginSetInput,
+    AssistantSetPluginStateInput,
     AssistantSetSessionProjectInput,
     AssistantTranscribeVoiceInput,
     AssistantUpdateProjectInput,
@@ -128,6 +137,76 @@ export function handleAssistantListModels(_event: Electron.IpcMainInvokeEvent, f
 
 export function handleAssistantListProjects() {
     return withAssistantResult(() => getAssistantService().listProjects())
+}
+
+export function handleAssistantGetPluginCatalog() {
+    return withAssistantResult(() => getAssistantService().getPluginCatalog())
+}
+
+const pluginDownloadOwners = new WeakSet<Electron.WebContents>()
+
+export function handleAssistantStartPluginDownload(event: Electron.IpcMainInvokeEvent, input: AssistantStartPluginDownloadInput) {
+    const service = getAssistantService()
+    const ownerId = event.sender.id
+    if (!pluginDownloadOwners.has(event.sender)) {
+        pluginDownloadOwners.add(event.sender)
+        event.sender.once('destroyed', () => { void service.cancelPluginDownloadsForOwner(ownerId).catch(() => undefined) })
+    }
+    return withAssistantResult(() => service.startPluginDownload(input?.name, ownerId))
+}
+
+export function handleAssistantGetPluginDownload(event: Electron.IpcMainInvokeEvent, input: AssistantPluginDownloadInput) {
+    return withAssistantResult(() => getAssistantService().getPluginDownload(input?.id, event.sender.id))
+}
+
+export function handleAssistantCancelPluginDownload(event: Electron.IpcMainInvokeEvent, input: AssistantPluginDownloadInput) {
+    return withAssistantResult(() => getAssistantService().cancelPluginDownload(input?.id, event.sender.id))
+}
+
+export function handleAssistantCreatePluginChat(_event: Electron.IpcMainInvokeEvent, input: AssistantCreatePluginChatInput) {
+    return withDesktopAssistantSelectionLease(() => getAssistantService().createPluginChat(input))
+}
+
+export function handleAssistantInspectLocalPlugin(
+    event: Electron.IpcMainInvokeEvent,
+    input: AssistantInspectLocalPluginInput
+) {
+    return withAssistantResult(() => getAssistantService().inspectLocalPlugin(input, event.sender.id))
+}
+
+export function handleAssistantInstallInspectedPlugin(
+    event: Electron.IpcMainInvokeEvent,
+    input: AssistantInstallInspectedPluginInput
+) {
+    return withAssistantResult(() => getAssistantService().installInspectedPlugin(input, event.sender.id))
+}
+
+export function handleAssistantSetPluginSet(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantSetPluginSetInput
+) {
+    return withAssistantResult(() => getAssistantService().setPluginSet(input))
+}
+
+export function handleAssistantRefreshChatPluginScope(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantRefreshChatPluginScopeInput
+) {
+    return withAssistantResult(() => getAssistantService().refreshChatPluginScope(input))
+}
+
+export function handleAssistantSetPluginState(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantSetPluginStateInput
+) {
+    return withAssistantResult(() => getAssistantService().setPluginState(input.pluginId, input.state))
+}
+
+export function handleAssistantRollbackPlugin(
+    _event: Electron.IpcMainInvokeEvent,
+    input: AssistantRollbackPluginInput
+) {
+    return withAssistantResult(() => getAssistantService().rollbackPlugin(input.pluginId, input.releaseId, input.confirmed))
 }
 
 export function handleAssistantCreateProject(

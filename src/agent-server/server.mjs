@@ -79,7 +79,7 @@ export class ZyraAgentServer extends EventEmitter {
         this.desktopAuthorityHash = readFileSync(this.paths.desktopAuthorityFile, "utf8").trim() || null;
       } catch {}
     }
-    if (process.platform !== "win32" && existsSync(this.endpoint)) rmSync(this.endpoint, { force: true });
+    if (process.platform !== "win32" && typeof this.endpoint === "string" && existsSync(this.endpoint)) rmSync(this.endpoint, { force: true });
     this.server = net.createServer((socket) => this.accept(socket));
     await new Promise((resolve, reject) => {
       this.server.once("error", reject);
@@ -117,7 +117,7 @@ export class ZyraAgentServer extends EventEmitter {
       server.closeAllConnections?.();
       await closed;
     }
-    if (process.platform !== "win32") rmSync(this.endpoint, { force: true });
+    if (process.platform !== "win32" && typeof this.endpoint === "string") rmSync(this.endpoint, { force: true });
     rmSync(this.paths.descriptorFile, { force: true });
   }
 

@@ -189,11 +189,13 @@ const lateAuthorityChannel = `${channel}-late-authority`;
 const lateAuthorityPaths = getAgentServerPaths({ stateDirectory, channel: lateAuthorityChannel });
 const lateAuthorityServer = new ZyraAgentServer({ stateDirectory, channel: lateAuthorityChannel, endpoint: 0, catalog });
 await lateAuthorityServer.start();
+assert.equal(typeof lateAuthorityServer.endpoint, "number", "the ephemeral TCP endpoint is a port, not a socket path");
 assert.equal(lateAuthorityServer.getDesktopAuthorityHash(), null);
 const lateAuthorityHash = createHash("sha256").update("late-desktop-proof").digest("base64url");
 writeFileSync(lateAuthorityPaths.desktopAuthorityFile, lateAuthorityHash, { encoding: "utf8", mode: 0o600 });
 assert.equal(lateAuthorityServer.getDesktopAuthorityHash(), lateAuthorityHash, "a TUI-first server reloads Desktop authority created after startup");
 await lateAuthorityServer.stop();
+await lateAuthorityServer.stop(); // TCP cleanup must remain idempotent on Unix as well as Windows.
 
 const workers = [];
 const server = new ZyraAgentServer({

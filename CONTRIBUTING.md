@@ -6,7 +6,7 @@ Thanks for helping improve Zyra. Contributions should keep the public project pr
 
 1. Read [`AGENTS.md`](AGENTS.md) for repository rules.
 2. Use the [repository map](docs/repository-map.md) to find the owning area.
-3. Check [current documentation](docs/README.md) and existing architecture decisions under [`docs/adr/`](docs/adr/).
+3. Check [current documentation](docs/README.md), the [public roadmap](docs/roadmap.md), and existing architecture decisions under [`docs/adr/`](docs/adr/).
 4. Keep private `.zyra` state, sessions, memory, credentials, local exports, and personal profiles outside Git.
 5. Prefer one focused change with a clear failure case and verification path.
 
@@ -50,6 +50,7 @@ Changes that widen tools, permissions, retention, network exposure, control auth
 
 - Keep current guidance, architecture, implementation records, handoffs, and research in the locations defined by [`docs/README.md`](docs/README.md).
 - Mark forward-looking work as Draft or Proposed.
+- Add new release candidates and sanitized issue reports to the public roadmap. In related PRs, update the item's status, verification evidence, and release target; keep unreleased fixes distinct from shipped changes.
 - Use Mermaid source for architecture diagrams and validate it before submission.
 - Prefer official primary sources and include access dates for time-sensitive provider facts.
 - Add or supersede an ADR for load-bearing architecture changes.

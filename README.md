@@ -79,6 +79,10 @@ Type `/` in a chat to find commands and discovered Agent Skills. Project command
 
 Native Windows, macOS, and Linux installers are published on the [GitHub Releases page](https://github.com/justelson/zyra/releases). Desktop and TUI use the same local chats and agent runtime.
 
+## Roadmap
+
+See the [public roadmap](docs/roadmap.md) for upcoming release targets, reported issues, proposed improvements, and how to add more fixes to the backlog. Plans stay separate from [shipped releases](https://github.com/justelson/zyra/releases).
+
 ## Build from source
 
 Development requires Node.js 22.19 or newer and Bun 1.3.9.

@@ -23,7 +23,8 @@ This project is Zyra, a local CLI built on top of the Pi SDK.
 
 - `AGENTS.md` is the shared repository instruction file and stays public.
 - `AGENTS.override.md` is the ignored local override recognized by Codex. It must explicitly retain this shared contract because an override replaces `AGENTS.md` during discovery.
-- Keep durable contributor guidance, architecture, security policy, and implementation contracts under `docs/`.
+- Keep durable contributor guidance, the maintained public roadmap, architecture, security policy, and implementation contracts under `docs/`.
+- Read `docs/roadmap.md` when planning releases or prioritizing fixes. Add sanitized issue notes and update status, verification references, and release targets as related work progresses; keep raw diagnostics and one-off execution plans private.
 - Keep one-off prompts, plans, handoffs, research snapshots, QA evidence, and personal working notes under ignored `docs.local/`.
 - Keep public automation inputs next to their owners under `scripts/automation/`; do not hide files that automation needs in `docs.local/`.
 - Keep machine agent configuration under ignored `.agents/` or `.codex/` unless a specific shared configuration is intentionally added to the public repository.

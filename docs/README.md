@@ -1,6 +1,6 @@
 # Zyra Documentation
 
-This directory contains public, durable guidance, architecture records, implementation contracts, and automation records. One-off plans, research, handoffs, QA evidence, and working prompts belong in ignored `docs.local/`.
+This directory contains public, durable guidance, the maintained release roadmap, architecture records, implementation contracts, and automation records. One-off execution plans, research, handoffs, QA evidence, and working prompts belong in ignored `docs.local/`.
 
 Status words used below:
 
@@ -19,6 +19,10 @@ Status words used below:
 - [Product analytics security and privacy](security/product-analytics.md) — **Current.** Data prohibition, process boundaries, and incident response.
 - [Parallel agent build runbook](runbooks/parallel-agent-build.md) — **Current.** Procedure still consumed by the autonomous coordinator scripts.
 - [Desktop performance budget](performance/desktop-resource-budget.md) — **Current.** Reproducible startup, chat latency, CPU, memory, and profile-growth budgets with the latest measured baseline.
+
+## Release planning
+
+- [Public roadmap](roadmap.md) — **Draft targets, maintained backlog.** Upcoming stabilization fixes, update-process improvements, issue intake, and verification criteria. Planned work is not an implemented contract.
 
 ## Architecture
 
@@ -56,7 +60,7 @@ Status words used below:
 ## Conventions
 
 - Keep maintained how-to material in `guides/` and source-of-truth security policy in `security/`.
-- Keep architecture separate from implementation evidence and forward plans.
+- Keep architecture separate from implementation evidence and forward plans. Maintain public release targets and sanitized issue notes in `roadmap.md`; keep task-specific execution notes private.
 - Move one-off execution briefs, plans, research, handoffs, and local design evidence to ignored `docs.local/`.
 - Keep automation-owned public prompts under `scripts/automation/prompts/` and automation-required committed records under `docs/automation/`.
 - Do not commit generated build output, local sessions, private exports, or credentials as documentation.

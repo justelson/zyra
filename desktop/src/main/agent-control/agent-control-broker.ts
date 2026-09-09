@@ -2047,14 +2047,18 @@ function resolveSemanticSequenceAction(
     if (step.type === 'key') {
         return { type: 'key', key: step.key, modifiers: step.modifiers, sideEffect: step.sideEffect }
     }
-    if (step.type === 'drag') {
+    if (step.type === 'drag' || step.type === 'click_point') {
+        const description = step.type === 'drag' ? 'drag' : 'coordinate click'
         if (!observation.viewport) {
-            throw new AgentControlError('CONTROL_TARGET_BLOCKED', 'A sequence drag requires current observed window bounds.', { freshRevision: observation.revision })
+            throw new AgentControlError('CONTROL_TARGET_BLOCKED', `A sequence ${description} requires current observed window bounds.`, { freshRevision: observation.revision })
         }
-        // Coordinate drags must not become a route around the semantic
+        // Coordinate input must not become a route around the semantic
         // sequence's sensitive-control and per-action side-effect checks.
         const screenBounds = resolveWindowsControlBounds(observation)
-        const endpoints = [{ x: step.fromX, y: step.fromY }, { x: step.toX, y: step.toY }].map((point) => ({
+        const points = step.type === 'drag'
+            ? [{ x: step.fromX, y: step.fromY }, { x: step.toX, y: step.toY }]
+            : [{ x: step.x, y: step.y }]
+        const endpoints = points.map((point) => ({
             x: point.x + (screenBounds?.x || 0),
             y: point.y + (screenBounds?.y || 0)
         }))
@@ -2063,13 +2067,15 @@ function resolveSemanticSequenceAction(
             if (!bounds || !endpoints.some((point) => point.x >= bounds.x && point.y >= bounds.y
                 && point.x <= bounds.x + bounds.width && point.y <= bounds.y + bounds.height)) continue
             if (element.sensitive) {
-                throw new AgentControlError('CONTROL_TARGET_BLOCKED', 'A sequence drag cannot target a sensitive control.', { freshRevision: observation.revision })
+                throw new AgentControlError('CONTROL_TARGET_BLOCKED', `A sequence ${description} cannot target a sensitive control.`, { freshRevision: observation.revision })
             }
             if (semanticActionMayHaveCriticalSideEffect(`${element.name || ''} ${element.text || ''}`)) {
-                throw new AgentControlError('CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED', 'This drag must use an individual action with its canonical side-effect review.', { freshRevision: observation.revision })
+                throw new AgentControlError('CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED', `This ${description} must use an individual action with its canonical side-effect review.`, { freshRevision: observation.revision })
             }
         }
-        return { ...step, button: 'left' }
+        return step.type === 'drag'
+            ? { ...step, button: 'left' }
+            : { type: 'click', x: step.x, y: step.y, button: 'left', clickCount: 1, sideEffect: 'none' }
     }
     if (semanticActionMayHaveCriticalSideEffect(step.name)) {
         throw new AgentControlError(

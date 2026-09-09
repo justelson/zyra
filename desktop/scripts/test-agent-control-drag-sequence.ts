@@ -69,3 +69,50 @@ try {
     assert.equal(driver.actions.at(-1)!.allowWindowFocus, true, 'the current grant carries explicit focus authority to the driver')
 } finally { await broker.dispose() }
 console.log('Computer drag sequences: embedded use_app, fresh revisions, bounded current viewport, critical/sensitive denial, capability and interruption: ok')
+
+const pointDriver = new DrawingDriver()
+const pointBroker = new AgentControlBroker({ drivers: [pointDriver] })
+const clickPoint = { type: 'click_point', x: 100, y: 120, sideEffect: 'none' }
+try {
+    const access = await pointBroker.handleToolOperation(principal, {
+        operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure', 'pointer.click', 'pointer.drag'], maxActions: 16,
+        steps: [{ type: 'click', name: 'Apply smoke input', sideEffect: 'none' }, drag, clickPoint, { ...clickPoint, x: 200 }]
+    }, undefined, { permissionMode: 'full-access' }) as any
+    assert.equal(access.sequence.completedSteps, 4, 'semantic selection, drawing and fill clicks share one bounded sequence')
+    assert.deepEqual(pointDriver.actions.map(({ revision }) => revision), [1, 2, 3, 4])
+    assert.equal(access.observation.revision, 5)
+    assert.deepEqual(pointDriver.actions[2]!.action, { type: 'click', x: 100, y: 120, button: 'left', clickCount: 1, sideEffect: 'none' })
+    const sequence = (steps: unknown[], revision = access.observation.revision, signal?: AbortSignal) => pointBroker.handleToolOperation(principal, {
+        operation: 'act_sequence', version: 1, requestId: 'point-sequence', grantId: access.grant.grantId, targetId: access.grant.targetId, observationRevision: revision, steps
+    }, signal)
+    await assert.rejects(() => sequence([clickPoint], 1), { code: 'CONTROL_STALE_OBSERVATION' })
+    await assert.rejects(() => sequence([{ ...clickPoint, x: 900 }]), /outside.*viewport/i)
+    await assert.rejects(() => sequence([{ ...clickPoint, x: Number.NaN }]), /steps\[0\].x/i)
+    await assert.rejects(() => sequence([{ ...clickPoint, sideEffect: 'send' }]), /routine side effect/i)
+    await assert.rejects(() => sequence(Array.from({ length: 17 }, () => clickPoint)), /1 to 16/i)
+    assert.equal(pointDriver.actions.length, 4, 'invalid point steps do not reach the input driver')
+    pointDriver.extra = [{ elementRef: 'fixture:critical', role: 'button', name: 'Confirm purchase', bounds: { x: -310, y: 200, width: 40, height: 40 }, actions: ['click'] }, { elementRef: 'fixture:window', role: 'window', bounds: { x: -400, y: 100, width: 800, height: 600 } }]
+    const critical = await pointBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    await assert.rejects(() => sequence([clickPoint], critical.revision), /canonical side-effect review/i)
+    pointDriver.extra = [{ ...pointDriver.extra[0]!, name: 'Password', sensitive: true }, pointDriver.extra[1]!]
+    const sensitive = await pointBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    await assert.rejects(() => sequence([clickPoint], sensitive.revision), /sensitive control/i)
+    pointDriver.extra = []
+    const fresh = await pointBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    pointDriver.shrinkAfterAction = true
+    await assert.rejects(() => sequence([clickPoint, clickPoint], fresh.revision), /outside.*viewport/i)
+    assert.equal(pointDriver.actions.length, 5, 'fresh post-click geometry stops the next click without replay')
+    pointDriver.shrinkAfterAction = false
+    const beforeAbort = await pointBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    const abort = new AbortController()
+    pointDriver.onAction = () => abort.abort()
+    await assert.rejects(() => sequence([clickPoint, clickPoint], beforeAbort.revision, abort.signal), /abort|cancel|interrupt/i)
+    assert.equal(pointDriver.actions.length, 6, 'cancellation stops the next coordinate click')
+    pointDriver.onAction = undefined
+    const limited = await pointBroker.handleToolOperation(principal, { operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure', 'pointer.drag'], maxActions: 3 }, undefined, { permissionMode: 'full-access' }) as any
+    await assert.rejects(() => pointBroker.handleToolOperation(principal, {
+        operation: 'act_sequence', version: 1, requestId: 'point-limited', grantId: limited.grant.grantId, targetId: limited.grant.targetId, observationRevision: limited.observation.revision, steps: [clickPoint]
+    }), /capability|grant.*allow/i)
+    assert.equal(pointDriver.actions.length, 6, 'coordinate clicks cannot acquire pointer.click from a drag-only grant')
+} finally { await pointBroker.dispose() }
+console.log('Coordinate click sequences: mixed drawing/fill, physical sensitive bounds, exact left single click, stale/changed viewport, capability and cancellation: ok')

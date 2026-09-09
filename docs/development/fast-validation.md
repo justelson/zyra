@@ -15,7 +15,7 @@ Run these from the repository root unless the command says otherwise.
 | Approval lifecycle and projection | `npm run test:permissions:lifecycle` and `npm --prefix desktop run test:assistant-approval-projection` | Tool correlation, waiting state, concurrent/late events, denial and compatible storage hydration |
 | Windows profile recovery | `npm --prefix desktop run test:windows-profile-recovery` and `npm run test:computer-window-feedback` | Exact-name selection, existing-browser reuse, scoped candidate details and bounded same-window recovery |
 | Computer tool failures | `npm run test:computer-tool-errors` | Installed Pi records failed operations as errors and preserves recovery metadata |
-| Bounded drawing sequences | `npm --prefix desktop run test:agent-control-drag-sequence` | Mixed semantic and drag steps preserve revisions, target bounds, capability checks and interruption |
+| Bounded drawing sequences | `npm --prefix desktop run test:agent-control-drag-sequence` | Mixed semantic, coordinate-click and drag steps preserve revisions, target bounds, capability checks and interruption |
 | Windows cursor tracking | `npm --prefix desktop run test:windows-cursor` | Native progress, failed-drag position and negative display coordinates |
 | Computer-use glow | `npm --prefix desktop run test:windows-glow` | Hidden isolated Chromium tests entrance/exit, reduced motion, reactivation and cursor timing; no native input |
 | Windows overlay ownership | `npm --prefix desktop run smoke:windows-overlay-hit-test` | Isolated real Win32 hit testing across transparent canvas, cursor and indicator; verifies ordinary occlusion still blocks input |
@@ -72,6 +72,10 @@ A successful typecheck proves type consistency. A successful build proves bundli
 Start with the three permission targets in the command map. Command classification now lives in `src/permission-command-policy.mjs`, which has no imports. The gate retains its existing public exports and uses that policy. The prompt-rendering target imports the component directly.
 
 Waiting-state/event projection has a dedicated lifecycle target. Run it alongside the gate test for correlation, persistence, denial and concurrent requests. The rendering target alone does not prove approval routing or execution timing.
+
+## Live computer-use outcome checks
+
+For multi-step editing tasks, inspect each returned batch screenshot as well as the final artifact. Successful input delivery does not prove an edit survived: cancellation keys can discard unfinished shapes or drafts without producing a tool error. Verify an unfamiliar editing gesture before repeating it, and retain failed or wasted intermediate work in the timing assessment. Keep the test request unchanged across comparable runs and report provider time separately from tool time.
 
 ## Chat-switch fixtures
 

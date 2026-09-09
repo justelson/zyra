@@ -195,3 +195,23 @@ assert.equal(dragStepSchema.additionalProperties, false)
 assert.equal(sequence.parameters.properties.steps.maxItems, 16)
 const useAppForDrag = tools.find((tool) => tool.name === 'computer_use_app')
 assert(useAppForDrag.parameters.properties.steps.items.anyOf.some((entry) => entry.properties?.type?.const === 'drag'), 'computer_use_app shares the bounded drag sequence schema')
+
+
+const pointStepSchema = sequence.parameters.properties.steps.items.anyOf.find((entry) => entry.properties?.type?.const === 'click_point')
+assert(pointStepSchema, 'routine coordinate clicks must not require separate model round trips')
+assert.equal(pointStepSchema.properties.sideEffect.const, 'none')
+assert.equal(pointStepSchema.properties.x.minimum, 0)
+assert.equal(pointStepSchema.properties.y.maximum, 100000)
+assert.equal(pointStepSchema.additionalProperties, false)
+assert(useApp.parameters.properties.steps.items.anyOf.some((entry) => entry.properties?.type?.const === 'click_point'))
+const pointSteps = [
+  { type: 'click_point', x: 120, y: 140, sideEffect: 'none' },
+  { type: 'click_point', x: 220, y: 140, sideEffect: 'none' },
+  { type: 'click', name: 'Pencil', sideEffect: 'none' },
+]
+await sequence.execute('tool:point-sequence', {
+  targetId: observation.targetId, grantId: 'control-grant:fixture',
+  observationRevision: observation.revision, steps: pointSteps,
+})
+assert.deepEqual(calls.at(-1).steps, pointSteps, 'coordinates and the final semantic action reach the broker in one ordered batch')
+assert.equal(calls.at(-1).operation, 'act_sequence')

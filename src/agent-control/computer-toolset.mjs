@@ -104,6 +104,12 @@ const routineSequenceKey = Type.Union([
 ].map((value) => Type.Literal(value)), { description: "Routine navigation key or Ctrl+A/Z/Y shortcut. Text, digits, Enter, and other keys require another action path." });
 const routineSequenceModifier = Type.Union([Type.Literal("Ctrl"), Type.Literal("Shift")]);
 const sequenceStepSchema = Type.Union([
+  Type.Object({
+    type: Type.Literal("click_point"),
+    x: Type.Number({ minimum: 0, maximum: 100000, description: "X coordinate inside the selected window, grounded in the latest observed layout." }),
+    y: Type.Number({ minimum: 0, maximum: 100000, description: "Y coordinate inside the selected window. Sends one left click." }),
+    sideEffect: routineSideEffect,
+  }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("click"), ...semanticTargetSchema, sideEffect: routineSideEffect }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("type"), ...semanticTargetSchema, text: Type.String(), replace: Type.Boolean({ description: "Replace the exact field value, or preserve its current selection/caret before typing." }), sideEffect: routineSideEffect }, { additionalProperties: false }),
   Type.Object({
@@ -253,12 +259,12 @@ export function createComputerToolSet(options = {}) {
       summarize: (_input, result) => observationSummary(result.observation),
     }),
     actionTool("computer_move", "Move computer pointer", "Move the pointer to one selected-window coordinate from the latest observation without clicking.", moveSchema, "move", options.client),
-    actionTool("computer_click", "Click computer control", "Click a semantic element or selected-window coordinate from the latest observation.", clickSchema, "click", options.client),
+    actionTool("computer_click", "Click computer control", "Click a semantic element or selected-window coordinate from the latest observation. For routine repeated coordinate clicks, use click_point steps in computer_sequence.", clickSchema, "click", options.client),
     actionTool("computer_drag", "Drag in computer window", "Drag between two selected-window coordinates from the latest observation. Declare any side effect explicitly.", dragSchema, "drag", options.client),
     bridgeTool({
       name: "computer_sequence",
       label: "Run computer steps",
-      description: "Run 1 to 16 already-clear routine steps in one bounded call. Supports exact semantic clicks, selected-window drags (for drawing or routine manipulation), exact-field typing, safe editing/navigation keys, and short waits. Request focus access for pointer work, especially when switching apps. Use drag coordinates grounded in the observed layout; each endpoint must remain inside the current window. Use observed selected/checked states to avoid reselecting or toggling an already-active control. Select a drawing tool once, then batch its already-known gestures until the intended tool changes. A semantic role is optional only when the exact name identifies one unique actionable control. Prefer this over serial calls. Zyra re-observes and revision-checks after every step, then returns the final observation and, when granted, its screenshot. Include any already-known safe completion or dismissal step in the batch and inspect that final result before requesting another observation. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for any external or critical side effect.",
+      description: "Run 1 to 16 already-clear routine steps in one bounded call. Supports exact semantic clicks, selected-window coordinate clicks (click_point), drags (for drawing or routine manipulation), exact-field typing, safe editing/navigation keys, and short waits. Request focus access for pointer work, especially when switching apps. Ground click_point and drag coordinates in the observed layout; each point must remain inside the current window. Batch known canvas clicks and the following tool selection together instead of separate calls. Use observed selected/checked states to avoid reselecting or toggling an already-active control. Select a drawing tool once, then batch its already-known gestures until the intended tool changes. A semantic role is optional only when the exact name identifies one unique actionable control. Prefer this over serial calls. Zyra re-observes and revision-checks after every step, then returns the final observation and, when granted, its screenshot. Only include completion or dismissal steps whose effect is verified. Do not use Escape as a generic commit key: it can discard active edits, including shapes in Paint. For an unfamiliar editing gesture, inspect one result before repeating it; then batch the verified gestures. Check the returned screenshot for actual progress, since successful input delivery does not prove the intended edit survived. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for any external or critical side effect.",
       parameters: sequenceSchema,
       client: options.client,
       toOperation: (input) => ({

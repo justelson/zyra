@@ -177,6 +177,7 @@ export function getAssistantActionTitle(
     activity: AssistantActivity,
     projectRootPath?: string | null
 ): string {
+    if (getAssistantActivityToolName(activity) === 'tool_search') return 'Getting computer use tools'
     const family = getAssistantActionFamily(activity)
     const args = getAssistantActivityArgs(activity)
     const paths = getActivityPaths(activity)

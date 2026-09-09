@@ -178,7 +178,7 @@ export function createComputerToolSet(options = {}) {
   return [
     defineTool({
       name: COMPUTER_TOOL_SEARCH_NAME,
-      label: "Search tools",
+      label: "Getting computer use tools",
       description: "Search and load deferred Zyra tools. Search for Windows computer control, desktop interaction, clicking, typing, or app automation when the task needs them.",
       parameters: searchSchema,
       execute: async (_toolCallId, input = {}) => localToolResult(controller.search(input.query)),

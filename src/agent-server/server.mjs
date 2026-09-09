@@ -11,6 +11,7 @@ import { getAgentServerPaths } from "./paths.mjs";
 import { isNetworkRecoveryError } from "../network-recovery.mjs";
 import {
   AGENT_SERVER_PROTOCOL_VERSION,
+  AGENT_SERVER_METHODS,
   AgentServerProtocolError,
   MAX_AGENT_SERVER_REPLAY_EVENTS,
   assertAgentServerIdentifier,
@@ -68,6 +69,8 @@ export class ZyraAgentServer extends EventEmitter {
     this.desktopWorkspaceRequests = new Map();
     this.server = null;
     this.startedAt = null;
+    this.retiring = false;
+    this.pendingRequests = 0;
   }
 
   async start() {
@@ -167,6 +170,7 @@ export class ZyraAgentServer extends EventEmitter {
       pid: process.pid,
       startedAt: this.startedAt,
       clients: this.clients.size,
+      methods: AGENT_SERVER_METHODS,
       sessions: uniqueSessions.map((session) => session.summary())
     };
   }
@@ -214,8 +218,13 @@ export class ZyraAgentServer extends EventEmitter {
       if (message?.type !== "request") throw new AgentServerProtocolError("Expected an agent-server request.");
       const id = assertAgentServerIdentifier(message.id, "request id");
       const method = assertAgentServerMethod(message.method);
-      const result = await this.handleRequest(client, method, message.params || {});
+      if (this.retiring) throw new AgentServerProtocolError("Zyra's background service is restarting. Try again shortly.", "AGENT_SERVER_RESTARTING");
+      this.pendingRequests++;
+      let result;
+      try { result = await this.handleRequest(client, method, message.params || {}); }
+      finally { this.pendingRequests--; }
       this.send(client, { type: "response", id, ok: true, result });
+      if (method === "server.retire") setImmediate(() => this.emit("retire"));
     } catch (error) {
       this.sendError(client, message?.id, error);
       if (!client.authenticated) client.socket.destroy();
@@ -255,6 +264,18 @@ export class ZyraAgentServer extends EventEmitter {
 
   async handleRequest(client, method, params) {
     if (method === "server.status") return this.state();
+    if (method === "server.retire") {
+      if (!client.canControl) throw new AgentServerProtocolError("Only verified Zyra Desktop can restart the background service.", "AGENT_SERVER_AUTH_FAILED");
+      const busy = this.pendingRequests > 1 || this.desktopWorkspaceRequests.size > 0
+        || [...new Set(this.sessions.values())].some((session) => {
+          const state = session.summary();
+          return state.activeRequests > 0 || state.backgroundWorkActive || state.attention;
+        });
+      if (busy) throw new AgentServerProtocolError("Zyra's background service needs an update. Let active work finish, then try again.", "AGENT_SERVER_UPGRADE_BUSY");
+      if (this.listenerCount("retire") === 0) throw new AgentServerProtocolError("Restart Zyra's background service to finish updating.", "AGENT_SERVER_UPGRADE_REQUIRED");
+      this.retiring = true;
+      return { retiring: true };
+    }
     if (method === "runtime.models") {
       return this.getUtilityWorker().request("warmup", {
         forceRefresh: params.forceRefresh === true,

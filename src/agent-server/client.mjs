@@ -7,12 +7,15 @@ import path from "node:path";
 import { getAgentServerPaths } from "./paths.mjs";
 import {
   AGENT_SERVER_PROTOCOL_VERSION,
+  AGENT_SERVER_METHODS,
   createAgentServerLineReader,
   writeAgentServerMessage
 } from "./protocol.mjs";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
 const DEFAULT_ATTACH_TIMEOUT_MS = 65_000;
+// Bound replacement across connection objects recreated by Desktop recovery.
+const SERVICE_UPGRADE_ATTEMPTS = new Set();
 
 export class ZyraAgentServerClient extends EventEmitter {
   constructor(options = {}) {
@@ -25,6 +28,8 @@ export class ZyraAgentServerClient extends EventEmitter {
     this.authorities = Array.isArray(options.authorities) ? [...new Set(options.authorities)] : [];
     this.authorityProof = String(options.authorityProof || "");
     this.autoStart = options.autoStart !== false;
+    this.requiredMethods = options.requiredMethods || AGENT_SERVER_METHODS;
+    this.serverMethods = [];
     this.socket = null;
     this.cleanupReader = null;
     this.pending = new Map();
@@ -60,8 +65,8 @@ export class ZyraAgentServerClient extends EventEmitter {
   }
 
   async connect() {
-    if (this.socket?.writable) return;
     if (this.connectPromise) return this.connectPromise;
+    if (this.socket?.writable) return;
     this.connectPromise = this.connectInternal().finally(() => {
       this.connectPromise = null;
     });
@@ -85,6 +90,28 @@ export class ZyraAgentServerClient extends EventEmitter {
       descriptor = await waitForDescriptor(this.paths.descriptorFile, DEFAULT_CONNECT_TIMEOUT_MS, descriptor.pid, this.paths);
       await this.openSocket(descriptor);
     }
+    const missing = () => this.requiredMethods.filter((method) => !this.serverMethods.includes(method));
+    if (missing().length === 0) return;
+    const upgradeError = () => Object.assign(new Error("Zyra's background service is older than this app. Restart the background service to finish updating, then try again."), { code: "AGENT_SERVER_UPGRADE_REQUIRED", missingMethods: missing() });
+    const upgradeKey = JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort()]);
+    try {
+      if (!this.autoStart || !this.serverMethods.includes("server.retire") || SERVICE_UPGRADE_ATTEMPTS.has(upgradeKey)) throw upgradeError();
+      const retired = await this.requestConnected("server.retire", {}, { timeoutMs: 5_000 });
+      if (retired.retiring !== true) throw upgradeError();
+      SERVICE_UPGRADE_ATTEMPTS.add(upgradeKey);
+      this.close();
+      const deadline = Date.now() + 10_000;
+      while (processAlive(descriptor.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 75));
+      if (processAlive(descriptor.pid)) throw upgradeError();
+      this.startServer();
+      descriptor = await waitForDescriptor(this.paths.descriptorFile, DEFAULT_CONNECT_TIMEOUT_MS, descriptor.pid, this.paths);
+      await this.openSocket(descriptor);
+      // A competing older client can win startup. Never enter an upgrade loop.
+      if (missing().length > 0) throw upgradeError();
+    } catch (error) {
+      this.close();
+      throw error;
+    }
   }
 
   async openSocket(descriptor) {
@@ -101,6 +128,7 @@ export class ZyraAgentServerClient extends EventEmitter {
       this.rejectPending(error);
     });
     socket.once("close", () => {
+      if (this.socket !== socket) return;
       this.cleanupReader?.();
       this.cleanupReader = null;
       if (this.socket === socket) this.socket = null;
@@ -141,6 +169,10 @@ export class ZyraAgentServerClient extends EventEmitter {
 
   async request(method, params = {}, options = {}) {
     await this.connect();
+    return this.requestConnected(method, params, options);
+  }
+
+  async requestConnected(method, params = {}, options = {}) {
     if (!this.socket?.writable) throw Object.assign(new Error("Zyra agent server is disconnected."), { code: "AGENT_SERVER_DISCONNECTED" });
     const id = `request:${process.pid}:${this.nextRequestId++}`;
     return new Promise((resolve, reject) => {
@@ -208,6 +240,7 @@ export class ZyraAgentServerClient extends EventEmitter {
 
   async handleMessage(message) {
     if (message?.type === "hello.ok") {
+      this.serverMethods = Array.isArray(message.server?.methods) ? message.server.methods : [];
       this.helloResolve?.(message.server || {});
       this.emit("connect", message.server || {});
       return;

@@ -4,8 +4,9 @@ export const AGENT_SERVER_PROTOCOL_VERSION = 5;
 export const MAX_AGENT_SERVER_MESSAGE_BYTES = 384 * 1024 * 1024;
 export const MAX_AGENT_SERVER_REPLAY_EVENTS = 512;
 
-const METHOD_NAMES = new Set([
+export const AGENT_SERVER_METHODS = Object.freeze([
   "server.status",
+  "server.retire",
   "runtime.models",
   "runtime.generateText",
   "desktop.workspace.open",
@@ -25,6 +26,7 @@ const METHOD_NAMES = new Set([
   "session.detach",
   "session.stop",
 ]);
+const METHOD_NAMES = new Set(AGENT_SERVER_METHODS);
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,191}$/;
 

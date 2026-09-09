@@ -24,6 +24,7 @@ export async function runZyraAgentServer(args = process.argv.slice(2)) {
   };
 
   process.on("SIGINT", () => void stop("Agent server interrupted.").finally(() => process.exit(0)));
+  server.once("retire", () => void stop("Agent server updated.").finally(() => process.exit(0)));
   process.on("SIGTERM", () => void stop("Agent server terminated.").finally(() => process.exit(0)));
   process.on("uncaughtException", (error) => {
     process.stderr.write(`${error.stack || error.message}\n`);

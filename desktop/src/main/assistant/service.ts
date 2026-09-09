@@ -1279,6 +1279,8 @@ export class AssistantService {
     }
 
     async setSessionProject(sessionId: string, input: AssistantSetSessionProjectInput) {
+        // Verify the server's permission contract before changing the saved Project.
+        await this.runtime.updatePluginAuthority({ chats: [] })
         const chatScope = input.projectId
             ? await this.persistence.createProjectChatScope(input.projectId, input.workingRoot)
             : null
@@ -1288,6 +1290,7 @@ export class AssistantService {
     }
 
     async setSessionProjectPath(sessionId: string, projectPath: string | null) {
+        await this.runtime.updatePluginAuthority({ chats: [] })
         const normalizedPath = String(projectPath || '').trim()
         const chatScope = normalizedPath
             ? await this.persistence.ensureProjectForFolder(normalizedPath)

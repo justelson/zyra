@@ -33,7 +33,7 @@ TUI client ────┘                                  ├─ chat catalog
                                                    └─ fleet/workflow recovery
 ```
 
-The server runs as a detached local user process. Protocol v2 namespaces its descriptor, lock, and endpoint so an upgraded app never attaches to stale v1 code; an old process may finish independently. It binds only a per-user named pipe on Windows or a user-owned Unix socket elsewhere. A random descriptor token is stored in a mode-0600 local file and is required during the handshake. Desktop control additionally requires proof of a random secret retained through Electron `safeStorage`; the server keeps only its SHA-256 verifier. Declaring a Desktop surface or capability in the handshake is insufficient.
+The server runs as a detached local user process. The protocol version namespaces discovery and transport endpoints, while a channel-wide owner lock prevents incompatible generations from mutating the same chat state concurrently. The capability handshake also detects outdated services within the same protocol version. It binds only a per-user named pipe on Windows or a user-owned Unix socket elsewhere. A random descriptor token is stored in a mode-0600 local file and is required during the handshake. Desktop control additionally requires proof of a random secret retained through Electron `safeStorage`; the server keeps only its SHA-256 verifier. Declaring a Desktop surface or capability in the handshake is insufficient.
 
 The existing `src/zyra-ui-bridge.mjs` remains the first worker implementation. Moving it behind the server gives Zyra durable process ownership without rewriting the Pi adapter and UI projection simultaneously. Packaged Desktop launches pass a writable `ZYRA_DATA_ROOT` (the user home) separately from the immutable staged runtime, so memory consolidation never writes into an app bundle or AppImage. Windows packages carry a pinned Node executable for the detached server; signed macOS/Linux packages use Electron's Node mode without depending on system `PATH`.
 
@@ -54,6 +54,16 @@ Browser and Windows authority remains in the trusted desktop main process. When 
 A separate `desktop-workspace` authority handles user-typed TUI commands such as `/browser`, `/details-ui`, `/explore-files`, `/resources`, `/subagents-ui`, `/diff-ui`, and `/terminal-ui`. The authenticated server resolves the canonical chat, forwards a bounded presentation request only to a verified Desktop client, and matches the exact response ID. This route can open or arrange trusted UI; it cannot execute model tools, approve arbitrary control grants, mutate transcripts, or grant a TUI process general Desktop authority. `/browser --background` may arm one exact-tab, current-root grant intent because the command itself is a local user action; a normal bounded grant is issued only for a real root turn and remains subject to target, origin, duration, action-budget, turn-lifecycle, and Emergency Stop rules.
 
 If no authorized desktop client is attached, the TUI can launch a registered installed Desktop in background-host mode and retry briefly. If Desktop is absent or cannot authenticate, the request fails closed while text chat remains alive.
+
+## Service compatibility and updates
+
+The authenticated handshake advertises the method list from `protocol.mjs`. Clients compare it with their required methods before sending application requests; a matching protocol number alone is insufficient. New methods must be registered in that list. Changes to the meaning of existing methods still require a protocol-version change.
+
+When a same-protocol server lacks required methods, verified Desktop may request `server.retire`. The server refuses retirement during in-flight requests, background work, pending approvals/input, or workspace requests. An accepted retirement immediately blocks new requests, acknowledges the client, and shuts down through the normal lifecycle. The client waits for the old process to exit and attempts one replacement per required service contract during the client process lifetime. Concurrent callers share that attempt, and the attempt remains recorded across recreated connections so competing older clients cannot cause an upgrade loop.
+
+Legacy services without capability advertisement or retirement support require a one-time controlled restart. They fail with `AGENT_SERVER_UPGRADE_REQUIRED`; active services return `AGENT_SERVER_UPGRADE_BUSY`. Permission failures are never ignored. Project changes check the permission contract before saving their new scope.
+
+Run `npm run test:agent-server:compatibility` for the focused compatibility/replacement regression. It also runs in `test:agent-server`.
 
 ## Canonical Chat Catalog
 

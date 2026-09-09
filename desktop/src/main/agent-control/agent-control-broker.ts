@@ -1,3 +1,4 @@
+import { pointerPathIntersectsBounds } from './pointer-path-geometry'
 import { resolveWindowsControlBounds } from './windows-control-geometry'
 import { randomUUID } from 'crypto'
 import { matchesWindowsApplication } from './windows-application-match'
@@ -472,10 +473,7 @@ export class AgentControlBroker extends EventEmitter {
         const target = this.targets.get(assertControlIdentifier(input.targetId, 'targetId')).target
         const capabilities = assertControlCapabilities(input.capabilities)
         assertCapabilitiesSupportedByTarget(capabilities, target)
-        const rawDurationMs = Number(input.durationMs ?? 10 * 60 * 1000)
-        const rawMaxActions = Number(input.maxActions ?? 100)
-        const durationMs = Math.max(1_000, Math.min(CONTROL_BOUNDS.maxGrantDurationMs, Number.isFinite(rawDurationMs) ? Math.floor(rawDurationMs) : 10 * 60 * 1000))
-        const maxActions = Math.max(1, Math.min(CONTROL_BOUNDS.maxGrantActions, Number.isFinite(rawMaxActions) ? Math.floor(rawMaxActions) : 100))
+        const { durationMs, maxActions } = normalizeGrantLimits(input.durationMs, input.maxActions)
         const expiresAt = new Date(Date.now() + durationMs).toISOString()
         const defaultScopes = defaultGrantScopes(target)
         const allowedOrigins = input.allowedOrigins?.length ? input.allowedOrigins.slice(0, 32) : defaultScopes.allowedOrigins
@@ -1137,7 +1135,7 @@ export class AgentControlBroker extends EventEmitter {
         principalValue: unknown,
         operationValue: unknown,
         signal?: AbortSignal,
-        options: { permissionMode?: 'approval-required' | 'auto-review' | 'edits-only' | 'full-access'; deferInitialScreenshot?: boolean } = {}
+        options: { permissionMode?: 'approval-required' | 'auto-review' | 'edits-only' | 'full-access'; deferInitialScreenshot?: boolean; reuseWindowsGrantForActions?: number } = {}
     ): Promise<Record<string, unknown>> {
         this.assertAlive()
         assertBridgeMessageSize(operationValue)
@@ -1311,7 +1309,7 @@ export class AgentControlBroker extends EventEmitter {
                         capabilities,
                         durationMs: operation.durationMs,
                         maxActions: operation.maxActions
-                    }, signal, { ...options, deferInitialScreenshot: Boolean(requestedSequence) })
+                    }, signal, { ...options, deferInitialScreenshot: Boolean(requestedSequence), reuseWindowsGrantForActions: (requestedSequence?.steps.length || 0) + 1 })
                 } finally { releaseAcquisition?.() }
                 const grant = result.grant as ControlGrant | undefined
                 if (!grant) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return its bounded grant.')
@@ -1397,7 +1395,7 @@ export class AgentControlBroker extends EventEmitter {
                     options.permissionMode === 'full-access'
                     || (options.permissionMode === 'auto-review' && requestedTarget.kind === 'zyra-browser')
                 )
-                const completeGrant = async (request: ReturnType<AgentControlBroker['requestGrant']>, grant: ControlGrant) => {
+                const completeGrant = async (request: ReturnType<AgentControlBroker['requestGrant']> | undefined, grant: ControlGrant) => {
                     const includeScreenshot = requestedTarget.kind === 'windows-window'
                         && grant.capabilities.includes('observe.screenshot') && !options.deferInitialScreenshot
                     const includeStructure = grant.capabilities.includes('observe.structure')
@@ -1417,6 +1415,27 @@ export class AgentControlBroker extends EventEmitter {
                     const currentGrant = this.grants.listForPrincipal(principal).find((entry) => entry.grantId === grant.grantId) || grant
                     return { pending: false, request, grant: currentGrant, ...(observation ? { observation } : {}),
                         ...(selectedWindow ? { selectedWindow } : {}), ...(screenshot ? { screenshot } : {}) }
+                }
+                // App reacquisition may keep the exact current authority. It never
+                // renews expiry, restores spent actions, or expands capabilities.
+                if (requestedTarget.kind === 'windows-window' && options.reuseWindowsGrantForActions) {
+                    this.expireControlAuthority(false)
+                    const capabilities = assertControlCapabilities(operation.capabilities)
+                    const limits = normalizeGrantLimits(operation.durationMs, operation.maxActions)
+                    const requestedExpiry = Date.now() + limits.durationMs
+                    const reusable = this.grants.listForPrincipal(principal).find(candidate => {
+                        if (candidate.targetId !== requestedTarget.targetId || candidate.state !== 'active'
+                            || candidate.maxActions - candidate.actionCount > limits.maxActions
+                            || Date.parse(candidate.expiresAt) > requestedExpiry
+                            || candidate.capabilities.length !== capabilities.length
+                            || !capabilities.every(capability => candidate.capabilities.includes(capability))) return false
+                        try {
+                            assertGrantSupportsTarget(candidate, requestedTarget)
+                            this.grants.requireRemaining(candidate.grantId, principal, options.reuseWindowsGrantForActions!)
+                            return true
+                        } catch { return false }
+                    })
+                    if (reusable) return { ...await completeGrant(undefined, reusable), reusedGrant: true }
                 }
                 const request = this.requestGrant({
                     principal,
@@ -2047,8 +2066,8 @@ function resolveSemanticSequenceAction(
     if (step.type === 'key') {
         return { type: 'key', key: step.key, modifiers: step.modifiers, sideEffect: step.sideEffect }
     }
-    if (step.type === 'drag' || step.type === 'click_point') {
-        const description = step.type === 'drag' ? 'drag' : 'coordinate click'
+    if (step.type === 'drag' || step.type === 'stroke' || step.type === 'click_point') {
+        const description = step.type === 'click_point' ? 'coordinate click' : step.type
         if (!observation.viewport) {
             throw new AgentControlError('CONTROL_TARGET_BLOCKED', `A sequence ${description} requires current observed window bounds.`, { freshRevision: observation.revision })
         }
@@ -2057,15 +2076,16 @@ function resolveSemanticSequenceAction(
         const screenBounds = resolveWindowsControlBounds(observation)
         const points = step.type === 'drag'
             ? [{ x: step.fromX, y: step.fromY }, { x: step.toX, y: step.toY }]
-            : [{ x: step.x, y: step.y }]
+            : step.type === 'stroke' ? step.points : [{ x: step.x, y: step.y }]
         const endpoints = points.map((point) => ({
             x: point.x + (screenBounds?.x || 0),
             y: point.y + (screenBounds?.y || 0)
         }))
         for (const element of observation.elements) {
             const bounds = element.bounds
-            if (!bounds || !endpoints.some((point) => point.x >= bounds.x && point.y >= bounds.y
-                && point.x <= bounds.x + bounds.width && point.y <= bounds.y + bounds.height)) continue
+            if (!bounds || !(step.type === 'stroke' ? pointerPathIntersectsBounds(endpoints, bounds)
+                : endpoints.some((point) => point.x >= bounds.x && point.y >= bounds.y
+                    && point.x <= bounds.x + bounds.width && point.y <= bounds.y + bounds.height))) continue
             if (element.sensitive) {
                 throw new AgentControlError('CONTROL_TARGET_BLOCKED', `A sequence ${description} cannot target a sensitive control.`, { freshRevision: observation.revision })
             }
@@ -2073,7 +2093,7 @@ function resolveSemanticSequenceAction(
                 throw new AgentControlError('CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED', `This ${description} must use an individual action with its canonical side-effect review.`, { freshRevision: observation.revision })
             }
         }
-        return step.type === 'drag'
+        return step.type === 'drag' || step.type === 'stroke'
             ? { ...step, button: 'left' }
             : { type: 'click', x: step.x, y: step.y, button: 'left', clickCount: 1, sideEffect: 'none' }
     }
@@ -2149,4 +2169,13 @@ export function defaultGrantScopes(target: ControlTarget): { allowedOrigins?: st
     if (target.kind === 'windows-window') return { allowedExecutableIdentities: [target.executableIdentity] }
     const origin = target.origin || undefined
     return { allowedOrigins: origin ? [normalizedOrigin(origin) || origin] : undefined }
+}
+
+function normalizeGrantLimits(duration?: number, actions?: number): { durationMs: number; maxActions: number } {
+    const rawDuration = Number(duration ?? 10 * 60 * 1000)
+    const rawActions = Number(actions ?? 100)
+    return {
+        durationMs: Math.max(1000, Math.min(CONTROL_BOUNDS.maxGrantDurationMs, Number.isFinite(rawDuration) ? Math.floor(rawDuration) : 10 * 60 * 1000)),
+        maxActions: Math.max(1, Math.min(CONTROL_BOUNDS.maxGrantActions, Number.isFinite(rawActions) ? Math.floor(rawActions) : 100))
+    }
 }

@@ -163,6 +163,7 @@ export type ControlSemanticActionStep =
     | ({ type: 'type'; text: string; replace: boolean; sideEffect: 'none' } & ControlSemanticActionTarget)
     | { type: 'key'; key: string; modifiers?: string[]; sideEffect: 'none' }
     | { type: 'drag'; fromX: number; fromY: number; toX: number; toY: number; durationMs?: number; sideEffect: 'none' }
+    | { type: 'stroke'; points: Array<{ x: number; y: number }>; durationMs?: number; sideEffect: 'none' }
     | { type: 'wait'; durationMs: number; sideEffect: 'none' }
 
 export interface ControlSemanticActionSequenceRequest {

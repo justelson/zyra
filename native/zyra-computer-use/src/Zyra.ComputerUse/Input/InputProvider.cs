@@ -123,6 +123,29 @@ public sealed class InputProvider
         });
     }
 
+    public void Stroke(WindowHandleEntry window, PointerPathPoint[]? points, string? button, int durationMs)
+    {
+        var path = new PointerStrokePath(points);
+        if (durationMs is < 0 or > 12_000) throw new InvalidOperationException("Stroke duration must be 0 to 12000 milliseconds.");
+        var duration = Math.Max(50, durationMs == 0 ? 600 : durationMs);
+        foreach (var point in path.Points) ValidatePoint(window, point.X, point.Y);
+        var first = path.Points[0];
+        Move(window, first.X, first.Y);
+        ValidatePoint(window, first.X, first.Y);
+        ThrowIfStopped();
+        var (down, up) = MouseButtonFlags(button);
+        _stop.WithButton(down, up, () =>
+        {
+            PointerMotionPacer.Run(duration, progress => path.Advance(progress, point =>
+            {
+                ThrowIfStopped();
+                var validated = ValidatePoint(window, point.X, point.Y);
+                PositionPointer(window, validated.X, validated.Y);
+                PointerProgress?.Invoke(validated.X, validated.Y, "dragging");
+            }), ThrowIfStopped);
+        });
+    }
+
     public void TypeText(WindowHandleEntry window, string text)
     {
         Focus(window);
@@ -192,29 +215,23 @@ public sealed class InputProvider
         ThrowIfStopped();
         if (!NativeMethods.GetCursorPos(out var previous))
             throw new InvalidOperationException("Windows could not read the pointer before positioning.");
-        if (!NativeMethods.SetCursorPos(x, y))
+        // Cursor relocation alone does not supply the motion history consumed by
+        // native drawing controls. Deliver real uncoalesced absolute movement.
+        var normalizedX = AbsolutePointerCoordinates.Normalize(x, NativeMethods.GetSystemMetrics(76), NativeMethods.GetSystemMetrics(78));
+        var normalizedY = AbsolutePointerCoordinates.Normalize(y, NativeMethods.GetSystemMetrics(77), NativeMethods.GetSystemMetrics(79));
+        var input = new[]
         {
-            var left = NativeMethods.GetSystemMetrics(76);
-            var top = NativeMethods.GetSystemMetrics(77);
-            var width = Math.Max(2, NativeMethods.GetSystemMetrics(78));
-            var height = Math.Max(2, NativeMethods.GetSystemMetrics(79));
-            var normalizedX = checked((int)Math.Round((x - left) * 65_535d / (width - 1)));
-            var normalizedY = checked((int)Math.Round((y - top) * 65_535d / (height - 1)));
-            var input = new[]
+            new NativeMethods.Input
             {
-                new NativeMethods.Input
+                Type = 0,
+                Data = new NativeMethods.InputUnion
                 {
-                    Type = 0,
-                    Data = new NativeMethods.InputUnion
-                    {
-                        Mouse = new NativeMethods.MouseInput { X = normalizedX, Y = normalizedY, Flags = 0x0001 | 0x4000 | 0x8000 }
-                    }
+                    Mouse = new NativeMethods.MouseInput { X = normalizedX, Y = normalizedY, Flags = 0x0001 | 0x2000 | 0x4000 | 0x8000 }
                 }
-            };
-            if (NativeMethods.SendInput(1, input, Marshal.SizeOf<NativeMethods.Input>()) != 1)
-                throw new InvalidOperationException("Windows rejected pointer positioning.");
-            Thread.Sleep(12);
-        }
+            }
+        };
+        if (NativeMethods.SendInput(1, input, Marshal.SizeOf<NativeMethods.Input>()) != 1)
+            throw new InvalidOperationException("Windows rejected pointer movement.");
         PointerPositionConfirmation.Confirm(x, y, (previous.X, previous.Y),
             () => NativeMethods.GetCursorPos(out var actual) ? (actual.X, actual.Y) : null,
             () => { ThrowIfStopped(); ValidatePoint(window, x, y); });
@@ -222,6 +239,7 @@ public sealed class InputProvider
 
     private static (int X, int Y) ValidatePoint(WindowHandleEntry window, double xValue, double yValue)
     {
+        AssertSelectedProcess(window);
         if (!double.IsFinite(xValue) || !double.IsFinite(yValue)) throw new InvalidOperationException("Pointer coordinates must be finite.");
         var x = checked((int)Math.Round(xValue));
         var y = checked((int)Math.Round(yValue));

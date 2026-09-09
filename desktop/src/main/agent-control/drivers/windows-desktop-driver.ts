@@ -123,7 +123,7 @@ export class WindowsDesktopDriver implements AgentControlDriver {
             const result = await this.connection.request('action', {
                 windowToken: trusted.windowToken,
                 revision: context.revision,
-                ...(!semantic && ['move', 'click', 'drag'].includes(action.type) && context.allowWindowFocus === true ? { allowWindowFocus: true } : {}),
+                ...(!semantic && ['move', 'click', 'drag', 'stroke'].includes(action.type) && context.allowWindowFocus === true ? { allowWindowFocus: true } : {}),
                 action: translateWindowsPointerAction(action, context.previousObservation)
             }, context.signal, undefined, target.target.targetId, (cursor) => {
                 if (context.signal?.aborted) return

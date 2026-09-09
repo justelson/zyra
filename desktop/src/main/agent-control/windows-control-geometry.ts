@@ -20,6 +20,7 @@ export function resolveWindowsActionScreenPoint(action: ControlAction, observati
     const targetBounds = resolveWindowsControlBounds(observation)
     if (!targetBounds) return null
     if (action.type === 'drag') return { x: targetBounds.x + action.fromX, y: targetBounds.y + action.fromY }
+    if (action.type === 'stroke') return { x: targetBounds.x + action.points[0]!.x, y: targetBounds.y + action.points[0]!.y }
     if ('x' in action && 'y' in action && action.x !== undefined && action.y !== undefined) {
         return { x: targetBounds.x + action.x, y: targetBounds.y + action.y }
     }
@@ -35,6 +36,7 @@ export function resolveWindowsDragEndScreenPoint(action: ControlAction, observat
 export function translateWindowsPointerAction(action: ControlAction, observation: ControlObservation): ControlAction {
     const targetBounds = resolveWindowsControlBounds(observation)
     if (!targetBounds) return action
+    if (action.type === 'stroke') return { ...action, points: action.points.map(point => ({ x: targetBounds.x + point.x, y: targetBounds.y + point.y })) }
     if ((action.type === 'move' || action.type === 'click') && 'x' in action && 'y' in action && action.x !== undefined && action.y !== undefined) {
         return { ...action, x: targetBounds.x + action.x, y: targetBounds.y + action.y }
     }

@@ -30,3 +30,7 @@ assert.equal(resolveWindowsActionScreenPoint({ type: 'focus' }, observation), nu
 assert.equal(resolveWindowsControlBounds(undefined), null)
 
 console.log('Windows control overlay geometry passed.')
+
+const stroke = { type: 'stroke' as const, points: [{ x: 30, y: 40 }, { x: 50, y: 90 }, { x: 130, y: 140 }] }
+assert.deepEqual(resolveWindowsActionScreenPoint(stroke, observation), { x: 22, y: 32 })
+assert.deepEqual(translateWindowsPointerAction(stroke, observation), { type: 'stroke', points: [{ x: 22, y: 32 }, { x: 42, y: 82 }, { x: 122, y: 132 }] })

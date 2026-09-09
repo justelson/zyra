@@ -215,13 +215,14 @@ public sealed class NamedPipeRpcHost
         {
             if (!CanUseWindowInputFallback(action))
                 throw new InvalidOperationException("The exact semantic action could not be completed. Observe the target again before acting.");
-            if (action.Type is "move" or "click" or "drag")
+            if (action.Type is "move" or "click" or "drag" or "stroke")
                 _input.PreparePointerFocus(window, _observationWindowBounds.GetValueOrDefault(token), ReadBool(parameters, "allowWindowFocus"));
             switch (action.Type)
             {
                 case "move": _input.Move(window, action.X, action.Y); break;
                 case "click": _input.Click(window, action.X, action.Y, action.Button, action.ClickCount); break;
                 case "drag": _input.Drag(window, action.FromX, action.FromY, action.ToX, action.ToY, action.Button, action.DurationMs); break;
+                case "stroke": _input.Stroke(window, action.Points, action.Button, action.DurationMs); break;
                 case "focus": _input.Focus(window); break;
                 case "type": _input.TypeText(window, action.Text ?? string.Empty); break;
                 case "key": _input.Key(window, action.Key ?? string.Empty, action.Modifiers); break;
@@ -234,7 +235,7 @@ public sealed class NamedPipeRpcHost
     }
 
     public static bool CanUseWindowInputFallback(SidecarAction action) =>
-        action.ElementRef is null && action.Type is "move" or "click" or "drag" or "focus" or "key" or "scroll" or "wait"
+        action.ElementRef is null && action.Type is "move" or "click" or "drag" or "stroke" or "focus" or "key" or "scroll" or "wait"
         || action.ElementRef is not null && action.Type == "type" && !action.Replace;
 
     private object Stop()

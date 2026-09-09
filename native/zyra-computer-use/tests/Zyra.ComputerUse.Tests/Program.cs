@@ -29,6 +29,7 @@ void Equal<T>(T expected, T actual)
     if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"Expected {expected}; received {actual}.");
 }
 
+await Check("continuous stroke visits every corner and releases on cancellation", () => { PointerStrokePathTests.Run(); return Task.CompletedTask; });
 await Check("rejects unauthenticated requests", async () =>
 {
     var response = await Host().HandleAsync(Request("health", "wrong-secret"));

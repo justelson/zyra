@@ -294,6 +294,11 @@ export function assertControlSemanticActionSequenceRequest(value: unknown): Cont
                 sideEffect: 'none'
             }
         }
+        if (record.type === 'stroke') {
+            const action = assertControlAction(record)
+            if (action.type !== 'stroke') return fail('Invalid stroke action.')
+            return { type: 'stroke', points: action.points, durationMs: action.durationMs, sideEffect: 'none' }
+        }
         return fail(`Computer sequence step ${index + 1} has an unsupported action.`)
     })
     const typedCharacters = steps.reduce((total, step) => total + (step.type === 'type' ? step.text.length : 0), 0)

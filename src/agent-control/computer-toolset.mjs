@@ -16,6 +16,7 @@ export const COMPUTER_TOOLSET_NAMES = Object.freeze([
   "computer_move",
   "computer_click",
   "computer_drag",
+  "computer_stroke",
   "computer_sequence",
   "computer_type",
   "computer_key",
@@ -94,6 +95,11 @@ const dragSchema = Type.Object({
   button: Type.Optional(pointerButton),
   sideEffect: Type.Optional(sideEffect),
 }, { additionalProperties: false });
+const strokeFields = {
+  points: Type.Array(Type.Array(Type.Number(), { minItems: 2, maxItems: 2 }), { minItems: 2, maxItems: 512, description: "Ordered selected-window [x, y] points followed with the button held continuously." }),
+  durationMs: Type.Optional(Type.Number({ minimum: 0, maximum: 12000 })),
+};
+const strokeSchema = Type.Object({ ...revisionSchema, ...strokeFields, button: Type.Optional(pointerButton) }, { additionalProperties: false });
 const semanticTargetSchema = {
   role: Type.Optional(Type.String({ description: "Exact semantic role when known. Omit it to require one unique actionable control with the exact name.", minLength: 1, maxLength: 128 })),
   name: Type.String({ description: "Exact case-sensitive semantic name from the latest observation or a confidently known app label. Preserve capitalization.", minLength: 1, maxLength: 512 }),
@@ -125,6 +131,7 @@ const sequenceStepSchema = Type.Union([
     sideEffect: routineSideEffect,
   }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), durationMs: Type.Number({ minimum: 0, maximum: 2000 }), sideEffect: routineSideEffect }, { additionalProperties: false }),
+  Type.Object({ type: Type.Literal("stroke"), ...strokeFields, sideEffect: routineSideEffect }, { additionalProperties: false }),
 ]);
 const sequenceStepsSchema = Type.Array(sequenceStepSchema, { minItems: 1, maxItems: 16 });
 const sequenceSchema = Type.Object({
@@ -134,7 +141,7 @@ const sequenceSchema = Type.Object({
 const useAppSchema = Type.Object({
   application: Type.String({ description: "Registered Windows app name requested by the user.", minLength: 1, maxLength: 128 }),
   access: Type.Array(accessName, { description: "All capabilities needed for this app task.", minItems: 1, maxItems: Object.keys(capabilityNames).length }),
-  steps: Type.Optional(sequenceStepsSchema),
+  steps: Type.Optional(Type.Array(sequenceStepSchema, { minItems: 0, maxItems: 16 })),
 }, { additionalProperties: false });
 const typeSchema = Type.Object({
   ...revisionSchema,
@@ -179,7 +186,7 @@ export function createComputerToolSet(options = {}) {
     bridgeTool({
       name: "computer_use_app",
       label: "Use Windows app",
-      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities (include focus and screenshot for pointer work), and optionally run already-clear routine steps (including drags grounded in an observed layout) in the same call. Returns the latest observation and replaces an older Windows grant for the same turn only after the new grant succeeds. Embedded typing into a newly launched app requires a provably blank target and stops before input if the app restores existing, dirty, or unreadable text. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
+      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities (include focus and screenshot for pointer work), and optionally run already-clear routine steps (including drags grounded in an observed layout) in the same call. Returns the latest observation, reuses an active exact-window grant with identical capabilities and sufficient remaining actions, and replaces an older Windows grant for the same turn only after the new grant succeeds. Embedded typing into a newly launched app requires a provably blank target and stops before input if the app restores existing, dirty, or unreadable text. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
       parameters: useAppSchema,
       client: options.client,
       waitsForUser: true,
@@ -189,7 +196,7 @@ export function createComputerToolSet(options = {}) {
         capabilities: [...new Set(input.access.map((value) => capabilityNames[value]))],
         durationMs: 10 * 60 * 1000,
         maxActions: 32,
-        ...(input.steps?.length ? { requestId: `tool:${randomUUID()}`, steps: input.steps } : {}),
+        ...(input.steps?.length ? { requestId: `tool:${randomUUID()}`, steps: normalizeComputerSteps(input.steps) } : {}),
       }),
       format: (input, result) => [
         `${result.launched === false ? "Using already-running app" : "Opened registered app"} ${JSON.stringify(String(result.applicationName || input.application).slice(0, 256))}. Computer access granted.\n${JSON.stringify({ ...grantSummary(result.grant), ...(result.selectedWindow ? { selectedWindow: result.selectedWindow } : {}) }, null, 2)}`,
@@ -261,10 +268,11 @@ export function createComputerToolSet(options = {}) {
     actionTool("computer_move", "Move computer pointer", "Move the pointer to one selected-window coordinate from the latest observation without clicking.", moveSchema, "move", options.client),
     actionTool("computer_click", "Click computer control", "Click a semantic element or selected-window coordinate from the latest observation. For routine repeated coordinate clicks, use click_point steps in computer_sequence.", clickSchema, "click", options.client),
     actionTool("computer_drag", "Drag in computer window", "Drag between two selected-window coordinates from the latest observation. Declare any side effect explicitly.", dragSchema, "drag", options.client),
+    actionTool("computer_stroke", "Trace continuous pointer path", "Follow 2 to 512 ordered selected-window points from the latest observation, holding the pointer button from the first point through the last. Requires drag access. Every segment stays within the selected window; interruption releases the button.", strokeSchema, "stroke", options.client),
     bridgeTool({
       name: "computer_sequence",
       label: "Run computer steps",
-      description: "Run 1 to 16 already-clear routine steps in one bounded call. Supports exact semantic clicks, selected-window coordinate clicks (click_point), drags (for drawing or routine manipulation), exact-field typing, safe editing/navigation keys, and short waits. Request focus access for pointer work, especially when switching apps. Ground click_point and drag coordinates in the observed layout; each point must remain inside the current window. Batch known canvas clicks and the following tool selection together instead of separate calls. Use observed selected/checked states to avoid reselecting or toggling an already-active control. Select a drawing tool once, then batch its already-known gestures until the intended tool changes. A semantic role is optional only when the exact name identifies one unique actionable control. Prefer this over serial calls. Zyra re-observes and revision-checks after every step, then returns the final observation and, when granted, its screenshot. Only include completion or dismissal steps whose effect is verified. Do not use Escape as a generic commit key: it can discard active edits, including shapes in Paint. For an unfamiliar editing gesture, inspect one result before repeating it; then batch the verified gestures. Check the returned screenshot for actual progress, since successful input delivery does not prove the intended edit survived. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for any external or critical side effect.",
+      description: "Run 1 to 16 already-clear routine steps in one bounded call: exact semantic clicks, selected-window coordinate clicks (click_point), drags, continuous multi-point strokes, exact-field typing, safe editing/navigation keys, and short waits. Coordinates must be grounded in the latest observed layout and remain inside the selected window. Pointer actions require their explicit capabilities; activating a background window requires focus access. A semantic role may be omitted only when the exact name identifies one unique actionable control. Zyra re-observes and revision-checks after every step, then returns the final observation and, when granted, its screenshot. Batch steps whose effects are understood and inspect the returned result; successful input delivery alone does not prove the intended outcome. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for external or critical side effects.",
       parameters: sequenceSchema,
       client: options.client,
       toOperation: (input) => ({
@@ -274,7 +282,7 @@ export function createComputerToolSet(options = {}) {
         grantId: input.grantId,
         targetId: input.targetId,
         observationRevision: input.observationRevision,
-        steps: input.steps,
+        steps: normalizeComputerSteps(input.steps),
       }),
       format: (_input, result) => formatObservation(`Computer sequence completed ${result.completedSteps} of ${result.totalSteps} steps.`, result.observation),
       summarize: (_input, result) => ({
@@ -354,6 +362,18 @@ function createActivationController(sessionRef) {
   };
 }
 
+function normalizeComputerPoints(points) {
+  return points.map((point) => {
+    if (!Array.isArray(point)) return point; // Preserve existing object-shaped callers.
+    if (point.length !== 2) throw new Error("A pointer point requires exactly [x, y].");
+    return { x: point[0], y: point[1] };
+  });
+}
+
+function normalizeComputerSteps(steps) {
+  return steps.map((step) => step.type === "stroke" ? { ...step, points: normalizeComputerPoints(step.points) } : step);
+}
+
 function actionTool(name, label, description, parameters, actionType, client, extraAction = () => ({})) {
   return bridgeTool({
     name,
@@ -370,7 +390,8 @@ function actionTool(name, label, description, parameters, actionType, client, ex
       observationRevision: input.observationRevision,
       action: {
         type: actionType,
-        ...copyDefined(input, ["elementRef", "x", "y", "fromX", "fromY", "toX", "toY", "durationMs", "button", "clickCount", "text", "replace", "key", "modifiers", "deltaX", "deltaY", "sideEffect"]),
+        ...copyDefined(input, ["elementRef", "x", "y", "fromX", "fromY", "toX", "toY", "points", "durationMs", "button", "clickCount", "text", "replace", "key", "modifiers", "deltaX", "deltaY", "sideEffect"]),
+        ...(Array.isArray(input.points) ? { points: normalizeComputerPoints(input.points) } : {}),
         ...extraAction(input),
       },
     }),

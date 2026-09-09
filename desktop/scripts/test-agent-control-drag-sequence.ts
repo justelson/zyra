@@ -116,3 +116,35 @@ try {
     assert.equal(pointDriver.actions.length, 6, 'coordinate clicks cannot acquire pointer.click from a drag-only grant')
 } finally { await pointBroker.dispose() }
 console.log('Coordinate click sequences: mixed drawing/fill, physical sensitive bounds, exact left single click, stale/changed viewport, capability and cancellation: ok')
+
+const strokeDriver = new DrawingDriver()
+const strokeBroker = new AgentControlBroker({ drivers: [strokeDriver] })
+const stroke = { type: 'stroke', points: [{ x: 50, y: 120 }, { x: 150, y: 120 }, { x: 250, y: 200 }], durationMs: 600, sideEffect: 'none' }
+try {
+    const access = await strokeBroker.handleToolOperation(principal, { operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure', 'pointer.drag'], maxActions: 24, steps: [stroke] }, undefined, { permissionMode: 'full-access' }) as any
+    assert.equal(access.sequence.completedSteps, 1)
+    assert.deepEqual(strokeDriver.actions[0]!.action, { type: 'stroke', points: stroke.points, durationMs: 600, button: 'left' })
+    const run = (steps: unknown[], revision = access.observation.revision, signal?: AbortSignal) => strokeBroker.handleToolOperation(principal, { operation: 'act_sequence', version: 1, requestId: 'stroke-sequence', grantId: access.grant.grantId, targetId: access.grant.targetId, observationRevision: revision, steps }, signal)
+    await assert.rejects(() => run([{ ...stroke, points: [{ x: 0, y: 0 }] }]), /2 to 512/)
+    await assert.rejects(() => run([{ ...stroke, points: Array(513).fill({ x: 0, y: 0 }) }]), /2 to 512/)
+    await assert.rejects(() => run([{ ...stroke, points: [{ x: 0, y: 0 }, { x: NaN, y: 20 }] }]), /points/)
+    await assert.rejects(() => run([{ ...stroke, points: [{ x: 0, y: 0 }, { x: 900, y: 0 }] }]), /outside.*viewport/)
+    await assert.rejects(() => run([stroke], 1), { code: 'CONTROL_STALE_OBSERVATION' })
+    // Neither endpoint is inside this control: the segment crosses its interior.
+    strokeDriver.extra = [{ elementRef: 'window', role: 'window', bounds: { x: -400, y: 100, width: 800, height: 600 } }, { elementRef: 'secret', role: 'edit', name: 'Password', sensitive: true, bounds: { x: -310, y: 210, width: 20, height: 20 } }]
+    const sensitive = await strokeBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    await assert.rejects(() => run([stroke], sensitive.revision), /sensitive/)
+    strokeDriver.extra[1] = { ...strokeDriver.extra[1]!, sensitive: false, name: 'Confirm purchase' }
+    const critical = await strokeBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    await assert.rejects(() => run([stroke], critical.revision), /canonical side-effect/)
+    strokeDriver.extra = []
+    const fresh = await strokeBroker.observe(principal, access.grant.grantId, access.grant.targetId, false, undefined, 'structure')
+    const abort = new AbortController()
+    strokeDriver.onAction = () => abort.abort()
+    await assert.rejects(() => run([stroke, stroke], fresh.revision, abort.signal), /abort|cancel|interrupt/i)
+    assert.equal(strokeDriver.actions.length, 2, 'cancellation starts no subsequent stroke')
+    strokeDriver.onAction = undefined
+    const limited = await strokeBroker.handleToolOperation(principal, { operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure'], maxActions: 3 }, undefined, { permissionMode: 'full-access' }) as any
+    await assert.rejects(() => strokeBroker.handleToolOperation(principal, { operation: 'act_sequence', version: 1, requestId: 'stroke-denied', grantId: limited.grant.grantId, targetId: limited.grant.targetId, observationRevision: limited.observation.revision, steps: [stroke] }), /capability|grant.*allow/i)
+} finally { await strokeBroker.dispose() }
+console.log('Continuous stroke sequence: complete path, bounds, capabilities, sensitive segment crossing and cancellation: ok')

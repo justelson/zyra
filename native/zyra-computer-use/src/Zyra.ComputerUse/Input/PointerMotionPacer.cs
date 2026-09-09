@@ -7,7 +7,7 @@ public static class PointerMotionPacer
     public static void Run(int durationMs, Action<double> applyProgress, Action ensureRunning,
         Func<double>? elapsedMilliseconds = null, Action<int>? sleep = null)
     {
-        if (durationMs is < 50 or > 2000) throw new ArgumentOutOfRangeException(nameof(durationMs));
+        if (durationMs is < 50 or > 12000) throw new ArgumentOutOfRangeException(nameof(durationMs));
         var started = Stopwatch.GetTimestamp();
         elapsedMilliseconds ??= () => Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         sleep ??= Thread.Sleep;

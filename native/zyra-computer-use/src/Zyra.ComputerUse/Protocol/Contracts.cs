@@ -81,4 +81,7 @@ public sealed record SidecarAction(
     double ToY = 0,
     int DurationMs = 0,
     string? Button = null,
-    int ClickCount = 1);
+    int ClickCount = 1,
+    PointerPathPoint[]? Points = null);
+
+public sealed record PointerPathPoint(double X, double Y);

@@ -215,3 +215,26 @@ await sequence.execute('tool:point-sequence', {
 })
 assert.deepEqual(calls.at(-1).steps, pointSteps, 'coordinates and the final semantic action reach the broker in one ordered batch')
 assert.equal(calls.at(-1).operation, 'act_sequence')
+
+const strokeTool = tools.find(tool => tool.name === 'computer_stroke')
+assert.ok(strokeTool, 'native continuous strokes are discoverable')
+assert.equal(strokeTool.parameters.properties.points.minItems, 2)
+assert.equal(strokeTool.parameters.properties.points.maxItems, 512)
+assert.ok(sequence.parameters.properties.steps.items.anyOf.some(step => step.properties.type.const === 'stroke'))
+
+const orderedPoints = [{ x: 20, y: 30 }, { x: 40, y: 60 }, { x: 80, y: 35 }]
+await strokeTool.execute('tool:stroke', { targetId: observation.targetId, grantId: 'control-grant:fixture', observationRevision: observation.revision, points: orderedPoints, durationMs: 600 })
+assert.deepEqual(calls.at(-1).action, { type: 'stroke', points: orderedPoints, durationMs: 600 })
+
+assert.equal(useApp.parameters.properties.steps.minItems, 0, 'an empty optional app setup must behave like omitted steps')
+assert.equal(sequence.parameters.properties.steps.minItems, 1, 'standalone execution still requires a step')
+await useApp.execute('tool:empty-setup', { application: 'Calculator', access: ['observe'], steps: [] })
+assert.equal('steps' in calls.at(-1), false, 'empty optional setup is omitted before the bridge call')
+
+await strokeTool.execute('tool:compact-stroke', { targetId: observation.targetId, grantId: 'control-grant:fixture', observationRevision: observation.revision, points: [[20,30],[40,60],[80,35]], durationMs: 600 })
+assert.deepEqual(calls.at(-1).action, { type: 'stroke', points: orderedPoints, durationMs: 600 })
+await sequence.execute('tool:compact-sequence', { targetId: observation.targetId, grantId: 'control-grant:fixture', observationRevision: observation.revision, steps: [{ type: 'stroke', points: [[20,30],[40,60]], sideEffect: 'none' }] })
+assert.deepEqual(calls.at(-1).steps, [{ type: 'stroke', points: [{x:20,y:30},{x:40,y:60}], sideEffect: 'none' }])
+await useApp.execute('tool:compact-app', { application: 'Calculator', access: ['observe','drag'], steps: [{ type: 'stroke', points: [[20,30],[40,60]], sideEffect: 'none' }] })
+assert.deepEqual(calls.at(-1).steps, [{ type: 'stroke', points: [{x:20,y:30},{x:40,y:60}], sideEffect: 'none' }])
+await assert.rejects(() => strokeTool.execute('tool:invalid-point', { targetId: observation.targetId, grantId: 'control-grant:fixture', observationRevision: observation.revision, points: [[20,30,40],[40,60]] }), /exactly/)

@@ -18,8 +18,9 @@ import {
     stripAssistantCommandEnvelope
 } from '../src/renderer/src/pages/assistant/assistant-action-presentation'
 import { parseAssistantSkillSnapshot } from '../src/renderer/src/pages/assistant/assistant-skill-snapshot'
+import { groupAssistantControlActionRuns } from '../src/renderer/src/pages/assistant/assistant-control-action-runs'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
-import { areActivitiesEquivalent } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
+import { areActivitiesEquivalent, estimateTimelineRowHeight, getTimelineEntries } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import { SettingsProvider } from '../src/renderer/src/lib/settings'
 import {
     acknowledgeAssistantInspectorNavigation,
@@ -228,6 +229,26 @@ const runningBatchMarkup = renderToStaticMarkup(createElement(TimelineToolCallLi
 assert.match(runningBatchMarkup, /data-current-action-intent="Inspecting example\.com"/, 'a live batch follows the currently running Action')
 assert.doesNotMatch(runningBatchMarkup, /data-settled-action-intent="Reviewing timeline behavior"/, 'the shared block intent waits until every Action settles')
 assert.match(runningBatchMarkup, /assistant-title-shimmer/, 'the current Action uses the full title-regeneration shimmer')
+assert.match(runningBatchMarkup, /data-action-batch-intent="Reviewing timeline behavior"/, 'live and settled batches both show their recorded purpose')
+const mixedActions = [command, activity({ id: 'check', kind: 'command.checkpoint', payload: { commandAction: 'status', jobId: 'job-1' } }), computer, agent]
+const mixedEntries = getTimelineEntries([], mixedActions.map((entry, index) => ({ ...entry, timelineSequence: index + 1 })).reverse())
+assert.equal(mixedEntries.length, 1, 'checks, computer use, and agent actions stay in one consecutive block')
+assert.deepEqual(mixedEntries[0]?.type === 'activity-group' ? mixedEntries[0].activities.map((entry) => entry.id) : [], mixedActions.map((entry) => entry.id))
+const drawingActions = [1, 2, 3].map((index) => activity({ id: `drawing:${index}`, kind: 'computer-control', payload: { actionBatchIntent: 'Drawing an owl in Paint', status: index === 3 ? 'running' : 'completed' } }))
+const drawingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [webSearch, ...drawingActions] }))
+assert.equal((drawingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 1, 'repeated computer calls become one collapsed intent row inside Actions')
+assert.match(drawingMarkup, /Drawing an owl in Paint/)
+assert.equal((drawingMarkup.match(/data-assistant-typed-action="drawing:/g) || []).length, 3, 'individual calls remain available within the disclosure')
+assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, command, drawingActions[1]!]).map((run) => run.length), [1, 1, 1], 'unrelated actions cannot be moved inside a computer run')
+assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, { ...drawingActions[1]!, payload: { actionBatchIntent: 'Saving the drawing' } }, { ...drawingActions[2]!, turnId: 'next-turn' }]).map((run) => run.length), [1, 1, 1], 'a new purpose or turn starts its own computer run')
+const onlyDrawingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: drawingActions }))
+assert.equal((onlyDrawingMarkup.match(/data-assistant-action-batch="true"/g) || []).length, 1, 'a computer-only block avoids a redundant outer disclosure')
+const recovery = activity({ id: 'recovery', kind: 'connection.recovery', payload: { status: 'recovered' } })
+assert.equal(getTimelineEntries([], [command, recovery, computer].map((entry, index) => ({ ...entry, timelineSequence: index + 1 })).reverse()).length, 3, 'recovery stays at its own chronological boundary')
+assert.equal(getAssistantActionTitle(activity({ id: 'stroke', kind: 'computer-control', payload: { toolName: 'computer_sequence', args: { steps: [{ type: 'stroke' }, { type: 'drag' }] } } })), 'Drawing strokes', 'computer sequence details describe the actual input')
+assert.equal(getAssistantActionTitle(activity({ id: 'observe', kind: 'computer-control', payload: { toolName: 'computer_observe' } })), 'Inspecting app', 'named computer tools do not fall back to generic control rows')
+assert.equal(getAssistantActionTitle(activity({ id: 'drag', kind: 'computer-control', payload: { toolName: 'computer_sequence', args: { steps: [{ type: 'drag' }] } } })), 'Dragging', 'a generic drag does not imply drawing')
+assert.equal(estimateTimelineRowHeight({ kind: 'activity-group', id: 'mixed', createdAt, activities: mixedActions }), 36, 'the virtual list reserves one collapsed header for a mixed action block')
 const failedSettledBatchMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
     { ...command, payload: { ...(command.payload || {}), actionBatchIntent: 'Checking failure handling' } },
     activity({ id: 'action:failed-settled', kind: 'web-fetch', tone: 'error', payload: { status: 'failed', url: 'https://example.com/fail', actionBatchIntent: 'Checking failure handling' } })

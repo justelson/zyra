@@ -57,7 +57,7 @@ export const TimelineIssueList = memo(({
 
     return (
         <>
-            <div className="w-full max-w-4xl py-2">
+            <div className="w-full max-w-4xl py-0.5">
                 <div className={cn('w-full overflow-hidden')}>
                         {renderedGroups.map((group) => (
                             group.dismissed ? (

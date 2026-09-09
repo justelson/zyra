@@ -565,6 +565,11 @@ body:not(.light) .framework-badge {
   animation: assistantTextShimmer 2.8s linear infinite;
 }
 
+.assistant-compaction-shimmer {
+  animation-duration: 6.5s;
+  animation-timing-function: ease-in-out;
+}
+
 .assistant-title-reveal {
   animation: assistantTitleReveal 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }

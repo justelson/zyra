@@ -120,9 +120,13 @@ const cancelledCompactionActivity: AssistantActivity = {
 assert.equal(getContextCompactionStatus(runningCompactionActivity), 'running')
 assert.equal(getContextCompactionStatus(completedCompactionActivity), 'completed')
 assert.equal(getContextCompactionStatus(cancelledCompactionActivity), 'cancelled')
-assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: runningCompactionActivity })).includes('AUTO-COMPACTING'), true)
-assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: completedCompactionActivity })).includes('AUTO-COMPACTED'), true)
-assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: cancelledCompactionActivity })).includes('AUTO-COMPACTION CANCELLED'), true)
+assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: runningCompactionActivity })).includes('Compacting context'), true)
+assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: completedCompactionActivity })).includes('Context compacted'), true)
+assert.equal(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: cancelledCompactionActivity })).includes('Context compaction cancelled'), true)
+const failedCompactionMarkup = renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: { ...runningCompactionActivity, tone: 'error', payload: { status: 'failed' } } }))
+assert.match(failedCompactionMarkup, /Context compaction failed/)
+assert.doesNotMatch(failedCompactionMarkup, /assistant-compaction-shimmer/, 'failed compaction stops animating')
+assert.match(renderToStaticMarkup(createElement(TimelineContextCompactionMarker, { activity: runningCompactionActivity })), /assistant-compaction-shimmer/, 'only running compaction has the slow shimmer')
 
 const compactWarningMarkup = renderToStaticMarkup(createElement(IssueLogRow, {
     activity: cancelledCompactionActivity,
@@ -136,9 +140,9 @@ const compactWarningMarkup = renderToStaticMarkup(createElement(IssueLogRow, {
     onDismiss: () => {},
     onShowMore: () => {}
 }))
-assert.equal(compactWarningMarkup.includes('min-h-8'), true, 'chat warning rows use the slim compact layout')
+assert.equal(compactWarningMarkup.includes('min-h-7'), true, 'chat warning rows match inline recovery density')
 assert.equal(compactWarningMarkup.includes('line-clamp-2'), false, 'chat warning rows remain on one line')
-assert.equal(compactWarningMarkup.includes('>Details<'), false, 'the compact warning row itself opens details without a redundant action')
+assert.equal(compactWarningMarkup.includes('>Details<'), true, 'the compact warning keeps an explicit details action')
 assert.equal(compactWarningMarkup.indexOf('x3') < compactWarningMarkup.indexOf('Dismiss warning options'), true, 'the repeat count appears before the warning actions menu')
 
 const turnId = 'turn-devscope-sequence'
@@ -1265,9 +1269,9 @@ const commandCheckpoint: AssistantActivity = {
 }
 const checkpointEntries = getTimelineEntries([], [commandCheckpoint, managedCommand])
 assert.deepEqual(
-    checkpointEntries.map((entry) => entry.type === 'activity' ? entry.activity.id : entry.id),
+    checkpointEntries.flatMap((entry) => entry.type === 'activity' ? entry.activity.id : entry.type === 'activity-group' ? entry.activities.map((item) => item.id) : entry.id),
     ['managed-command', 'managed-checkpoint'],
-    'a command follow-up keeps its current chronological position instead of merging into the original tool-call batch'
+    'a command follow-up retains its chronological position within the shared action block'
 )
 assert.equal(isCommandCheckpointActivity(commandCheckpoint), true)
 assert.equal(getCommandCheckpointAction(commandCheckpoint), 'status')
@@ -1316,9 +1320,9 @@ const checkpointRows = buildTimelineRows(
     null
 )
 assert.equal(checkpointRows.length, 1)
-assert.equal(checkpointRows[0]?.kind, 'command-checkpoint-group')
+assert.equal(checkpointRows[0]?.kind, 'activity-group')
 assert.equal(
-    checkpointRows[0]?.kind === 'command-checkpoint-group' ? checkpointRows[0].activities.length : 0,
+    checkpointRows[0]?.kind === 'activity-group' ? checkpointRows[0].activities.length : 0,
     2,
     'adjacent completed and running command checks collapse into one expandable row'
 )
@@ -1361,7 +1365,7 @@ assert.equal(
 )
 assert.equal(getTerminalOutputHeightClass('running', 1), 'h-[6.875rem]', 'one running command shows five output lines')
 assert.equal(getTerminalOutputHeightClass('running', 2), 'h-[1.875rem]', 'concurrent running commands collapse to one output line each')
-assert.equal(getTerminalOutputHeightClass('success', 2), 'h-32 sm:h-36', 'completed output keeps its normal review height')
+assert.equal(getTerminalOutputHeightClass('success', 2), 'max-h-32 sm:max-h-36', 'completed output keeps its normal review height')
 
 const sharedSurfaceActivity = activity({ id: 'shared-surface', turnId: 'surface-contract', millisecond: 1695 })
 sharedSurfaceActivity.kind = 'search'
@@ -1500,7 +1504,7 @@ assert.equal(toolCardSource.includes("crispContent={activity.kind === 'file-chan
 assert.equal(animatedHeightSource.includes("'grid transition-[grid-template-rows] ease-[cubic-bezier(0.2,0.8,0.2,1)]"), true, 'crisp disclosures animate grid height without opacity or transforms')
 assert.equal(animatedHeightSource.includes('inert={!isOpen ? true : undefined}'), true, 'closed disclosures remove hidden controls from keyboard navigation')
 assert.equal(toolCallListSource.includes('setOlderMounted'), false, 'action lists do not maintain a hidden last-five subset')
-assert.equal(toolCallListSource.includes('displayActivities.map'), true, 'every expanded action is projected directly')
+assert.equal(toolCallListSource.includes('run.map(renderActivity)'), true, 'computer intent disclosures retain every real action')
 assert.equal(toolCardSource.includes('className="shrink-0 font-mono text-[9px]'), true, 'file elapsed time no longer reserves an oversized fixed-width gap')
 assert.equal(inlineDiffPreviewSource.includes('MAX_INLINE_DIFF_ROWS = 100'), true, 'inline diff DOM work is capped at 100 lines')
 assert.equal(inlineDiffPreviewSource.includes("[text-rendering:auto] [-webkit-font-smoothing:auto]"), true, 'inline diff text uses native crisp rendering')

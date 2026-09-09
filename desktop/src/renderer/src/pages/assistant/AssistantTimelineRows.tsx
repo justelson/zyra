@@ -29,7 +29,6 @@ import {
     getActivityOutput,
     getActivityStatus,
     getCommandCheckpointAction,
-    getContextCompactionStatus,
     isClipboardAttachmentReference,
     isCommandCheckpointActivity,
     isInternalAssistantActivity,
@@ -42,6 +41,7 @@ import { TimelineToolCallList } from './AssistantTimelineToolCalls'
 
 export { TimelineToolCallList }
 export { TimelineIssueList } from './AssistantTimelineIssueList'
+export { TimelineContextCompactionMarker } from './AssistantTimelineCompaction'
 export { TimelineProposedPlan } from './AssistantTimelineProposedPlan'
 
 const ASSISTANT_MARKDOWN_CLASS_NAME = 'text-[13px] leading-6 text-sparkle-text [&_h1]:mb-2.5 [&_h1]:mt-5 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-[15px] [&_h1]:font-semibold [&_h2]:mb-2.5 [&_h2]:mt-5 [&_h2]:border-0 [&_h2]:pb-0 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h4]:mb-2 [&_h4]:mt-4 [&_h4]:text-[13px] [&_h4]:font-semibold [&_h5]:mb-2 [&_h5]:mt-4 [&_h5]:text-[13px] [&_h6]:mb-2 [&_h6]:mt-4 [&_h6]:text-[12px] [&_p]:mb-3 [&_p]:leading-6 [&_li]:leading-6 [&_ul]:text-[13px] [&_ol]:text-[13px] [&_table]:text-[13px] [&_pre]:text-[12px] [&_code]:text-[12px]'
@@ -459,19 +459,6 @@ export const TimelineModelNotice = memo(({ activity }: { activity: AssistantActi
         </div>
     )
 })
-
-function getCompactionLabelStyle(isRunning: boolean): React.CSSProperties | undefined {
-    if (!isRunning) return undefined
-
-    return {
-        backgroundImage: 'linear-gradient(90deg, rgba(186,230,253,0.58), rgba(125,211,252,1), rgba(186,230,253,0.58))',
-        backgroundSize: '240% 100%',
-        WebkitBackgroundClip: 'text',
-        backgroundClip: 'text',
-        color: 'transparent',
-        animation: 'shimmer 1.45s linear infinite'
-    }
-}
 
 function getAttachmentPreviewTarget(attachmentName: string, attachmentPath: string): { name: string; ext: string } {
     const sourceName = String(attachmentName || '').trim() || String(attachmentPath || '').split(/[\\/]/).pop() || 'attachment'
@@ -981,42 +968,6 @@ export const TimelineMessage = memo(({
         && prev.onLinkNotice === next.onLinkNotice
         && areMessagesEqual(prev.message, next.message)
 })
-
-export function TimelineContextCompactionMarker({ activity }: { activity: AssistantActivity }) {
-    const status = getContextCompactionStatus(activity)
-    const isRunning = status === 'running'
-    const label = status === 'running'
-        ? 'AUTO-COMPACTING'
-        : status === 'cancelled'
-            ? 'AUTO-COMPACTION CANCELLED'
-            : status === 'failed'
-                ? 'AUTO-COMPACTION FAILED'
-                : 'AUTO-COMPACTED'
-    const labelStyle = getCompactionLabelStyle(isRunning)
-
-    return (
-        <div className="max-w-4xl py-2" aria-live={isRunning ? 'polite' : undefined}>
-            <div className="flex items-center gap-3">
-                <span className={cn(
-                    'h-px flex-1 bg-gradient-to-r from-transparent via-white/8 to-white/10',
-                    isRunning && 'via-sky-300/25 to-sky-300/15'
-                )} />
-                <span className={cn(
-                    'relative isolate overflow-hidden rounded-full border border-transparent bg-white/[0.03] px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-sparkle-text-secondary shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]',
-                    isRunning && 'bg-sky-500/[0.08] text-sky-100',
-                    status === 'cancelled' && 'bg-amber-500/[0.08] text-amber-200',
-                    status === 'failed' && 'bg-red-500/[0.08] text-red-200'
-                )}>
-                    <span className="relative z-10" style={labelStyle}>{label}</span>
-                </span>
-                <span className={cn(
-                    'h-px flex-1 bg-gradient-to-r from-white/10 via-white/8 to-transparent',
-                    isRunning && 'from-sky-300/15 via-sky-300/25'
-                )} />
-            </div>
-        </div>
-    )
-}
 
 function formatWorkingIndicatorStatus(startedAt: string | null | undefined, label: string): string {
     if (label === 'Connecting...') return label

@@ -9,6 +9,7 @@ import {
     getCreatedFilePaths
 } from './assistant-timeline-helpers'
 import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
+import { groupAssistantControlActionRuns } from './assistant-control-action-runs'
 import { AssistantTimelineActionBatch } from './AssistantTimelineActionBatch'
 import { AssistantTimelineAgentAction } from './AssistantTimelineAgentAction'
 import { AssistantTimelineControlAction } from './AssistantTimelineControlAction'
@@ -135,11 +136,16 @@ export const TimelineToolCallList = memo(({
             </div>
         )
     }
-    const actionRows = displayActivities.map(renderActivity)
+    const actionRuns = groupAssistantControlActionRuns(displayActivities)
+    const actionRows = actionRuns.map((run) => run.length > 1 ? (
+        <AssistantTimelineActionBatch key={run[0]!.id} activities={run} projectRootPath={projectRootPath} controlRun>
+            {run.map(renderActivity)}
+        </AssistantTimelineActionBatch>
+    ) : renderActivity(run[0]!))
 
     return (
         <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
-            {displayActivities.length > 1 ? (
+            {actionRuns.length > 1 ? (
                 <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath}>
                     {actionRows}
                 </AssistantTimelineActionBatch>

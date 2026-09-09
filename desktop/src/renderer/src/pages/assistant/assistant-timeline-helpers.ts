@@ -164,10 +164,10 @@ export function getActivityRenderGroupKind(activity: AssistantActivity): 'issue'
     if (isVoiceStrongTaskActivity(activity)) return null
     if (isModelNoticeActivity(activity)) return null
     if (isContextCompactionActivity(activity)) return null
-    if (isCommandCheckpointActivity(activity)) return null
+    if (isCommandCheckpointActivity(activity)) return 'tool'
     if (isAssistantConnectionRecoveryActivity(activity)) return null
     if (isIssueActivity(activity)) return 'issue'
-    if (isSubagentActivity(activity)) return 'subagent'
+    if (isSubagentActivity(activity)) return 'tool'
     if (isToolLikeActivity(activity)) return 'tool'
     return null
 }
@@ -1202,19 +1202,17 @@ export function estimateTimelineRowHeight(
         if (isVoiceStrongTaskActivity(row.activity)) return 36
         if (isCommandCheckpointActivity(row.activity)) return 34
         if (isInternalAssistantActivity(row.activity)) return 42
-        if (isContextCompactionActivity(row.activity)) return 72
-        if (isIssueActivity(row.activity)) return 124
+        if (isContextCompactionActivity(row.activity)) return 32
+        if (isIssueActivity(row.activity)) return 32
         return isSubagentActivity(row.activity) ? 212 : 168
     }
     if (row.kind === 'activity-group') {
         const containsIssueActivity = row.activities.some((activity) => isIssueActivity(activity))
-        const containsSubagentActivity = row.activities.some((activity) => isSubagentActivity(activity))
         if (containsIssueActivity) {
-            return 112 + Math.min(row.activities.length, 6) * 86
+            return 4 + row.activities.length * 28
         }
-        return containsSubagentActivity
-            ? 132 + Math.min(row.activities.length, 6) * 124
-            : 120 + Math.min(row.activities.length, 6) * 96
+        // Action blocks start collapsed; expanded content is measured by the list.
+        return 36
     }
     if (row.kind === 'command-checkpoint-group') {
         return 44 + Math.min(row.activities.length, 6) * 28

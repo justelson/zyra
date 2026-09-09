@@ -390,11 +390,12 @@ export function IssueLogRow({
     }, [activity, onDismiss, toneLabel])
 
     return (
-        <div className="w-full overflow-hidden border-b border-white/[0.045] last:border-b-0">
+        <div className={cn('w-full overflow-hidden', !compact && 'border-b border-white/[0.045] last:border-b-0')} data-assistant-inline-issue={compact ? activity.tone : undefined}>
             <div
                 role="button"
                 tabIndex={0}
                 onClick={openDetails}
+                aria-label={`${displayTitle}. Show details`}
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault()
@@ -403,7 +404,7 @@ export function IssueLogRow({
                 }}
                 className={cn(
                     'group flex justify-between transition-colors hover:bg-white/[0.025] focus:outline-none focus-visible:ring-1',
-                    compact ? 'min-h-8 items-center gap-2 px-2 py-1' : 'items-start gap-3 px-2.5 py-2.5',
+                    compact ? 'min-h-7 items-center gap-2 rounded-md py-0.5' : 'items-start gap-3 px-2.5 py-2.5',
                     toneSurface.focus
                 )}
             >
@@ -412,14 +413,9 @@ export function IssueLogRow({
                     className={cn('shrink-0', !compact && 'mt-0.5', activity.tone === 'error' ? 'text-red-300/60' : 'text-amber-200/55')}
                 />
                 {compact ? (
-                    <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] leading-5">
-                        <span className="max-w-[42%] shrink-0 truncate font-medium text-sparkle-text/88">{displayTitle}</span>
-                        {brief ? (
-                            <>
-                                <span className="shrink-0 text-white/18" aria-hidden="true">·</span>
-                                <span className="min-w-0 flex-1 truncate text-sparkle-text-secondary/58">{brief}</span>
-                            </>
-                        ) : null}
+                    <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] leading-5">
+                        <span className={cn('min-w-0 truncate font-medium', activity.tone === 'error' ? 'text-red-200/65' : 'text-amber-100/60')}>{displayTitle}</span>
+                        <span className="h-px min-w-4 flex-1 bg-[var(--surface-divider)]" aria-hidden="true" />
                     </div>
                 ) : (
                     <div className="min-w-0 flex-1">
@@ -453,15 +449,13 @@ export function IssueLogRow({
                             menuClassName="min-w-[188px]"
                         />
                     ) : null}
-                    {!compact ? (
-                        <button
-                            type="button"
-                            onClick={(event) => { event.stopPropagation(); openDetails() }}
-                            className="rounded-md px-1.5 py-1 text-[10px] transition-colors hover:bg-white/[0.04] hover:text-sparkle-text-secondary"
-                        >
-                            Details
-                        </button>
-                    ) : null}
+                    <button
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); openDetails() }}
+                        className="rounded-md px-1.5 py-1 text-[10px] transition-colors hover:bg-white/[0.04] hover:text-sparkle-text-secondary"
+                    >
+                        Details
+                    </button>
                 </div>
             </div>
             <AnimatedHeight isOpen={Boolean(hasMultiple && expanded)} duration={180} crispContent>

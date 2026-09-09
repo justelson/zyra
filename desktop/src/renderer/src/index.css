@@ -2393,6 +2393,10 @@ body.zyra-reduce-motion .zyra-settings-switch-thumb {
   padding-bottom: 1rem;
 }
 
+[data-assistant-chat-display='minimal'] [data-assistant-work-sequence] > [data-assistant-message-role='assistant'] {
+  padding-bottom: 0.5rem;
+}
+
 [data-assistant-chat-display='minimal'] [data-assistant-message-role='user'] {
   padding-bottom: 0.75rem;
 }

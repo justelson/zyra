@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
+import { FileActionsMenuSecondaryAction } from '@/components/ui/FileActionsMenuSecondaryAction'
 import { cn } from '@/lib/utils'
 
 export function useAssistantRailContextMenu() {
@@ -71,27 +72,30 @@ export function useAssistantRailContextMenu() {
                     aria-label={contextMenu.title}
                 >
                     {contextMenu.items.map((item) => (
-                        <button
-                            key={item.id}
-                            type="button"
-                            disabled={item.disabled}
-                            onClick={() => {
-                                setContextMenu(null)
-                                void item.onSelect()
-                            }}
-                            className={cn(
-                                'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors',
-                                item.disabled
-                                    ? 'cursor-not-allowed text-white/20'
-                                    : item.danger
-                                        ? 'text-red-200 hover:bg-red-500/15 hover:text-red-100'
-                                        : 'text-white/75 hover:bg-white/10 hover:text-white'
-                            )}
-                            role="menuitem"
-                        >
-                            {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
-                            <span>{item.label}</span>
-                        </button>
+                        <div key={item.id} className="flex w-full items-stretch">
+                            <button
+                                type="button"
+                                disabled={item.disabled}
+                                onClick={() => {
+                                    setContextMenu(null)
+                                    void item.onSelect()
+                                }}
+                                className={cn(
+                                    'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors',
+                                    item.secondaryAction && 'rounded-r-none',
+                                    item.disabled
+                                        ? 'cursor-not-allowed text-white/20'
+                                        : item.danger
+                                            ? 'text-red-200 hover:bg-red-500/15 hover:text-red-100'
+                                            : 'text-white/75 hover:bg-white/10 hover:text-white'
+                                )}
+                                role="menuitem"
+                            >
+                                {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
+                                <span>{item.label}</span>
+                            </button>
+                            {item.secondaryAction ? <FileActionsMenuSecondaryAction action={item.secondaryAction} onClose={() => setContextMenu(null)} /> : null}
+                            </div>
                     ))}
                 </div>
             </div>,

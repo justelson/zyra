@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check, ChevronRight, MoreVertical, Plus } from 'lucide-react'
 import { dismissTransientMenus, TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
 import { cn } from '@/lib/utils'
+import { FileActionsMenuSecondaryAction } from './FileActionsMenuSecondaryAction'
 
 export interface FileActionsMenuChoice {
     id: string
@@ -16,6 +17,7 @@ export interface FileActionsMenuChoice {
 }
 
 export interface FileActionsMenuItem extends FileActionsMenuChoice {
+    secondaryAction?: FileActionsMenuChoice
     choices?: FileActionsMenuChoice[]
     choicesLabel?: string
 }
@@ -263,7 +265,7 @@ export function FileActionsMenu({
                                 compact
                                     ? 'min-h-8 px-2 py-1.5 text-[11px] leading-none'
                                     : 'px-2.5 py-2 text-xs',
-                                item.choices?.length
+                                item.choices?.length || item.secondaryAction
                                     ? 'rounded-l-[4px] rounded-r-none'
                                     : compact ? 'rounded-[4px]' : 'rounded-md',
                                 item.disabled
@@ -281,6 +283,7 @@ export function FileActionsMenu({
                             <span className="min-w-0 flex-1 truncate">{item.label}</span>
                             {item.checked ? <Check className="size-3.5 shrink-0 text-[var(--accent-primary)]" strokeWidth={2.2} /> : null}
                         </button>
+                        {item.secondaryAction ? <FileActionsMenuSecondaryAction action={item.secondaryAction} onClose={() => setOpen(false)} /> : null}
                         {item.choices?.length ? (
                             <button
                                 type="button"

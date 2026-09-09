@@ -540,7 +540,7 @@ try {
     assert.match(serviceSource, /async selectSession[\s\S]{0,180}await this\.ensureReady\(\)[\s\S]{0,500}generation !== this\.navigationSelectionGeneration/, 'main-process selection establishes latest intent only after shared startup work has settled')
     assert.match(serviceSource, /selectAssistantSessionAction[\s\S]{0,180}generation !== this\.navigationSelectionGeneration/, 'main-process navigation rechecks latest intent after authoritative selection mutation')
     assert.match(canonicalSyncScheduleSource, /setImmediate[\s\S]{0,300}synchronizeSelectedCanonicalSession/, 'canonical attachment begins after the selection response can return to the renderer')
-    assert.match(canonicalSyncSource, /await this\.runtime\.connect/, 'background synchronization still attaches the selected canonical chat')
+    assert.match(canonicalSyncSource, /await this\.connectSessionRuntime/, 'background synchronization still attaches the selected canonical chat')
     assert.match(canonicalSyncSource, /return toAssistantShellSnapshot/, 'background synchronization still converges on the live canonical shell')
     assert.match(serviceSource, /const snapshot = toAssistantShellSnapshot\(this\.state\.snapshot\)[\s\S]{0,180}scheduleSelectedCanonicalSessionSynchronization/, 'the selection handoff carries an immediate authoritative shell and defers live attachment')
     assert.match(serviceSource, /currentThread\?\.id !== thread\.id\) this\.runtime\.disconnect\(thread\.id\)/, 'a superseded canonical attachment is detached unless the newer intent selected the same thread')
@@ -875,6 +875,30 @@ try {
         ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = originalGetThreadDetailBootstrap
     }
 
+    const previewStore = new AssistantStore()
+    ;(previewStore as any).state = {
+        ...state,
+        snapshot: {...oversizedShell, selectedSessionId: oversizedSession.id, sessions: [oversizedSession]},
+        historyByThreadId: {}, selectionTransitionKey: null, selectionHydrationKey: null
+    }
+    ;(previewStore as any).hydratedThreadCache.set(oversizedThread.id, {
+        ...oversizedThread, sessionId: oversizedSession.id, threadId: oversizedThread.id,
+        revision: getAssistantThreadHydrationRevision(oversizedThread)
+    })
+    ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = async () => ({
+        success: true,
+        detail: {
+            threadId: oversizedThread.id, activePlan: null, pendingApprovals: [], pendingUserInputs: [],
+            history: {...oversizedRetainedHistory, messages: oversizedThread.messages.slice(-2), activities: [], proposedPlans: []}
+        }
+    })
+    try {
+        await (previewStore as any).requestSessionHydration(oversizedSession.id, oversizedThread.id)
+        assert.equal((previewStore as any).state.historyByThreadId[oversizedThread.id].messages.length, oversizedThread.messages.length,
+            'bootstrap cannot retract a validated visible preview when its paging cache was evicted')
+    } finally {
+        ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = originalGetThreadDetailBootstrap
+    }
     const staleCache = new Map(hydratedThreadCache)
     const staleSessionB = state.snapshot.sessions.find((entry) => entry.id === 'b')!
     const staleThreadB = {

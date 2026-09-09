@@ -28,6 +28,7 @@ import { assistantStreamPresentation } from './assistant-stream-presentation'
 import { rendererVisibility } from '../renderer-visibility'
 import {
     cacheHydratedThreads,
+    hasCachedSessionSelection,
     type CachedHydratedThreadState
 } from './session-hydration-cache'
 import { deriveAssistantRuntimeStatus, INITIAL_ASSISTANT_RUNTIME_STATUS, type AssistantStoreState } from './assistant-store-runtime'
@@ -1294,6 +1295,9 @@ export class AssistantStore {
             return this.requestSessionHydration(sessionId, threadId, retryAttempt, true, resetLoadedRange)
         }
 
+        const validatedPreview = !resetLoadedRange && hasCachedSessionSelection(
+            this.state.snapshot, sessionId, threadId, this.hydratedThreadCache
+        ) ? currentThread : null
         const requestedRevision = currentThread ? getAssistantThreadHydrationRevision(currentThread) : null
         let request!: Promise<void>
         request = (async () => {
@@ -1334,7 +1338,8 @@ export class AssistantStore {
                     const applied = applyAssistantThreadDetail(
                         current.snapshot,
                         result.detail,
-                        resetLoadedRange ? undefined : current.historyByThreadId[threadId]
+                        resetLoadedRange ? undefined : current.historyByThreadId[threadId],
+                        validatedPreview
                     )
                     const selectedThreadId = current.snapshot.sessions
                         .find((session) => session.id === current.snapshot.selectedSessionId)?.activeThreadId || null

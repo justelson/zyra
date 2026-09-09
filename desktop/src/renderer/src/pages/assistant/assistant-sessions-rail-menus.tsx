@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Edit2, Pin, PinOff, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Edit2, Pin, PinOff, RotateCw, SquarePen, Trash2 } from 'lucide-react'
 import type { AssistantSession } from '@shared/assistant/contracts'
 import type { FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import type { SessionProjectGroup } from './assistant-sessions-rail-utils'
@@ -9,6 +9,7 @@ export function createSessionActionMenuItems(args: {
     archived?: boolean
     pinned?: boolean
     onOpenRename: (session: AssistantSession) => void
+    onRegenerateTitle?: (session: AssistantSession) => void | Promise<void>
     onTogglePinned?: (sessionId: string, pinned: boolean) => void
     onArchiveSession: (sessionId: string, archived?: boolean) => void
     onDeleteRequest: (session: AssistantSession) => void
@@ -44,7 +45,14 @@ export function createSessionActionMenuItems(args: {
             id: 'rename',
             label: 'Rename chat',
             icon: <Edit2 size={13} />,
-            onSelect: () => onOpenRename(session)
+            onSelect: () => onOpenRename(session),
+            secondaryAction: args.onRegenerateTitle ? {
+                id: 'regenerate-title',
+                label: session.titleGenerating ? 'Regenerating chat title' : 'Regenerate chat title',
+                icon: <RotateCw size={12} strokeWidth={1.5} />,
+                disabled: session.titleGenerating,
+                onSelect: () => args.onRegenerateTitle?.(session)
+            } : undefined
         },
         {
             id: 'archive',

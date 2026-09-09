@@ -246,9 +246,22 @@ export function shouldPreserveAssistantLoadedHistoryRange(
 export function applyAssistantThreadDetail(
     snapshot: AssistantSnapshot,
     detail: AssistantThreadDetail,
-    existingHistory?: AssistantRetainedHistory
+    existingHistory?: AssistantRetainedHistory,
+    validatedPreview?: AssistantThread | null
 ): { snapshot: AssistantSnapshot; history: AssistantRetainedHistory } {
     const now = Date.now()
+    // A warm preview can outlive its paging cache. Keep its older visible rows
+    // through bootstrap, but retain the server cursor to fill any preview gaps.
+    if (!existingHistory && validatedPreview && detail.history.pageInfo.hasOlder) {
+        existingHistory = {
+            ...detail.history,
+            messages: validatedPreview.messages,
+            activities: validatedPreview.activities,
+            proposedPlans: validatedPreview.proposedPlans,
+            lastUsedAt: now,
+            shellRevision: getAssistantThreadHydrationRevision(validatedPreview)
+        }
+    }
     const preserveLoadedRange = shouldPreserveAssistantLoadedHistoryRange(existingHistory, detail.history)
     const pageInfo = preserveLoadedRange ? existingHistory!.pageInfo : detail.history.pageInfo
     const fullyLoaded = preserveLoadedRange ? existingHistory!.fullyLoaded : detail.history.fullyLoaded

@@ -23,6 +23,7 @@ import {
 } from './assistant-sessions-rail-utils'
 import { createProjectActionMenuItems, createSessionActionMenuItems } from './assistant-sessions-rail-menus'
 import { useAssistantRailContextMenu } from './useAssistantRailContextMenu'
+import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegeneration'
 import {
     hasSessionChats,
     useAssistantRailCollisionDetection,
@@ -118,6 +119,7 @@ export function ExpandedSessionsRailContent(props: ExpandedSessionsRailContentPr
     const projectDragInProgressRef = useRef(false)
     const suppressProjectClickAfterDragRef = useRef(false)
     const { openContextMenu, contextMenuPortal } = useAssistantRailContextMenu()
+    const regenerateTitle = useAssistantRailTitleRegeneration(onShowToast)
     const [visibleSessionCountByGroup, setVisibleSessionCountByGroup] = useState<Record<string, number>>({})
     const [creatingLab, setCreatingLab] = useState(false)
     const [labDialogOpen, setLabDialogOpen] = useState(false)
@@ -194,11 +196,12 @@ export function ExpandedSessionsRailContent(props: ExpandedSessionsRailContentPr
             archived,
             pinned: pinnedSessionIds.has(session.id),
             onOpenRename,
+            onRegenerateTitle: regenerateTitle,
             onTogglePinned: archived ? undefined : handleTogglePinnedSession,
             onArchiveSession,
             onDeleteRequest
         })
-    ), [handleTogglePinnedSession, onArchiveSession, onDeleteRequest, onOpenRename, pinnedSessionIds])
+    ), [handleTogglePinnedSession, onArchiveSession, onDeleteRequest, onOpenRename, pinnedSessionIds, regenerateTitle])
 
     const openSessionContextMenu = useCallback((
         event: ReactMouseEvent<HTMLElement>,

@@ -25,6 +25,7 @@ import {
 import { createSessionActionMenuItems } from './assistant-sessions-rail-menus'
 import { isAssistantDraftSession, resolveAssistantProjectPresentation, resolveAssistantThreadStatusPill, resolveSessionProjectPath } from './assistant-sessions-rail-utils'
 import { useAssistantRailContextMenu } from './useAssistantRailContextMenu'
+import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegeneration'
 
 const PINNED_SESSION_IDS_KEY = 'assistant:pinned-session-ids:v1'
 const EXPANDED_PROJECT_PATH_KEYS_KEY = 'assistant:expanded-project-path-keys:v1'
@@ -248,6 +249,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     const navigate = useNavigate()
     const { open } = useCommandPalette()
     const { openContextMenu, contextMenuPortal } = useAssistantRailContextMenu()
+    const regenerateTitle = useAssistantRailTitleRegeneration(onShowToast)
     const resizeStateRef = useRef<{ pointerId: number; startX: number; startWidth: number; width: number } | null>(null)
     const resizeFrameRef = useRef(0)
     const layoutShellRef = useRef<HTMLDivElement | null>(null)
@@ -506,6 +508,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
             session,
             pinned: pinnedSessionIds.has(session.id),
             onOpenRename: (target) => { void renameSession(target) },
+            onRegenerateTitle: regenerateTitle,
             onTogglePinned: () => togglePinnedSession(session),
             onArchiveSession: () => { void archiveSession(session) },
             onDeleteRequest: (target) => { void deleteSession(target) }

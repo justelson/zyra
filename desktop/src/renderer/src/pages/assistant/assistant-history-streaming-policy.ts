@@ -39,6 +39,10 @@ export function resolveAssistantInitialHistoryBackfill(
     return { shouldRequest, turnLimit }
 }
 
+export function shouldRevealAssistantInitialHistory(input: AssistantInitialHistoryBackfillInput): boolean {
+    if (!input.initialLayoutReady || !input.selectionSettled || input.loadingOlder || input.requestPending) return false
+    return !resolveAssistantInitialHistoryBackfill(input).shouldRequest
+}
 export type AssistantHistoryStreamPlanInput = {
     startupSettled: boolean
     upwardIntent: boolean

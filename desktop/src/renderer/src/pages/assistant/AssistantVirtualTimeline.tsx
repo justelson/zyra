@@ -20,6 +20,7 @@ import {
 import {
     normalizeAssistantHistoryWheelDelta,
     resolveAssistantInitialHistoryBackfill,
+    shouldRevealAssistantInitialHistory,
     resolveAssistantHistoryStreamPlan,
     resolveAssistantScrollbarHistoryDemand,
     updateAssistantHistoryScrollVelocity
@@ -57,6 +58,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     contentInsetEndAdjustment: number
     isWorking: boolean
     selectionHydrating: boolean
+    coldStart?: boolean
     hasOlder: boolean
     hasNewer: boolean
     loadingOlder: boolean
@@ -109,6 +111,15 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const activeWindowKeyRef = useRef(props.windowKey)
     const settledWindowKeyRef = useRef<string | null>(null)
     const startupSettled = settledWindowKey === props.windowKey
+    const coldWindowRef = useRef({ key: props.windowKey, cold: props.coldStart === true })
+    const [coldHistoryReadyKey, setColdHistoryReadyKey] = useState<string | null>(null)
+    const [historyFillRevision, setHistoryFillRevision] = useState(0)
+    if (coldWindowRef.current.key !== props.windowKey) {
+        coldWindowRef.current = { key: props.windowKey, cold: props.coldStart === true }
+    }
+    if (props.isWorking || props.focusMessageId) coldWindowRef.current.cold = false
+    const coldHistoryPending = coldWindowRef.current.cold
+        && coldHistoryReadyKey !== props.windowKey && !userNavigationAwayRef.current
     if (initialHistoryBackfillWindowKeyRef.current !== props.windowKey) {
         initialHistoryBackfillWindowKeyRef.current = props.windowKey
         initialHistoryBackfillReadyRef.current = false
@@ -206,11 +217,10 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             activeWindowKeyRef.current !== targetWindowKey
             || initialHistoryBackfillWindowKeyRef.current !== targetWindowKey
             || !initialHistoryBackfillActiveRef.current
-            || !props.onLoadOlder
         ) return
         const state = props.listRef.current?.getState()
         const element = props.scrollContainerRef?.current
-        const plan = resolveAssistantInitialHistoryBackfill({
+        const initialHistory = {
             initialLayoutReady: initialHistoryBackfillReadyRef.current,
             selectionSettled: !props.selectionHydrating,
             isWorking: props.isWorking,
@@ -221,8 +231,12 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             contentLength: state?.contentLength || 0,
             viewportSize: state?.scrollLength || element?.clientHeight || 0,
             pagesRequested: initialHistoryBackfillPagesRef.current
-        })
-        if (!plan.shouldRequest) return
+        }
+        const plan = resolveAssistantInitialHistoryBackfill(initialHistory)
+        if (!plan.shouldRequest || !props.onLoadOlder) {
+            if (startupSettled && (!props.onLoadOlder || shouldRevealAssistantInitialHistory(initialHistory))) setColdHistoryReadyKey(targetWindowKey)
+            return
+        }
 
         const requestOwner = {
             windowKey: targetWindowKey,
@@ -235,7 +249,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             if (olderLoadRequestOwnerRef.current !== requestOwner) return
             olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
+            setHistoryFillRevision(value => value + 1)
             if (accepted === false) {
+                setColdHistoryReadyKey(targetWindowKey)
                 initialHistoryBackfillPagesRef.current = Math.max(0, initialHistoryBackfillPagesRef.current - 1)
             }
         }).catch(() => {
@@ -243,6 +259,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
             initialHistoryBackfillActiveRef.current = false
+            setColdHistoryReadyKey(targetWindowKey)
         })
     }, [
         props.hasOlder,
@@ -252,7 +269,8 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         props.loadingOlder,
         props.onLoadOlder,
         props.scrollContainerRef,
-        props.selectionHydrating
+        props.selectionHydrating,
+        startupSettled
     ])
 
     const scheduleInitialHistoryBackfillCheck = useCallback(() => {
@@ -458,6 +476,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         return cancelInitialHistoryBackfillCheck
     }, [
         cancelInitialHistoryBackfillCheck,
+        historyFillRevision,
         props.isWorking,
         props.loadingOlder,
         props.rows.length,
@@ -740,6 +759,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     )
 
     return (
+        <div className="relative h-full w-full">
         <LegendList
             ref={props.listRef}
             refScrollView={assignScrollViewRef}
@@ -813,9 +833,12 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                 }
                 props.onScrollContainer?.(element)
             }}
-            aria-busy={!startupSettled}
+            style={{ visibility: coldHistoryPending ? 'hidden' : undefined }}
+            aria-busy={coldHistoryPending || !startupSettled}
             className="assistant-chat-scrollbar h-full w-full overflow-x-hidden [overflow-anchor:none]"
             contentContainerClassName="mx-auto w-full max-w-3xl px-4 pt-0 md:translate-x-[2px]"
         />
+        {coldHistoryPending ? <div role="status" className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-sparkle-text-muted">Loading chat…</div> : null}
+        </div>
     )
 })

@@ -84,6 +84,11 @@ function areQueuedComposerSessionStatesEqual(
 
 export function AssistantConversationPane(props: AssistantConversationPaneProps) {
     const controller = useAssistantConversationStore()
+    const historyWindowKey = `${controller.selectedSession?.id || ''}:${controller.activeThread?.id || ''}`
+    const initialHistoryRef = useRef({key: historyWindowKey, cold: !controller.history})
+    if (initialHistoryRef.current.key !== historyWindowKey) {
+        initialHistoryRef.current = {key: historyWindowKey, cold: !controller.history}
+    }
     const actions = useAssistantStoreActions()
     const { settings, updateSettings } = useSettings()
     const projectCatalogState = useAssistantProjectCatalog()
@@ -1115,6 +1120,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             focusMessageId={props.focusMessageId}
                             loadingChats={isLoadingSelectedChat}
                             selectionHydrating={controller.selectionHydrating}
+                            coldStart={initialHistoryRef.current.cold}
                             assistantTextStreamingMode={settings.assistantTextStreamingMode}
                             assistantToolOutputDefaultMode={settings.assistantToolOutputDefaultMode}
                             assistantChatDisplayMode={settings.assistantChatDisplayMode}

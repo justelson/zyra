@@ -95,6 +95,7 @@ type AssistantTimelineProps = {
     focusMessageId?: string | null
     loadingChats?: boolean
     selectionHydrating?: boolean
+    coldStart?: boolean
     assistantTextStreamingMode?: AssistantTextStreamingMode
     assistantToolOutputDefaultMode?: AssistantToolOutputDefaultMode
     assistantChatDisplayMode?: AssistantChatDisplayMode
@@ -146,6 +147,7 @@ function AssistantTimelineImpl({
     focusMessageId = null,
     loadingChats = false,
     selectionHydrating = false,
+    coldStart = false,
     assistantTextStreamingMode = 'stream',
     assistantToolOutputDefaultMode = 'expanded',
     assistantChatDisplayMode = 'detailed',
@@ -593,6 +595,7 @@ function AssistantTimelineImpl({
             contentInsetEndAdjustment={contentInsetEndAdjustment}
             isWorking={isWorking}
             selectionHydrating={selectionHydrating}
+            coldStart={coldStart}
             hasOlder={hasOlder}
             hasNewer={hasNewer}
             loadingOlder={loadingOlder}

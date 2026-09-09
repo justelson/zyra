@@ -411,6 +411,11 @@ assert.equal(
     'an intentional in-session disconnect should remain stopped'
 )
 
+assert.equal(
+    shouldAutoReconnectAssistantThread({ threadState: 'stopped', hasRecoverableIssue: true }),
+    false,
+    'old recovery activities cannot turn a stopped historical chat into a disconnect/connect loop'
+)
 const readyPresence = {
     state: 'ready' as const,
     activeTurnId: null,

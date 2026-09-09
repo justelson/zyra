@@ -2,10 +2,18 @@ import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
 import {
     normalizeAssistantHistoryWheelDelta,
+    shouldRevealAssistantInitialHistory,
     resolveAssistantHistoryStreamPlan,
     updateAssistantHistoryScrollVelocity
 } from '../src/renderer/src/pages/assistant/assistant-history-streaming-policy'
 
+const coldHistory = {initialLayoutReady: true, selectionSettled: true, isWorking: false, hasOlder: true, loadingOlder: false, hasLoadError: false, requestPending: false, contentLength: 240, viewportSize: 800, pagesRequested: 0}
+assert.equal(shouldRevealAssistantInitialHistory(coldHistory), false, 'do not reveal the cold one-turn window while it still needs viewport fill')
+assert.equal(shouldRevealAssistantInitialHistory({...coldHistory, loadingOlder: true}), false, 'keep the cold loading presentation during paging')
+assert.equal(shouldRevealAssistantInitialHistory({...coldHistory, contentLength: 1200}), true, 'reveal once the viewport has enough history')
+assert.equal(shouldRevealAssistantInitialHistory({...coldHistory, hasOlder: false}), true, 'short complete chats reveal without extra loading')
+assert.equal(shouldRevealAssistantInitialHistory({...coldHistory, hasLoadError: true}), true, 'a failed history page must not leave the chat hidden')
+assert.equal(shouldRevealAssistantInitialHistory({...coldHistory, pagesRequested: 3}), true, 'bounded fill reveals even when the viewport remains short')
 const closedPlan = resolveAssistantHistoryStreamPlan({
     startupSettled: true,
     upwardIntent: false,

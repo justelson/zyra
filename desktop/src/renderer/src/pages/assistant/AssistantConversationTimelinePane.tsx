@@ -34,6 +34,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     focusMessageId?: string | null
     loadingChats: boolean
     selectionHydrating: boolean
+    coldStart?: boolean
     assistantTextStreamingMode: AssistantTextStreamingMode
     assistantToolOutputDefaultMode: AssistantToolOutputDefaultMode
     assistantChatDisplayMode: AssistantChatDisplayMode
@@ -134,6 +135,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         focusMessageId={props.focusMessageId}
                         loadingChats={props.loadingChats}
                         selectionHydrating={props.selectionHydrating}
+                        coldStart={props.coldStart}
                         assistantTextStreamingMode={props.assistantTextStreamingMode}
                         assistantToolOutputDefaultMode={props.assistantToolOutputDefaultMode}
                         assistantChatDisplayMode={props.assistantChatDisplayMode}

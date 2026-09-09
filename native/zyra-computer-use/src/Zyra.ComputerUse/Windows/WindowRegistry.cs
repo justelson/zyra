@@ -61,6 +61,8 @@ public sealed class WindowRegistry
         if (!_entries.TryGetValue(windowToken, out var entry)) throw new InvalidOperationException("The window token is unknown or expired.");
         if (entry.BlockedReason is not null) throw new UnauthorizedAccessException(entry.BlockedReason);
         if (!NativeMethods.IsWindow(entry.Handle)) throw new InvalidOperationException("The selected window closed.");
+        NativeMethods.GetWindowThreadProcessId(entry.Handle, out var currentProcessId);
+        if (currentProcessId != entry.ProcessId) throw new InvalidOperationException("The selected window process changed after selection.");
         var process = Process.GetProcessById(entry.ProcessId);
         if (process.StartTime.ToUniversalTime().Ticks != entry.ProcessStartTime) throw new InvalidOperationException("The process identity changed after selection.");
         var expected = Token(entry.Handle, entry.ProcessId, entry.ProcessStartTime, entry.ExecutableIdentity);

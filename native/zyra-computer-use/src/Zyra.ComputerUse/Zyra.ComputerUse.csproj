@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The normal sidecar is headless and never calls WinForms ApplicationConfiguration.Initialize.
+         Its process-wide physical coordinate policy must be active before any UIA/RPC work. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

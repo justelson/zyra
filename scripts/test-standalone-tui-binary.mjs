@@ -22,6 +22,7 @@ const environment = {
   HOME: temporaryRoot,
   USERPROFILE: temporaryRoot,
   LOCALAPPDATA: path.join(temporaryRoot, "local"),
+  APPDATA: path.join(temporaryRoot, "roaming"),
   PI_CODING_AGENT_DIR: piAgentDirectory,
   ZYRA_AGENT_SERVER_CHANNEL: channel,
   ZYRA_STATE_DIR: stateDirectory,
@@ -43,6 +44,10 @@ try {
   if (version.stdout.trim() !== `zyra ${expectedVersion}`) {
     throw new Error(`Unexpected standalone version output: ${version.stdout.trim()}`);
   }
+  const metadata = JSON.parse(run(["--version"], { ZYRA_INSTALL_METADATA: "1" }).stdout);
+  if (metadata.format !== 1 || metadata.version !== expectedVersion) throw new Error("Standalone installer metadata is invalid.");
+  const sharedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/icon.ico"));
+  if (!Buffer.from(metadata.windowsIconBase64, "base64").equals(sharedIcon)) throw new Error("Standalone icon differs from the Desktop icon.");
   writeBundledOAuthFixture();
   assertEmbeddedResources();
   run(["doctor"]);
@@ -52,6 +57,14 @@ try {
   }
   smokeUpdate();
   await smokeBridge();
+  if (process.platform === "win32") {
+    const inputCheck = spawnSync(process.execPath, [path.join(import.meta.dirname, "test-standalone-tui-input.mjs"), binary], {
+      cwd: temporaryRoot, encoding: "utf8", windowsHide: true, timeout: 120_000,
+    });
+    if (inputCheck.error) throw inputCheck.error;
+    if (inputCheck.status !== 0) throw new Error(`Compiled TUI input check failed:\n${inputCheck.stdout}\n${inputCheck.stderr}`);
+    process.stdout.write(inputCheck.stdout);
+  }
 
   server = spawn(binary, ["--internal-agent-server", "--channel", channel], {
     cwd: temporaryRoot,
@@ -126,6 +139,17 @@ function smokeUpdate() {
     if (launcherVersion.status !== 0 || launcherVersion.stdout.trim() !== `zyra ${expectedVersion}`) {
       throw new Error(`Updated standalone launcher failed validation: ${launcherVersion.stderr || launcherVersion.stdout}`);
     }
+    const expectedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/icon.ico"));
+    const iconFile = path.join(environment.LOCALAPPDATA, "Zyra", "bin", "zyra.ico");
+    const fragmentDirectory = path.join(environment.LOCALAPPDATA, "Microsoft", "Windows Terminal", "Fragments", "Zyra");
+    const fragment = JSON.parse(readFileSync(path.join(fragmentDirectory, "zyra.json"), "utf8").replace(/^\uFEFF/, ""));
+    if (!readFileSync(iconFile).equals(expectedIcon) || !readFileSync(path.join(fragmentDirectory, "zyra.ico")).equals(expectedIcon)) {
+      throw new Error("Installed terminal integration did not retain the exact Desktop icon.");
+    }
+    if (fragment.profiles?.length !== 1 || fragment.profiles[0].icon !== "zyra.ico") throw new Error("Installed Terminal profile is invalid.");
+    if (!existsSync(path.join(environment.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Zyra Terminal.lnk"))) {
+      throw new Error("Standalone installer did not create its branded Start Menu entry.");
+    }
   }
 }
 
@@ -136,6 +160,7 @@ function assertEmbeddedResources() {
   if (!extracted) throw new Error("Standalone TUI did not extract its embedded runtime resources.");
   const root = path.join(runtimeDirectory, extracted.name);
   for (const resource of [
+    "assets/zyra.ico",
     "analytics/events.v1.json",
     "prompts/zyra_system_prompt.md",
     "README.md",

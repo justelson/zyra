@@ -10,7 +10,7 @@ const runDirectory = join(tmpdir(), `zyra-windows-overlay-bundle-${process.pid}`
 const output = join(runDirectory, 'smoke.mjs')
 await mkdir(runDirectory, { recursive: true })
 await build({
-    entryPoints: [fileURLToPath(new URL('../smoke-windows-control-overlay.ts', import.meta.url))],
+    entryPoints: [fileURLToPath(new URL(process.argv.includes('--document') ? '../smoke-windows-control-glow.ts' : '../smoke-windows-control-overlay.ts', import.meta.url))],
     outfile: output,
     bundle: true,
     platform: 'node',
@@ -20,11 +20,11 @@ await build({
     sourcemap: false,
     logLevel: 'warning'
 })
-const child = spawn(electronPath, [output], {
+const child = spawn(electronPath, [output, `--user-data-dir=${join(runDirectory, 'profile')}`], {
     cwd: fileURLToPath(new URL('../../..', import.meta.url)),
     stdio: 'inherit',
-    windowsHide: false,
-    env: { ...process.env, ZYRA_WINDOWS_CONTROL_OVERLAY_SMOKE: '1' }
+    windowsHide: true,
+    env: { ...process.env, ZYRA_WINDOWS_CONTROL_OVERLAY_SMOKE: '1', ZYRA_WINDOWS_CONTROL_OVERLAY_HIT_TEST: process.argv.includes('--hit-test') ? '1' : '0' }
 })
 const exitCode = await new Promise((resolve, reject) => {
     child.once('error', reject)

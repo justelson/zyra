@@ -4,6 +4,20 @@ Zyra Plugins are installable, revisioned packages that contribute Skills, MCP to
 
 The load-bearing decision is recorded in [ADR-0017](../adr/0017-use-revisioned-plugin-scopes-and-capability-declared-contributions.md).
 
+## Current support
+
+The implemented runtime loads **Skill contributions only**. Catalog packages can contain additional contribution types; their presence in a package does not make them executable in Zyra.
+
+| Contribution | Current state |
+| --- | --- |
+| Skills | Supported within the exact Chat Plugin scope and normal action permissions. |
+| MCP connections/tools | Planned. Configuration can be inspected, but no Plugin MCP connection or tool-registration adapter is wired. |
+| Plugin Commands | Planned. Separate from existing project/custom slash commands. |
+| App views | Planned; require a sandboxed resource host. |
+| Hooks, Plugin agents, browser extensions, scheduled tasks | Unsupported; require separate execution and authority design. |
+
+MCP support still needs transport and tool-schema validation, account/credential handling, scoped tool registration, permission enforcement, cancellation, disconnect cleanup and adversarial tests. Skill instructions that refer to a package's MCP tools do not supply those tools. Installation must show this partial-support boundary before approval.
+
 ## Product model
 
 The primary user wants to add a stable capability to Zyra, understand what it can access, use it in selected work, update it safely, and remove it completely.
@@ -19,7 +33,7 @@ Plugins is a directory and management product. Its core objects are:
 - Chat Plugin scope
 - Plugin connection
 
-The common workflow is:
+The intended complete workflow is below. Connection setup, `@plugin`, and uninstall steps remain planned as listed in the implementation phases.
 
 1. Browse or add a Plugin source.
 2. Inspect a Plugin and one release.
@@ -161,6 +175,10 @@ A trusted direct UI action can approve the exact staged digest. An agent-request
 
 The activation record changes only after the staged copy passes a second inspection. Temporary directories are removed after success, failure, cancellation, process recovery, or application restart.
 
+Catalog preparation reports metadata lookup, verified-file progress and final inspection. A window-owned renderer controller keeps that job visible when the user returns from another route. Preparation and review do not activate a Plugin. The final review offers installation alone or an explicit new Chat pinned to the reviewed catalog release. If creating that Chat fails after installation, installation remains successful and is not repeated automatically.
+
+The acquisition service keeps a session-only byte cache bounded to 16 MiB, 512 entries and a 15-minute entry lifetime. It holds complete hash-verified blobs, never tree metadata, review IDs or approvals. Tree metadata is fetched afresh through the original pinned HTTPS requests. File hits are rehashed against their expected Git blob identity before staging; expiry, eviction or a corrupt hit triggers ordinary retrieval. Cancellation removes staging while allowing reuse of already-verified bytes on retry. The cache is cleared with the acquisition service and does not persist across app restarts. Network concurrency remains two files at a time; package/path/digest checks and final staged inspection remain mandatory.
+
 Zyra retains the active release, a bounded rollback set, and any release referenced by a Chat Plugin scope. Garbage collection never removes a referenced release.
 
 ## Enablement and scope
@@ -224,7 +242,9 @@ A package may include scripts inside a Skill. Their presence raises the Plugin's
 
 ### MCP tools
 
-The MCP adapter starts connections on demand. It does not connect every installed Plugin at application startup.
+**Status: planned.**
+
+The planned MCP adapter starts connections on demand. It must not connect every installed Plugin at application startup.
 
 The host validates server configuration, transport, destination, authentication mode, tool schemas, output bounds, cancellation, and timeout before registering tools. Registered Plugin tools remain inactive until deferred search selects them.
 
@@ -242,7 +262,9 @@ Missing metadata blocks the call. The model cannot supply or widen this metadata
 
 ### Commands
 
-Plugin Commands expand into ordinary user-visible Chat work. They do not execute privately or bypass the prompt, permission, or Action timeline.
+**Status: planned.**
+
+The planned Plugin Command adapter expands into ordinary user-visible Chat work. They do not execute privately or bypass the prompt, permission, or Action timeline.
 
 Built-in command names remain reserved. Collisions are namespaced or shown for explicit resolution.
 

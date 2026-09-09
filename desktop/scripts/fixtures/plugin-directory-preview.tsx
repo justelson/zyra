@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import storeCatalog from '../../src/shared/plugins/openai-directory.json'
 import PluginsPage from '../../src/renderer/src/pages/plugins/PluginsPage'
 import { assistantStore } from '../../src/renderer/src/lib/assistant/store'
@@ -11,11 +11,17 @@ const catalog = makePluginDirectoryFixture()
 const overview = structuredClone(fixtureSkillOverview)
 const clone = <T,>(value: T): T => structuredClone(value)
 const calls: Array<{ method: string; input?: unknown }> = []
-const switches = { failNext: false, empty: false, delay: 0 }
+let releaseInstallation: (() => void) | null = null
+const switches = { failNext: false, failMethod: '', empty: false, delay: 0, installDelay: 0, holdInstall: false, preparation: 'ready' as 'metadata' | 'downloading' | 'inspecting' | 'ready' }
 const result = async (method: string, input?: unknown) => {
     calls.push({ method, input })
-    if (switches.delay) await new Promise((resolve) => setTimeout(resolve, switches.delay))
-    if (switches.failNext) { switches.failNext = false; return { success: false, error: 'Fixture request failed. Try again.' } }
+    if (method === 'installInspectedPlugin' && switches.holdInstall) await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => { releaseInstallation = null; reject(Error('Fixture install hold expired')) }, 20_000)
+        releaseInstallation = () => { clearTimeout(timeout); releaseInstallation = null; switches.holdInstall = false; resolve() }
+    })
+    const delay = method === 'installInspectedPlugin' ? switches.installDelay : switches.delay
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+    if (switches.failNext || switches.failMethod === method) { switches.failNext = false; switches.failMethod = ''; return { success: false, error: 'Fixture request failed. Try again.' } }
     return null
 }
 Object.defineProperty(navigator, 'userAgent', { configurable: true, value: navigator.userAgent + ' Electron/fixture' })
@@ -33,9 +39,9 @@ const review = () => {
     const entry = storeCatalog.entries.find(entry => entry.name === download?.name)!
     const release = clone(catalog.releases[0])
     Object.assign(release, { id: `fixture-release-${entry.name}`, pluginId: `fixture-${entry.name}`, name: entry.name, version: entry.version, contentDigest: 'f'.repeat(64) })
-    Object.assign(release.manifest, { name: entry.name, version: entry.version, description: entry.longDescription })
+    Object.assign(release.manifest, { name: entry.name, version: entry.version, description: entry.longDescription, license: entry.license || null })
     Object.assign(release.manifest.interface, { displayName: entry.displayName, shortDescription: entry.description, developerName: entry.publisher, category: entry.category })
-    return { reviewId: download!.reviewId, expiresAt: '2099-01-01', manifest: release.manifest, release: { ...release, contributions: [{ kind: 'skills', support: 'supported' }], diagnostics: [] } }
+    return { reviewId: download!.reviewId, expiresAt: '2099-01-01', manifest: release.manifest, release: { ...release, contributions: [{ kind: 'skills', relativePath: './skills', support: 'supported' }, ...(entry.hasMcp ? [{ kind: 'mcp', relativePath: './.mcp.json', support: 'planned' }] : []), ...(entry.hasApps ? [{ kind: 'apps', relativePath: './.app.json', support: 'planned' }] : [])], diagnostics: [] } }
 }
 const api = {
     startPluginDownload: async ({ name }: { name: string }) => {
@@ -45,7 +51,9 @@ const api = {
     },
     getPluginDownload: async ({ id }: { id: string }) => {
         const failed = await result('getPluginDownload', { id }); if (failed) return failed
-        return download?.id === id ? { success: true, download: { id, status: 'ready', inspection: review() } } : { success: false, error: 'Download cancelled.' }
+        if (download?.id !== id) return { success: false, error: 'Plugin download is missing or expired. Try again.' }
+        if (switches.preparation !== 'ready') return { success: true, download: { id, status: 'downloading', progress: { phase: switches.preparation, completedFiles: switches.preparation === 'metadata' ? 0 : switches.preparation === 'inspecting' ? 20 : 8, totalFiles: 20, completedBytes: switches.preparation === 'metadata' ? 0 : switches.preparation === 'inspecting' ? 4096 : 1024, totalBytes: 4096, cacheHits: 3 } } }
+        return { success: true, download: { id, status: 'ready', inspection: review() } }
     },
     cancelPluginDownload: async ({ id }: { id: string }) => { await result('cancelPluginDownload', { id }); if (download?.id === id) download = null; return { success: true } },
     createPluginChat: async (selection: { pluginId: string; releaseId: string; contentDigest: string }) => {
@@ -108,5 +116,5 @@ const api = {
     }
 }
 Object.defineProperty(window, 'devscope', { configurable: true, value: { assistant: api, selectFolder: async () => { await result('selectFolder'); return { success: true, folderPath: 'C:/fixture/package' } }, openBrowserPreviewExternal: async (url: string) => { await result('openExternal', { url }); return { success: true } } } })
-Object.assign(window, { __pluginFixture: { calls, switches, catalog, state: () => assistantStore.getState().snapshot } })
-createRoot(document.getElementById('root')!).render(<MemoryRouter initialEntries={['/plugins']}><Routes><Route path="/plugins" element={<PluginsPage />} /><Route path="/assistant/*" element={<h1>New Plugin Chat</h1>} /></Routes></MemoryRouter>)
+Object.assign(window, { __pluginFixture: { calls, switches, catalog, releaseInstall: () => { const release = releaseInstallation; release?.(); return Boolean(release) }, entries: storeCatalog.entries, state: () => assistantStore.getState().snapshot } })
+createRoot(document.getElementById('root')!).render(<MemoryRouter initialEntries={['/plugins']}><nav aria-label="Fixture navigation" style={{ position: 'absolute', right: 16, top: 8, zIndex: 1, display: 'flex', gap: 16 }}><Link to="/away">Browse elsewhere</Link><Link to="/plugins">Return to Plugins</Link></nav><Routes><Route path="/plugins" element={<PluginsPage />} /><Route path="/away" element={<h1>Other workspace</h1>} /><Route path="/assistant/*" element={<h1>New Plugin Chat</h1>} /></Routes></MemoryRouter>)

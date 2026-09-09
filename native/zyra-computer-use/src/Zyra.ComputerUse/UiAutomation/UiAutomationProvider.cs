@@ -18,13 +18,18 @@ public sealed class UiAutomationProvider
         try
         {
             var root = AutomationElement.FromHandle(window.Handle) ?? throw new InvalidOperationException("UI Automation could not bind the selected window.");
-            var walker = TreeWalker.ControlViewWalker;
+            var branchCache = CreateObservationCache(includeChildren: true);
+            var leafCache = CreateObservationCache(includeChildren: false);
             var queue = new Queue<(AutomationElement Element, string Path, int Depth)>();
             queue.Enqueue((root, "0", 0));
             while (queue.Count > 0 && elements.Count < MaxElements)
             {
-                var (element, path, depth) = queue.Dequeue();
-                var current = element.Current;
+                var (queuedElement, path, depth) = queue.Dequeue();
+                // Fetch one bounded parent snapshot instead of making a remote
+                // property/pattern call for every field and sibling. Live refs
+                // remain available for later revision-checked actions.
+                var element = queuedElement.GetUpdatedCache(depth < 24 ? branchCache : leafCache);
+                var current = element.Cached;
                 var role = ControlTypeName(current.ControlType);
                 var name = current.Name?.Trim() ?? string.Empty;
                 var automationId = current.AutomationId?.Trim() ?? string.Empty;
@@ -38,19 +43,14 @@ public sealed class UiAutomationProvider
                     sensitive ? null : Limit(ReadSafeValue(element), 2048),
                     sensitive ? null : Limit(current.HelpText, 2048),
                     ReadBounds(current.BoundingRectangle),
-                    ReadStates(current),
-                    ReadActions(element),
+                    ReadStates(element, current),
+                    ReadCachedActions(element),
                     sensitive));
-                if (depth >= 24) continue;
-                AutomationElement? child = null;
-                try { child = walker.GetFirstChild(element); } catch (ElementNotAvailableException) { }
-                var index = 0;
-                while (child is not null && index < 256)
-                {
-                    queue.Enqueue((child, $"{path}.{index}", depth + 1));
-                    try { child = walker.GetNextSibling(child); } catch (ElementNotAvailableException) { child = null; }
-                    index++;
-                }
+                if (depth >= 24 || elements.Count >= MaxElements) continue;
+                var children = element.CachedChildren;
+                for (var index = 0; index < Math.Min(children.Count, 256); index++)
+                    queue.Enqueue((children[index], $"{path}.{index}", depth + 1));
+
             }
             return BoundObservation(
                 "ready",
@@ -62,6 +62,8 @@ public sealed class UiAutomationProvider
         }
         catch (Exception error)
         {
+            _elementRefs.Clear();
+            elements.Clear();
             redactions.Add($"uia-unavailable:{Limit(error.Message, 120)}");
             return BoundObservation("blocked", WindowRegistry.ReadWindowTitle(window.Handle), elements, null, elements.Count, redactions);
         }
@@ -140,37 +142,88 @@ public sealed class UiAutomationProvider
         return false;
     }
 
-    private static string ReadSafeValue(AutomationElement element)
+    public static CacheRequest CreateObservationCache(bool includeChildren)
     {
-        if (element.Current.IsPassword) return string.Empty;
-        return TryPattern<ValuePattern>(element, ValuePattern.Pattern, out var value) ? value.Current.Value : string.Empty;
+        var cache = new CacheRequest
+        {
+            AutomationElementMode = AutomationElementMode.Full,
+            TreeScope = includeChildren ? TreeScope.Element | TreeScope.Children : TreeScope.Element,
+            TreeFilter = Automation.ControlViewCondition
+        };
+        foreach (var property in ObservationProperties) cache.Add(property);
+        return cache;
     }
 
-    private static string[] ReadStates(AutomationElement.AutomationElementInformation current)
+    // Values are deliberately absent: only a non-sensitive ValuePattern control
+    // is read after classification and a fresh password check below.
+    public static IReadOnlyList<AutomationProperty> ObservationProperties { get; } = Array.AsReadOnly(new[]
     {
-        var states = new List<string> { current.IsEnabled ? "enabled" : "disabled" };
-        if (current.HasKeyboardFocus) states.Add("focused");
-        if (current.IsOffscreen) states.Add("offscreen");
+        AutomationElement.ControlTypeProperty, AutomationElement.NameProperty,
+        AutomationElement.AutomationIdProperty, AutomationElement.IsPasswordProperty,
+        AutomationElement.HelpTextProperty, AutomationElement.BoundingRectangleProperty,
+        AutomationElement.IsEnabledProperty, AutomationElement.HasKeyboardFocusProperty,
+        AutomationElement.IsOffscreenProperty, AutomationElement.IsInvokePatternAvailableProperty,
+        AutomationElement.IsTogglePatternAvailableProperty, AutomationElement.IsSelectionItemPatternAvailableProperty,
+        AutomationElement.IsValuePatternAvailableProperty, AutomationElement.IsScrollPatternAvailableProperty,
+        ValuePattern.IsReadOnlyProperty, AutomationElement.IsExpandCollapsePatternAvailableProperty,
+        SelectionItemPattern.IsSelectedProperty, TogglePattern.ToggleStateProperty,
+        ExpandCollapsePattern.ExpandCollapseStateProperty
+    });
+
+    private static bool CachedTrue(AutomationElement element, AutomationProperty property) =>
+        element.GetCachedPropertyValue(property, true) is true;
+
+    private static string ReadSafeValue(AutomationElement element)
+    {
+        if (!CachedTrue(element, AutomationElement.IsValuePatternAvailableProperty) || element.Current.IsPassword) return string.Empty;
+        return element.GetCurrentPropertyValue(ValuePattern.ValueProperty, true) as string ?? string.Empty;
+    }
+
+    private static string[] ReadStates(AutomationElement element, AutomationElement.AutomationElementInformation current) =>
+        ProjectControlStates(current.IsEnabled, current.HasKeyboardFocus, current.IsOffscreen,
+            CachedTrue(element, AutomationElement.IsSelectionItemPatternAvailableProperty)
+                && element.GetCachedPropertyValue(SelectionItemPattern.IsSelectedProperty, true) is bool selected ? selected : null,
+            CachedTrue(element, AutomationElement.IsTogglePatternAvailableProperty)
+                && element.GetCachedPropertyValue(TogglePattern.ToggleStateProperty, true) is ToggleState toggle ? toggle : null,
+            CachedTrue(element, AutomationElement.IsExpandCollapsePatternAvailableProperty)
+                && element.GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty, true) is ExpandCollapseState expansion ? expansion : null);
+
+    // Missing pattern properties stay unknown. UIA's default values for an
+    // unsupported pattern must never look like a real unchecked/unselected item.
+    public static string[] ProjectControlStates(bool enabled, bool focused, bool offscreen,
+        bool? selected, ToggleState? toggle, ExpandCollapseState? expansion)
+    {
+        var states = new List<string> { enabled ? "enabled" : "disabled" };
+        if (focused) states.Add("focused");
+        if (offscreen) states.Add("offscreen");
+        if (selected.HasValue) states.Add(selected.Value ? "selected" : "unselected");
+        var toggleState = toggle switch {
+            ToggleState.On => "checked", ToggleState.Off => "unchecked", ToggleState.Indeterminate => "mixed", _ => null
+        };
+        if (toggleState is not null) states.Add(toggleState);
+        var expansionState = expansion switch {
+            ExpandCollapseState.Expanded => "expanded", ExpandCollapseState.Collapsed => "collapsed",
+            ExpandCollapseState.PartiallyExpanded => "partially-expanded", ExpandCollapseState.LeafNode => "leaf", _ => null
+        };
+        if (expansionState is not null) states.Add(expansionState);
         return states.ToArray();
     }
 
-    private static string[] ReadActions(AutomationElement element)
+    private static string[] ReadCachedActions(AutomationElement element)
     {
         var actions = new List<string>();
-        if (element.TryGetCurrentPattern(InvokePattern.Pattern, out _) || element.TryGetCurrentPattern(TogglePattern.Pattern, out _) || element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)) actions.Add("click");
-        if (TryPattern<ValuePattern>(element, ValuePattern.Pattern, out var value) && !value.Current.IsReadOnly) actions.Add("type");
-        if (element.TryGetCurrentPattern(ScrollPattern.Pattern, out _)) actions.Add("scroll");
+        if (CachedTrue(element, AutomationElement.IsInvokePatternAvailableProperty)
+            || CachedTrue(element, AutomationElement.IsTogglePatternAvailableProperty)
+            || CachedTrue(element, AutomationElement.IsSelectionItemPatternAvailableProperty)) actions.Add("click");
+        if (CachedTrue(element, AutomationElement.IsValuePatternAvailableProperty)
+            && element.GetCachedPropertyValue(ValuePattern.IsReadOnlyProperty, true) is false) actions.Add("type");
+        if (CachedTrue(element, AutomationElement.IsScrollPatternAvailableProperty)) actions.Add("scroll");
         return actions.ToArray();
     }
 
-    private static Bounds? ReadBounds(object rectangle)
-    {
-        var type = rectangle.GetType();
-        double Read(string name) => Convert.ToDouble(type.GetProperty(name)?.GetValue(rectangle) ?? 0d);
-        var width = Read("Width");
-        var height = Read("Height");
-        return width <= 0 || height <= 0 ? null : new Bounds(Read("X"), Read("Y"), width, height);
-    }
+    private static Bounds? ReadBounds(System.Windows.Rect rectangle) =>
+        rectangle.IsEmpty || rectangle.Width <= 0 || rectangle.Height <= 0 ? null
+            : new Bounds(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
 
     private static string ControlTypeName(ControlType type)
     {

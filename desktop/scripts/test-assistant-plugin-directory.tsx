@@ -5,6 +5,9 @@ import { McpList, PluginList, SkillList } from '../src/renderer/src/pages/plugin
 import { makePluginDirectoryFixture, fixtureStandaloneSkills } from './fixtures/plugin-directory-data'
 import { PluginStore } from '../src/renderer/src/pages/plugins/PluginStore'
 import { PluginProductPage } from '../src/renderer/src/pages/plugins/PluginProductPage'
+import { PluginDownloadPanel } from '../src/renderer/src/pages/plugins/PluginDownloadPanel'
+import { AssistantPluginInstallDialog } from '../src/renderer/src/pages/plugins/AssistantPluginInstallDialog'
+import type { AssistantPluginInspection } from '../src/shared/assistant/contracts'
 import storeCatalog from '../src/shared/plugins/openai-directory.json'
 import descriptionOverrides from '../src/shared/plugins/plugin-description-overrides.json'
 import { readFileSync } from 'node:fs'
@@ -109,4 +112,34 @@ assert.ok(!storeHtml.includes('Add from folder'))
 assert.ok(!storeSource.includes('Download the package from its source, then choose its folder'))
 assert.ok(storeSource.includes('Unavailable in Zyra'), 'unsupported contribution status remains visible in details')
 assert.ok(source('pages/plugins/AssistantPluginInstallDialog.tsx').includes('Installation does not change Project availability or add Plugins to existing Chats.'))
-console.log('Assistant unified Plugin directory, store, navigation, Skill provenance, MCP honesty, and row contracts: ok')
+const progressHtml = renderToStaticMarkup(<PluginDownloadPanel state={{ phase: 'preparing', name: 'vercel', download: { id: 'test', status: 'downloading', progress: { phase: 'downloading', completedFiles: 8, totalFiles: 20, completedBytes: 1024, totalBytes: 2048, cacheHits: 3 } } }} onCancel={() => {}} onRetry={() => {}} />)
+assert.ok(progressHtml.includes('8 of 20 files'))
+assert.ok(progressHtml.includes('3 files reused'))
+assert.match(progressHtml, /<progress[^>]*max="20"[^>]*value="8"/)
+assert.ok(!progressHtml.includes('<dialog'), 'preparation is non-blocking')
+const inspectingHtml = renderToStaticMarkup(<PluginDownloadPanel state={{ phase: 'preparing', name: 'vercel', download: { id: 'test', status: 'downloading', progress: { phase: 'inspecting', completedFiles: 20, totalFiles: 20, completedBytes: 2048, totalBytes: 2048, cacheHits: 0 } } }} onCancel={() => {}} onRetry={() => {}} />)
+assert.ok(inspectingHtml.includes('Checking this release'))
+assert.doesNotMatch(inspectingHtml, /<progress[^>]*value=/, 'inspection has no invented percentage')
+const failedHtml = renderToStaticMarkup(<PluginDownloadPanel state={{ phase: 'failed', name: 'vercel', error: 'Test failure' }} onCancel={() => {}} onRetry={() => {}} />)
+assert.ok(failedHtml.includes('role="alert"') && failedHtml.includes('Retry') && failedHtml.includes('Dismiss'))
+const reviewed = catalog.releases[0]
+const inspection: AssistantPluginInspection = { reviewId: 'test', expiresAt: '2099-01-01T00:00:00.000Z', manifest: reviewed.manifest, release: { name: reviewed.manifest.name, version: reviewed.version, contentDigest: reviewed.contentDigest, fileCount: reviewed.fileCount, totalBytes: reviewed.totalBytes, containsExecutableFiles: true, skills: reviewed.skills, contributions: [{ kind: 'skills', relativePath: './skills', support: 'supported' }, { kind: 'mcp', relativePath: './.mcp.json', support: 'planned' }], diagnostics: [] } }
+const reviewHtml = renderToStaticMarkup(<AssistantPluginInstallDialog inline inspection={inspection} packageLabel="Catalog" installing={false} error={null} onCancel={() => {}} onInstall={() => {}} onInstallAndUse={() => {}} />)
+assert.ok(!reviewHtml.includes('<dialog'))
+assert.ok(reviewHtml.includes('Unavailable in Zyra: MCP connections'))
+assert.ok(reviewHtml.includes('These will not run or connect accounts.'))
+assert.ok(reviewHtml.includes('Install &amp; new Chat'))
+assert.ok(reviewHtml.includes('Release details') && reviewHtml.includes(reviewed.contentDigest))
+const unsupported = { ...inspection, release: { ...inspection.release, skills: [] } }
+const unsupportedHtml = renderToStaticMarkup(<AssistantPluginInstallDialog inline inspection={unsupported} packageLabel="Catalog" installing={false} error={null} onCancel={() => {}} onInstall={() => {}} onInstallAndUse={() => {}} />)
+assert.ok(!unsupportedHtml.includes('Install &amp; new Chat'), 'unsupported-only packages have no executable-looking new Chat action')
+const page = source('pages/plugins/PluginsPage.tsx')
+assert.ok(!page.includes('Downloading and checking this release.'), 'the opaque preparation modal is retired')
+assert.ok(page.includes('<PluginDownloadPanel'))
+assert.ok(page.includes('installReviewedPlugin(openCreatedChat)'), 'the explicit install-and-Chat action reaches the real hook')
+const hook = source('pages/plugins/usePluginDirectory.ts')
+assert.ok(hook.includes('useSyncExternalStore'))
+assert.ok(hook.includes('download.installationRevision'), 'catalog refresh follows an install that finishes after route remount')
+assert.ok(hook.includes('Plugin installed, but the new Chat could not start.'), 'post-install Chat failures do not claim installation failed')
+assert.doesNotMatch(hook.slice(hook.indexOf('return () => {'), hook.indexOf('const loadCatalog')), /cancelPluginDownload|cancelDownload/, 'route cleanup does not cancel background work')
+console.log('Assistant Plugin directory: navigation, progress, compact review, supported contributions and explicit install-and-Chat wiring: ok')

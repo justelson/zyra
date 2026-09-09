@@ -14,8 +14,18 @@ export class AgentControlBridgeClient {
       return Promise.reject(new ControlContractError("Desktop control bridge is unavailable.", "CONTROL_CAPABILITY_UNAVAILABLE"));
     }
     const requestId = randomUUID();
-    const timeoutMs = Math.max(100, Math.min(10 * 60 * 1000, Number(options.timeoutMs) || this.defaultTimeoutMs));
     return new Promise((resolve, reject) => {
+      let operationTimeoutMs = this.defaultTimeoutMs;
+      if (operation?.operation === "act_sequence") {
+        if (!Array.isArray(operation.steps) || operation.steps.length < 1 || operation.steps.length > 16) {
+          throw new ControlContractError("A computer interaction sequence requires 1 to 16 bounded steps.");
+        }
+        // Every step executes one bounded native action and then a fresh
+        // observation. The enclosing request must allow both without changing
+        // either per-operation deadline or the ten-minute bridge ceiling.
+        operationTimeoutMs = CONTROL_BOUNDS.defaultActionTimeoutMs * (2 * operation.steps.length + 1);
+      }
+      const timeoutMs = Math.max(100, Math.min(10 * 60 * 1000, Number(options.timeoutMs) || operationTimeoutMs));
       const finish = (callback, value) => {
         const pending = this.pending.get(requestId);
         if (!pending) return;
@@ -24,11 +34,15 @@ export class AgentControlBridgeClient {
         this.pending.delete(requestId);
         callback(value);
       };
-      const abort = () => {
-        this.send?.({ type: "control.cancel", requestId });
-        finish(reject, new ControlContractError("Control request was cancelled.", "CONTROL_CANCELLED"));
+      const cancel = (error) => {
+        if (!this.pending.has(requestId)) return;
+        // Settle once before sending: a synchronous late response or a second
+        // abort cannot turn this deadline into success or replay the request.
+        finish(reject, error);
+        try { this.send?.({ type: "control.cancel", requestId }); } catch { /* A disconnected transport cannot accept cancellation. */ }
       };
-      const timer = setTimeout(() => finish(reject, new ControlContractError("Control request timed out.", "CONTROL_TIMEOUT")), timeoutMs);
+      const abort = () => cancel(new ControlContractError("Control request was cancelled.", "CONTROL_CANCELLED"));
+      const timer = setTimeout(() => cancel(new ControlContractError("Control request timed out.", "CONTROL_TIMEOUT")), timeoutMs);
       timer.unref?.();
       this.pending.set(requestId, { resolve, reject, timer, signal: options.signal, abort });
       if (options.signal?.aborted) {

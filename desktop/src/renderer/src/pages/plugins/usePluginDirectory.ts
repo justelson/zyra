@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { AssistantPluginCatalog, AssistantPluginInspection, AssistantProject, AssistantSession } from '@shared/assistant/contracts'
-import { getPluginRelease, getPluginSet, togglePluginSetId } from './plugin-directory-state'
+import { getPluginRelease, getPluginSet, getReviewedCatalogPluginSelection, togglePluginSetId } from './plugin-directory-state'
 import { assistantStore } from '@/lib/assistant/store'
+import { pluginDownloadController } from './plugin-download-controller'
 
 export function usePluginDirectory(desktopHost: boolean, selectedSession: AssistantSession | null) {
     const serviceAvailable = typeof window.devscope.assistant.getPluginCatalog === 'function'
@@ -16,9 +17,8 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
     const [notice, setNotice] = useState<string | null>(null)
     const mutationPending = useRef(false)
     const loadRevision = useRef(0)
-    const downloadRevision = useRef(0)
-    const downloadId = useRef<string | null>(null)
-    const [downloadName, setDownloadName] = useState<string | null>(null)
+    const download = useSyncExternalStore(pluginDownloadController.subscribe, pluginDownloadController.getSnapshot, pluginDownloadController.getSnapshot)
+    const downloadPending = ['preparing', 'ready', 'installing', 'cancelling'].includes(download.phase)
     const mounted = useRef(true)
     const catalogInstallAvailable = typeof window.devscope.assistant.startPluginDownload === 'function'
 
@@ -26,8 +26,6 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
         mounted.current = true
         return () => {
             mounted.current = false
-            downloadRevision.current += 1
-            if (downloadId.current) void window.devscope.assistant.cancelPluginDownload({ id: downloadId.current }).catch(() => undefined)
         }
     }, [])
 
@@ -63,6 +61,13 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
         return () => { loadRevision.current += 1 }
     }, [loadCatalog])
 
+    const observedInstallation = useRef(download.installationRevision)
+    useEffect(() => {
+        if (observedInstallation.current === download.installationRevision) return
+        observedInstallation.current = download.installationRevision
+        void loadCatalog()
+    }, [download.installationRevision, loadCatalog])
+
     const mutate = useCallback(async (action: () => Promise<void>) => {
         if (mutationPending.current || !desktopHost || !serviceAvailable) return
         mutationPending.current = true
@@ -80,6 +85,7 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
     }, [desktopHost, serviceAvailable])
 
     const beginInstall = useCallback(() => mutate(async () => {
+        if (downloadPending) return
         const selected = await window.devscope.selectFolder()
         if (!selected.success) throw new Error(selected.error || 'Could not choose a Plugin folder.')
         if (selected.cancelled || !selected.folderPath) return
@@ -88,61 +94,19 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
         setPackageLabel(selected.folderPath.split(/[\\/]/).filter(Boolean).at(-1) || 'Plugin package')
         setSelectedPluginId(null)
         setInspection(result.inspection)
-    }), [mutate])
+    }), [mutate, downloadPending])
 
     const cancelDownload = useCallback(async () => {
-        downloadRevision.current += 1
-        const id = downloadId.current
-        downloadId.current = null
-        setDownloadName(null)
-        setInspection(null)
-        if (id) {
-            try {
-                const result = await window.devscope.assistant.cancelPluginDownload({ id })
-                if (!result.success && mounted.current) setError(result.error || 'Could not cancel this download.')
-            } catch { if (mounted.current) setError('Could not cancel this download. It will expire automatically.') }
-        }
+        await pluginDownloadController.cancel()
     }, [])
 
-    const beginCatalogInstall = useCallback((name: string) => mutate(async () => {
-        if (!catalogInstallAvailable) throw new Error('Restart Zyra Desktop to enable managed Plugin installation.')
-        const revision = ++downloadRevision.current
-        setDownloadName(name)
-        setSelectedPluginId(null)
-        let id: string | null = null
-        let ready = false
-        try {
-            const started = await window.devscope.assistant.startPluginDownload({ name })
-            if (!started.success) throw new Error(started.error || 'Could not start this download.')
-            id = started.download.id
-            if (revision !== downloadRevision.current) return
-            downloadId.current = id
-            const deadline = Date.now() + 150_000
-            while (revision === downloadRevision.current && Date.now() < deadline) {
-                const result = await window.devscope.assistant.getPluginDownload({ id })
-                if (revision !== downloadRevision.current) return
-                if (!result.success) throw new Error(result.error || 'Could not check this download.')
-                if (result.download.status === 'failed') throw new Error(result.download.error || 'Plugin download failed.')
-                if (result.download.status === 'ready') {
-                    if (!result.download.inspection) throw new Error('Plugin review is missing. Try again.')
-                    ready = true
-                    setPackageLabel('OpenAI catalog')
-                    setInspection(result.download.inspection)
-                    return
-                }
-                await new Promise(resolve => setTimeout(resolve, 250))
-            }
-            if (revision === downloadRevision.current) throw new Error('Plugin download timed out. Try again.')
-        } catch (error) {
-            if (revision === downloadRevision.current) throw error
-        } finally {
-            if (!ready && id) {
-                await window.devscope.assistant.cancelPluginDownload({ id }).catch(() => undefined)
-                if (downloadId.current === id) downloadId.current = null
-            }
-            if (mounted.current) setDownloadName(null)
-        }
-    }), [catalogInstallAvailable, mutate])
+    const beginCatalogInstall = useCallback(async (name: string) => {
+        if (mutationPending.current || inspection || !desktopHost || !serviceAvailable) return
+        if (!catalogInstallAvailable) { setError('Restart Zyra Desktop to enable managed Plugin installation.'); return }
+        setError(null)
+        setNotice(null)
+        await pluginDownloadController.start(name)
+    }, [catalogInstallAvailable, desktopHost, serviceAvailable, inspection])
 
     const useInNewChat = useCallback((pluginId: string, onCreated: (sessionId: string) => void) => mutate(async () => {
         const plugin = catalog?.plugins.find(entry => entry.id === pluginId)
@@ -153,22 +117,38 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
         if (mounted.current) onCreated(result.sessionId)
     }), [catalog, mutate])
 
-    const installReviewedPlugin = useCallback(() => mutate(async () => {
-        if (!inspection) return
-        const managedId = downloadId.current
-        downloadId.current = null
+    const installReviewedPlugin = useCallback((onCreated?: (id: string) => void) => mutate(async () => {
+        const job = pluginDownloadController.getSnapshot()
+        const managed = job.phase === 'ready'
+        const reviewed = managed ? pluginDownloadController.claimReview() : inspection
+        if (!reviewed) return
+        let installedCatalog: AssistantPluginCatalog
         try {
-            const result = await window.devscope.assistant.installInspectedPlugin({ reviewId: inspection.reviewId, confirmed: true })
+            const result = await window.devscope.assistant.installInspectedPlugin({ reviewId: reviewed.reviewId, confirmed: true })
             if (!result.success) throw new Error(result.error || 'Could not install this Plugin.')
-            setCatalog(result.catalog)
-            const release = result.catalog.releases.find((entry) => entry.contentDigest === inspection.release.contentDigest)
-            if (release && !managedId) setSelectedPluginId(release.pluginId)
-            setNotice('Plugin installed.')
+            installedCatalog = result.catalog
         } catch (cause) {
-            throw new Error(`${cause instanceof Error ? cause.message : 'Could not install this Plugin.'} Try again for a fresh review.`)
-        } finally {
-            if (managedId) await window.devscope.assistant.cancelPluginDownload({ id: managedId }).catch(() => undefined)
-            setInspection(null)
+            const message = `${cause instanceof Error ? cause.message : 'Could not install this Plugin.'} Try again for a fresh review.`
+            if (managed) pluginDownloadController.finishInstall(message)
+            else { setInspection(null); throw Error(message) }
+            return
+        }
+        if (managed) pluginDownloadController.finishInstall()
+        if (mounted.current) { setCatalog(installedCatalog); setInspection(null); setNotice('Plugin installed.') }
+        const release = !managed ? installedCatalog.releases.find(entry => entry.contentDigest === reviewed.release.contentDigest) : null
+        if (release && mounted.current) setSelectedPluginId(release.pluginId)
+        if (!onCreated || !managed) return
+        const selection = getReviewedCatalogPluginSelection(installedCatalog, job.name, reviewed)
+        if (!selection) {
+            if (mounted.current) setError('Plugin installed. Enable its reviewed release before starting a new Chat.')
+            return
+        }
+        try {
+            const result = await assistantStore.createPluginChat(selection)
+            if (!result.success) throw Error(result.error || 'Could not create the new Chat.')
+            if (mounted.current) onCreated(result.sessionId)
+        } catch (cause) {
+            if (mounted.current) setError(`Plugin installed, but the new Chat could not start. ${cause instanceof Error ? cause.message : 'Use in Chat to try again.'}`)
         }
     }), [inspection, mutate])
 
@@ -219,8 +199,8 @@ export function usePluginDirectory(desktopHost: boolean, selectedSession: Assist
         catalog, projects, loading, busy, error, notice, serviceAvailable,
         selectedPlugin: catalog?.plugins.find((plugin) => plugin.id === selectedPluginId) || null,
         selectPlugin: setSelectedPluginId,
-        inspection, packageLabel, cancelInspection: () => { if (!mutationPending.current) { if (downloadId.current) void cancelDownload(); else setInspection(null) } },
-        downloadName, cancelDownload, catalogInstallAvailable, beginCatalogInstall, useInNewChat,
+        inspection, packageLabel, cancelInspection: () => { if (!mutationPending.current) setInspection(null) },
+        download, downloadPending, cancelDownload, catalogInstallAvailable, beginCatalogInstall, useInNewChat,
         loadCatalog, beginInstall, installReviewedPlugin, updatePluginSet, updatePluginState, refreshCurrentChat, rollbackPlugin
     }
 }

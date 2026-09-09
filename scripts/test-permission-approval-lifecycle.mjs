@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { createZyraPermissionGateExtension } from '../src/zyra-permission-gate.mjs';
+let resolve;
+let received;
+const extension = createZyraPermissionGateExtension({ project: process.cwd(), requestPermission: request => { received = request; return new Promise(done => { resolve = done; }); } });
+const gate = extension.handlers.get('tool_call')[0];
+let executed = false;
+const call = gate({ toolName: 'bash', toolCallId: 'fixture-call', input: { command: 'echo fixture' } }).then(result => { executed = !result?.block; return result; });
+await Promise.resolve();
+assert.equal(executed, false, 'waiting for permission cannot execute the tool');
+assert.equal(received.toolCallId, 'fixture-call', 'approval carries exact action correlation');
+assert.equal(received.grantLabel, 'Allow shell commands for this chat');
+resolve('decline');
+assert.equal((await call).block, true);
+assert.equal(executed, false, 'declined action cannot execute');
+console.log('Permission lifecycle correlation, scope and decline: ok');

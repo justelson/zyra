@@ -1,6 +1,8 @@
 import type {
     AssistantChatPluginScope,
+    AssistantCreatePluginChatInput,
     AssistantPluginCatalog,
+    AssistantPluginInspection,
     AssistantPluginInstallation,
     AssistantPluginRelease,
     AssistantPluginScopeDiff,
@@ -14,6 +16,14 @@ export function getPluginRelease(
     plugin: AssistantPluginInstallation
 ): AssistantPluginRelease | null {
     return catalog.releases.find((release) => release.id === plugin.activeReleaseId) || null
+}
+
+export function getReviewedCatalogPluginSelection(catalog: AssistantPluginCatalog, name: string | null, inspection: AssistantPluginInspection): AssistantCreatePluginChatInput | null {
+    const plugin = catalog.plugins.find(entry => entry.sourceId === `openai-catalog:${name}` && entry.name === inspection.manifest.name)
+    if (!plugin || plugin.state !== 'active') return null
+    const release = catalog.releases.find(entry => entry.pluginId === plugin.id && entry.id === plugin.activeReleaseId && entry.contentDigest === inspection.release.contentDigest)
+    if (!release?.skills.length) return null
+    return { pluginId: plugin.id, releaseId: release.id, contentDigest: release.contentDigest }
 }
 
 export function getPluginSet(catalog: AssistantPluginCatalog, projectId?: string | null): AssistantPluginSet | null {

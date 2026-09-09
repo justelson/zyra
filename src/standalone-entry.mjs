@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { getStandaloneInstallMetadata } from "./standalone-install-metadata.mjs";
 
 export async function runZyraStandalone(distribution) {
   const version = requireValue(distribution?.version, "version");
@@ -8,6 +9,12 @@ export async function runZyraStandalone(distribution) {
   const resources = distribution?.resources;
   if (!resources || typeof resources !== "object" || Array.isArray(resources)) {
     throw new Error("Zyra standalone resources are missing.");
+  }
+
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === "--version" && process.env.ZYRA_INSTALL_METADATA === "1") {
+    process.stdout.write(`${JSON.stringify(getStandaloneInstallMetadata(distribution))}\n`);
+    return;
   }
 
   const home = os.homedir();

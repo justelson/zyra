@@ -1,3 +1,4 @@
+import { encodeApprovalScope } from './approval-persistence'
 import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
@@ -179,7 +180,18 @@ export function persistAssistantEvent(db: SqlDatabase, event: AssistantDomainEve
                     upsertAssistantThreadSummary(db, thread.sessionId, thread.thread)
                     const payloadApproval = event.payload['approval'] as Record<string, unknown> | undefined
                     const approval = thread.thread.pendingApprovals.find((entry) => entry.requestId === String(payloadApproval?.['requestId'] || ''))
-                    if (approval) upsertAssistantPendingApproval(db, thread.thread.id, approval)
+                    if (approval) {
+                        upsertAssistantPendingApproval(db, thread.thread.id, approval)
+                        // The approval projection also changes its correlated activity.
+                        // Persist that flag so switching/hydrating chats stays consistent.
+                        if (approval.toolCallId) {
+                            for (const activity of thread.thread.activities) {
+                                if (activity.payload?.toolCallId === approval.toolCallId || activity.id === `zyra-tool-${approval.toolCallId}`) {
+                                    upsertAssistantActivity(db, thread.thread.id, activity)
+                                }
+                            }
+                        }
+                    }
                 }
                 break
             case 'thread.user-input.updated':
@@ -591,7 +603,7 @@ function upsertAssistantPendingApproval(db: SqlDatabase, threadId: string, appro
         approval.title || null,
         approval.detail || null,
         approval.command || null,
-        jsonStringify(approval.paths),
+        jsonStringify(encodeApprovalScope(approval)),
         approval.status,
         approval.decision,
         approval.turnId,

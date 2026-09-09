@@ -9,6 +9,7 @@ import SkillsSettings from '../settings/SkillsSettings'
 import { AssistantPluginDetail } from './AssistantPluginDetail'
 import { AssistantPluginInstallDialog } from './AssistantPluginInstallDialog'
 import { PluginDialog } from './PluginDialog'
+import { PluginDownloadPanel } from './PluginDownloadPanel'
 import { PluginStore } from './PluginStore'
 import { PluginProductPage } from './PluginProductPage'
 import storeCatalog from '@shared/plugins/openai-directory.json'
@@ -53,7 +54,10 @@ export default function PluginsPage() {
     const refresh = () => { void directory.loadCatalog(); void resources.refresh() }
     const openSources = () => { setSelectedSkill(null); setSourcesOpen(true) }
     const activeError = error || (tab === 'skills' ? resources.error : null)
-    const useInChat = (pluginId: string) => void directory.useInNewChat(pluginId, id => navigate(buildAssistantChatRoute(id, null)))
+    const openCreatedChat = (id: string) => navigate(buildAssistantChatRoute(id, null))
+    const useInChat = (pluginId: string) => void directory.useInNewChat(pluginId, openCreatedChat)
+    const installAvailable = desktopHost && directory.catalogInstallAvailable && !directory.downloadPending && !directory.inspection
+    const managedInspection = ['ready', 'installing'].includes(directory.download.phase) ? directory.download.download?.inspection : null
     const productOpen = params.has('plugin') || params.has('installed')
     const productInstallation = catalog?.plugins.find(plugin => params.has('installed') ? plugin.id === params.get('installed') : plugin.sourceId === `openai-catalog:${params.get('plugin')}` && plugin.name === params.get('plugin')) || null
     const productEntry = storeCatalog.entries.find(entry => entry.name === params.get('plugin') || productInstallation?.sourceId === `openai-catalog:${entry.name}` && productInstallation.name === entry.name) || null
@@ -75,14 +79,16 @@ export default function PluginsPage() {
     return <section ref={scrollContainer} className="plugin-directory custom-scrollbar" data-testid="plugins-page">
         <div className="plugin-directory-column">
             {!productOpen ? <Link to="/assistant" className="plugin-text-button plugin-back-link"><ArrowLeft size={15} />Back to Chat</Link> : null}
+            <PluginDownloadPanel state={directory.download} displayName={storeCatalog.entries.find(entry => entry.name === directory.download.name)?.displayName} onCancel={() => void directory.cancelDownload()} onRetry={() => { if (directory.download.name) void directory.beginCatalogInstall(directory.download.name) }} />
+            {managedInspection ? <AssistantPluginInstallDialog inline inspection={managedInspection} packageLabel="OpenAI catalog" installing={busy || directory.download.phase === 'installing'} error={null} onCancel={() => void directory.cancelDownload()} onInstall={() => void directory.installReviewedPlugin()} onInstallAndUse={() => void directory.installReviewedPlugin(openCreatedChat)} /> : null}
             {productOpen ? <>
                 {error ? <p className="plugin-notice" role="alert">{error}</p> : null}
-                {loading && !productEntry && !productInstallation ? <DirectoryEmpty title="Loading Plugin…" /> : <PluginProductPage key={params.get('plugin') || params.get('installed')} entry={productEntry} installation={productInstallation} catalog={catalog} busy={busy} canInstall={desktopHost && directory.catalogInstallAvailable} onBack={() => setParams({})} onInstall={name => void directory.beginCatalogInstall(name)} onUseInChat={useInChat} onManage={directory.selectPlugin} />}
+                {loading && !productEntry && !productInstallation ? <DirectoryEmpty title="Loading Plugin…" /> : <PluginProductPage key={params.get('plugin') || params.get('installed')} entry={productEntry} installation={productInstallation} catalog={catalog} busy={busy} canInstall={installAvailable} onBack={() => setParams({})} onInstall={name => void directory.beginCatalogInstall(name)} onUseInChat={useInChat} onManage={directory.selectPlugin} />}
             </> : null}
             <div style={{ display: productOpen ? 'none' : undefined }}>
             {storeOpen ? <>
             {error || notice ? <p className="plugin-notice" role={error ? 'alert' : 'status'}>{error || notice}</p> : null}
-            <PluginStore canInstall={desktopHost && directory.serviceAvailable && directory.catalogInstallAvailable} busy={busy} installedCatalog={catalog} loading={loading} onManage={() => setStoreOpen(false)} onSelectInstalled={openInstalled} onUseInChat={useInChat} onOpenEntry={name => openProduct('plugin', name)} onImportFolder={() => void directory.beginInstall()} />
+            <PluginStore canInstall={directory.serviceAvailable && installAvailable} busy={busy} installedCatalog={catalog} loading={loading} onManage={() => setStoreOpen(false)} onSelectInstalled={openInstalled} onUseInChat={useInChat} onOpenEntry={name => openProduct('plugin', name)} onImportFolder={() => void directory.beginInstall()} />
             </> : <>
             <header className="plugin-directory-header">
                 <div><h1>Plugins</h1></div>
@@ -129,9 +135,6 @@ export default function PluginsPage() {
         {selectedSkill ? <PluginDialog title={selectedSkill.name} subtitle={`${selectedSkill.scope} · ${selectedSkill.source}`} onClose={() => setSelectedSkill(null)} footer={selectedSkill.scope !== 'Built-in' ? <button type="button" className="plugin-button" onClick={openSources}>Manage source folders</button> : undefined}>
             <p className="plugin-description">{selectedSkill.description || 'No description provided.'}</p>
             <p className="plugin-help mt-5">{selectedSkill.manualOnly ? 'Available by explicit invocation only.' : 'Available from the selected source for new Chats.'} Source changes apply to existing Chats after a reload.</p>
-        </PluginDialog> : null}
-        {directory.downloadName ? <PluginDialog title={`Preparing ${directory.downloadName}`} onClose={() => void directory.cancelDownload()} footer={<button type="button" className="plugin-button" onClick={() => void directory.cancelDownload()}>Cancel</button>}>
-            <p className="plugin-description" role="status">Downloading and checking this release.</p>
         </PluginDialog> : null}
         {directory.inspection ? <AssistantPluginInstallDialog inspection={directory.inspection} packageLabel={directory.packageLabel} installing={busy} error={null} onCancel={directory.cancelInspection} onInstall={() => void directory.installReviewedPlugin()} /> : null}
     </section>

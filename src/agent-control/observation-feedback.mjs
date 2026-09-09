@@ -1,10 +1,14 @@
 export function formatControlObservation(prefix, observation, extras = {}) {
+  return `${prefix}\n${JSON.stringify(controlObservationPayload(observation, extras), null, 2)}`;
+}
+
+export function controlObservationPayload(observation, extras = {}) {
   const sourceElements = Array.isArray(observation?.elements) ? observation.elements : [];
   const elements = sourceElements
     .filter((element) => isUsefulObservationElement(element, observation))
     .slice(0, 256)
     .map(compactObservationElement);
-  return `${prefix}\n${JSON.stringify({
+  return {
     targetId: observation?.targetId,
     revision: observation?.revision,
     state: observation?.targetState,
@@ -15,7 +19,7 @@ export function formatControlObservation(prefix, observation, extras = {}) {
     ...(elements.length < sourceElements.length ? { omittedElementCount: sourceElements.length - elements.length } : {}),
     truncation: observation?.truncation,
     redactions: observation?.redactions || [],
-  }, null, 2)}`;
+  };
 }
 
 export function controlObservationSummary(observation) {

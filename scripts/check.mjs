@@ -55,6 +55,7 @@ const syntaxTargets = [
   "src/plugins/plugin-registry.mjs",
   "src/plugins/plugin-state.mjs",
   "src/zyra-permission-gate.mjs",
+  "src/permission-command-policy.mjs",
   "src/zyra-permission-reviewer.mjs",
   "src/interrupt-mode-picker.mjs",
   "src/codex-usage-windows.mjs",
@@ -147,7 +148,13 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "scripts/test-control-bridge-deadline.mjs",
+  "scripts/test-computer-tool-errors.mjs",
+  "scripts/test-zyra-computer-control-tool.mjs",
   "desktop/scripts/test-runtime-source-imports.mjs",
+  "scripts/test-permission-command-policy.mjs",
+  "scripts/test-permission-approval-lifecycle.mjs",
+  "scripts/test-computer-window-feedback.mjs",
   "scripts/test-zyra-permission-paths.mjs",
   "scripts/test-zyra-update-isolation.mjs",
   "scripts/test-zyra-plugin-availability.mjs",
@@ -155,6 +162,10 @@ const coreTests = [
   "scripts/test-zyra-plugin-revocation-bridge.mjs",
   "scripts/test-zyra-agent-server.mjs",
   "scripts/test-zyra-agent-server-bridge.mjs",
+  "scripts/test-zyra-streaming-usage.mjs",
+  "scripts/test-zyra-slash-suggestions.mjs",
+  "scripts/test-standalone-install-metadata.mjs",
+  "scripts/test-windows-tui-integration.mjs",
   "scripts/test-zyra-filesystem-scope-runtime.mjs",
   "scripts/test-model-order.mjs",
   "scripts/privacy-check.mjs",
@@ -193,6 +204,10 @@ const coreTests = [
 // Quick mode stays deterministic and side-effect-light. Larger state, UI, and
 // orchestration suites remain in core/full so quick is useful during iteration.
 const quickCoreTests = [
+  "scripts/test-control-bridge-deadline.mjs",
+  "scripts/test-permission-command-policy.mjs",
+  "scripts/test-permission-approval-lifecycle.mjs",
+  "scripts/test-computer-window-feedback.mjs",
   "scripts/test-zyra-permission-paths.mjs",
   "scripts/test-zyra-update-isolation.mjs",
   "scripts/test-zyra-filesystem-scope-runtime.mjs",
@@ -217,9 +232,14 @@ const quickCoreTests = [
 ];
 
 const serialCoreTests = new Set([
+  "scripts/test-computer-tool-errors.mjs",
+  "scripts/test-zyra-computer-control-tool.mjs",
   "scripts/test-zyra-plugin-revocation-bridge.mjs",
   "scripts/test-zyra-agent-server.mjs",
   "scripts/test-zyra-agent-server-bridge.mjs",
+  "scripts/test-zyra-streaming-usage.mjs",
+  "scripts/test-zyra-slash-suggestions.mjs",
+  "scripts/test-windows-tui-integration.mjs",
   "scripts/test-zyra-memory.mjs",
   "scripts/test-zyra-codex-mode.mjs",
   "scripts/test-zyra-managed-bash.mjs",
@@ -227,14 +247,17 @@ const serialCoreTests = new Set([
 ]);
 
 const desktopTasks = [
+  { label: "desktop:test:agent-control", bunArgs: ["run", "--cwd", "desktop", "test:agent-control"] },
   { label: "desktop:test:update-controls", bunArgs: ["run", "--cwd", "desktop", "test:update-controls"] },
   { label: "desktop:test:assistant-project-creation", bunArgs: ["run", "--cwd", "desktop", "test:assistant-project-creation"] },
+  { label: "desktop:test:assistant-approval-projection", bunArgs: ["desktop/scripts/test-assistant-approval-projection.ts"] },
   { label: "desktop:test:assistant-new-chat-surface", bunArgs: ["desktop/scripts/test-assistant-new-chat-surface.ts"] },
   { label: "desktop:test:shell-file-preview", bunArgs: ["run", "--cwd", "desktop", "test:shell-file-preview"] },
   { label: "desktop:test:assistant-model-catalog", bunArgs: ["desktop/scripts/test-assistant-model-catalog.tsx"] },
   { label: "desktop:test:work-timeline-v2", bunArgs: ["run", "--cwd", "desktop", "test:work-timeline-v2"] },
   { label: "desktop:test:action-batch-intent", bunArgs: ["run", "--cwd", "desktop", "test:assistant-action-batch-intent"] },
   { label: "desktop:test:assistant-user-input", bunArgs: ["run", "--cwd", "desktop", "test:assistant-user-input"] },
+  { label: "desktop:test:assistant-tool-approval", bunArgs: ["run", "--cwd", "desktop", "test:assistant-tool-approval"] },
   { label: "desktop:test:markdown-renderer", bunArgs: ["run", "--cwd", "desktop", "test:markdown-renderer"] },
   { label: "desktop:test:assistant-response-media", bunArgs: ["run", "--cwd", "desktop", "test:assistant-response-media"] },
   { label: "desktop:test:theme-adaptive-surfaces", bunArgs: ["run", "--cwd", "desktop", "test:theme-adaptive-surfaces"] },

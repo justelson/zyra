@@ -71,6 +71,7 @@ export type ParsedUserAttachment = {
 }
 
 export function shouldRenderActivity(activity: AssistantActivity): boolean {
+    if (activity.payload?.approvalPending === true) return false
     if (isInternalAssistantActivity(activity)) return false
     if (activity.kind === 'user-input.resolved') return false
     if (readActivityToolName(activity.payload || {}) === 'request_user_input') return false
@@ -1040,7 +1041,8 @@ export function isCommandActivity(activity: AssistantActivity): boolean {
 
 export function countRunningCommandActivities(activities: AssistantActivity[]): number {
     return activities.filter((activity) => (
-        !isCommandCheckpointActivity(activity)
+        activity.payload?.approvalPending !== true
+        && !isCommandCheckpointActivity(activity)
         && isCommandActivity(activity)
         && getActivityStatus(activity) === 'running'
     )).length

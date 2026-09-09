@@ -21,8 +21,11 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern nint GetAncestor(nint hWnd, uint flags);
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(nint hWnd);
     [DllImport("user32.dll")] internal static extern bool ShowWindowAsync(nint hWnd, int command);
+    [DllImport("user32.dll")] internal static extern bool IsIconic(nint hWnd);
     [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] internal static extern bool PrintWindow(nint hWnd, nint hdc, uint flags);
+    [DllImport("user32.dll")] internal static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+    [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)] internal static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll")] internal static extern uint SendInput(uint count, Input[] inputs, int size);
     [DllImport("user32.dll")] internal static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] internal static extern bool GetCursorPos(out Point point);
@@ -31,6 +34,13 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")] internal static extern uint GetCurrentProcessId();
     [DllImport("kernel32.dll")] internal static extern uint GetCurrentThreadId();
 
+    [StructLayout(LayoutKind.Sequential)] internal struct GuiThreadInfo
+    {
+        internal uint Size; internal uint Flags;
+        internal nint Active; internal nint Focus; internal nint Capture;
+        internal nint MenuOwner; internal nint MoveSize; internal nint Caret;
+        internal Rect CaretRect;
+    }
     [StructLayout(LayoutKind.Sequential)] internal struct Rect { internal int Left; internal int Top; internal int Right; internal int Bottom; }
     [StructLayout(LayoutKind.Sequential)] internal struct Point { internal int X; internal int Y; }
     [StructLayout(LayoutKind.Sequential)] internal struct Input { internal uint Type; internal InputUnion Data; }

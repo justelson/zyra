@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { computerToolError } from "./computer-tool-error.mjs";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { formatWindowMatches, formatComputerObservation as formatObservation } from "./computer-window-feedback.mjs";
 import { CONTROL_CAPABILITIES, unavailableControlResult } from "./contracts.mjs";
-import { controlObservationSummary as observationSummary, formatControlObservation as formatObservation } from "./observation-feedback.mjs";
+import { controlObservationSummary as observationSummary } from "./observation-feedback.mjs";
 
 export const COMPUTER_TOOL_SEARCH_NAME = "tool_search";
 export const COMPUTER_TOOLSET_NAMES = Object.freeze([
@@ -94,7 +96,7 @@ const dragSchema = Type.Object({
 }, { additionalProperties: false });
 const semanticTargetSchema = {
   role: Type.Optional(Type.String({ description: "Exact semantic role when known. Omit it to require one unique actionable control with the exact name.", minLength: 1, maxLength: 128 })),
-  name: Type.String({ description: "Exact semantic name from the latest observation or a confidently known app label.", minLength: 1, maxLength: 512 }),
+  name: Type.String({ description: "Exact case-sensitive semantic name from the latest observation or a confidently known app label. Preserve capitalization.", minLength: 1, maxLength: 512 }),
 };
 const routineSideEffect = Type.Literal("none", { description: "Sequences support routine side-effect-free work only." });
 const routineSequenceKey = Type.Union([
@@ -108,6 +110,12 @@ const sequenceStepSchema = Type.Union([
     type: Type.Literal("key"),
     key: routineSequenceKey,
     modifiers: Type.Optional(Type.Array(routineSequenceModifier, { maxItems: 2 })),
+    sideEffect: routineSideEffect,
+  }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("drag"),
+    fromX: Type.Number(), fromY: Type.Number(), toX: Type.Number(), toY: Type.Number(),
+    durationMs: Type.Optional(Type.Number({ minimum: 0, maximum: 5000 })),
     sideEffect: routineSideEffect,
   }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), durationMs: Type.Number({ minimum: 0, maximum: 2000 }), sideEffect: routineSideEffect }, { additionalProperties: false }),
@@ -165,7 +173,7 @@ export function createComputerToolSet(options = {}) {
     bridgeTool({
       name: "computer_use_app",
       label: "Use Windows app",
-      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities, and optionally run already-clear routine semantic steps in the same call. Returns the latest observation and replaces an older Windows grant for the same turn only after the new grant succeeds. Embedded typing into a newly launched app requires a provably blank target and stops before input if the app restores existing, dirty, or unreadable text. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
+      description: "Preferred first tool for a Windows app task. Reuse one exact running app or open its registered Start app, request all needed capabilities (include focus and screenshot for pointer work), and optionally run already-clear routine steps (including drags grounded in an observed layout) in the same call. Returns the latest observation and replaces an older Windows grant for the same turn only after the new grant succeeds. Embedded typing into a newly launched app requires a provably blank target and stops before input if the app restores existing, dirty, or unreadable text. It fails closed when multiple windows match. Paths, arguments, files, URLs, unrelated apps, and child-agent selection are forbidden.",
       parameters: useAppSchema,
       client: options.client,
       waitsForUser: true,
@@ -178,13 +186,14 @@ export function createComputerToolSet(options = {}) {
         ...(input.steps?.length ? { requestId: `tool:${randomUUID()}`, steps: input.steps } : {}),
       }),
       format: (input, result) => [
-        `${result.launched === false ? "Using already-running app" : "Opened registered app"} ${JSON.stringify(String(result.applicationName || input.application).slice(0, 256))}. Computer access granted.\n${JSON.stringify(grantSummary(result.grant), null, 2)}`,
+        `${result.launched === false ? "Using already-running app" : "Opened registered app"} ${JSON.stringify(String(result.applicationName || input.application).slice(0, 256))}. Computer access granted.\n${JSON.stringify({ ...grantSummary(result.grant), ...(result.selectedWindow ? { selectedWindow: result.selectedWindow } : {}) }, null, 2)}`,
         result.observation ? formatObservation(result.sequence ? `Computer sequence completed ${result.sequence.completedSteps} of ${result.sequence.totalSteps} steps. Final changed and readback elements follow.` : "Initial computer observation ready; act from this revision.", result.observation) : "",
       ].filter(Boolean).join("\n"),
       summarize: (input, result) => ({
         applicationName: String(result.applicationName || input.application).slice(0, 256),
         launched: result.launched !== false,
         grant: grantSummary(result.grant),
+        ...(result.selectedWindow ? { selectedWindow: result.selectedWindow } : {}),
         ...(result.sequence ? { sequence: { completedSteps: result.sequence.completedSteps, totalSteps: result.sequence.totalSteps } } : {}),
         ...(result.observation ? { observation: observationSummary(result.observation) } : {}),
       }),
@@ -216,7 +225,7 @@ export function createComputerToolSet(options = {}) {
     bridgeTool({
       name: "computer_request_access",
       label: "Request computer access",
-      description: "After an ambiguous app search, select one candidate and request all capabilities needed for that app in one bounded Chat grant. Include screenshot when the task needs visual verification or coordinate pointer work. A successful grant returns the first current observation, so do not call computer_observe again before acting. Full access may authorize routine use automatically.",
+      description: "After an ambiguous app search, select one candidate and request all capabilities needed for that app in one bounded Chat grant. For coordinate pointer work include focus and screenshot together with the needed move/click/drag capabilities. A selected-window screenshot can show a background app; it does not prove the app is in front. Focus authority lets Zyra bring only the exact selected target forward before pointer input. A successful grant returns the first current observation, so do not call computer_observe again before acting. Full access may authorize routine use automatically.",
       parameters: accessSchema,
       client: options.client,
       waitsForUser: true,
@@ -228,10 +237,10 @@ export function createComputerToolSet(options = {}) {
         maxActions: 32,
       }),
       format: (_input, result) => [
-        `Computer access granted.\n${JSON.stringify(grantSummary(result.grant), null, 2)}`,
+        `Computer access granted.\n${JSON.stringify({ ...grantSummary(result.grant), ...(result.selectedWindow ? { selectedWindow: result.selectedWindow } : {}) }, null, 2)}`,
         result.observation ? formatObservation("Initial computer observation ready; act from this revision.", result.observation) : "",
       ].filter(Boolean).join("\n"),
-      summarize: (_input, result) => ({ grant: grantSummary(result.grant), ...(result.observation ? { observation: observationSummary(result.observation) } : {}) }),
+      summarize: (_input, result) => ({ grant: grantSummary(result.grant), ...(result.selectedWindow ? { selectedWindow: result.selectedWindow } : {}), ...(result.observation ? { observation: observationSummary(result.observation) } : {}) }),
     }),
     bridgeTool({
       name: "computer_observe",
@@ -249,7 +258,7 @@ export function createComputerToolSet(options = {}) {
     bridgeTool({
       name: "computer_sequence",
       label: "Run computer steps",
-      description: "Run 1 to 16 already-clear routine steps in one bounded call. Supports exact semantic clicks, exact-field typing, safe editing/navigation keys, and short waits. A semantic role is optional only when the exact name identifies one unique actionable control. Prefer this over serial calls. Zyra re-observes and revision-checks after every step, then returns the final observation. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for any external or critical side effect.",
+      description: "Run 1 to 16 already-clear routine steps in one bounded call. Supports exact semantic clicks, selected-window drags (for drawing or routine manipulation), exact-field typing, safe editing/navigation keys, and short waits. Request focus access for pointer work, especially when switching apps. Use drag coordinates grounded in the observed layout; each endpoint must remain inside the current window. Use observed selected/checked states to avoid reselecting or toggling an already-active control. Select a drawing tool once, then batch its already-known gestures until the intended tool changes. A semantic role is optional only when the exact name identifies one unique actionable control. Prefer this over serial calls. Zyra re-observes and revision-checks after every step, then returns the final observation and, when granted, its screenshot. Include any already-known safe completion or dismissal step in the batch and inspect that final result before requesting another observation. Missing, ambiguous, sensitive, critical, stale, unauthorized, expired, or interrupted steps stop immediately. Use an individual tool for any external or critical side effect.",
       parameters: sequenceSchema,
       client: options.client,
       toOperation: (input) => ({
@@ -373,33 +382,17 @@ function bridgeTool({ name, label, description, parameters, client, toOperation,
     execute: async (_toolCallId, input = {}, signal) => {
       if (!client) {
         const unavailable = unavailableControlResult("Windows computer control");
-        return toolResult(unavailable.error.message, unavailable);
+        throw computerToolError(unavailable.error);
       }
       try {
         const result = await client.request(toOperation(input), { signal, timeoutMs: waitsForUser ? 10 * 60 * 1000 : undefined });
         after?.();
         return toolResult(format(input, result), summarize(input, result), result.screenshot);
       } catch (error) {
-        return toolResult(`Computer operation failed: ${error instanceof Error ? error.message : String(error)}`, {
-          ok: false,
-          code: error?.code || "CONTROL_ERROR",
-          retryable: Boolean(error?.retryable),
-          freshRevision: error?.freshRevision,
-        });
+        throw computerToolError(error);
       }
     },
   });
-}
-
-function formatWindowMatches(queryValue, windowsValue) {
-  const query = String(queryValue || "").trim().slice(0, 128);
-  const windows = Array.isArray(windowsValue) ? windowsValue.filter((entry) => entry && !entry.blocked) : [];
-  if (windows.length === 0) return `No controllable Windows application matched ${JSON.stringify(query)}. Use computer_open_app if it is not running, then search again.`;
-  return [
-    `${windows.length} controllable window${windows.length === 1 ? "" : "s"} matched ${JSON.stringify(query)}:`,
-    ...windows.slice(0, 16).map((entry, index) => `- match ${index + 1}: application ${JSON.stringify(String(entry.applicationName || "unknown").slice(0, 128))}; candidateRef ${String(entry.windowToken || "").slice(0, 512)}`),
-    "Choose the matching candidateRef with computer_request_access. Exact window details appear in Chat approval before access begins.",
-  ].join("\n");
 }
 
 function grantSummary(grant) {

@@ -210,6 +210,8 @@ export type AssistantRuntimeEvent =
         type: 'approval.requested'
         payload: {
             requestType: AssistantApprovalRequestType
+            toolCallId?: string
+            grantLabel?: string
             title?: string
             detail?: string
             command?: string

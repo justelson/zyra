@@ -9,6 +9,30 @@ import type {
 } from './contracts'
 import { reconcileAssistantMessageReplays } from './message-reconciliation'
 
+// A tool-start notification can precede its permission decision. Keep that
+// activity out of the execution UI until the matching request resolves.
+function activityNeedsApproval(thread: AssistantThread, activity: AssistantThread['activities'][number]): boolean {
+    return thread.pendingApprovals.some((approval) => approval.status === 'pending' && Boolean(approval.toolCallId) && (
+        approval.toolCallId === activity.payload?.toolCallId || activity.id === `zyra-tool-${approval.toolCallId}`
+    ))
+}
+
+function projectApprovalWaitingState(thread: AssistantThread, resume = false, projectActivities = true): void {
+    const pending = thread.pendingApprovals.filter((entry) => entry.status === 'pending')
+    const waiting = pending.length > 0 || thread.pendingUserInputs.some((entry) => entry.status === 'pending')
+    if (waiting && (thread.state === 'running' || thread.state === 'starting')) thread.state = 'waiting'
+    else if (resume && !waiting && thread.state === 'waiting' && thread.latestTurn?.state === 'running') thread.state = 'running'
+    if (!projectActivities) return
+    let changed = false
+    const activities = thread.activities.map((activity) => {
+        const approvalPending = activityNeedsApproval(thread, activity)
+        if (Boolean(activity.payload?.approvalPending) === approvalPending) return activity
+        changed = true
+        return { ...activity, payload: { ...activity.payload, approvalPending } }
+    })
+    if (changed) thread.activities = activities
+}
+
 type ThreadLocation = {
     sessionIndex: number
     threadIndex: number
@@ -325,6 +349,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
             writable.thread.hasPendingApprovals = writable.thread.pendingApprovals.some((entry) => entry.status === 'pending')
             writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending')
             writable.thread.hasActivePlan = Boolean(writable.thread.activePlan)
+            projectApprovalWaitingState(writable.thread, false, Boolean(activities || pendingApprovals))
 
             const patchUpdatedAt = typeof patch['updatedAt'] === 'string' ? patch['updatedAt'] : null
             if (patchUpdatedAt) {
@@ -454,6 +479,8 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                     ?? activity.timelineSequence
                     ?? event.sequence
             }
+            const approvalPending = activityNeedsApproval(writable.thread, nextActivity)
+            if (approvalPending || nextActivity.payload?.approvalPending) nextActivity.payload = { ...nextActivity.payload, approvalPending }
             if (index < 0) {
                 writable.thread.activities = [...writable.thread.activities, nextActivity]
                 writable.thread.activityCount += 1
@@ -462,6 +489,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                 nextActivities[index] = nextActivity
                 writable.thread.activities = nextActivities
             }
+            projectApprovalWaitingState(writable.thread, false, false)
             break
         }
         case 'thread.approval.updated': {
@@ -480,6 +508,14 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                 writable.thread.pendingApprovals = nextApprovals
             }
             writable.thread.hasPendingApprovals = writable.thread.pendingApprovals.some((entry) => entry.status === 'pending')
+            projectApprovalWaitingState(writable.thread, approval.status === 'resolved')
+            if (approval.status === 'resolved' && approval.decision === 'decline' && approval.toolCallId) {
+                writable.thread.activities = writable.thread.activities.map((activity) => (
+                    activity.payload?.toolCallId === approval.toolCallId || activity.id === `zyra-tool-${approval.toolCallId}`
+                        ? { ...activity, summary: 'Action declined', tone: 'warning' as const, payload: { ...activity.payload, status: 'failed', approvalPending: false } }
+                        : activity
+                ))
+            }
             break
         }
         case 'thread.user-input.updated': {
@@ -498,6 +534,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                 writable.thread.pendingUserInputs = nextInputs
             }
             writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending')
+            projectApprovalWaitingState(writable.thread, userInput.status === 'resolved')
             break
         }
         case 'thread.latest-turn.updated': {

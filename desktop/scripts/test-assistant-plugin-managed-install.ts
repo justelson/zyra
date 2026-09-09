@@ -18,12 +18,14 @@ async function packageFiles(dir: string, name: string) {
     await writeFile(join(dir, 'skills/test/SKILL.md'), `---\nname: fixture-test\ndescription: Test fixture Skill.\n---\nRelease ${version}.`)
     await writeFile(join(dir, 'must-not-run.js'), 'throw new Error("Never execute installed packages")')
 }
-const registry = new AssistantPluginRegistry({ rootPath: join(root, 'registry'), download: async ({ stagingRoot, entry, commit, signal }) => {
+const registry = new AssistantPluginRegistry({ rootPath: join(root, 'registry'), download: async ({ stagingRoot, entry, commit, signal, onProgress }) => {
+    onProgress?.({ phase: 'metadata', completedFiles: 0, totalFiles: 0, completedBytes: 0, totalBytes: 0, cacheHits: 0 })
     if (shouldFail) throw Error('Fixture network failure')
     if (hold) await new Promise<void>((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true }))
     signal.throwIfAborted()
     downloadedRoot = await mkdtemp(join(stagingRoot, 'package-'))
     await packageFiles(downloadedRoot, entry.name)
+    onProgress?.({ phase: 'downloading', completedFiles: 3, totalFiles: 3, completedBytes: 300, totalBytes: 300, cacheHits: 1 })
     return { packageRoot: downloadedRoot, sourceLocator: `https://github.com/openai/plugins/tree/${commit}/plugins/${entry.name}` }
 } })
 async function finished(id: string): Promise<AssistantPluginDownload> {
@@ -39,6 +41,11 @@ async function install() {
     const ready = await finished(download.id)
     assert.equal(ready.status, 'ready')
     assert.ok(ready.inspection)
+    assert.equal(ready.progress?.phase, 'inspecting')
+    assert.equal(ready.progress?.completedFiles, 3)
+    assert.equal(ready.progress?.cacheHits, 1)
+    ready.progress!.completedFiles = 99
+    assert.equal(registry.acquisitions.get(download.id, 42).progress?.completedFiles, 3, 'progress responses are detached snapshots')
     assert.ok(!JSON.stringify(ready).includes(root), 'model-independent renderer review has no private storage paths')
     assert.throws(() => registry.acquisitions.get(download.id, 43), /missing|expired/)
     await assert.rejects(() => registry.acquisitions.cancel(download.id, 43), /missing|expired/)

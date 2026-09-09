@@ -45,6 +45,13 @@ const routineSequence = assertControlSemanticActionSequenceRequest({
     ]
 })
 assert.equal(routineSequence.steps.length, 4)
+const sequenceDrag = { type: 'drag', fromX: 10, fromY: 20, toX: 120, toY: 140, durationMs: 220, sideEffect: 'none' }
+assert.deepEqual(assertControlSemanticActionSequenceRequest({ ...routineSequence, steps: [sequenceDrag] }).steps[0], sequenceDrag, 'routine drawing drag can run inside a bounded sequence')
+assert.throws(() => assertControlSemanticActionSequenceRequest({ ...routineSequence, steps: [{ ...sequenceDrag, sideEffect: 'file-upload' }] }), /routine side effect/)
+assert.throws(() => assertControlSemanticActionSequenceRequest({ ...routineSequence, steps: [{ ...sequenceDrag, durationMs: 5001 }] }), /durationMs/)
+assert.throws(() => assertControlSemanticActionSequenceRequest({ ...routineSequence, steps: [{ ...sequenceDrag, fromX: Number.NaN }] }), /fromX/)
+assert.throws(() => assertControlSemanticActionSequenceRequest({ ...routineSequence, steps: Array(17).fill(sequenceDrag) }), /1 to 16/)
+
 assert.throws(() => assertControlSemanticActionSequenceRequest({
     ...routineSequence,
     steps: [{ type: 'key', key: 'S', modifiers: ['Ctrl'], sideEffect: 'none' }]

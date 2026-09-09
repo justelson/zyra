@@ -15,7 +15,7 @@ Thanks for helping improve Zyra. Contributions should keep the public project pr
 1. Reproduce or describe the observable problem.
 2. Inspect the current source of truth and its projections.
 3. Make the smallest maintainable change.
-4. Run the narrowest relevant test.
+4. Run the owning targeted test first. Add a direct target if missing; keep small helper/component tests independent of SDK and application startup.
 5. Run `npm run privacy-check` before proposing public changes.
 6. Explain behavior, fallback, migration, and remaining assumptions in the pull request.
 
@@ -25,7 +25,7 @@ The repository default check is:
 npm run check
 ```
 
-It is intentionally broad. During development, use the focused scripts documented in `AGENTS.md` and the affected guide, then run the broader check when preparing a structurally significant change or release.
+It is intentionally broad and is not the single-fix development command. Use the [targeted command map](docs/development/fast-validation.md) during iteration. Run broader integration checks at a justified boundary or release checkpoint, serially, and leave resource-blocked gates explicitly pending rather than repeatedly closing apps or increasing timeouts.
 
 ## Voice-agent architecture
 

@@ -2824,6 +2824,8 @@ export class ZyraPiRuntime extends EventEmitter {
                 requestId,
                 payload: {
                     requestType,
+                    toolCallId: asString(event['toolCallId']) || undefined,
+                    grantLabel: asString(event['grantLabel']) || undefined,
                     title: asString(event['title']) || undefined,
                     detail: asString(event['detail']) || undefined,
                     command: asString(event['command']) || undefined,

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { downloadCatalogPlugin } from '../src/plugins/plugin-download.mjs'
+import { downloadCatalogPlugin, PluginDownloadCache } from '../src/plugins/plugin-download.mjs'
 
 const commit = 'a'.repeat(40), plugins = 'b'.repeat(40), packageSha = 'c'.repeat(40)
 const entry = { name: 'test-plugin', hasSkills: true, installation: 'AVAILABLE', sourceUrl: `https://github.com/openai/plugins/tree/${commit}/plugins/test-plugin` }
@@ -48,6 +48,62 @@ try {
   for (const [p, bytes] of source) assert.deepEqual(await readFile(path.join(result.packageRoot, p)), bytes)
   assert.equal(calls.length, 6)
   await rm(result.packageRoot, { recursive: true })
+  const cache = new PluginDownloadCache()
+  const progress = []
+  const cachedRun = (options = {}) => downloadCatalogPlugin({ stagingRoot: root, entry, commit, cache, fetchImpl: fetcher(), onProgress: value => progress.push(value), ...options })
+  let checkpoint = calls.length
+  const cold = await cachedRun()
+  assert.equal(calls.length - checkpoint, 6, 'cold download fetches three trees and three files')
+  assert.equal(progress[0].phase, 'metadata')
+  assert.equal(progress[0].completedFiles, 0, 'progress snapshots cannot be mutated later')
+  assert.equal(progress.at(-1).completedFiles, files.length)
+  assert.equal(progress.at(-1).completedBytes, files.reduce((sum, file) => sum + file.size, 0))
+  await rm(cold.packageRoot, { recursive: true })
+  checkpoint = calls.length
+  const warm = await cachedRun()
+  assert.equal(calls.length - checkpoint, 3, 'warm downloads refresh tree metadata but fetch no file bodies')
+  assert.ok(calls.slice(checkpoint).every(url => url.startsWith('https://api.github.com/')), 'only hash-verifiable blobs are reused')
+  assert.equal(progress.at(-1).cacheHits, files.length)
+  for (const [p, bytes] of source) assert.deepEqual(await readFile(path.join(warm.packageRoot, p)), bytes)
+  await rm(warm.packageRoot, { recursive: true })
+  const key = `blob:${files[0].sha}`
+  const copy = cache.get(key)
+  copy.fill(0)
+  assert.notDeepEqual(cache.get(key), copy, 'callers cannot mutate cached bytes through get')
+  cache.set(key, Buffer.from('corrupt'))
+  checkpoint = calls.length
+  const repaired = await cachedRun()
+  assert.equal(calls.length - checkpoint, 4, 'metadata stays fresh and a corrupt blob is re-fetched against its pinned identity')
+  assert.deepEqual(await readFile(path.join(repaired.packageRoot, files[0].path)), source.get(files[0].path))
+  await rm(repaired.packageRoot, { recursive: true })
+  cache.clear()
+  const partialAbort = new AbortController()
+  await assert.rejects(() => cachedRun({ signal: partialAbort.signal, onProgress: value => { if (value.completedFiles === 1) partialAbort.abort() } }), /abort/i)
+  assert.deepEqual(await readdir(root), [], 'cancelled staging is removed even though verified cache entries survive')
+  checkpoint = calls.length
+  const retried = await cachedRun()
+  assert.ok(calls.length - checkpoint < 3 + files.length, 'retry reuses complete verified files while fetching fresh metadata')
+  assert.ok(progress.at(-1).cacheHits > 0)
+  await rm(retried.packageRoot, { recursive: true })
+  cache.clear()
+  assert.equal(cache.bytes, 0)
+  let clock = 0
+  const tiny = new PluginDownloadCache({ maxBytes: 4, maxEntries: 2, ttlMs: 10, now: () => clock })
+  const firstKey = `blob:${'1'.repeat(40)}`, secondKey = `blob:${'2'.repeat(40)}`, thirdKey = `blob:${'3'.repeat(40)}`
+  const input = Buffer.from('aa')
+  tiny.set(firstKey, input); input.fill(0)
+  assert.equal(tiny.get(firstKey).toString(), 'aa', 'set also copies the input')
+  tiny.set(secondKey, Buffer.from('bb')); tiny.get(firstKey); tiny.set(thirdKey, Buffer.from('cc'))
+  assert.equal(tiny.get(secondKey), null, 'least recently used entries are evicted within both bounds')
+  assert.equal(tiny.bytes, 4)
+  assert.equal(tiny.set(secondKey, Buffer.alloc(5)), false)
+  assert.equal(tiny.set('untrusted-key', Buffer.alloc(1)), false)
+  assert.equal(tiny.set(`tree:${'1'.repeat(40)}:1`, Buffer.alloc(1)), false, 'unverifiable tree metadata cannot enter the cache')
+  clock = 11
+  assert.equal(tiny.get(firstKey), null)
+  assert.equal(tiny.get(thirdKey), null)
+  assert.equal(tiny.bytes, 0)
+  console.log('Plugin cache: file downloads 3 -> 0, metadata requests remain 3; bounded TTL/LRU, copied bytes, corrupt-hit revalidation and cancelled-download reuse: ok')
   await rejects({ truncated: true }, /incomplete/)
   await rejects({ mutateBytes: true }, /match|size|abort/i)
   await rejects({ status: 503 }, /failed|abort/i)

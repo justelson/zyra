@@ -65,6 +65,21 @@
 .plugin-dialog-body { padding: 22px 24px; overflow-y: auto; scrollbar-gutter: stable; min-height: 0; line-height: 1.6; }
 .plugin-dialog-footer { padding: 14px 24px; border-top: 1px solid var(--plugin-divider); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .plugin-description { color: var(--plugin-secondary); overflow-wrap: anywhere; }
+.plugin-install-job { padding: 16px 0 20px; margin-bottom: 28px; border-bottom: 1px solid var(--plugin-divider); }
+.plugin-install-job-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.plugin-install-job-heading h2 { font-size: 16px; font-weight: 550; overflow-wrap: anywhere; min-width: 0; }
+.plugin-install-job progress { display: block; width: 100%; height: 5px; margin: 12px 0 8px; accent-color: var(--accent-primary); }
+.plugin-install-job progress[value] { appearance: none; border: 0; border-radius: 2px; overflow: hidden; background: var(--plugin-divider); }
+.plugin-install-job progress[value]::-webkit-progress-bar { background: var(--plugin-divider); }
+.plugin-install-job progress[value]::-webkit-progress-value { background: var(--accent-primary); }
+.plugin-install-job progress[value]::-moz-progress-bar { background: var(--accent-primary); }
+.plugin-review-body { display: grid; gap: 10px; margin-top: 14px; line-height: 1.55; }
+.plugin-review-body .plugin-help { margin: 0; }
+.plugin-review-meta { color: var(--plugin-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.plugin-review-details > summary { cursor: pointer; font-size: 12px; color: var(--plugin-secondary); padding: 4px 0; }
+.plugin-review-details > summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+.plugin-review-details > .plugin-description { margin-top: 12px; }
+.plugin-install-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .plugin-detail-section { margin-top: 24px; }
 .plugin-detail-section > h3, .plugin-detail-section > summary { font-size: 13px; font-weight: 550; }
 .plugin-detail-section > summary { cursor: pointer; padding: 8px 0; }

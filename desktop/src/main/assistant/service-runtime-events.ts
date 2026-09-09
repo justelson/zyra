@@ -1223,6 +1223,8 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 id: createAssistantId('assistant-approval'),
                 requestId: event.requestId || createAssistantId('assistant-request'),
                 requestType: event.type === 'approval.requested' ? event.payload.requestType : 'command',
+                toolCallId: event.type === 'approval.requested' ? event.payload.toolCallId : undefined,
+                grantLabel: event.type === 'approval.requested' ? event.payload.grantLabel : undefined,
                 title: event.type === 'approval.requested' ? event.payload.title : undefined,
                 detail: event.type === 'approval.requested' ? event.payload.detail : undefined,
                 command: event.type === 'approval.requested' ? event.payload.command : undefined,

@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import net from 'node:net'
@@ -61,39 +63,55 @@ try {
     if (!(windowBounds.width > 0 && windowBounds.height > 0)) throw new Error(`Selected-window overlay bounds were unavailable: ${JSON.stringify(windowBounds)}`)
     const observation = await rpc('observe', { windowToken: candidate.windowToken, revision: 1, includeScreenshot: true })
     if (!Array.isArray(observation.elements) || !observation.screenshotRef || observation.targetState !== 'ready' || observation.elements.length === 0) throw new Error(`Sidecar observation/capture contract was incomplete: ${JSON.stringify({ targetState: observation.targetState, elements: observation.elements?.length, screenshotRef: observation.screenshotRef, redactions: observation.redactions })}`)
-    const editable = observation.elements.find((element) => element.name === 'Smoke input' && element.actions?.includes('type') && !element.sensitive)
-    const readOnly = observation.elements.find((element) => element.name === 'Read-only smoke value')
-    if (!editable) throw new Error('The editable smoke field did not expose semantic type.')
-    if (!readOnly || readOnly.actions?.includes('type')) throw new Error('A read-only ValuePattern must not advertise semantic type.')
-    const apply = observation.elements.find((element) => element.name === 'Apply smoke input' && element.bounds)
-    if (!apply) throw new Error('The owned Apply button did not expose pointer bounds.')
-    await rpc('action', { windowToken: candidate.windowToken, revision: 1, action: { type: 'type', elementRef: editable.elementRef, text: 'Zyra sidecar smoke', replace: true, deltaX: 0, deltaY: 0 } })
-    if (process.env.ZYRA_POINTER_SMOKE === '1') {
-      const coordinateClick = await rpc('action', {
-        windowToken: candidate.windowToken,
-        revision: 1,
-        action: { type: 'click', x: apply.bounds.x + apply.bounds.width / 2, y: apply.bounds.y + apply.bounds.height / 2, button: 'left', clickCount: 1 }
-      })
-      if (coordinateClick.semantic !== false || coordinateClick.changed !== true) throw new Error(`Coordinate click did not use bounded selected-window input: ${JSON.stringify(coordinateClick)}`)
-      const dragStart = { x: windowBounds.x + 220, y: windowBounds.y + 14 }
-      const dragEnd = { x: dragStart.x + 48, y: dragStart.y + 42 }
-      await rpc('action', {
-        windowToken: candidate.windowToken,
-        revision: 1,
-        action: { type: 'drag', fromX: dragStart.x, fromY: dragStart.y, toX: dragEnd.x, toY: dragEnd.y, durationMs: 180, button: 'left' }
-      })
-      const movedBounds = await rpc('window_bounds', { windowToken: candidate.windowToken })
-      if (Math.abs(movedBounds.x - windowBounds.x) < 20 || Math.abs(movedBounds.y - windowBounds.y) < 20) {
-        throw new Error(`Coordinate drag did not move the owned window: ${JSON.stringify({ windowBounds, movedBounds })}`)
-      }
+    if (process.argv.includes('--dpi-only')) {
+      const query = path.join(root, 'scripts', 'query-process-dpi.ps1')
+      const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', query, String(sidecar.pid), path.join(artifacts, observation.screenshotRef.replace('control-artifact:', '') + '.jpg')], { windowsHide: true, timeout: 30_000 })
+      const capture = JSON.parse(stdout.trim())
+      const awareness = capture.awareness
+      const afterObservationBounds = await rpc('window_bounds', { windowToken: candidate.windowToken })
+      const physicalBounds = observation.elements.find((element) => element.role === 'window')?.bounds
+      console.log('WINDOWS_DPI_CONTRACT', JSON.stringify({ awareness, windowBounds, afterObservationBounds, physicalBounds, capture }))
+      assert.equal(awareness, 2, 'the actual sidecar process must be per-monitor DPI aware')
+      assert.deepEqual(windowBounds, physicalBounds, 'native worker bounds must match physical UIA bounds, including scaled window edges')
+      assert.deepEqual(afterObservationBounds, physicalBounds, 'worker coordinates must remain physical after UIA initializes')
+      assert.deepEqual({ width: capture.width, height: capture.height }, { width: physicalBounds.width, height: physicalBounds.height }, 'capture must include the physical right and bottom window edges')
+      await rpc('emergency_stop')
+      console.log('Windows sidecar physical DPI contract passed.')
     } else {
-      await rpc('action', { windowToken: candidate.windowToken, revision: 1, action: { type: 'click', elementRef: apply.elementRef } })
+      const editable = observation.elements.find((element) => element.name === 'Smoke input' && element.actions?.includes('type') && !element.sensitive)
+      const readOnly = observation.elements.find((element) => element.name === 'Read-only smoke value')
+      if (!editable) throw new Error('The editable smoke field did not expose semantic type.')
+      if (!readOnly || readOnly.actions?.includes('type')) throw new Error('A read-only ValuePattern must not advertise semantic type.')
+      const apply = observation.elements.find((element) => element.name === 'Apply smoke input' && element.bounds)
+      if (!apply) throw new Error('The owned Apply button did not expose pointer bounds.')
+      await rpc('action', { windowToken: candidate.windowToken, revision: 1, action: { type: 'type', elementRef: editable.elementRef, text: 'Zyra sidecar smoke', replace: true, deltaX: 0, deltaY: 0 } })
+      if (process.env.ZYRA_POINTER_SMOKE === '1') {
+        const coordinateClick = await rpc('action', {
+          windowToken: candidate.windowToken,
+          revision: 1,
+          action: { type: 'click', x: apply.bounds.x + apply.bounds.width / 2, y: apply.bounds.y + apply.bounds.height / 2, button: 'left', clickCount: 1 }
+        })
+        if (coordinateClick.semantic !== false || coordinateClick.changed !== true) throw new Error(`Coordinate click did not use bounded selected-window input: ${JSON.stringify(coordinateClick)}`)
+        const dragStart = { x: windowBounds.x + 220, y: windowBounds.y + 14 }
+        const dragEnd = { x: dragStart.x + 48, y: dragStart.y + 42 }
+        await rpc('action', {
+          windowToken: candidate.windowToken,
+          revision: 1,
+          action: { type: 'drag', fromX: dragStart.x, fromY: dragStart.y, toX: dragEnd.x, toY: dragEnd.y, durationMs: 180, button: 'left' }
+        })
+        const movedBounds = await rpc('window_bounds', { windowToken: candidate.windowToken })
+        if (Math.abs(movedBounds.x - windowBounds.x) < 20 || Math.abs(movedBounds.y - windowBounds.y) < 20) {
+          throw new Error(`Coordinate drag did not move the owned window: ${JSON.stringify({ windowBounds, movedBounds })}`)
+        }
+      } else {
+        await rpc('action', { windowToken: candidate.windowToken, revision: 1, action: { type: 'click', elementRef: apply.elementRef } })
+      }
+      const updated = await rpc('observe', { windowToken: candidate.windowToken, revision: 2, includeScreenshot: false })
+      const output = updated.elements.find((element) => element.name?.startsWith('Smoke output:'))
+      if (output?.name !== 'Smoke output: Zyra sidecar smoke') throw new Error(`Updated semantic output was not observable: ${JSON.stringify(output)}`)
+      await rpc('emergency_stop')
+      console.log(`Windows sidecar live smoke passed (${observation.elements.length} UIA elements, selected-window bounds/capture, semantic type/click/readback${process.env.ZYRA_POINTER_SMOKE === '1' ? ', coordinate click, and coordinate drag' : ''}).`)
     }
-    const updated = await rpc('observe', { windowToken: candidate.windowToken, revision: 2, includeScreenshot: false })
-    const output = updated.elements.find((element) => element.name?.startsWith('Smoke output:'))
-    if (output?.name !== 'Smoke output: Zyra sidecar smoke') throw new Error(`Updated semantic output was not observable: ${JSON.stringify(output)}`)
-    await rpc('emergency_stop')
-    console.log(`Windows sidecar live smoke passed (${observation.elements.length} UIA elements, selected-window bounds/capture, semantic type/click/readback${process.env.ZYRA_POINTER_SMOKE === '1' ? ', coordinate click, and coordinate drag' : ''}).`)
   }
 } finally {
   socket.destroy()

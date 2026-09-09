@@ -14,7 +14,7 @@ Windows 10 or 11, x64:
 irm https://raw.githubusercontent.com/justelson/zyra/master/install.ps1 | iex
 ```
 
-Open a new PowerShell or Command Prompt window, then run `zyra`.
+Open a new PowerShell or Command Prompt window, then run `zyra`. See [Windows TUI integration](docs/guides/windows-tui-integration.md) for the upcoming branded launch entry and terminal-icon behavior.
 
 ### macOS
 

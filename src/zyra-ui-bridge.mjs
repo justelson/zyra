@@ -61,6 +61,7 @@ function requestToolPermission(request = {}) {
       command: request.command,
       paths: request.paths,
       toolName: request.toolName,
+      toolCallId: request.toolCallId,
       grantLabel: request.grantLabel,
     },
   });
@@ -279,7 +280,7 @@ async function handleConnect(payload) {
       const now = Date.now();
       const shouldPublishLiveContext = event.type !== "message_update" || now - lastLiveContextPublishedAt >= 250;
       if (shouldPublishLiveContext) {
-        const current = sdk.describeRuntime(runtime);
+        const current = sdk.getRuntimeUsageSnapshot(runtime);
         if (event.type === "message_start") {
           liveContextBaselineTokens = Number(current.contextUsage?.tokens) || 0;
         }

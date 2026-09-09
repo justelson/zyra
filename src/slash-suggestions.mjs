@@ -47,6 +47,11 @@ export function getSlashSuggestions(runtime, text) {
     return buildSimpleArgumentSuggestions(["subscription", "api"], query.slice(command.length), "authentication method");
   }
 
+  if (query.startsWith("/access ") || query.startsWith("/permissions ")) {
+    const command = query.startsWith("/permissions ") ? "/permissions " : "/access ";
+    return buildSimpleArgumentSuggestions(ACCESS_MODES, query.slice(command.length), "permission mode");
+  }
+
   if (query.startsWith("/thinking ")) {
     const prefix = query.slice("/thinking ".length);
     const active = getZyraThinkingLevel(runtime);
@@ -223,11 +228,6 @@ export function applySlashSuggestion(text, item) {
 
   if (item.kind === "command") {
     return item.submitOnEnter ? item.value : `${item.value} `;
-  }
-
-  if (query.startsWith("/access ") || query.startsWith("/permissions ")) {
-    const command = query.startsWith("/permissions ") ? "/permissions " : "/access ";
-    return buildSimpleArgumentSuggestions(ACCESS_MODES, query.slice(command.length), "permission mode");
   }
 
   if (item.kind === "skill") return `${item.value} `;

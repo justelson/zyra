@@ -53,6 +53,8 @@ export interface AssistantPendingApproval {
     id: string
     requestId: string
     requestType: AssistantApprovalRequestType
+    toolCallId?: string
+    grantLabel?: string
     title?: string
     detail?: string
     command?: string

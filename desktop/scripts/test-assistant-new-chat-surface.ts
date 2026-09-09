@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 import { deriveAssistantConversationSurfaceMode } from '../src/renderer/src/pages/assistant/assistant-conversation-surface-mode'
 import { clearMentionIndex, getOrCreateMentionIndex } from '../src/renderer/src/pages/assistant/assistant-composer-mentions'
 import { resolveAssistantProjectLabel } from '../src/renderer/src/pages/assistant/assistant-project-label'
+import { buildAssistantProjectChoices, getAssistantProjectIconSourcePath } from '../src/renderer/src/pages/assistant/assistant-project-choices'
+import type { AssistantProject } from '../src/shared/assistant/contracts'
 
 const managedId = 'project_0123456789abcdef0123456789abcdef'
 assert.equal(resolveAssistantProjectLabel('Website', managedId, `C:/managed/${managedId}`), 'Website')
@@ -11,6 +13,24 @@ assert.equal(resolveAssistantProjectLabel(null, managedId, `C:/managed/${managed
 assert.equal(resolveAssistantProjectLabel(null, null, `C:/managed/${managedId}`), '', 'legacy managed paths must not leak identifiers either')
 assert.equal(resolveAssistantProjectLabel(null, null, 'C:/projects/legacy-app'), 'legacy-app')
 assert.equal(resolveAssistantProjectLabel(null, null, null), '')
+
+function makeProject(id: string, name: string, folders: string[] = []): AssistantProject {
+    return { id, name, homePath: `C:/fixture/homes/${id}`, archived: false, revision: 1, createdAt: '', updatedAt: '', folders: folders.map((path, index) => ({ associationId: `${id}-${index}`, folderId: `folder-${index}`, projectId: id, path, label: `Folder ${index}`, access: 'read-write', available: true, createdAt: '', updatedAt: '' })) }
+}
+const website = makeProject('website', 'Website', ['C:/fixture/root', 'C:/fixture/backend', 'C:/fixture/docs'])
+const notes = makeProject('notes', 'Notes')
+const separateSameName = makeProject('website-other', 'Website', ['C:/fixture/other'])
+const archived = { ...makeProject('archive', 'Archive'), archived: true }
+const projects = [website, notes, separateSameName, archived]
+const unchangedProjects = JSON.stringify(projects)
+assert.deepEqual(buildAssistantProjectChoices(projects), [
+    { projectId: website.id, label: website.name, iconSourcePath: website.folders[0].path },
+    { projectId: notes.id, label: notes.name, iconSourcePath: notes.homePath },
+    { projectId: separateSameName.id, label: separateSameName.name, iconSourcePath: separateSameName.folders[0].path }
+], 'the picker has one entry per active Project, not per home or associated folder')
+assert.equal(JSON.stringify(projects), unchangedProjects, 'presentation cannot mutate Project folders or scope')
+assert.equal(getAssistantProjectIconSourcePath(null), null)
+assert.equal(getAssistantProjectIconSourcePath({ ...website, folders: [{ ...website.folders[0], available: false }, ...website.folders.slice(1)] }), website.folders[0].path, 'availability cannot silently substitute a different folder identity for the icon')
 
 assert.equal(
     deriveAssistantConversationSurfaceMode({
@@ -69,7 +89,15 @@ assert.match(placementMotionSource, /prefers-reduced-motion: reduce/u, 'composer
 assert.match(projectChipSource, /data-assistant-new-chat-project-chip="true"/u, 'New Chat should expose its project context on the composer seam')
 assert.match(projectChipSource, /No project/u, 'detached New Chat context must be explicit')
 assert.match(projectChipSource, /New project…/u, 'the project context menu opens reviewed Project creation directly')
-assert.doesNotMatch(projectChipSource, /Detected folders|Choose folder…/u, 'discovery lists stay out of the compact project picker')
+assert.doesNotMatch(projectChipSource, /Detected folders|Choose folder…|rootLabel|Project home/u, 'the compact picker exposes Projects only, with no folder rows or subtitles')
+assert.match(projectChipSource, /key=\{project\.projectId\}/u)
+assert.match(projectChipSource, /projectPath=\{project\.iconSourcePath\}/u, 'Project rows use the first-folder icon source')
+assert.match(projectChipSource, /projectPath=\{iconSourcePath\}/u, 'the collapsed chip uses Project identity, not the current Working root')
+assert.match(projectChipSource, /aria-checked=\{project\.projectId === props\.projectId\}/u, 'selection follows Project identity even with a different Working root')
+assert.match(projectChipSource, /props\.onSelectProject\(projectId\)/u, 'a picker selection sends only a Project ID')
+assert.doesNotMatch(projectChipSource, /workingRoot|project\.path/u)
+assert.match(paneSource, /buildAssistantProjectChoices\(projectCatalogState\.catalog\.projects\)/u, 'production and fixtures use the same catalog projection')
+assert.match(paneSource, /setSessionProjectResult\(session\.id, \{ projectId \}\)/u, 'Project selection retains the backend Working-root policy')
 assert.match(paneSource, /resolveAssistantProjectLabel\(displayProjectName, displayProjectId, displayProjectPath\)/u, 'the greeting uses the durable Project name instead of its managed directory ID')
 assert.match(projectCatalogSource, /assistant\.listProjects\(\)/u, 'New Chat Project choices come from the durable catalog even when no Chat references a folder')
 assert.match(paneSource, /handleCreateNewChatProject[\s\S]*await requestProjectCreation\(\)/u, 'the new-project action starts with the setup modal, not an OS folder picker')

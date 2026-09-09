@@ -5,6 +5,7 @@ import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/pr
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BUN_RUNTIME_VERSION, currentTuiReleaseTarget, TUI_RELEASE_TARGETS, tuiReleaseAssetName } from "./tui-release-contract.mjs";
+import { STANDALONE_WINDOWS_ICON_RESOURCE } from "../src/standalone-install-metadata.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = parseArgs(process.argv.slice(2));
@@ -16,7 +17,7 @@ if (!/^\d+\.\d+\.\d+(?:-(?:alpha|beta)(?:[.-]?\d+)?)?$/.test(version)) {
 const targets = resolveTargets(args);
 assertBunVersion();
 const windowsIcon = path.join(root, "desktop", "resources", "icon.ico");
-if (targets.includes("windows-x64") && !existsSync(windowsIcon)) {
+if (!existsSync(windowsIcon)) {
   throw new Error(`The shared Zyra release icon is missing: ${windowsIcon}`);
 }
 const outputDirectory = path.resolve(root, String(args.output || path.join("dist", "tui", `v${version}`)));
@@ -98,10 +99,14 @@ async function collectResources() {
     files.push(...await walk(directory));
   }
   const unique = [...new Set(files)].sort((left, right) => left.localeCompare(right));
-  return Promise.all(unique.map(async (relativePath) => ({
+  const resources = await Promise.all(unique.map(async (relativePath) => ({
     relativePath: relativePath.replaceAll("\\", "/"),
     content: await readFile(path.join(root, relativePath)),
   })));
+  // The console executable and installer integration use the exact same ICO as
+  // Desktop. Embed the bytes under a neutral asset path, not Desktop code.
+  resources.push({ relativePath: STANDALONE_WINDOWS_ICON_RESOURCE, content: await readFile(windowsIcon) });
+  return resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
 async function walk(relativeDirectory) {

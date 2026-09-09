@@ -268,6 +268,17 @@ export function assertControlSemanticActionSequenceRequest(value: unknown): Cont
             assertRoutineSequenceKey(key, modifiers, index)
             return { type: 'key', key, modifiers, sideEffect: 'none' }
         }
+        if (record.type === 'drag') {
+            return {
+                type: 'drag',
+                fromX: pointerCoordinate(record.fromX, `steps[${index}].fromX`),
+                fromY: pointerCoordinate(record.fromY, `steps[${index}].fromY`),
+                toX: pointerCoordinate(record.toX, `steps[${index}].toX`),
+                toY: pointerCoordinate(record.toY, `steps[${index}].toY`),
+                ...(record.durationMs === undefined ? {} : { durationMs: finiteNumber(record.durationMs, `steps[${index}].durationMs`, 0, 5_000) }),
+                sideEffect: 'none'
+            }
+        }
         if (record.type === 'wait') {
             return {
                 type: 'wait',

@@ -1793,11 +1793,19 @@ export function buildSessionInfo(runtime) {
   };
 }
 
+// Streaming needs these in-memory counters, not the filesystem-backed memory,
+// prompt and theme descriptions assembled by describeRuntime.
+export function getRuntimeUsageSnapshot(runtime) {
+  return {
+    usage: calculateSessionUsage(runtime.session.sessionManager),
+    contextUsage: getRuntimeContextUsage(runtime),
+  };
+}
+
 export function describeRuntime(runtime) {
   const model = runtime.session.model;
   const sessionManager = runtime.session.sessionManager;
-  const usage = calculateSessionUsage(sessionManager);
-  const contextUsage = getRuntimeContextUsage(runtime);
+  const { usage, contextUsage } = getRuntimeUsageSnapshot(runtime);
   return {
     project: runtime.project,
     sessions: runtime.sessions,

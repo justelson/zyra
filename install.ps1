@@ -3,7 +3,8 @@ param(
   [string]$Version = "latest",
   [string]$InstallDir = "$env:LOCALAPPDATA\Zyra\cli",
   [string]$SourceDirectory = "",
-  [switch]$NoPathUpdate
+  [switch]$NoPathUpdate,
+  [switch]$NoTerminalIntegration
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +45,74 @@ function Ensure-UserPath([string]$Directory) {
   $next = if ($userPath) { "$Directory;$userPath" } else { $Directory }
   [Environment]::SetEnvironmentVariable("Path", $next, "User")
   Write-Host "Added $Directory to your user PATH."
+}
+
+function Install-TerminalIntegration([string]$Executable, [string]$Command, [string]$CommandDirectory) {
+  # Keep exactly one version argument: legacy routers reject extra arguments.
+  # New standalone binaries opt into metadata through this child-only environment.
+  $previousMetadataMode = [Environment]::GetEnvironmentVariable('ZYRA_INSTALL_METADATA', 'Process')
+  try {
+    $env:ZYRA_INSTALL_METADATA = '1'
+    $response = (& $Executable --version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the installed Zyra branding.' }
+  } finally {
+    [Environment]::SetEnvironmentVariable('ZYRA_INSTALL_METADATA', $previousMetadataMode, 'Process')
+  }
+  $IconPath = Join-Path $CommandDirectory 'zyra.ico'
+  if ($response -eq "zyra $ResolvedVersion") {
+    # Legacy releases have the shared mark in their PE resources, but cannot
+    # export the original multi-resolution ICO through installer metadata.
+    Add-Type -AssemblyName System.Drawing
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($Executable)
+    if (-not $icon) { throw 'The legacy Zyra executable has no icon.' }
+    try {
+      $stream = [System.IO.File]::Create($IconPath)
+      try { $icon.Save($stream) } finally { $stream.Dispose() }
+    } finally { $icon.Dispose() }
+  } else {
+    $metadata = $response | ConvertFrom-Json
+    if ($metadata.format -ne 1 -or $metadata.version -ne $ResolvedVersion -or -not $metadata.windowsIconBase64 -or $metadata.windowsIconBase64.Length -gt 1400000) {
+      throw 'The installed Zyra branding metadata is invalid.'
+    }
+    $bytes = [Convert]::FromBase64String($metadata.windowsIconBase64)
+    if ($bytes.Length -lt 22 -or $bytes.Length -gt 1048576 -or [BitConverter]::ToUInt32($bytes, 0) -ne 65536) { throw 'The Zyra branding asset is not an ICO.' }
+    [System.IO.File]::WriteAllBytes($IconPath, $bytes)
+  }
+
+  # A fragment adds only Zyra's profile. Never parse or overwrite settings.json,
+  # replace the user's default profile, or change unrelated terminal profiles.
+  $FragmentDirectory = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\Fragments\Zyra'
+  New-Item -ItemType Directory -Force -Path $FragmentDirectory | Out-Null
+  Copy-Item -LiteralPath $IconPath -Destination (Join-Path $FragmentDirectory 'zyra.ico') -Force
+  $ProfileId = '{321ca745-fd51-522f-8dd0-dc7452b78c24}'
+  $Shell = if ($env:ComSpec) { $env:ComSpec } else { Join-Path $env:SYSTEMROOT 'System32\cmd.exe' }
+  $ShellArguments = '/d /s /c ""' + $Command + '""'
+  $fragment = @{ profiles = @(@{
+    guid = $ProfileId
+    name = 'Zyra'
+    commandline = '"' + $Shell + '" ' + $ShellArguments
+    startingDirectory = $env:USERPROFILE
+    icon = 'zyra.ico'
+    closeOnExit = 'graceful'
+  }) }
+  $fragment | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $FragmentDirectory 'zyra.json') -Encoding UTF8
+
+  $StartMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+  New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
+  $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $StartMenu 'Zyra Terminal.lnk'))
+  $terminal = Get-Command wt.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($terminal) {
+    $shortcut.TargetPath = $terminal.Source
+    $shortcut.Arguments = '-w new new-tab --profile "' + $ProfileId + '"'
+  } else {
+    $shortcut.TargetPath = $Shell
+    $shortcut.Arguments = $ShellArguments
+  }
+  $shortcut.IconLocation = $IconPath + ',0'
+  $shortcut.WorkingDirectory = $env:USERPROFILE
+  $shortcut.Description = 'Zyra Terminal'
+  $shortcut.Save()
+  Write-Host 'Added Zyra Terminal to Start Menu and the Zyra profile to Windows Terminal.'
 }
 
 $ResolvedVersion = Resolve-ReleaseVersion
@@ -112,6 +181,7 @@ try {
   $LaunchTarget = if (Test-Path -LiteralPath $PendingTarget) { $PendingTarget } else { $Target }
   & $LaunchTarget --version
   if ($LASTEXITCODE -ne 0) { throw "The installed Zyra binary did not start successfully." }
+  if (-not $NoTerminalIntegration) { Install-TerminalIntegration $LaunchTarget $Command $CommandDirectory }
 } finally {
   Remove-Item -LiteralPath $TempDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }

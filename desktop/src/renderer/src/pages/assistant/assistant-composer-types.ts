@@ -1,6 +1,7 @@
 import type { AssistantChatScopeRoot, AssistantInteractionMode, AssistantModelInfo, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantBusyMessageMode } from '@/lib/settings'
+import type { AssistantProjectChoice } from './assistant-project-choices'
 
 export type AssistantComposerProjectRoot = AssistantChatScopeRoot
 
@@ -90,10 +91,11 @@ export type AssistantComposerProps = {
     projectId?: string | null
     projectPath?: string | null
     projectName?: string | null
+    projectIconSourcePath?: string | null
     projectRoots?: AssistantComposerProjectRoot[]
-    projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
+    projectChoices?: AssistantProjectChoice[]
     projectContextDisabled?: boolean
-    onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
+    onSelectProject?: (projectId: string | null) => Promise<void> | void
     onCreateProject?: () => Promise<void> | void
     acceptBrowserAnnotations?: boolean
     compact?: boolean

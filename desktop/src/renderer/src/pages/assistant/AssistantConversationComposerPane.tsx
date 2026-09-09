@@ -13,6 +13,7 @@ import { deriveAssistantComposerDisabledReason } from './assistant-composer-capa
 import { ASSISTANT_COMPOSER_OVERLAY_TOP_PADDING_PX } from './assistant-pane-layout'
 import type { AssistantComposerProjectRoot, AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
 import { useAssistantComposerPlacementMotion } from './useAssistantComposerPlacementMotion'
+import type { AssistantProjectChoice } from './assistant-project-choices'
 
 export const AssistantConversationComposerPane = memo(function AssistantConversationComposerPane(props: {
     placement?: 'bottom' | 'center'
@@ -43,10 +44,11 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     selectedProjectId?: string | null
     selectedProjectPath: string | null
     selectedProjectName?: string | null
+    projectIconSourcePath?: string | null
     projectRoots?: AssistantComposerProjectRoot[]
-    projectChoices?: Array<{ projectId: string; path: string; label: string; rootLabel: string }>
+    projectChoices?: AssistantProjectChoice[]
     projectContextDisabled?: boolean
-    onSelectProject?: (projectId: string | null, workingRoot?: string | null) => Promise<void> | void
+    onSelectProject?: (projectId: string | null) => Promise<void> | void
     onCreateProject?: () => Promise<void> | void
     availableModels: Array<{ id: string; label: string; description?: string }>
     activeModel: string | undefined
@@ -230,6 +232,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         projectId={props.selectedProjectId}
                         projectPath={props.selectedProjectPath}
                         projectName={props.selectedProjectName}
+                        projectIconSourcePath={props.projectIconSourcePath}
                         projectRoots={props.projectRoots}
                         projectChoices={props.projectChoices}
                         projectContextDisabled={props.projectContextDisabled}

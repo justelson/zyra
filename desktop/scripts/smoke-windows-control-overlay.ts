@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { app, BrowserWindow, globalShortcut, nativeImage, screen, type Display, type NativeImage } from 'electron'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { verifyOverlayHitTesting } from './windows-overlay-hit-test-fixture'
 import { AgentControlBroker } from '../src/main/agent-control/agent-control-broker'
 import type { AgentControlDriver } from '../src/main/agent-control/drivers/driver'
 import {
@@ -19,6 +20,7 @@ void run().catch((error) => {
 
 async function run(): Promise<void> {
     await app.whenReady()
+    const hitTestOnly = process.env.ZYRA_WINDOWS_CONTROL_OVERLAY_HIT_TEST === '1'
     const requestedInspectionMs = Number(process.env.ZYRA_WINDOWS_CONTROL_OVERLAY_INSPECT_MS || 0)
     const inspectionMs = Number.isFinite(requestedInspectionMs) && requestedInspectionMs > 0
         ? Math.max(10_000, Math.min(10 * 60_000, Math.floor(requestedInspectionMs)))
@@ -31,15 +33,22 @@ async function run(): Promise<void> {
         ? '<body style="margin:0;background:#111827;color:#f8fafc;font:16px Segoe UI;display:grid;place-items:center;height:100vh"><main style="text-align:center"><strong style="font-size:20px">AI cursor preview</strong><p style="color:#94a3b8">Inspect the pointer, glow, and movement. Press Escape to stop.</p><button style="margin-top:12px;padding:9px 16px">Continue</button></main></body>'
         : '<body style="background:#111827;color:white;font:18px Segoe UI;padding:40px"><button>Continue</button></body>'
     await targetWindow.loadURL(`data:text/html,${encodeURIComponent(targetDocument)}`)
+    if (hitTestOnly) {
+        targetWindow.setBounds(screen.getPrimaryDisplay().bounds)
+        targetWindow.setAlwaysOnTop(true, 'floating')
+    }
     targetWindow.showInactive()
     await targetWindow.webContents.executeJavaScript('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))', true)
     await delay(300)
 
     let boundsReadCount = 0
+    let nativeBusy = false
     const driver: AgentControlDriver = {
         kind: 'windows-window',
         async observe(target, options) {
-            const bounds = targetWindow.getBounds()
+            const logicalBounds = targetWindow.getBounds()
+            const bounds = screen.dipToScreenRect(null, logicalBounds)
+            const buttonBounds = screen.dipToScreenRect(null, { x: logicalBounds.x + 80, y: logicalBounds.y + 110, width: 100, height: 38 })
             return {
                 version: 1,
                 observationId: `overlay-smoke:${options.revision}`,
@@ -50,7 +59,7 @@ async function run(): Promise<void> {
                 title: 'Overlay smoke target',
                 elements: [
                     { elementRef: `root:${options.revision}`, role: 'window', name: 'Overlay smoke target', bounds },
-                    { elementRef: `button:${options.revision}`, role: 'button', name: 'Continue', actions: ['click'], bounds: { x: bounds.x + 80, y: bounds.y + 110, width: 100, height: 38 } }
+                    { elementRef: `button:${options.revision}`, role: 'button', name: 'Continue', actions: ['click'], bounds: buttonBounds }
                 ],
                 redactions: []
             }
@@ -66,9 +75,10 @@ async function run(): Promise<void> {
             context.updateCursor?.({ ...point, coordinateSpace: 'screen', visible: true, phase: 'idle', durationMs: 0 })
             return { changed: true }
         },
+        isTargetBusy() { return nativeBusy },
         async getWindowBounds() {
             boundsReadCount += 1
-            return targetWindow.getBounds()
+            return screen.dipToScreenRect(null, targetWindow.getBounds())
         }
     }
 
@@ -99,8 +109,8 @@ async function run(): Promise<void> {
     })
     await delay(100)
     const captureDisplay = screen.getDisplayMatching(targetWindow.getBounds())
-    const captureBeforeGrant = inspectionMs === 0 ? await captureScreen(captureDisplay) : null
-    const activeGrantDurationMs = inspectionMs > 0 ? Math.min(10 * 60_000, inspectionMs + 5_000) : 30_000
+    const captureBeforeGrant = inspectionMs === 0 && !hitTestOnly ? await captureScreen(captureDisplay) : null
+    const activeGrantDurationMs = inspectionMs > 0 ? Math.min(10 * 60_000, inspectionMs + 5_000) : hitTestOnly ? 120_000 : 30_000
     const pending = broker.requestGrant({ principal, targetId, capabilities: ['observe.structure', 'pointer.click'], durationMs: activeGrantDurationMs, maxActions: 4 })
     const grant = broker.approvePendingGrant({ pendingRequestId: pending.requestId, targetId, capabilities: pending.capabilities, durationMs: activeGrantDurationMs, maxActions: 4 })
     const observation = await broker.observe(principal, grant.grantId, targetId)
@@ -158,13 +168,13 @@ async function run(): Promise<void> {
     assert(safetyAppearance.indicatorHeight >= 47, 'the entrance scale should not materially collapse the status treatment')
     assert.equal(safetyAppearance.indicatorShadow.includes('inset'), false, 'the status treatment should not restore an accent strip')
     assert.equal(safetyAppearance.edgeShadow.includes('0px 0px 0px 1px'), false, 'the edge glow should not render hard vertical accent lines')
-    assert.match(safetyAppearance.edgeShadow, /30px/)
-    assert.match(safetyAppearance.edgeShadow, /86px/)
-    assert.match(safetyAppearance.edgeShadow, /138px/)
+    assert.match(safetyAppearance.edgeShadow, /42px/)
+    assert.match(safetyAppearance.edgeShadow, /120px/)
+    assert.match(safetyAppearance.edgeShadow, /240px/)
     assert.equal(safetyAppearance.active, 'true')
-    assert.equal(safetyAppearance.edgeAnimation, 'edge-enter')
+    assert.equal(safetyAppearance.edgeAnimation, 'none')
     assert.equal(safetyAppearance.indicatorAnimation, 'indicator-enter')
-    const captureWithSafety = inspectionMs === 0 ? await captureScreen(captureDisplay) : null
+    const captureWithSafety = inspectionMs === 0 && !hitTestOnly ? await captureScreen(captureDisplay) : null
     if (captureBeforeGrant && captureWithSafety) {
         // Starting an external recorder can redraw the Windows taskbar itself. Compare the display above that bounded strip.
         const workArea = {
@@ -184,6 +194,9 @@ async function run(): Promise<void> {
         assert(safetyCaptureDifference < 0.01, `the capture-protected edge glow or app label leaked into external screen capture (${(safetyCaptureDifference * 100).toFixed(3)}% of the work area changed)`)
     }
     if (!globalShortcut.isRegistered('Esc')) throw new Error('Plain Escape was not scoped to the active Windows grant.')
+    const preparedCursor = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'Zyra Control Cursor' && isWindowsControlOverlayWindow(window))
+    assert(preparedCursor, 'an active Windows grant must prepare its cursor document before the first pointer update')
+    assert.equal(preparedCursor.isVisible(), false, 'preparing the cursor must not show it before actual pointer progress')
 
     await broker.act(principal, {
         version: 1,
@@ -214,13 +227,25 @@ async function run(): Promise<void> {
     assert.equal(cursorPresentation.hasRing, false, 'the synthetic cursor should not render a surrounding circle')
     assert.equal(cursorPresentation.hasTailLabel, false, 'the synthetic cursor should not render a trailing phase label')
     assert.notEqual(cursorPresentation.filter, 'none', 'the synthetic pointer should retain its restrained glow')
-    assert.notEqual(cursorPresentation.transitionDuration, '0s', 'ordinary cursor movement should remain smoothed')
+    assert.equal(cursorPresentation.transitionDuration, '0s', 'completed native movement must not retain synthetic cursor lag')
     assert.equal(cursorPresentation.path, 'M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z')
     assert.deepEqual({ fill: cursorPresentation.fill, width: cursorPresentation.width, height: cursorPresentation.height }, { fill: 'none', width: '24', height: '24' })
+    if (hitTestOnly) {
+        try {
+            await verifyOverlayHitTesting(targetWindow, safety, cursor)
+        } finally {
+            overlay.dispose()
+            await broker.dispose()
+            targetWindow.destroy()
+        }
+        console.log('Windows overlay real Win32 hit-test checks passed.')
+        app.quit()
+        return
+    }
     if (captureWithSafety) {
         const captureWithCursor = await captureScreen(captureDisplay)
         const cursorPoint = { x: targetWindow.getBounds().x + 130 - captureDisplay.bounds.x, y: targetWindow.getBounds().y + 129 - captureDisplay.bounds.y }
-        assert(regionDifferenceRatio(captureWithSafety, captureWithCursor, cursorPoint.x - 20, cursorPoint.y - 20, 150, 60) > 0.005, 'the synthetic cursor was not recordable')
+        assert(regionDifferenceRatio(captureWithSafety, captureWithCursor, cursorPoint.x - 20, cursorPoint.y - 20, 150, 60) > 0.005, 'the synthetic cursor was not recordable: ' + JSON.stringify({cursorPoint, display: captureDisplay.bounds, scale: captureDisplay.scaleFactor, window: cursor.getBounds(), transform: await cursor.webContents.executeJavaScript("getComputedStyle(document.querySelector('.cursor')).transform")}))
     }
 
     if (inspectionMs > 0) {
@@ -258,6 +283,11 @@ async function run(): Promise<void> {
         return
     }
 
+    nativeBusy = true
+    const readsWhileBusy = boundsReadCount
+    await delay(900)
+    assert.equal(boundsReadCount, readsWhileBusy, 'cosmetic polling must not queue behind native input')
+    nativeBusy = false
     const readsBeforeMove = boundsReadCount
     const currentDisplay = screen.getDisplayMatching(targetWindow.getBounds())
     const alternateDisplay = screen.getAllDisplays().find((display) => display.id !== currentDisplay.id)
@@ -268,7 +298,7 @@ async function run(): Promise<void> {
     assert.deepEqual(safety.getBounds(), screen.getDisplayMatching(targetWindow.getBounds()).bounds, 'the glow follows the target onto its current display')
 
     broker.revokeGrant(grant.grantId)
-    await delay(120)
+    await delay(550)
     if (safety.isVisible() || cursor.isVisible()) throw new Error('Control overlays remained visible after grant revocation.')
     if (globalShortcut.isRegistered('Esc')) throw new Error('Plain Escape remained registered after Windows control ended.')
 

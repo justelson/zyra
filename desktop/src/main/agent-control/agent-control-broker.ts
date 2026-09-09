@@ -1,4 +1,6 @@
+import { resolveWindowsControlBounds } from './windows-control-geometry'
 import { randomUUID } from 'crypto'
+import { matchesWindowsApplication } from './windows-application-match'
 import { EventEmitter } from 'events'
 import type {
     ControlAction,
@@ -654,13 +656,16 @@ export class AgentControlBroker extends EventEmitter {
         }
     }
 
-    async act(principal: ControlPrincipal, requestValue: unknown, signal?: AbortSignal) {
+    async act(principal: ControlPrincipal, requestValue: unknown, signal?: AbortSignal, includeScreenshot = false) {
         this.assertAlive()
         const request = assertControlActionRequest(requestValue)
         const grant = this.grants.requireActive(request.grantId, principal)
         if (grant.targetId !== request.targetId) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The grant is bound to another target.')
         const registered = this.targets.get(request.targetId)
         assertGrantSupportsTarget(grant, registered.target)
+        if (includeScreenshot && !grant.capabilities.includes('observe.screenshot')) {
+            throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'The grant does not allow screenshots.')
+        }
         const requiredSideEffect = controlActionRequiresApproval(request.action) ? request.action.sideEffect : undefined
         assertActionAllowed(grant, registered.target, request.action, { approvedSideEffect: requiredSideEffect })
         const requestedObservation = this.observations.requireRevision(request.targetId, request.observationRevision)
@@ -678,6 +683,7 @@ export class AgentControlBroker extends EventEmitter {
             const startedAt = Date.now()
             try {
                 const result = await registered.driver.act(registered, request.action, {
+                    allowWindowFocus: currentGrant.capabilities.includes('window.focus'),
                     revision: request.observationRevision,
                     previousObservation,
                     signal,
@@ -687,7 +693,7 @@ export class AgentControlBroker extends EventEmitter {
                 const revision = this.observations.nextRevision(request.targetId)
                 const observation = boundObservation(redactObservation(await registered.driver.observe(registered, {
                     revision,
-                    includeScreenshot: false,
+                    includeScreenshot,
                     mode: 'structure',
                     signal
                 })))
@@ -762,7 +768,7 @@ export class AgentControlBroker extends EventEmitter {
                     targetId: request.targetId,
                     observationRevision: revision,
                     action
-                }, signal)
+                }, signal, index === request.steps.length - 1 && grant.capabilities.includes('observe.screenshot'))
                 completedSteps += 1
                 changed = changed || result.changed
                 observation = result.observation
@@ -846,6 +852,7 @@ export class AgentControlBroker extends EventEmitter {
                     assertSafeObservedElementAction(previousObservation, action)
                     assertVisualActionInsideObservation(previousObservation, action)
                     const actionResult = await registered.driver.act(registered, action, {
+                        allowWindowFocus: currentGrant.capabilities.includes('window.focus'),
                         revision: request.observationRevision,
                         previousObservation,
                         signal: bounded.signal,
@@ -1025,8 +1032,10 @@ export class AgentControlBroker extends EventEmitter {
         const selectedTargets = this.targets.list('windows-window')
         return (await driver.listWindows()).filter((candidate) => (
             !query
+            || matchesWindowsApplication(candidate, query)
             || candidate.applicationName.toLocaleLowerCase('en-US').includes(query)
-            || candidate.title.toLocaleLowerCase('en-US').includes(query)
+            || (candidate.applicationName.toLocaleLowerCase('en-US') === 'applicationframehost'
+                && candidate.title.toLocaleLowerCase('en-US').includes(query))
         )).map((candidate) => {
             const selected = selectedTargets.find((entry) => (
                 entry.driver === driver
@@ -1047,10 +1056,7 @@ export class AgentControlBroker extends EventEmitter {
         if (!application || application.length > 128 || /[\u0000-\u001f\u007f]/u.test(application)) {
             throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'A registered application name between 1 and 128 characters is required.')
         }
-        const existingWindows = (await this.listWindows(application)).filter((candidate) => (
-            candidate.applicationName.localeCompare(application, 'en-US', { sensitivity: 'accent' }) === 0
-            || candidate.title.localeCompare(application, 'en-US', { sensitivity: 'accent' }) === 0
-        ))
+        const existingWindows = (await this.listWindows(application)).filter(candidate => matchesWindowsApplication(candidate, application))
         if (existingWindows.length > 0) {
             this.audit.append({
                 eventType: 'target', principal,
@@ -1071,10 +1077,7 @@ export class AgentControlBroker extends EventEmitter {
                 current = await this.listWindows(query)
                 if (current.length > 0) break
             }
-            const exactMatches = current.filter((candidate) => queries.some((query) => (
-                candidate.applicationName.localeCompare(query, 'en-US', { sensitivity: 'accent' }) === 0
-                || candidate.title.localeCompare(query, 'en-US', { sensitivity: 'accent' }) === 0
-            )))
+            const exactMatches = current.filter(candidate => queries.some(query => matchesWindowsApplication(candidate, query)))
             if (exactMatches.length > 0) current = exactMatches
             const candidateSet = current.map((candidate) => candidate.windowToken).sort().join('\n')
             stablePasses = candidateSet.length > 0 && candidateSet === previousCandidateSet ? stablePasses + 1 : candidateSet.length > 0 ? 1 : 0
@@ -1134,7 +1137,7 @@ export class AgentControlBroker extends EventEmitter {
         principalValue: unknown,
         operationValue: unknown,
         signal?: AbortSignal,
-        options: { permissionMode?: 'approval-required' | 'auto-review' | 'edits-only' | 'full-access' } = {}
+        options: { permissionMode?: 'approval-required' | 'auto-review' | 'edits-only' | 'full-access'; deferInitialScreenshot?: boolean } = {}
     ): Promise<Record<string, unknown>> {
         this.assertAlive()
         assertBridgeMessageSize(operationValue)
@@ -1288,23 +1291,28 @@ export class AgentControlBroker extends EventEmitter {
                         steps: operation.steps
                     })
                     : null
-                const opened = await this.openWindowsApp(principal, operation.application, signal)
-                const candidates = opened.windows.filter((candidate) => !candidate.blocked)
-                if (candidates.length !== 1) {
-                    throw new AgentControlError(
-                        'CONTROL_TARGET_AMBIGUOUS',
-                        candidates.length === 0
-                            ? 'The requested registered app did not expose a controllable window.'
-                            : `The requested app has ${candidates.length} matching windows. Select one exact window before requesting access.`
-                    )
-                }
-                const result = await this.handleToolOperation(principal, {
-                    operation: 'request_grant',
-                    windowToken: candidates[0].windowToken,
-                    capabilities,
-                    durationMs: operation.durationMs,
-                    maxActions: operation.maxActions
-                }, signal, options)
+                const releaseAcquisition = this.options.drivers?.find(driver => driver.kind === 'windows-window')?.retainAcquisition?.()
+                let opened: Awaited<ReturnType<AgentControlBroker['openWindowsApp']>>
+                let result: Record<string, unknown>
+                try {
+                    opened = await this.openWindowsApp(principal, operation.application, signal)
+                    const candidates = opened.windows.filter((candidate) => !candidate.blocked)
+                    if (candidates.length !== 1) {
+                        throw new AgentControlError(
+                            'CONTROL_TARGET_AMBIGUOUS',
+                            candidates.length === 0
+                                ? 'The requested registered app did not expose a controllable window.'
+                                : `The requested app has ${candidates.length} matching windows. Select one exact window before requesting access.`
+                        )
+                    }
+                    result = await this.handleToolOperation(principal, {
+                        operation: 'request_grant',
+                        windowToken: candidates[0].windowToken,
+                        capabilities,
+                        durationMs: operation.durationMs,
+                        maxActions: operation.maxActions
+                    }, signal, { ...options, deferInitialScreenshot: Boolean(requestedSequence) })
+                } finally { releaseAcquisition?.() }
                 const grant = result.grant as ControlGrant | undefined
                 if (!grant) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Windows app access did not return its bounded grant.')
                 this.expireControlAuthority(false)
@@ -1342,8 +1350,16 @@ export class AgentControlBroker extends EventEmitter {
                     this.revokeGrant(grant.grantId)
                     throw error
                 }
+                const finalScreenshot = sequence.observation.screenshotRef
+                    ? this.targets.get(grant.targetId).driver.readScreenshot?.(sequence.observation.screenshotRef)
+                    : undefined
                 return {
                     ...result,
+                    screenshot: finalScreenshot,
+                    ...(result.selectedWindow ? { selectedWindow: {
+                        ...(result.selectedWindow as Record<string, unknown>),
+                        title: String(sequence.observation.title || (result.selectedWindow as Record<string, unknown>).title || '').slice(0, 256)
+                    } } : {}),
                     grant: this.grants.listForPrincipal(principal).find((entry) => entry.grantId === grant.grantId) || grant,
                     observation: compactCompletedSequenceObservation(observation, sequence.observation),
                     sequence: {
@@ -1382,11 +1398,25 @@ export class AgentControlBroker extends EventEmitter {
                     || (options.permissionMode === 'auto-review' && requestedTarget.kind === 'zyra-browser')
                 )
                 const completeGrant = async (request: ReturnType<AgentControlBroker['requestGrant']>, grant: ControlGrant) => {
-                    const observation = requestedTarget.kind !== 'chrome-tab' && grant.capabilities.includes('observe.structure')
-                        ? await this.observe(principal, grant.grantId, requestedTarget.targetId, false, signal, 'structure')
+                    const includeScreenshot = requestedTarget.kind === 'windows-window'
+                        && grant.capabilities.includes('observe.screenshot') && !options.deferInitialScreenshot
+                    const includeStructure = grant.capabilities.includes('observe.structure')
+                    const observation = requestedTarget.kind !== 'chrome-tab' && (includeStructure || includeScreenshot)
+                        ? await this.observe(principal, grant.grantId, requestedTarget.targetId, includeScreenshot, signal, includeStructure ? 'structure' : 'visual')
                         : undefined
+                    const screenshot = observation?.screenshotRef
+                        ? this.targets.get(requestedTarget.targetId).driver.readScreenshot?.(observation.screenshotRef)
+                        : undefined
+                    const selectedWindow = requestedTarget.kind === 'windows-window' ? {
+                        targetId: requestedTarget.targetId,
+                        candidateRef: requestedTarget.windowToken,
+                        processId: requestedTarget.processId,
+                        applicationName: String(requestedTarget.applicationName || '').slice(0, 256),
+                        title: String(observation?.title || requestedTarget.title || '').slice(0, 256)
+                    } : undefined
                     const currentGrant = this.grants.listForPrincipal(principal).find((entry) => entry.grantId === grant.grantId) || grant
-                    return { pending: false, request, grant: currentGrant, ...(observation ? { observation } : {}) }
+                    return { pending: false, request, grant: currentGrant, ...(observation ? { observation } : {}),
+                        ...(selectedWindow ? { selectedWindow } : {}), ...(screenshot ? { screenshot } : {}) }
                 }
                 const request = this.requestGrant({
                     principal,
@@ -1454,7 +1484,11 @@ export class AgentControlBroker extends EventEmitter {
             case 'act':
                 return await this.act(principal, operation, signal) as unknown as Record<string, unknown>
             case 'act_sequence': {
-                return await this.semanticActionSequence(principal, operation, signal) as unknown as Record<string, unknown>
+                const sequence = await this.semanticActionSequence(principal, operation, signal)
+                const screenshot = sequence.observation.screenshotRef
+                    ? this.targets.get(sequence.targetId).driver.readScreenshot?.(sequence.observation.screenshotRef)
+                    : undefined
+                return { ...sequence, ...(screenshot ? { screenshot } : {}) } as unknown as Record<string, unknown>
             }
             case 'perform': {
                 const plan = await this.perform(principal, operation, signal)
@@ -1813,16 +1847,18 @@ export class AgentControlBroker extends EventEmitter {
         const current = this.cursors.get(targetId)
         const x = Number(patch.x ?? current?.x ?? 0)
         const y = Number(patch.y ?? current?.y ?? 0)
+        const coordinateSpace = patch.coordinateSpace ?? current?.coordinateSpace
+        const minimum = coordinateSpace === 'screen' ? -100_000 : 0
         const cursor: ControlCursorState = {
             targetId,
-            x: Number.isFinite(x) ? Math.max(0, Math.min(100_000, x)) : 0,
-            y: Number.isFinite(y) ? Math.max(0, Math.min(100_000, y)) : 0,
+            x: Number.isFinite(x) ? Math.max(minimum, Math.min(100_000, x)) : 0,
+            y: Number.isFinite(y) ? Math.max(minimum, Math.min(100_000, y)) : 0,
             visible: patch.visible ?? current?.visible ?? true,
             phase: patch.phase ?? current?.phase ?? 'idle',
             actionType,
             principal,
             durationMs: patch.durationMs ?? current?.durationMs,
-            coordinateSpace: patch.coordinateSpace ?? current?.coordinateSpace,
+            coordinateSpace,
             updatedAt: new Date().toISOString()
         }
         this.cursors.set(targetId, cursor)
@@ -1845,7 +1881,12 @@ export class AgentControlBroker extends EventEmitter {
         }
         if (currentTimer) return
         const elapsed = Date.now() - (this.cursorPublishedAt.get(targetId) || 0)
-        const waitMs = Math.max(0, 33 - elapsed)
+        const frameMs = this.cursors.get(targetId)?.coordinateSpace === 'screen' ? 16 : 33
+        const waitMs = Math.max(0, frameMs - elapsed)
+        if (waitMs === 0) {
+            publish()
+            return
+        }
         const timer = setTimeout(() => {
             this.cursorPublishTimers.delete(targetId)
             publish()
@@ -2006,6 +2047,30 @@ function resolveSemanticSequenceAction(
     if (step.type === 'key') {
         return { type: 'key', key: step.key, modifiers: step.modifiers, sideEffect: step.sideEffect }
     }
+    if (step.type === 'drag') {
+        if (!observation.viewport) {
+            throw new AgentControlError('CONTROL_TARGET_BLOCKED', 'A sequence drag requires current observed window bounds.', { freshRevision: observation.revision })
+        }
+        // Coordinate drags must not become a route around the semantic
+        // sequence's sensitive-control and per-action side-effect checks.
+        const screenBounds = resolveWindowsControlBounds(observation)
+        const endpoints = [{ x: step.fromX, y: step.fromY }, { x: step.toX, y: step.toY }].map((point) => ({
+            x: point.x + (screenBounds?.x || 0),
+            y: point.y + (screenBounds?.y || 0)
+        }))
+        for (const element of observation.elements) {
+            const bounds = element.bounds
+            if (!bounds || !endpoints.some((point) => point.x >= bounds.x && point.y >= bounds.y
+                && point.x <= bounds.x + bounds.width && point.y <= bounds.y + bounds.height)) continue
+            if (element.sensitive) {
+                throw new AgentControlError('CONTROL_TARGET_BLOCKED', 'A sequence drag cannot target a sensitive control.', { freshRevision: observation.revision })
+            }
+            if (semanticActionMayHaveCriticalSideEffect(`${element.name || ''} ${element.text || ''}`)) {
+                throw new AgentControlError('CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED', 'This drag must use an individual action with its canonical side-effect review.', { freshRevision: observation.revision })
+            }
+        }
+        return { ...step, button: 'left' }
+    }
     if (semanticActionMayHaveCriticalSideEffect(step.name)) {
         throw new AgentControlError(
             'CONTROL_SIDE_EFFECT_APPROVAL_REQUIRED',
@@ -2015,12 +2080,12 @@ function resolveSemanticSequenceAction(
     }
     const requiredAction = step.type === 'click' ? 'click' : 'type'
     const role = step.role?.trim().toLocaleLowerCase('en-US')
-    const name = step.name.trim().toLocaleLowerCase('en-US')
+    const name = step.name.trim()
     const matches = observation.elements.filter((element) => (
         !element.sensitive
         && (element.actions || []).includes(requiredAction)
         && (!role || element.role.trim().toLocaleLowerCase('en-US') === role)
-        && String(element.name || '').trim().toLocaleLowerCase('en-US') === name
+        && String(element.name || '').trim() === name
     ))
     if (matches.length !== 1) {
         const targetDescription = role

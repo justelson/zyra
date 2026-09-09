@@ -1796,6 +1796,20 @@ const projectedRunningEdit = findProjectedRecord(context.localThreadId)?.thread.
 assert.equal(projectedRunningEdit?.payload?.['status'], 'running', 'Pi edit start must become a visible running activity before completion')
 assert.equal(projectedRunningEdit?.payload?.['toolLifecyclePhase'], 'start', 'service normalization must preserve the urgent start boundary')
 
+handleFileChangeEvent({ type: 'approval_requested', requestId: 'fixture-edit-approval', requestType: 'file-change', toolCallId: piEditFixture.toolCallId, grantLabel: 'Allow file changes for this chat' })
+const editApprovalEvent = fileChangeEvents.findLast((event) => event.type === 'approval.requested')
+assert.ok(editApprovalEvent?.type === 'approval.requested')
+assert.equal(editApprovalEvent.payload.toolCallId, piEditFixture.toolCallId, 'Pi preserves exact approval correlation')
+handleAssistantRuntimeEvent(editApprovalEvent, projectedDeps)
+const waitingEditThread = findProjectedRecord(context.localThreadId)?.thread
+assert.equal(waitingEditThread?.pendingApprovals.find((approval) => approval.requestId === 'fixture-edit-approval')?.grantLabel, 'Allow file changes for this chat')
+assert.equal(waitingEditThread?.activities.find((activity) => activity.id === `zyra-tool-${piEditFixture.toolCallId}`)?.payload?.approvalPending, true, 'runtime -> service -> store keeps unapproved actions out of execution UI')
+handleFileChangeEvent({ type: 'approval_resolved', requestId: 'fixture-edit-approval', decision: 'acceptOnce' })
+const editApprovalResolved = fileChangeEvents.findLast((event) => event.type === 'approval.resolved')
+assert.ok(editApprovalResolved?.type === 'approval.resolved')
+handleAssistantRuntimeEvent(editApprovalResolved, projectedDeps)
+assert.equal(findProjectedRecord(context.localThreadId)?.thread.activities.find((activity) => activity.id === `zyra-tool-${piEditFixture.toolCallId}`)?.payload?.approvalPending, false)
+
 handleFileChangeEvent(piEditFixture.update)
 handleFileChangeEvent(piEditFixture.end)
 const piEditEnd = fileChangeEvents.findLast((event) => event.type === 'activity')

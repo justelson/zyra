@@ -3,11 +3,12 @@ import { lstat, mkdir, readdir, rm } from 'node:fs/promises'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import catalog from '../../shared/plugins/openai-directory.json'
-import type { AssistantPluginDownload, AssistantPluginInspection } from '../../shared/assistant/contracts'
+import type { AssistantPluginDownload, AssistantPluginDownloadProgress, AssistantPluginInspection } from '../../shared/assistant/contracts'
 import { resolveZyraRoot } from '../zyra/zyra-root'
 
 type Entry = typeof catalog.entries[number]
-export type PluginDownloader = (input: { stagingRoot: string; entry: Entry; commit: string; signal: AbortSignal }) => Promise<{ packageRoot: string; sourceLocator: string }>
+export type PluginDownloader = (input: { stagingRoot: string; entry: Entry; commit: string; signal: AbortSignal; onProgress?: (progress: AssistantPluginDownloadProgress) => void }) => Promise<{ packageRoot: string; sourceLocator: string }>
+type CachedDownloader = PluginDownloader & { clearCache(): void }
 type Operation = { id: string; owner: number; controller: AbortController; state: AssistantPluginDownload; work: Promise<void>; timer: ReturnType<typeof setTimeout>; packageRoot?: string }
 const REVIEW_LIFETIME_MS = 5 * 60_000
 
@@ -21,15 +22,19 @@ async function assertUnlinkedStorage(storagePath: string): Promise<void> {
     }
 }
 
-async function download(input: Parameters<PluginDownloader>[0]) {
+async function createDownloader(): Promise<CachedDownloader> {
     const module = await import(/* @vite-ignore */ pathToFileURL(join(resolveZyraRoot(), 'src/plugins/plugin-download.mjs')).href)
-    return module.downloadCatalogPlugin(input)
+    const cache = new module.PluginDownloadCache()
+    return Object.assign((input: Parameters<PluginDownloader>[0]) => module.downloadCatalogPlugin({ ...input, cache }), {
+        clearCache: () => cache.clear()
+    })
 }
 
 export class AssistantPluginAcquisitions {
     private readonly operations = new Map<string, Operation>()
     private initializing: Promise<void> | null = null
     private disposed = false
+    private downloader: Promise<CachedDownloader> | null = null
     constructor(private readonly options: {
         rootPath: string
         inspect: (packageRoot: string, entry: Entry, locator: string, owner: number) => Promise<AssistantPluginInspection>
@@ -80,14 +85,24 @@ export class AssistantPluginAcquisitions {
 
     private async prepare(op: Operation, entry: Entry): Promise<void> {
         try {
-            const result = await (this.options.download || download)({ stagingRoot: this.options.rootPath, entry, commit: catalog.commit, signal: op.controller.signal })
+            const download = this.options.download || await (this.downloader ??= createDownloader())
+            op.controller.signal.throwIfAborted()
+            const result = await download({
+                stagingRoot: this.options.rootPath, entry, commit: catalog.commit, signal: op.controller.signal,
+                onProgress: (progress) => {
+                    if (!op.controller.signal.aborted && op.state.status === 'downloading') {
+                        op.state = { id: op.id, status: 'downloading', progress: { ...progress } }
+                    }
+                }
+            })
             const localPath = relative(resolve(this.options.rootPath), resolve(result.packageRoot))
             if (!localPath || isAbsolute(localPath) || localPath.startsWith('..') || /[\\/]/.test(localPath)) throw new Error('Invalid Plugin download location.')
             op.packageRoot = result.packageRoot
             op.controller.signal.throwIfAborted()
+            op.state = { ...op.state, progress: { completedFiles: 0, totalFiles: 0, completedBytes: 0, totalBytes: 0, cacheHits: 0, ...op.state.progress, phase: 'inspecting' } }
             const inspection = await this.options.inspect(result.packageRoot, entry, result.sourceLocator, op.owner)
             if (op.controller.signal.aborted) { this.options.discardReview(inspection.reviewId); op.controller.signal.throwIfAborted() }
-            op.state = { id: op.id, status: 'ready', inspection }
+            op.state = { id: op.id, status: 'ready', progress: op.state.progress, inspection }
             clearTimeout(op.timer)
             const remaining = Math.max(1, Math.min(this.options.lifetimeMs ?? REVIEW_LIFETIME_MS, Date.parse(inspection.expiresAt) - Date.now()))
             op.timer = setTimeout(() => { void this.cancel(op.id, op.owner).catch(() => undefined) }, remaining)
@@ -126,6 +141,7 @@ export class AssistantPluginAcquisitions {
     async dispose(): Promise<void> {
         this.disposed = true
         await Promise.all([...this.operations.values()].map(op => this.cancel(op.id, op.owner).catch(() => undefined)))
+        await this.downloader?.then(download => download.clearCache()).catch(() => undefined)
     }
 
     private async removePackage(op: Operation): Promise<void> {

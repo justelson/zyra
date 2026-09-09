@@ -3,6 +3,8 @@ import { lstat, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ZYRA_PLUGIN_LIMITS as limits, ZyraPluginValidationError } from './plugin-contract.mjs'
 
+export { PluginDownloadCache } from './plugin-download-cache.mjs'
+
 const SHA = /^[a-f0-9]{40}$/
 const METADATA_BYTES = 2 * 1024 * 1024
 const API = 'https://api.github.com/repos/openai/plugins/git/trees/'
@@ -66,13 +68,25 @@ async function boundedRequest(url, maxBytes, signal, fetchImpl) {
   }
 }
 
-async function tree(ref, recursive, signal, fetchImpl) {
-  if (!SHA.test(ref)) fail('PLUGIN_DOWNLOAD_TREE', 'Invalid catalog tree identity.')
-  const bytes = await boundedRequest(`${API}${ref}${recursive ? '?recursive=1' : ''}`, METADATA_BYTES, signal, fetchImpl)
+function parseTree(bytes) {
+  if (bytes.length > METADATA_BYTES) fail('PLUGIN_DOWNLOAD_TREE', 'Catalog tree exceeds its limit.')
   let result
   try { result = JSON.parse(bytes.toString('utf8')) } catch { fail('PLUGIN_DOWNLOAD_TREE', 'Invalid catalog tree response.') }
   if (!result || result.truncated !== false || !Array.isArray(result.tree) || result.tree.length > limits.maxPackageFiles * (limits.maxDepth + 1)) fail('PLUGIN_DOWNLOAD_TREE', 'Catalog tree is incomplete or exceeds its limit.')
   return result.tree
+}
+
+async function tree(ref, recursive, signal, fetchImpl) {
+  if (!SHA.test(ref)) fail('PLUGIN_DOWNLOAD_TREE', 'Invalid catalog tree identity.')
+  signal.throwIfAborted()
+  // Keep metadata retrieval on the original trusted, pinned HTTPS path. Only
+  // blobs with a verifiable Git content hash enter the reuse cache.
+  const bytes = await boundedRequest(`${API}${ref}${recursive ? '?recursive=1' : ''}`, METADATA_BYTES, signal, fetchImpl)
+  return parseTree(bytes)
+}
+
+function matchesBlob(bytes, file) {
+  return bytes.length === file.size && createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') === file.sha
 }
 
 function directorySha(entries, name) {
@@ -112,7 +126,7 @@ function packageFiles(entries) {
   return files
 }
 
-export async function downloadCatalogPlugin({ stagingRoot, entry, commit, signal = new AbortController().signal, fetchImpl = fetch }) {
+export async function downloadCatalogPlugin({ stagingRoot, entry, commit, signal = new AbortController().signal, fetchImpl = fetch, cache, onProgress = () => {} }) {
   if (!SHA.test(commit) || !entry || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name) || !entry.hasSkills || entry.installation === 'BLOCKED') fail('PLUGIN_DOWNLOAD_SOURCE', 'This Plugin cannot be downloaded from the catalog.')
   const sourceLocator = `https://github.com/openai/plugins/tree/${commit}/plugins/${entry.name}`
   if (entry.sourceUrl !== sourceLocator) fail('PLUGIN_DOWNLOAD_SOURCE', 'Plugin catalog provenance does not match its release.')
@@ -120,7 +134,10 @@ export async function downloadCatalogPlugin({ stagingRoot, entry, commit, signal
   const combined = AbortSignal.any([signal, operation.signal])
   const timeout = setTimeout(() => operation.abort(), 120_000)
   let packageRoot = null
+  const progress = { phase: 'metadata', completedFiles: 0, totalFiles: 0, completedBytes: 0, totalBytes: 0, cacheHits: 0 }
+  const publish = () => onProgress({ ...progress })
   try {
+    publish()
     combined.throwIfAborted()
     await ordinaryDirectories(stagingRoot)
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 })
@@ -128,6 +145,10 @@ export async function downloadCatalogPlugin({ stagingRoot, entry, commit, signal
     const plugins = await tree(directorySha(root, 'plugins'), false, combined, fetchImpl)
     const entries = await tree(directorySha(plugins, entry.name), true, combined, fetchImpl)
     const files = packageFiles(entries)
+    progress.phase = 'downloading'
+    progress.totalFiles = files.length
+    progress.totalBytes = files.reduce((total, file) => total + file.size, 0)
+    publish()
     combined.throwIfAborted()
     packageRoot = path.join(path.resolve(stagingRoot), `package-${randomUUID()}`)
     await ordinaryDirectories(stagingRoot)
@@ -139,14 +160,23 @@ export async function downloadCatalogPlugin({ stagingRoot, entry, commit, signal
         const file = files[next++]
         if (!file) return
         const url = `https://raw.githubusercontent.com/openai/plugins/${commit}/plugins/${entry.name}/${file.parts.map(encodeURIComponent).join('/')}`
-        const bytes = await boundedRequest(url, file.size, combined, fetchImpl)
-        const digest = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
-        if (bytes.length !== file.size || digest !== file.sha) fail('PLUGIN_DOWNLOAD_DIGEST', 'Downloaded Plugin bytes do not match the pinned catalog release.')
+        const key = `blob:${file.sha}`
+        let bytes = cache?.get(key)
+        if (bytes && !matchesBlob(bytes, file)) { cache.delete(key); bytes = null }
+        const reused = Boolean(bytes)
+        if (!bytes) bytes = await boundedRequest(url, file.size, combined, fetchImpl)
+        if (!matchesBlob(bytes, file)) fail('PLUGIN_DOWNLOAD_DIGEST', 'Downloaded Plugin bytes do not match the pinned catalog release.')
+        combined.throwIfAborted()
+        if (!reused) cache?.set(key, bytes)
         const destination = path.join(packageRoot, ...file.parts)
         await ordinaryDirectories(path.dirname(destination))
         await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
         combined.throwIfAborted()
         await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 })
+        progress.completedFiles += 1
+        progress.completedBytes += bytes.length
+        if (reused) progress.cacheHits += 1
+        publish()
       }
     }
     // A failing worker aborts its sibling. Both settle before cleanup begins.

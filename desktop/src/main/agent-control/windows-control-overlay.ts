@@ -64,6 +64,8 @@ export class WindowsControlOverlayManager {
     private appearance = DEFAULT_APPEARANCE
     private lastTargetBounds: WindowsControlBounds | null = null
     private safetyPayloadKey = ''
+    private safetyHideTimer: NodeJS.Timeout | null = null
+    private cursorSequence = 0
     private readonly boundsTimer: NodeJS.Timeout
     private readonly onChanged = (snapshot: ControlStateSnapshot) => this.reconcile(snapshot)
     private readonly onCursor = (cursor: ControlCursorState) => this.renderCursor(cursor)
@@ -97,6 +99,7 @@ export class WindowsControlOverlayManager {
         this.broker.removeListener('cursor', this.onCursor)
         clearInterval(this.boundsTimer)
         this.deactivate()
+        this.clearSafetyHide()
         this.safetyWindow?.destroy()
         this.cursorWindow?.destroy()
         this.safetyWindow = null
@@ -118,6 +121,9 @@ export class WindowsControlOverlayManager {
         this.activeTargetId = target.targetId
         this.activeApplication = windowsApplicationLabel(target)
         this.activateEscapeShortcut()
+        // Load the hidden surface during the authorized grant, so its first
+        // real pointer update does not wait for renderer creation/navigation.
+        this.ensureCursorWindow()
         if (targetChanged) {
             this.lastTargetBounds = null
             this.safetyPayloadKey = ''
@@ -132,7 +138,7 @@ export class WindowsControlOverlayManager {
     private activateEscapeShortcut(): void {
         if (!this.ownsEscapeShortcut && !globalShortcut.isRegistered('Esc')) {
             this.ownsEscapeShortcut = globalShortcut.register('Esc', () => {
-                this.hideOverlays()
+                this.hideOverlays(true)
                 void this.broker.emergencyStop('Plain Escape was pressed while Windows computer control was active.')
             })
         }
@@ -149,8 +155,26 @@ export class WindowsControlOverlayManager {
         this.hideOverlays()
     }
 
-    private hideOverlays(): void {
-        if (this.safetyWindow && !this.safetyWindow.isDestroyed()) this.safetyWindow.hide()
+    private clearSafetyHide(): void {
+        if (this.safetyHideTimer) clearTimeout(this.safetyHideTimer)
+        this.safetyHideTimer = null
+    }
+
+    private hideOverlays(immediate = false): void {
+        this.cursorSequence += 1
+        const window = this.safetyWindow
+        if (window && !window.isDestroyed()) {
+            if (immediate || this.disposed || this.appearance.reduceMotion) {
+                this.clearSafetyHide()
+                window.hide()
+            } else if (window.isVisible() && !this.safetyHideTimer) {
+                void window.webContents.executeJavaScript('globalThis.hideZyraSafety?.()', true).catch(() => undefined)
+                this.safetyHideTimer = setTimeout(() => {
+                    this.safetyHideTimer = null
+                    if (!this.activeTargetId && !window.isDestroyed()) window.hide()
+                }, 460)
+            }
+        }
         if (this.cursorWindow && !this.cursorWindow.isDestroyed()) {
             void this.cursorWindow.webContents.executeJavaScript('globalThis.hideZyraCursor?.()', true).catch(() => undefined)
             this.cursorWindow.hide()
@@ -163,6 +187,7 @@ export class WindowsControlOverlayManager {
         let target
         try { target = this.broker.targets.get(targetId) } catch { return }
         if (target.target.kind !== 'windows-window' || !target.driver.getWindowBounds) return
+        if (target.driver.isTargetBusy?.(target)) return
         this.boundsRefreshActive = true
         try {
             const bounds = await target.driver.getWindowBounds(target)
@@ -181,8 +206,9 @@ export class WindowsControlOverlayManager {
         const expectedTargetId = this.activeTargetId
         if (!expectedTargetId) return
         this.lastTargetBounds = targetBounds
+        this.clearSafetyHide()
         const window = this.ensureSafetyWindow()
-        const displayBounds = screen.getDisplayMatching(targetBounds).bounds
+        const displayBounds = screen.getDisplayMatching(screen.screenToDipRect(null, targetBounds)).bounds
         if (!sameBounds(window.getBounds(), displayBounds)) window.setBounds(displayBounds, false)
         const payload = {
             application: this.activeApplication,
@@ -219,19 +245,24 @@ export class WindowsControlOverlayManager {
             this.refreshAppearance()
             void this.refreshBounds()
         }
+        const sequence = ++this.cursorSequence
         const window = this.ensureCursorWindow()
-        const virtual = virtualScreenBounds()
-        if (!sameBounds(window.getBounds(), virtual)) window.setBounds(virtual, false)
+        const point = screen.screenToDipPoint({ x: Math.round(cursor.x), y: Math.round(cursor.y) })
+        // One display per cursor surface avoids mixed-DPI scaling and allocating
+        // a giant texture across every attached monitor for a 24px pointer.
+        const display = screen.getDisplayNearestPoint(point).bounds
+        if (!sameBounds(window.getBounds(), display)) window.setBounds(display, false)
         const payload = JSON.stringify({
-            x: Math.round(cursor.x - virtual.x),
-            y: Math.round(cursor.y - virtual.y),
+            x: point.x - display.x,
+            y: point.y - display.y,
             phase: cursor.phase,
             durationMs: cursor.durationMs || 0,
             ...this.appearance
         })
         void (overlayWindowReady.get(window) || Promise.resolve()).then(async () => {
-            if (window.isDestroyed() || this.activeTargetId !== cursor.targetId) return
+            if (window.isDestroyed() || this.activeTargetId !== cursor.targetId || sequence !== this.cursorSequence) return
             await window.webContents.executeJavaScript(`globalThis.updateZyraCursor?.(${payload})`, true)
+            if (window.isDestroyed() || this.activeTargetId !== cursor.targetId || sequence !== this.cursorSequence) return
             if (!window.isVisible()) window.showInactive()
         }).catch(() => undefined)
     }
@@ -245,7 +276,7 @@ export class WindowsControlOverlayManager {
     private ensureCursorWindow(): BrowserWindow {
         if (this.cursorWindow && !this.cursorWindow.isDestroyed()) return this.cursorWindow
         this.cursorWindow = createOverlayWindow('Zyra Control Cursor', WINDOWS_CONTROL_CURSOR_HTML, false)
-        this.cursorWindow.setBounds(virtualScreenBounds(), false)
+        this.cursorWindow.setBounds(screen.getPrimaryDisplay().bounds, false)
         return this.cursorWindow
     }
 }
@@ -324,15 +355,6 @@ function hexToRgbChannels(value: string): string {
     return [value.slice(1, 3), value.slice(3, 5), value.slice(5, 7)]
         .map((part) => Number.parseInt(part, 16))
         .join(' ')
-}
-
-function virtualScreenBounds(): WindowsControlBounds {
-    const displays = screen.getAllDisplays()
-    const left = Math.min(...displays.map((display) => display.bounds.x))
-    const top = Math.min(...displays.map((display) => display.bounds.y))
-    const right = Math.max(...displays.map((display) => display.bounds.x + display.bounds.width))
-    const bottom = Math.max(...displays.map((display) => display.bounds.y + display.bounds.height))
-    return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
 function sameBounds(left: WindowsControlBounds, right: WindowsControlBounds): boolean {

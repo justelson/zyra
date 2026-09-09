@@ -1,3 +1,4 @@
+import { decodeApprovalScope } from './approval-persistence'
 import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
@@ -556,7 +557,7 @@ function readPendingApprovals(db: SqlDatabase, threadId: string): AssistantPendi
     return rows.map((row) => ({
         id: String(row[0] || ''), requestId: String(row[1] || ''), requestType: String(row[2] || 'command') as AssistantPendingApproval['requestType'],
         title: toNullableString(row[3]) || undefined, detail: toNullableString(row[4]) || undefined, command: toNullableString(row[5]) || undefined,
-        paths: parseJson<string[] | undefined>(row[6], undefined), status: String(row[7] || 'pending') as AssistantPendingApproval['status'],
+        ...decodeApprovalScope(parseJson<unknown>(row[6], undefined)), status: String(row[7] || 'pending') as AssistantPendingApproval['status'],
         decision: toNullableString(row[8]) as AssistantPendingApproval['decision'], turnId: toNullableString(row[9]), createdAt: String(row[10] || new Date(0).toISOString()), resolvedAt: toNullableString(row[11])
     }))
 }

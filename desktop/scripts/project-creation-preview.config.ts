@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 const root = resolve(import.meta.dirname, '..')
 export default defineConfig({
     root,
+    cacheDir: resolve(root, 'node_modules/.cache/vite-project-creation-preview'),
     plugins: [react()],
     optimizeDeps: { entries: ['scripts/fixtures/project-creation-preview.html'], include: ['react', 'react-dom', 'react-dom/client', 'lucide-react'] },
     resolve: { alias: { '@': resolve(root, 'src/renderer/src'), '@shared': resolve(root, 'src/shared') } },

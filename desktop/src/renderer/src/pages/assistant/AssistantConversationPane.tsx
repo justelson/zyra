@@ -49,6 +49,7 @@ import { useInstructorVoiceSession } from './useInstructorVoiceSession'
 import { useAssistantPageTimelineScroll } from './useAssistantPageTimelineScroll'
 import { useAssistantProjectCatalog } from './useAssistantProjectCatalog'
 import { resolveAssistantProjectLabel } from './assistant-project-label'
+import { buildAssistantProjectChoices, getAssistantProjectIconSourcePath } from './assistant-project-choices'
 import { useAgentControlState } from './useAgentControlState'
 import { isControlPrincipalForThread } from './assistant-thread-details'
 
@@ -222,22 +223,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         'Select a project when this chat needs files.'
     )
     const latestProjectLabel = resolveAssistantProjectLabel(displayProjectName, displayProjectId, displayProjectPath) || 'select project'
-    const newChatProjectChoices = useMemo(() => projectCatalogState.catalog.projects
-        .filter((project) => !project.archived)
-        .flatMap((project) => [
-            {
-                projectId: project.id,
-                path: project.homePath,
-                label: project.name,
-                rootLabel: 'Project home'
-            },
-            ...project.folders.filter((folder) => folder.available).map((folder) => ({
-                projectId: project.id,
-                path: folder.path,
-                label: project.name,
-                rootLabel: `${folder.label}${folder.access === 'read-only' ? ' · Read only' : ''}`
-            }))
-        ]), [projectCatalogState.catalog.projects])
+    const newChatProjectChoices = useMemo(() => buildAssistantProjectChoices(projectCatalogState.catalog.projects), [projectCatalogState.catalog.projects])
+    const projectIconSourcePath = getAssistantProjectIconSourcePath(selectedProjectRecord)
     const composerProjectRoots = useMemo<AssistantChatScopeRoot[]>(() => {
         if (!isCreatingFreshChat) {
             const revisionedRoots = controller.selectedSession?.chatScope?.roots || []
@@ -976,13 +963,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         }
     }, [actions, controller.commandPending, controller.selectedSession?.id, projectCatalogState, props.onShowToast, requestProjectCreation])
 
-    const handleSelectNewChatProject = useCallback(async (
-        projectId: string | null,
-        workingRoot?: string | null
-    ) => {
+    const handleSelectNewChatProject = useCallback(async (projectId: string | null) => {
         const session = controller.selectedSession
         if (!session || !selectedSessionIsDraft || projectDirectoryLocked || controller.commandPending) return
-        const result = await actions.setSessionProjectResult(session.id, { projectId, workingRoot })
+        // Selecting a Project uses the existing backend Working-root policy.
+        // Its icon source is presentation metadata, not a scope/authority choice.
+        const result = await actions.setSessionProjectResult(session.id, { projectId })
         if (!result.success) {
             props.onShowToast?.(`Could not update Project: ${result.error}`, 'error')
         }
@@ -1206,6 +1192,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         selectedProjectId={displayProjectId}
                         selectedProjectPath={displayProjectPath || null}
                         selectedProjectName={displayProjectName}
+                        projectIconSourcePath={projectIconSourcePath}
                         projectRoots={composerProjectRoots}
                         projectChoices={composerIsCentered ? newChatProjectChoices : undefined}
                         projectContextDisabled={newChatHandoffActive || projectDirectoryLocked || controller.commandPending || projectCatalogState.loading}

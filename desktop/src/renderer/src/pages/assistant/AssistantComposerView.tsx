@@ -693,6 +693,7 @@ export function AssistantComposerView({
                             projectId={controller.projectId || null}
                             projectPath={controller.projectPath || null}
                             projectName={controller.projectName || null}
+                            projectIconSourcePath={controller.projectIconSourcePath}
                             projectChoices={controller.projectChoices}
                             disabled={controller.projectContextDisabled}
                             onSelectProject={controller.onSelectProject}

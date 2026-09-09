@@ -7,12 +7,21 @@ import { ProjectCreationProvider, useProjectCreation } from '../../src/renderer/
 import { useAssistantProjectCatalog } from '../../src/renderer/src/pages/assistant/useAssistantProjectCatalog'
 import { AssistantNewChatProjectChip } from '../../src/renderer/src/pages/assistant/AssistantNewChatProjectChip'
 import { resolveAssistantProjectLabel } from '../../src/renderer/src/pages/assistant/assistant-project-label'
+import { buildAssistantProjectChoices, getAssistantProjectIconSourcePath } from '../../src/renderer/src/pages/assistant/assistant-project-choices'
 import '../../src/renderer/src/index.css'
 
 const catalog: AssistantProjectCatalog = { migrationVersion: 1, projects: [], candidates: [] }
 const menuPreview = new URLSearchParams(location.search).has('menu')
 const seedId = 'project_0123456789abcdef0123456789abcdef'
 if (menuPreview) catalog.projects.push({ id: seedId, name: 'Website', homePath: `C:/Fixture/project-homes/${seedId}`, archived: false, revision: 1, folders: [], createdAt: '', updatedAt: '' })
+const projectOnlyPreview = new URLSearchParams(location.search).get('menu') === 'projects'
+const iconRequests: string[] = []
+const projectSelections: Array<{ id: string | null; argumentCount: number }> = []
+if (projectOnlyPreview) {
+    catalog.projects[0].folders = ['C:/Fixture/site-root', 'C:/Fixture/backend', 'C:/Fixture/docs'].map((path, index) => ({ associationId: `site-${index}`, folderId: `folder-${index}`, projectId: seedId, path, label: path.split('/').at(-1)!, access: 'read-write', available: true, createdAt: '', updatedAt: '' }))
+    catalog.projects.push({ id: 'notes', name: 'Notes', homePath: 'C:/Fixture/project-homes/notes', archived: false, revision: 1, folders: [], createdAt: '', updatedAt: '' })
+    catalog.projects.push({ id: 'archived', name: 'Archived', homePath: 'C:/Fixture/project-homes/archived', archived: true, revision: 1, folders: [], createdAt: '', updatedAt: '' })
+}
 const calls: Array<{ input: AssistantCreateProjectInput; candidateId?: string }> = []
 let browsePath: string | null = null
 let browseCalls = 0
@@ -25,7 +34,11 @@ Object.defineProperty(window, 'devscope', { configurable: true, value: {
         get: async () => ({ success: true, snapshot: { schemaVersion: 1, revision: 1, surface: 'browser', settings: { appearanceThemeMode: 'dark' }, updatedAt: '' } }),
         onChanged: () => () => undefined
     },
-    getProjectDetails: async () => ({ success: false, error: 'No metadata in the isolated fixture.' }),
+    getProjectDetails: async (path: string) => {
+        iconRequests.push(path)
+        if (!projectOnlyPreview) return { success: false, error: 'No metadata in the isolated fixture.' }
+        return { success: true, project: { name: path.split('/').at(-1), path, type: path.endsWith('/site-root') ? 'nodejs' : path.endsWith('/backend') ? 'python' : 'unknown', frameworks: path.endsWith('/site-root') ? ['react'] : path.endsWith('/backend') ? ['django'] : [], projectIconPath: null, markers: [] } }
+    },
     selectFolder: async () => { browseCalls += 1; return browsePath ? { success: true, folderPath: browsePath } : { success: true, cancelled: true } },
     assistant: {
         listProjects: async () => { catalogReads += 1; return { success: true, catalog: structuredClone(catalog) } },
@@ -41,7 +54,7 @@ Object.defineProperty(window, 'devscope', { configurable: true, value: {
         }
     }
 } })
-Object.assign(window, { __projectFixture: { calls, catalog, setBrowse: (path: string | null) => { browsePath = path }, failNext: () => { failNext = true }, deferNext: () => { deferNext = true }, settle: () => { settle?.(); settle = null }, catalogReads: () => catalogReads, browseCalls: () => browseCalls } })
+Object.assign(window, { __projectFixture: { calls, catalog, iconRequests, projectSelections, setBrowse: (path: string | null) => { browsePath = path }, failNext: () => { failNext = true }, deferNext: () => { deferNext = true }, settle: () => { settle?.(); settle = null }, catalogReads: () => catalogReads, browseCalls: () => browseCalls } })
 function Fixture() {
     const request = useProjectCreation()
     const { catalog } = useAssistantProjectCatalog()
@@ -58,9 +71,10 @@ function Fixture() {
         {menuPreview ? <section style={{ width: 640, maxWidth: '90vw', margin: '120px auto 0' }}>
             <h2 id="fixture-project-greeting" style={{ textAlign: 'center', fontSize: 24, marginBottom: 28 }}>{label ? `Ready to open up ${label}?` : 'What are we working on?'}</h2>
             <div style={{ position: 'relative', height: 140, border: '1px solid var(--surface-divider)', borderRadius: 16, background: 'var(--surface-floating)' }}>
-                <AssistantNewChatProjectChip projectId={projectId} projectName={project?.name} projectPath={project?.homePath || null}
-                    projectChoices={catalog.projects.map((entry) => ({ projectId: entry.id, label: entry.name, path: entry.homePath, rootLabel: 'Project home' }))}
-                    onSelectProject={(id) => setProjectId(id)}
+                <AssistantNewChatProjectChip projectId={projectId} projectName={project?.name} projectPath={project?.folders[1]?.path || project?.homePath || null}
+                    projectIconSourcePath={getAssistantProjectIconSourcePath(project)}
+                    projectChoices={buildAssistantProjectChoices(catalog.projects)}
+                    onSelectProject={(...args) => { projectSelections.push({ id: args[0], argumentCount: args.length }); setProjectId(args[0]) }}
                     onCreateProject={async () => { const created = await request(); if (created) setProjectId(created.id) }} />
             </div>
         </section> : null}

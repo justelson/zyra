@@ -179,4 +179,11 @@ const noReviewer = toolHandler({
 assert.equal(await noReviewer({ toolName: 'delete', input: { path: 'data.db' } }), undefined);
 assert.equal(noReviewerRequests, 1, 'critical actions must still ask when the reviewer is unavailable');
 
+const installedAppProbe = `powershell -NoProfile -Command "Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*ExampleApp*' } | Select-Object DisplayName,DisplayVersion | Format-List; Get-AppxPackage *ExampleApp*; Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\\ExampleApp\\ExampleApp.exe')"`;
+assert.equal(isDefinitelyCriticalZyraToolPermission({ toolName: 'bash', command: installedAppProbe }), false, 'Format-List is not a disk-format command');
+const probe = toolHandler({ getPermissionMode: () => 'full-access', requestPermission: async () => { throw Error('Routine installed-app lookup must not prompt in Full access'); } });
+assert.equal(await probe({ toolName: 'bash', toolCallId: 'probe:installed-app', input: { command: installedAppProbe } }), undefined);
+for (const command of ['Get-Item example | Format-Table', 'Get-Item example | Format-Wide', 'Get-Content example | Format-Hex', 'Get-Item example | Format-Custom']) assert.equal(isDefinitelyCriticalZyraToolPermission({ toolName: 'bash', command }), false);
+for (const command of ['format C:', 'FORMAT D: /FS:NTFS', 'format.com E:', '"C:\\Windows\\System32\\format.exe" F:', 'diskpart', 'Remove-Item data -Recurse -Force']) assert.equal(isDefinitelyCriticalZyraToolPermission({ toolName: 'bash', command }), true, `Critical command remains gated: ${command}`);
+
 console.log('Zyra permission gate: ok');

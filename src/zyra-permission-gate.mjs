@@ -1,6 +1,8 @@
 import path from "node:path";
 import { realpathSync, statSync } from "node:fs";
 import { canonicalPermissionPath, resolvePermissionPath } from "./permission-paths.mjs";
+import { isDefinitelyCriticalZyraToolPermission, isPotentiallyCriticalZyraToolPermission } from "./permission-command-policy.mjs";
+export { isDefinitelyCriticalZyraToolPermission, isPotentiallyCriticalZyraToolPermission } from "./permission-command-policy.mjs";
 
 const SAFE_TOOL_NAMES = new Set([
   "read",
@@ -12,17 +14,6 @@ const SAFE_TOOL_NAMES = new Set([
   "request_user_input",
   "begin_action_batch",
 ]);
-const CRITICAL_TOOL_NAME_PATTERN = /(?:^|[._-])(delete|remove|publish|deploy|release|purchase|payment|billing|account|security|credential|password|secret|upload|install|message|email|send)(?:[._-]|$)/;
-const DEFINITE_CRITICAL_COMMAND_PATTERNS = [
-  /\bgit\s+(?:push|reset\s+--hard|clean\s+-[^\r\n]*f|rebase|filter-(?:repo|branch)|branch\s+-D)\b/i,
-  /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i,
-  /\b(?:gh\s+release|docker\s+push|terraform\s+(?:apply|destroy)|kubectl\s+(?:apply|delete)|vercel\s+(?:deploy|--prod)|railway\s+up)\b/i,
-  /\b(?:rm\s+-[^\r\n]*r[^\r\n]*f|remove-item\b[^\r\n]*(?:-recurse[^\r\n]*-force|-force[^\r\n]*-recurse)|rmdir\s+\/s|del\s+\/s|format\b|diskpart\b)/i,
-  /\b(?:drop\s+(?:database|schema|table)|truncate\s+table)\b/i,
-  /\b(?:winget|choco|scoop|apt(?:-get)?|brew)\s+(?:install|upgrade|uninstall|remove)\b/i,
-  /\b(?:set-executionpolicy|reg(?:\.exe)?\s+(?:add|delete)|sc(?:\.exe)?\s+(?:create|delete|config)|net\s+user)\b/i,
-];
-const AMBIGUOUS_CRITICAL_WORD_PATTERN = /\b(?:login|logout|password|credential|secret|token|billing|payment|purchase|production|prod|deploy|publish|release)\b/i;
 
 function asRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -194,19 +185,6 @@ function describeToolPermission(event, options, scopedRoots) {
   };
 }
 
-export function isDefinitelyCriticalZyraToolPermission(request = {}) {
-  const toolName = normalizeToolName(request.toolName);
-  if (CRITICAL_TOOL_NAME_PATTERN.test(toolName)) return true;
-  const text = [request.command, request.detail].map(stringValue).filter(Boolean).join("\n");
-  return Boolean(text && DEFINITE_CRITICAL_COMMAND_PATTERNS.some((pattern) => pattern.test(text)));
-}
-
-export function isPotentiallyCriticalZyraToolPermission(request = {}) {
-  if (request.outsideProject || isDefinitelyCriticalZyraToolPermission(request)) return true;
-  const text = [request.command, request.detail].map(stringValue).filter(Boolean).join("\n");
-  return Boolean(text && AMBIGUOUS_CRITICAL_WORD_PATTERN.test(text));
-}
-
 function isPathOutsideProject(value, project) {
   const candidate = path.resolve(project, value);
   const relative = path.relative(project, candidate);
@@ -292,7 +270,7 @@ export function createZyraPermissionGateExtension(options = {}) {
       };
     }
 
-    const decision = await requestPermission(request);
+    const decision = await requestPermission({ ...request, toolCallId: event?.toolCallId });
     if (decision === "acceptForSession") {
       sessionGrants.add(request.grantKey);
       return undefined;

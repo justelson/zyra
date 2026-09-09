@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Zyra.ComputerUse.Capture;
 using Zyra.ComputerUse.Input;
 using Zyra.ComputerUse.UiAutomation;
@@ -24,6 +25,7 @@ public sealed class NamedPipeRpcHost
     private readonly WindowsGraphicsCaptureProvider _capture;
     private readonly Dictionary<string, int> _revisions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, WindowObservation> _observations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Bounds> _observationWindowBounds = new(StringComparer.Ordinal);
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
 
     public NamedPipeRpcHost(string pipeName, string authSecret, string artifactDirectory)
@@ -49,32 +51,81 @@ public sealed class NamedPipeRpcHost
         using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
         var boundedReader = new BoundedLineReader(reader);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var requests = Channel.CreateBounded<string>(8);
+        var writeLock = new object();
+        void WriteResponse(object response)
+        {
+            lock (writeLock) writer.WriteLine(JsonSerializer.Serialize(response, _json));
+        }
+        // Read independently of synchronous UIA/input execution, so an
+        // authenticated stop (or EOF) interrupts an in-flight drag promptly.
+        var pumping = Task.Run(async () =>
+        {
+            try
+            {
+                while (!lifetime.IsCancellationRequested)
+                {
+                    var line = await boundedReader.ReadLineAsync(lifetime.Token);
+                    if (line is null) break;
+                    RpcRequest? request = null;
+                    try { request = JsonSerializer.Deserialize<RpcRequest>(line, _json); } catch (JsonException) { }
+                    if (request is not null && IsAuthenticatedEmergencyStop(request, _authSecret))
+                    {
+                        _input.EmergencyStop();
+                        // Stop this entire session, including queued selections;
+                        // SelectWindow.Resume must never revive cancelled input.
+                        lifetime.Cancel();
+                        WriteResponse(new RpcResponse(request.Id, true, new { stopped = true }));
+                        return;
+                    }
+                    if (!requests.Writer.TryWrite(line))
+                        throw new InvalidDataException("Sidecar request queue exceeds its bound.");
+                }
+            }
+            finally
+            {
+                _input.EmergencyStop();
+                lifetime.Cancel();
+                requests.Writer.TryComplete();
+            }
+        }, CancellationToken.None);
         try
         {
-            while (!cancellationToken.IsCancellationRequested && pipe.IsConnected)
+            while (await requests.Reader.WaitToReadAsync(lifetime.Token))
             {
-                var line = await boundedReader.ReadLineAsync(cancellationToken);
-                if (line is null) break;
+                if (lifetime.IsCancellationRequested || !requests.Reader.TryRead(out var line)) break;
                 RpcResponse response;
                 try
                 {
                     var request = JsonSerializer.Deserialize<RpcRequest>(line, _json) ?? throw new InvalidDataException("JSON-RPC request is missing.");
-                    response = await HandleAsync(request, cancellationToken);
+                    response = await HandleAsync(request, lifetime.Token, cursor =>
+                        WriteResponse(new { id = request.Id, cursor }));
                 }
                 catch (Exception error)
                 {
                     response = new RpcResponse("unknown", false, Error: new RpcError(ErrorCode(error), Limit(error.Message, 512), error is IOException or TimeoutException));
                 }
-                await writer.WriteLineAsync(JsonSerializer.Serialize(response, _json));
+                if (!lifetime.IsCancellationRequested) WriteResponse(response);
             }
         }
-        catch (IOException)
+        catch (IOException) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        finally
         {
-            // A client closing its end of the pipe is a normal transport shutdown.
+            _input.EmergencyStop();
+            lifetime.Cancel();
+            try { await pumping; }
+            catch (IOException) { }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         }
     }
 
-    public async Task<RpcResponse> HandleAsync(RpcRequest request, CancellationToken cancellationToken = default)
+    public static bool IsAuthenticatedEmergencyStop(RpcRequest request, string authSecret) =>
+        request.Version == 1 && request.Method == "emergency_stop" && request.Id.Length is >= 1 and <= 192
+        && FixedEquals(request.Auth, authSecret);
+
+    public async Task<RpcResponse> HandleAsync(RpcRequest request, CancellationToken cancellationToken = default, Action<object>? progress = null)
     {
         if (request.Version != 1) return Error(request.Id, "PROTOCOL_VERSION", "Unsupported sidecar protocol version.");
         if (!FixedEquals(request.Auth, _authSecret)) return Error(request.Id, "AUTHENTICATION_FAILED", "Sidecar authentication failed.");
@@ -82,6 +133,10 @@ public sealed class NamedPipeRpcHost
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
+            // Progress is scoped to this authenticated request. It is feedback,
+            // never a second input channel or authority over another window.
+            _input.PointerProgress = request.Method == "action" && progress is not null
+                ? (x, y, phase) => progress(new { x, y, phase }) : null;
             object result = request.Method switch
             {
                 "health" => new { state = "ready", processId = Environment.ProcessId, protocolVersion = 1 },
@@ -100,6 +155,7 @@ public sealed class NamedPipeRpcHost
         {
             return new RpcResponse(request.Id, false, Error: new RpcError(ErrorCode(error), Limit(error.Message, 512), error is IOException or TimeoutException));
         }
+        finally { _input.PointerProgress = null; }
     }
 
     private object OpenApp(string application)
@@ -111,7 +167,7 @@ public sealed class NamedPipeRpcHost
     private object SelectWindow(string token)
     {
         var window = _windows.Select(token);
-        _input.Resume();
+        // Input stop is permanent for this pipe session; a new helper starts fresh.
         return new SelectedWindow(token, window.ProcessId, window.ExecutableIdentity, window.ApplicationName, window.Title, window.ProcessStartTime);
     }
 
@@ -131,13 +187,17 @@ public sealed class NamedPipeRpcHost
         var revision = ReadInt(parameters, "revision", 1, int.MaxValue);
         var includeScreenshot = ReadBool(parameters, "includeScreenshot");
         var window = _windows.Select(token);
+        var observedBounds = InputProvider.ReadWindowBounds(window);
         var observation = _uia.Observe(window, revision);
         if (includeScreenshot)
         {
             var screenshotRef = _capture.CaptureSelectedWindow(window);
             observation = observation with { ScreenshotRef = screenshotRef };
         }
+        if (InputProvider.ReadWindowBounds(window) != observedBounds)
+            throw new InvalidOperationException("Stale observation: selected-window bounds changed during observation. Observe the window again.");
         _revisions[token] = revision;
+        _observationWindowBounds[token] = observedBounds;
         _observations[token] = observation;
         return observation;
     }
@@ -155,6 +215,8 @@ public sealed class NamedPipeRpcHost
         {
             if (!CanUseWindowInputFallback(action))
                 throw new InvalidOperationException("The exact semantic action could not be completed. Observe the target again before acting.");
+            if (action.Type is "move" or "click" or "drag")
+                _input.PreparePointerFocus(window, _observationWindowBounds.GetValueOrDefault(token), ReadBool(parameters, "allowWindowFocus"));
             switch (action.Type)
             {
                 case "move": _input.Move(window, action.X, action.Y); break;
@@ -180,6 +242,7 @@ public sealed class NamedPipeRpcHost
         _input.EmergencyStop();
         _revisions.Clear();
         _observations.Clear();
+        _observationWindowBounds.Clear();
         _capture.Clear();
         return new { stopped = true };
     }

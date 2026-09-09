@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { AgentControlBridgeClient } from '../src/agent-control/bridge-client.mjs';
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+const timers = [];
+globalThis.setTimeout = (callback, delay) => { const timer = { callback, delay, cleared: false, unref() {} }; timers.push(timer); return timer; };
+globalThis.clearTimeout = timer => { if (timer) timer.cleared = true; };
+const messages = [];
+const remote = new Map();
+const client = new AgentControlBridgeClient({ send(message) {
+  messages.push(message);
+  if (message.type === 'control.request') remote.set(message.requestId, { controller: new AbortController(), steps: 1 });
+  if (message.type === 'control.cancel') remote.get(message.requestId)?.controller.abort();
+} });
+try {
+  const request = client.request({ operation: 'act_sequence', steps: Array.from({ length: 16 }, () => ({ type: 'drag', fromX: 1, fromY: 1, toX: 10, toY: 10, durationMs: 5000, sideEffect: 'none' })) });
+  const rejected = assert.rejects(request, { code: 'CONTROL_TIMEOUT' });
+  const id = messages[0].requestId;
+  timers.at(-1).callback();
+  await rejected;
+  assert.equal(messages.at(-1).type, 'control.cancel', 'a bridge deadline must cancel its correlated remote operation');
+  assert.equal(messages.at(-1).requestId, id);
+  const running = remote.get(id);
+  if (!running.controller.signal.aborted) running.steps++;
+  assert.equal(running.steps, 1, 'timed-out sequence cannot advance to the next remote action');
+  assert.equal(client.pending.size, 0);
+  assert.equal(client.handleResponse({ requestId: id, ok: true, result: {} }), false, 'late replies cannot complete or replay a timed-out request');
+  assert.equal(messages.filter(message => message.type === 'control.request').length, 1, 'timeout never resends the action');
+  assert.equal(timers[0].delay, 495000, '16 steps budget one action and one observation deadline each plus transport overhead');
+  const one = client.request({ operation: 'act_sequence', steps: [{ type: 'wait', durationMs: 100, sideEffect: 'none' }] });
+  assert.equal(timers.at(-1).delay, 45000);
+  client.handleResponse({ requestId: messages.at(-1).requestId, ok: true, result: {} });
+  await one;
+  const completedTimer = timers.at(-1);
+  const messagesAfterSuccess = messages.length;
+  completedTimer.callback();
+  assert.equal(messages.length, messagesAfterSuccess, 'a completed operation never receives a late cancellation');
+  const controller = new AbortController();
+  const aborted = client.request({ operation: 'observe' }, { signal: controller.signal });
+  const abortedResult = assert.rejects(aborted, { code: 'CONTROL_CANCELLED' });
+  const abortTimer = timers.at(-1);
+  controller.abort();
+  await abortedResult;
+  const cancellationCount = messages.filter(message => message.type === 'control.cancel').length;
+  abortTimer.callback();
+  assert.equal(messages.filter(message => message.type === 'control.cancel').length, cancellationCount, 'abort/deadline races send only one cancellation');
+
+  const plain = client.request({ operation: 'observe' });
+  assert.equal(timers.at(-1).delay, 15000, 'ordinary single-operation deadlines stay bounded');
+  client.handleResponse({ requestId: messages.at(-1).requestId, ok: true, result: {} });
+  await plain;
+  const tooLong = client.request({ operation: 'observe' }, { timeoutMs: 9999999 });
+  assert.equal(timers.at(-1).delay, 600000, 'explicit deadlines retain the ten-minute cap');
+  client.handleResponse({ requestId: messages.at(-1).requestId, ok: true, result: {} });
+  await tooLong;
+  await assert.rejects(() => client.request({ operation: 'act_sequence', steps: Array(17).fill({}) }), /1 to 16/);
+} finally {
+  client.dispose();
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
+}
+console.log('Computer sequence deadline, correlated remote cancellation, late reply and no replay: ok');

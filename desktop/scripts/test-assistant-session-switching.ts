@@ -646,6 +646,38 @@ try {
         lastUsedAt: Date.now() - 60_000,
         shellRevision: getAssistantThreadHydrationRevision(oversizedThread)
     }
+    const backgroundHistoryStore = new AssistantStore()
+    ;(backgroundHistoryStore as any).state = {
+        ...state, snapshot: {...oversizedShell, selectedSessionId: 'a'},
+        historyByThreadId: {[oversizedThread.id]: oversizedRetainedHistory}
+    }
+    ;(backgroundHistoryStore as any).pendingAssistantEvents = [{
+        id: 'background-presence', sequence: state.snapshot.lastSequence + 1,
+        type: 'thread.updated', occurredAt: '2026-07-24T12:00:00.000Z',
+        payload: {threadId: 'thread-a', patch: {state: 'idle'}}
+    }]
+    ;(backgroundHistoryStore as any).flushPendingAssistantEvents()
+    let backgroundHistoryState = backgroundHistoryStore.getState()
+    assert.equal(backgroundHistoryState.historyByThreadId[oversizedThread.id]!.messages.length, oversizedThread.messages.length,
+        'a background event must not copy an empty idle shell over the long chat retained history')
+    assert.equal(backgroundHistoryState.historyByThreadId[oversizedThread.id]!.activities.length, 640)
+    assert.equal(backgroundHistoryState.snapshot.sessions.find(s => s.id === oversizedSession.id)!.threads[0]!.messages.length, 0,
+        'inactive chats stay dematerialized after events')
+    ;(backgroundHistoryStore as any).pendingAssistantEvents = [{
+        id: 'background-deletion', sequence: backgroundHistoryState.snapshot.lastSequence + 1,
+        type: 'thread.updated', occurredAt: '2026-07-24T12:00:01.000Z',
+        payload: {threadId: oversizedThread.id, patch: {}, removedMessageIds: [oversizedThread.messages[0]!.id]}
+    }]
+    ;(backgroundHistoryStore as any).flushPendingAssistantEvents()
+    backgroundHistoryState = backgroundHistoryStore.getState()
+    assert.equal(backgroundHistoryState.historyByThreadId[oversizedThread.id]!.messages.length, oversizedThread.messages.length - 1,
+        'deletions received while away still update retained history')
+    const restoredAfterBackgroundEvent = prepareAssistantWarmSelection({
+        snapshot: backgroundHistoryState.snapshot, sessionId: oversizedSession.id, threadId: oversizedThread.id,
+        hydratedThreadCache: new Map(), historyByThreadId: backgroundHistoryState.historyByThreadId
+    })
+    assert.equal(restoredAfterBackgroundEvent.snapshot.sessions.find(s => s.id === oversizedSession.id)!.threads[0]!.messages.length, oversizedThread.messages.length - 1,
+        'reopening after background events restores the loaded window with deletions applied')
     const oversizedWarmSelection = prepareAssistantWarmSelection({
         snapshot: oversizedShell,
         sessionId: oversizedSession.id,

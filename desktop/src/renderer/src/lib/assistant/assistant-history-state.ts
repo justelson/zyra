@@ -333,6 +333,17 @@ export function applyAssistantRetainedHistory(
     }))
 }
 
+export function getAssistantMaterializedThreadIds(snapshot: AssistantSnapshot): Set<string> {
+    const selected = snapshot.sessions.find(session => session.id === snapshot.selectedSessionId)?.activeThreadId
+    const ids = new Set(snapshot.sessions.flatMap(session => session.threads.filter(thread => (
+        ['starting', 'running', 'waiting', 'background'].includes(thread.state)
+        || thread.hasPendingApprovals || thread.hasPendingUserInputs || thread.hasActivePlan
+        || thread.pendingApprovals.length > 0 || thread.pendingUserInputs.length > 0 || Boolean(thread.activePlan)
+    )).map(thread => thread.id)))
+    if (selected) ids.add(selected)
+    return ids
+}
+
 export function dematerializeAssistantHistories(
     snapshot: AssistantSnapshot,
     retainedThreadIds: ReadonlySet<string>

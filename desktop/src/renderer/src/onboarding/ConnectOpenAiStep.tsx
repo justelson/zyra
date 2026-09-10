@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Check, KeyRound, RefreshCw } from 'lucide-react'
 import type { OnboardingAuthStatus } from '@shared/onboarding/contracts'
 import { OpenAiLogo } from '@/components/ui/OpenAiLogo'
-import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 import { cn } from '@/lib/utils'
 
 const buttonClass = 'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]'
@@ -37,9 +36,6 @@ export function ConnectOpenAiStep({ status, loading, activity, error, onRefresh,
 
     return (
         <div className="mx-auto w-full max-w-[360px] text-center" data-onboarding-sign-in>
-            <div role="img" aria-label="Zyra" className="mb-6 flex justify-center">
-                <ZyraLogoASCII size="md" variant="loading" />
-            </div>
             <h1 id="onboarding-step-title" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">Connect Zyra</h1>
             <p className="mx-auto mt-3 max-w-[340px] text-[13px] leading-[1.7] text-sparkle-text-secondary">
                 Zyra uses OpenAI models to answer questions and carry out tasks. Connect ChatGPT or use an API key to get started.

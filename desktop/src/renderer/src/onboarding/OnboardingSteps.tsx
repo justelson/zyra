@@ -8,11 +8,8 @@ import type {
 } from '@shared/onboarding/contracts'
 import { useSettings, type Settings } from '@/lib/settings'
 import { getThemeDefinition } from '@/lib/settings-theme-catalog'
-import { AppearanceSystemThemeCard, AppearanceThemeCard } from '@/pages/settings/appearance/AppearancePreviews'
-import { AppearanceThemeSelector } from '@/pages/settings/appearance/AppearanceThemeSelect'
 import { SettingsSwitch } from '@/pages/settings/settings-layout'
 import { OpenAiLogo } from '@/components/ui/OpenAiLogo'
-import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 import { cn } from '@/lib/utils'
 
 type OnboardingAnalyticsChoiceProps = {
@@ -87,15 +84,14 @@ export function WelcomeStep({ saving, error, onStart }: {
 }) {
     return (
         <section className="mx-auto flex w-full max-w-[520px] flex-col items-center text-center" aria-labelledby="onboarding-welcome-title">
-            <h1 id="onboarding-welcome-title" className="text-[18px] font-medium tracking-[-0.025em] text-sparkle-text-secondary sm:text-[20px]">
-                Welcome to
+            <h1 id="onboarding-welcome-title" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">
+                Welcome to Zyra
             </h1>
-            <ZyraLogoASCII size="lg" variant="loading" className="mt-5 drop-shadow-[0_0_24px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)]" />
             <button
                 type="button"
                 disabled={saving}
                 onClick={onStart}
-                className="mt-8 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-md bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                className="mt-8 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-full bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >
                 Start setup<ArrowRight size={14} />
             </button>
@@ -106,36 +102,7 @@ export function WelcomeStep({ saving, error, onStart }: {
 
 export { ConnectOpenAiStep } from './ConnectOpenAiStep'
 
-export function AppearanceStep({ selection, onChange }: {
-    selection: OnboardingAppearanceSelection
-    onChange: (selection: OnboardingAppearanceSelection) => void
-}) {
-    const { settings } = useSettings()
-    const lightTheme = getThemeDefinition(selection.appearanceLightTheme)
-    const darkTheme = getThemeDefinition(selection.appearanceDarkTheme)
-    const activeAppearance = selection.appearanceThemeMode === 'system'
-        ? settings.appearanceResolvedMode
-        : selection.appearanceThemeMode
-    const selectMode = (appearanceThemeMode: OnboardingAppearanceSelection['appearanceThemeMode']) => onChange({ ...selection, appearanceThemeMode })
-
-    return (
-        <div className="mx-auto w-full max-w-[560px]">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Zyra appearance">
-                <AppearanceSystemThemeCard darkTheme={darkTheme} lightTheme={lightTheme} selected={selection.appearanceThemeMode === 'system'} onSelect={() => selectMode('system')} />
-                <AppearanceThemeCard theme={lightTheme} label="Light" selected={selection.appearanceThemeMode === 'light'} onSelect={() => selectMode('light')} />
-                <AppearanceThemeCard theme={darkTheme} label="Dark" selected={selection.appearanceThemeMode === 'dark'} onSelect={() => selectMode('dark')} />
-            </div>
-            <AppearanceThemeSelector
-                className="mt-5"
-                appearance={activeAppearance}
-                lightTheme={selection.appearanceLightTheme}
-                darkTheme={selection.appearanceDarkTheme}
-                onLightThemeChange={(appearanceLightTheme) => onChange({ ...selection, appearanceLightTheme })}
-                onDarkThemeChange={(appearanceDarkTheme) => onChange({ ...selection, appearanceDarkTheme })}
-            />
-        </div>
-    )
-}
+export { AppearanceStep } from './AppearanceStep'
 
 export function ProjectsStep({ selection, onChange }: {
     selection: OnboardingProjectsSelection

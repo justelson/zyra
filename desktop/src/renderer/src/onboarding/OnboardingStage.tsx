@@ -41,13 +41,21 @@ export function OnboardingStage({ step, direction, reducedMotion, children }: {
         }
         let cancelled = false
         const offset = direction === 'backward' ? -10 : 10
+        const entryOpacity = body.style.opacity || '0'
+        const entryTransform = body.style.transform || `translate3d(${offset}px, 0, 0)`
+        // Cleanup can freeze an interrupted entrance, including StrictMode's first
+        // effect replay. The underlying style must still be visible when it finishes.
+        if (!changing) {
+            body.style.opacity = '1'
+            body.style.transform = 'none'
+        }
         const animation = changing
             ? body.animate([
                 { opacity: getComputedStyle(body).opacity, transform: getComputedStyle(body).transform },
                 { opacity: 0, transform: `translate3d(${-offset}px, 0, 0)` }
             ], { duration: 140, easing: 'ease-in', fill: 'forwards' })
             : body.animate([
-                { opacity: body.style.opacity || 0, transform: body.style.transform || `translate3d(${offset}px, 0, 0)` },
+                { opacity: entryOpacity, transform: entryTransform },
                 { opacity: 1, transform: 'none' }
             ], { duration: 620, easing: EASE })
         if (changing) void animation.finished.then(() => {

@@ -94,7 +94,7 @@ float meteor(vec2 uv, float time, float stream, float aspect) {
 
 vec3 strataColor(float depth) {
     float darkMix = mix(0.30, 0.09, depth);
-    float lightMix = mix(0.13, 0.24, depth);
+    float lightMix = mix(0.18, 0.32, depth);
     return mix(u_background, u_accent, mix(darkMix, lightMix, u_light_mode));
 }
 
@@ -122,7 +122,8 @@ void applyStratum(
     vec3 layer = strataColor(depth);
     vec3 rimColor = mix(u_accent, u_ink, mix(0.12, 0.42, u_light_mode));
     color = mix(color, layer, body);
-    color += rimColor * rim * mix(0.085, 0.032, depth) * mix(1.0, 0.6, u_light_mode);
+    float rimStrength = rim * mix(0.085, 0.032, depth);
+    color = mix(color + rimColor * rimStrength, mix(color, rimColor, rimStrength), u_light_mode);
     color += u_accent * ambient * 0.018 * (1.0 - depth);
     starMask *= 1.0 - body;
 }
@@ -157,10 +158,14 @@ void main() {
     applyStratum(color, starMask, uv, aspect, 0.09, 4.0, 0.044, 85.0, 0.11, 0.070, 1.0);
 
     vec3 light = mix(u_ink, u_accent, 0.25);
-    color += light * starField * starMask * mix(0.52, 0.13, u_light_mode);
-    color += light * (meteor(starUv, u_time, 0.0, aspect)
+    float starStrength = starField * starMask;
+    float meteorStrength = (meteor(starUv, u_time, 0.0, aspect)
         + meteor(starUv, u_time, 1.0, aspect) * 0.72
-        + meteor(starUv, u_time, 2.0, aspect) * 0.54) * starMask * mix(0.82, 0.18, u_light_mode);
+        + meteor(starUv, u_time, 2.0, aspect) * 0.54) * starMask;
+    // Pale skies need pigment contrast; additive light disappears into white.
+    vec3 nightSky = color + light * (starStrength * 0.52 + meteorStrength * 0.82);
+    vec3 daySky = mix(color, light, clamp(starStrength * 0.42 + meteorStrength * 0.56, 0.0, 0.75));
+    color = mix(nightSky, daySky, u_light_mode);
 
     float vignette = 1.0 - mix(0.28, 0.08, u_light_mode)
         * pow(length((uv - 0.5) * vec2(1.1, 1.6)), 2.0);

@@ -111,7 +111,7 @@ assert.doesNotMatch(stepsSource, /min-h-\[62px\][^\n]*border-y|role="radiogroup"
 assert.match(stepsSource, /allowlisted diagnostic codes[\s\S]{0,180}stable random installation ID[\s\S]{0,100}across sessions[\s\S]{0,220}local queue after 7 days/, 'the information popover must disclose transmitted diagnostics, persistent pseudonymous identity, and local retention')
 assert.match(stepsSource, /Never prompts, responses, transcripts, files, paths, URLs, account identity, or terminal content/, 'the information popover must preserve the sensitive-data boundary')
 assert.match(motionSource, /\.onboarding-review-grid\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/)
-assert.match(appearanceSource, /AppearanceThemeSelector[\s\S]*appearance=\{activeAppearance\}/, 'setup must show one catalog selector for the currently resolved appearance')
+assert.match(appearanceSource, /OnboardingThemePicker[\s\S]*appearance=\{activeAppearance\}/, 'setup must show one catalog selector for the currently resolved appearance')
 assert.match(stepsSource, /createAppearanceSelection[\s\S]{0,420}appearanceThemeMode: settings\.appearanceThemeMode/, 'the main-owned saved appearance must win when setup resumes')
 assert.match(themeSelectSource, /LIGHT_THEMES[\s\S]*DARK_THEMES/, 'the shared selector must keep light and dark catalogs separate')
 assert.match(themeSelectSource, /role="listbox"[\s\S]*role="option"/, 'theme dropdowns must expose accessible listbox semantics')

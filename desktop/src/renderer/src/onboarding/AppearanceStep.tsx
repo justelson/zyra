@@ -2,8 +2,8 @@ import { useId, type CSSProperties } from 'react'
 import { ArrowUp, Monitor, Moon, Plus, Sun } from 'lucide-react'
 import type { OnboardingAppearanceSelection } from '@shared/onboarding/contracts'
 import { useSettings } from '@/lib/settings'
-import { getThemeDefinition } from '@/lib/settings-theme-catalog'
-import { AppearanceThemeSelector } from '@/pages/settings/appearance/AppearanceThemeSelect'
+import { getThemeDefinition, type LightTheme, type DarkTheme } from '@/lib/settings-theme-catalog'
+import { OnboardingThemePicker } from './OnboardingThemePicker'
 import { cn } from '@/lib/utils'
 
 const MODES = [{ value: 'system', label: 'System', icon: Monitor }, { value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }] as const
@@ -28,30 +28,23 @@ export function AppearanceStep({ selection, onChange }: {
             </label>)}
         </fieldset>
 
-        <div className="onboarding-workspace-preview mt-4" style={style} role="img" aria-label={`${theme.name} preview of the Zyra workspace`}>
-            <div className="onboarding-preview-rail">
-                <span className="text-[12px] font-semibold tracking-tight">Zyra</span>
-                <span className="mt-4 flex items-center gap-1.5 text-[10px]"><Plus size={11} />New chat</span>
-                <span className="mt-3 text-[9px] opacity-60">Recent</span>
-                <span className="onboarding-preview-chat mt-1">A fresh idea</span>
-                <span className="px-1.5 py-1 text-[9px] opacity-60">Plan for the week</span>
-            </div>
+        <div className="onboarding-workspace-preview" style={style} role="img" aria-label={`${theme.name} preview of the Zyra workspace`}>
             <div className="onboarding-preview-canvas">
-                <span className="text-[15px] font-medium tracking-[-0.025em]">What are we working on?</span>
+                <span className="onboarding-preview-title">What are we working on?</span>
                 <div className="onboarding-preview-composer">
-                    <span className="text-[10px] opacity-60">Message Zyra…</span>
-                    <div className="mt-4 flex items-center justify-between"><Plus size={12} /><span className="onboarding-preview-send"><ArrowUp size={11} /></span></div>
+                    <span className="onboarding-preview-placeholder">Message Zyra…</span>
+                    <div className="onboarding-preview-composer-tools"><Plus size={15} /><span className="onboarding-preview-send"><ArrowUp size={14} /></span></div>
                 </div>
             </div>
         </div>
 
-        <AppearanceThemeSelector
-            className="onboarding-theme-picker mt-4"
+        <OnboardingThemePicker
+            key={activeAppearance}
             appearance={activeAppearance}
-            lightTheme={selection.appearanceLightTheme}
-            darkTheme={selection.appearanceDarkTheme}
-            onLightThemeChange={appearanceLightTheme => onChange({ ...selection, appearanceLightTheme })}
-            onDarkThemeChange={appearanceDarkTheme => onChange({ ...selection, appearanceDarkTheme })}
+            value={activeAppearance === 'light' ? selection.appearanceLightTheme : selection.appearanceDarkTheme}
+            onChange={themeId => onChange(activeAppearance === 'light'
+                ? { ...selection, appearanceLightTheme: themeId as LightTheme }
+                : { ...selection, appearanceDarkTheme: themeId as DarkTheme })}
         />
     </div>
 }

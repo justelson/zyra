@@ -1,3 +1,4 @@
+import { applyAssistantTextUpdate } from '@shared/assistant/stream-text-update'
 import type { AssistantActivity, AssistantDomainEvent } from '@shared/assistant/contracts'
 
 export type AssistantStreamPresentationChannel = 'message' | 'activity'
@@ -83,7 +84,7 @@ class AssistantStreamPresentationStore {
             if (!id) return
             const previous = this.getSnapshot('message', id)
             const baseText = previous.revision > 0 ? previous.text : projectedText
-            this.publish('message', id, `${baseText}${String(event.payload['delta'] || '')}`, true)
+            this.publish('message', id, applyAssistantTextUpdate(baseText, event.payload), true)
             return
         }
 

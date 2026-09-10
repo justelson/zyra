@@ -439,6 +439,17 @@ try {
     assert.equal(concurrentResults.filter((result) => result.status === 'rejected').length, 1, 'serialized writes must reject a stale concurrent revision')
     assert.equal((await concurrent.getState()).record?.currentStep, 'appearance')
 
+    connected = false
+    const providerPath = join(root, 'setup', 'claude-onboarding.json')
+    const additionalConnections = async () => [{ provider: 'anthropic', label: 'Claude API', verified: true }]
+    const providerService = new OnboardingService(providerPath, preferences, createAuth(), now, undefined, additionalConnections)
+    let providerSnapshot = await providerService.initialize()
+    providerSnapshot = await providerService.commitStep({ expectedRevision: providerSnapshot.record!.revision, step: 'welcome' })
+    providerSnapshot = await providerService.commitStep({ expectedRevision: providerSnapshot.record!.revision, step: 'connect-openai' })
+    assert.equal(providerSnapshot.record?.data.auth?.provider, 'anthropic')
+    assert.equal(providerSnapshot.record?.currentStep, 'appearance')
+    const providerRestored = await new OnboardingService(providerPath, preferences, createAuth(), now, undefined, additionalConnections).initialize()
+    assert.equal(providerRestored.record?.data.auth?.label, 'Claude API connected')
     console.log('onboarding state and persistence: ok')
 } finally {
     await rm(root, { recursive: true, force: true })

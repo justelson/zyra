@@ -1,3 +1,4 @@
+import type { ModelProviderInput } from '../../shared/onboarding/contracts'
 import { ipcRenderer } from 'electron'
 import {
     ONBOARDING_IPC,
@@ -40,6 +41,9 @@ export function createSetupAdapter() {
             updateBrowserIntegrationSecrets: (input: UpdateBrowserIntegrationSecretsInput) => ipcRenderer.invoke(DEVICE_SECRETS_IPC.updateBrowserIntegrationSecrets, input)
         },
         onboarding: {
+            connectModelProvider: (input: ModelProviderInput) => ipcRenderer.invoke(ONBOARDING_IPC.connectModelProvider, input),
+            disconnectModelProvider: (provider: string) => ipcRenderer.invoke(ONBOARDING_IPC.disconnectModelProvider, provider),
+            listModelProviders: () => ipcRenderer.invoke(ONBOARDING_IPC.listModelProviders),
             getState: () => ipcRenderer.invoke(ONBOARDING_IPC.getState),
             getAuthStatus: () => ipcRenderer.invoke(ONBOARDING_IPC.getAuthStatus),
             getConnectionsStatus: (input?: AccountConnectionStatusInput) => ipcRenderer.invoke(ONBOARDING_IPC.getConnectionsStatus, input),

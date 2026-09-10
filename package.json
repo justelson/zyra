@@ -5,6 +5,8 @@
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
   "scripts": {
+    "test:provider-connections": "node scripts/test-model-provider-connections.mjs",
+    "test:memory-idle": "node scripts/test-idle-memory-scheduler.mjs",
     "zyra": "node bin/zyra.mjs",
     "inspect": "node bin/zyra.mjs inspect",
     "ask": "node bin/zyra.mjs ask",

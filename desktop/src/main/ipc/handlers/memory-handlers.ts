@@ -1,3 +1,4 @@
+import { resolveZyraDataRoot } from '../../zyra/zyra-data-root'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import type { ZyraMemoryLayer, ZyraMemoryOverview } from '../../../shared/contracts/memory-contracts'
@@ -51,12 +52,15 @@ function readMemoryLayers(memoryDirectory: string): ZyraMemoryLayer[] {
                 content
             }
         })
-        .sort((left, right) => left.title.localeCompare(right.title))
+        .sort((left, right) => {
+            const priority = (id: string) => id === 'memory_summary' ? 0 : id === 'MEMORY' ? 1 : 2
+            return priority(left.id) - priority(right.id) || left.title.localeCompare(right.title)
+        })
 }
 
 export async function handleMemoryGetOverview() {
     try {
-        const rootPath = resolveZyraRoot()
+        const rootPath = resolveZyraDataRoot()
         const memoryDirectory = join(rootPath, '.zyra', 'memory')
         const sessionsDirectory = join(rootPath, '.zyra', 'sessions')
         const memoryLayers = readMemoryLayers(memoryDirectory)
@@ -65,7 +69,7 @@ export async function handleMemoryGetOverview() {
             rootPath,
             memoryDirectory,
             sessionsDirectory,
-            cliPath: join(rootPath, 'bin', 'zyra.mjs'),
+            cliPath: join(resolveZyraRoot(), 'bin', 'zyra.mjs'),
             defaultModel: 'openai-codex/gpt-5.5',
             defaultThinking: 'medium',
             memoryLayers,

@@ -1,3 +1,5 @@
+import { registerSavedProviders } from "./provider-connections.mjs";
+import { createIdleMemoryScheduler } from "./memory/idle-memory-scheduler.mjs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import readline from "node:readline";
@@ -185,7 +187,11 @@ async function loadSdk() {
   return sdkPromise;
 }
 
+let idleMemoryScheduler;
+
 function disposeRuntime() {
+  idleMemoryScheduler?.dispose();
+  idleMemoryScheduler = undefined;
   declinePendingPermissions();
   abandonPendingUserInputs();
   stopTemporaryBrowserRelay();
@@ -258,7 +264,21 @@ async function handleConnect(payload) {
   await applyChatConfig(sdk, storedChatConfig || normalizeChatConfig(payload), { emit: false });
   const chatConfig = currentChatConfig(sdk);
   activeActionBatchIntent = undefined;
+  if (payload.surface !== "memory-worker" && !payload.noSession && process.env.ZYRA_MEMORY_BACKGROUND !== "0") {
+    const ownedRuntime = runtime;
+    idleMemoryScheduler = createIdleMemoryScheduler({
+      run: async (signal) => {
+        if (runtime !== ownedRuntime || ownedRuntime.session.isStreaming || ownedRuntime.session.isCompacting) return;
+        const includeCurrent = ownedRuntime.session.state?.messages?.some(message => message.role === "assistant");
+        return sdk.runZyraMemoryConsolidation(ownedRuntime, { signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]), includeCurrent: Boolean(includeCurrent), maxStartupClaims: 1, phase2CooldownSeconds: 900 });
+      },
+      onError: () => process.stderr.write("[memory] Idle consolidation failed; check Memory status.\n"),
+    });
+    idleMemoryScheduler.idle();
+  }
   unsubscribe = runtime.session.subscribe((event) => {
+    if (event.type === "agent_start") idleMemoryScheduler?.busy();
+    if (event.type === "agent_end" && event.willRetry !== true) idleMemoryScheduler?.idle();
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
     if (!normalized) return;
     if (isActionBatchIntentEvent(normalized)) {
@@ -766,7 +786,7 @@ async function generateAndPersistSessionTitle(targetRuntime, cwd) {
   if (!transcript) return;
   const result = await handleGenerateText({
     cwd: cwd || targetRuntime.project,
-    model: "openai-codex/gpt-5.6-luna",
+    model: targetRuntime.session.model?.provider === "openai-codex" ? "openai-codex/gpt-5.6-luna" : `${targetRuntime.session.model.provider}/${targetRuntime.session.model.id}`,
     thinking: "low",
     prompt: [
       "You write concise titles for coding assistant chat sessions.",
@@ -815,11 +835,14 @@ async function handleGenerateText(payload) {
   if (!prompt) throw new Error('Prompt is required.');
 
   const sdk = await loadSdk();
+  const models = await sdk.listAvailableModels({ skipAvailability: true });
+  const requestedModel = models.some(model => model.id === payload.model) ? payload.model : models[0]?.id;
+  if (!requestedModel) throw new Error('Connect a model provider before generating a title.');
   const titleRuntime = await sdk.createZyraSession({
     project: payload.cwd,
     noSession: true,
     noTools: "all",
-    model: payload.model,
+    model: requestedModel,
     thinking: payload.thinking || 'low',
     reasoningSummary: 'auto',
     skipGuide: true,
@@ -844,7 +867,8 @@ async function handleModels(payload) {
   const sdk = await loadSdk();
   if (runtime?.session?.modelRegistry) {
     if (payload.forceRefresh && typeof runtime.session.modelRegistry.refresh === "function") {
-      runtime.session.modelRegistry.refresh();
+      registerSavedProviders(runtime.session.modelRegistry);
+      await runtime.session.modelRegistry.refresh();
     }
     return {
       models: sdk.getZyraAvailableModels(runtime.session.modelRegistry).map((model) => modelToInfo(model, sdk)),

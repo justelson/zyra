@@ -1,3 +1,4 @@
+import { ModelProviderConnections } from './ModelProviderConnections'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { AssistantAccountOverview, AssistantAccountPlanType, AssistantModelInfo } from '@shared/assistant/contracts'
@@ -453,6 +454,10 @@ export default function AccountSettings() {
                 </div>
             </SettingsSection>
 
+            <SettingsSection title="Other model providers">
+                <p className="px-4 py-3 text-[12px] leading-5 text-sparkle-text-secondary">Connect OpenCode Zen, Claude API or your own endpoint. ChatGPT sign-in is required for Voice and ChatGPT subscription features.</p>
+                <ModelProviderConnections />
+            </SettingsSection>
             <AccountResetCreditsSection
                 overview={overview}
                 loading={overviewLoading}

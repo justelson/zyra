@@ -35,7 +35,6 @@ import {
 import { normalizeZyraAuthMethod, providerForZyraAuthMethod } from "./auth-methods.mjs";
 import { importClaudeAgentPreviews, previewClaudeAgentImports } from "./agents/claude-importer.mjs";
 import { formatAgentDoctorReport } from "./agents/definition-validator.mjs";
-import { buildProjectStartPrompt } from "./project-start.mjs";
 import { getSlashCommand, parseSlashInput } from "./slash-commands.mjs";
 import { normalizeWebToolsMode } from "./web-tools-picker.mjs";
 import { normalizeZyraPermissionMode } from "./permission-mode.mjs";
@@ -112,8 +111,6 @@ async function handleSlashCommand(runtime, ui, text, parsed, controls = {}) {
       return runWorkflows(runtime, ui);
     case "workflow":
       return runWorkflow(runtime, ui, arg);
-    case "start":
-      return runStart(runtime, ui, arg, controls);
     case "session":
       if (arg.trim().toLowerCase() === "copy") {
         const threadId = runtime.session?.sessionManager?.getSessionId?.();
@@ -332,49 +329,10 @@ function formatFleetActionResult(result) {
   return JSON.stringify(result);
 }
 
-async function runStart(runtime, ui, arg, controls) {
-  ui.beginProgress("Project scan");
-  controls.setTerminalTitleState?.("working");
-  try {
-    await runZyraPrompt(runtime, buildProjectStartPrompt(runtime, arg));
-    controls.notifyTerminalIfUnfocused?.();
-  } finally {
-    ui.endProgress();
-    controls.setTerminalTitleState?.("ready");
-  }
-  return true;
-}
-
 async function runProfile(runtime, ui, arg) {
-  if (!arg) {
-    ui.info(`Profile: ${describeRuntime(runtime).profile}`);
-    return true;
-  }
-  const autoProfile = getAutoProfile();
-  const previousProfile = describeRuntime(runtime).profile ?? autoProfile;
-  const requestedProfile = arg.trim().toLowerCase();
-  const profile = setProfile(runtime, requestedProfile);
-  const prompt = buildProfileChangePrompt({ autoProfile, previousProfile, requestedProfile, profile });
-  ui.suppressUserMessage?.(prompt);
-  const runSwitchPrompt = () => runZyraPrompt(runtime, prompt);
-  if (typeof ui.withActivityLabel === "function") await ui.withActivityLabel("changing current profile", runSwitchPrompt);
-  else await runSwitchPrompt();
+  const profile = arg ? setProfile(runtime, arg.trim().toLowerCase()) : describeRuntime(runtime).profile;
+  ui.info(`Speaking style: ${profile}`);
   return true;
-}
-
-export function buildProfileChangePrompt({ autoProfile, previousProfile, requestedProfile, profile } = {}) {
-  return [
-    "[Internal Zyra profile-change notice]",
-    "This message is hidden from the visible transcript UI, but it is intentionally part of chat history so the assistant can adapt.",
-    `The configured auto profile is ${quoteProfile(autoProfile)}.`,
-    `The active profile before the command was ${quoteProfile(previousProfile)}.`,
-    `The user ran /profile ${String(requestedProfile ?? "").trim() || quoteProfile(profile)} and the active profile is now ${quoteProfile(profile)}.`,
-    "Write one short, witty, human confirmation that spotlights the user changed profile. Do not mention this internal notice. Do not continue into unrelated work.",
-  ].join("\n");
-}
-
-function quoteProfile(value) {
-  return JSON.stringify(String(value ?? "unknown"));
 }
 
 function runMemory(runtime, ui, arg) {

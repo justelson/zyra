@@ -26,7 +26,7 @@ function catalogEntry(id, overrides = {}) {
   }
 }
 
-test('Codex-only model routing uses aliases, explicit fallback reasons, and bounded escalation', () => {
+test('Model routing uses aliases, explicit fallback reasons, and bounded escalation', () => {
   const router = new ModelRouter({ catalog: [
     catalogEntry('gpt-5.6-sol'),
     catalogEntry('gpt-5.6-terra', { eligible: false, availability: 'unavailable', rejectionReasons: ['upstream_unavailable'] }),
@@ -41,7 +41,16 @@ test('Codex-only model routing uses aliases, explicit fallback reasons, and boun
   assert.equal(escalated.selectedKey, 'openai-codex/gpt-5.5')
   assert.throws(() => router.escalate(escalated, 'because_parent_said_so'), FleetModelRouteError)
   assert.throws(() => router.route({ model: 'tera' }), /Did you mean 'terra'/)
-  assert.throws(() => router.route({ model: 'sonnet' }), /Codex-only/)
+  assert.throws(() => router.route({ model: 'sonnet' }), /full provider\/model ID/)
+})
+
+test('fleet inherits authenticated Claude and custom provider models', () => {
+  for (const provider of ['anthropic', 'custom-local']) {
+    const key = `${provider}/fixture-model`;
+    const router = new ModelRouter({ catalog: [catalogEntry('gpt-5.6-sol'), catalogEntry('fixture-model', { key, provider, availability: 'unknown', model: { provider, id: 'fixture-model' } })] });
+    assert.equal(router.route({ model: 'inherit', inheritModel: key }).selectedKey, key);
+    assert.equal(router.route({ model: key, policy: { allow: [key] } }).selectedKey, key);
+  }
 })
 
 test('child capability attenuation denies recursive/control tools and unenforceable read-only shell access', () => {

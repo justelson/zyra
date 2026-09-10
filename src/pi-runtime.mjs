@@ -1,3 +1,4 @@
+import { registerSavedProviders } from "./provider-connections.mjs";
 let piPackagePromise;
 
 async function loadPiPackage() {
@@ -18,6 +19,7 @@ export async function createZyraPiRuntime(options = {}) {
   });
   const authStorage = createAuthStorageFacade(modelRuntime, readStoredCredential, options);
   const modelRegistry = new ModelRegistry(modelRuntime);
+  if (!options.modelRuntime && options.loadSavedProviders !== false) registerSavedProviders(modelRegistry, options.providerConfigPath);
 
   // Zyra extensions and older internal call sites use this property as the
   // narrow auth boundary. Pi no longer exposes it on ModelRegistry itself.

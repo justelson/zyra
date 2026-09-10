@@ -1,3 +1,4 @@
+import { connectModelProvider, listModelProviders, disconnectModelProvider } from "./provider-connections.mjs";
 import { parentPort } from "node:worker_threads";
 import {
   configureZyraOpenAIApiKey,
@@ -22,6 +23,9 @@ function messageFor(error) {
 
 async function execute(message) {
   switch (message.operation) {
+    case "disconnectModelProvider": return disconnectModelProvider(message.provider);
+    case "connectModelProvider": return connectModelProvider(message.input);
+    case "listModelProviders": return listModelProviders();
     case "warm":
       await Promise.all([
         getZyraAuthStatus("openai-codex"),

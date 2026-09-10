@@ -106,7 +106,7 @@ function resolvePresentationTarget(
     streamRevision: number
 ): string {
     if (streamRevision === 0) return authoritativeText
-    return streamText || authoritativeText
+    return streamText
 }
 
 export function useAssistantVisibleText({
@@ -182,13 +182,13 @@ export function useAssistantVisibleText({
     ])
 
     useEffect(() => {
-        if (!streaming && streamSnapshot.revision === 0) return
+        if (!sourceStreaming) { setSelectionPaused(false); return }
 
         const syncSelectionState = () => setSelectionPaused(hasActiveDocumentSelection())
         syncSelectionState()
         document.addEventListener('selectionchange', syncSelectionState)
         return () => document.removeEventListener('selectionchange', syncSelectionState)
-    }, [streamSnapshot.revision, streaming])
+    }, [sourceStreaming])
 
     useEffect(() => {
         const latestSnapshot = assistantStreamPresentation.getSnapshot(channel, streamId)

@@ -20,7 +20,7 @@ export function buildFleetModelCatalog(modelRegistry, options = {}) {
   }
   const authenticated = new Set((availableModels ?? []).map(modelKey));
   const availability = options.availability instanceof Map ? options.availability : new Map(Object.entries(options.availability ?? {}));
-  return sortModelsLatestFirst((all ?? []).filter((model) => model?.provider === FLEET_MODEL_PROVIDER)).map((model) => {
+  return sortModelsLatestFirst((all ?? []).filter((model) => model?.provider && model?.id)).map((model) => {
     const key = modelKey(model);
     const live = availability.get(key) ?? getCachedModelAvailability(model, options) ?? {};
     const status = isPiSupportPending(model) ? "blocked" : live.availability ?? "unknown";

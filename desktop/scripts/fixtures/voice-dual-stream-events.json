@@ -1,0 +1,398 @@
+{
+  "source": "Microphone-free synthetic speech; provider IDs anonymized",
+  "events": [
+    {
+      "atMs": 1599,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-1",
+        "type": "input_transcript",
+        "text": "Hello"
+      }
+    },
+    {
+      "atMs": 1599,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-1",
+        "role": "user",
+        "transcript": "Hello"
+      }
+    },
+    {
+      "atMs": 2549,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-2",
+        "type": "output_transcript",
+        "text": "I hear"
+      }
+    },
+    {
+      "atMs": 2549,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-1",
+        "role": "user",
+        "transcript": "Hello"
+      }
+    },
+    {
+      "atMs": 2549,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-2",
+        "role": "assistant",
+        "transcript": "I hear"
+      }
+    },
+    {
+      "atMs": 2741,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-3",
+        "type": "input_transcript",
+        "text": ". Hello"
+      }
+    },
+    {
+      "atMs": 2755,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-4",
+        "type": "output_transcript",
+        "text": " you."
+      }
+    },
+    {
+      "atMs": 2841,
+      "type": "turn.delta",
+      "turn_id": "turn-2",
+      "delta": " you."
+    },
+    {
+      "atMs": 2843,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-2",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 2843,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-3",
+        "role": "user",
+        "transcript": ". Hello"
+      }
+    },
+    {
+      "atMs": 3222,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-5",
+        "type": "input_transcript",
+        "text": " Can"
+      }
+    },
+    {
+      "atMs": 3222,
+      "type": "turn.delta",
+      "turn_id": "turn-3",
+      "delta": " Can"
+    },
+    {
+      "atMs": 3391,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-6",
+        "type": "input_transcript",
+        "text": " you"
+      }
+    },
+    {
+      "atMs": 3391,
+      "type": "turn.delta",
+      "turn_id": "turn-3",
+      "delta": " you"
+    },
+    {
+      "atMs": 3678,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-7",
+        "type": "input_transcript",
+        "text": " hear"
+      }
+    },
+    {
+      "atMs": 3678,
+      "type": "turn.delta",
+      "turn_id": "turn-3",
+      "delta": " hear"
+    },
+    {
+      "atMs": 3858,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-8",
+        "type": "input_transcript",
+        "text": " me"
+      }
+    },
+    {
+      "atMs": 3858,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-9",
+        "type": "output_transcript",
+        "text": "I hear"
+      }
+    },
+    {
+      "atMs": 3858,
+      "type": "turn.delta",
+      "turn_id": "turn-3",
+      "delta": " me"
+    },
+    {
+      "atMs": 4054,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-10",
+        "type": "output_transcript",
+        "text": " you."
+      }
+    },
+    {
+      "atMs": 4591,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-3",
+        "role": "user",
+        "transcript": ". Hello Can you hear me"
+      }
+    },
+    {
+      "atMs": 4593,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-4",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 6201,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-4",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 7821,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-11",
+        "type": "input_transcript",
+        "text": "It"
+      }
+    },
+    {
+      "atMs": 7825,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-5",
+        "role": "user",
+        "transcript": "It"
+      }
+    },
+    {
+      "atMs": 7987,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-12",
+        "type": "input_transcript",
+        "text": " is"
+      }
+    },
+    {
+      "atMs": 8006,
+      "type": "turn.delta",
+      "turn_id": "turn-5",
+      "delta": " is"
+    },
+    {
+      "atMs": 8531,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-13",
+        "type": "input_transcript",
+        "text": " today"
+      }
+    },
+    {
+      "atMs": 8532,
+      "type": "turn.delta",
+      "turn_id": "turn-5",
+      "delta": " today"
+    },
+    {
+      "atMs": 8703,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-14",
+        "type": "output_transcript",
+        "text": "I hear"
+      }
+    },
+    {
+      "atMs": 8933,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-15",
+        "type": "output_transcript",
+        "text": " you."
+      }
+    },
+    {
+      "atMs": 9218,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-5",
+        "role": "user",
+        "transcript": "It is today"
+      }
+    },
+    {
+      "atMs": 9218,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-6",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 11015,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-6",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 13055,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-16",
+        "type": "input_transcript",
+        "text": "Can"
+      }
+    },
+    {
+      "atMs": 13057,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-7",
+        "role": "user",
+        "transcript": "Can"
+      }
+    },
+    {
+      "atMs": 13328,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-17",
+        "type": "input_transcript",
+        "text": " you"
+      }
+    },
+    {
+      "atMs": 13330,
+      "type": "turn.delta",
+      "turn_id": "turn-7",
+      "delta": " you"
+    },
+    {
+      "atMs": 13535,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-18",
+        "type": "input_transcript",
+        "text": " hear"
+      }
+    },
+    {
+      "atMs": 13535,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-19",
+        "type": "output_transcript",
+        "text": "I hear"
+      }
+    },
+    {
+      "atMs": 13535,
+      "type": "turn.delta",
+      "turn_id": "turn-7",
+      "delta": " hear"
+    },
+    {
+      "atMs": 13685,
+      "type": "input_transcript.added",
+      "item": {
+        "id": "item-20",
+        "type": "input_transcript",
+        "text": " me"
+      }
+    },
+    {
+      "atMs": 13686,
+      "type": "output_transcript.added",
+      "item": {
+        "id": "item-21",
+        "type": "output_transcript",
+        "text": " you."
+      }
+    },
+    {
+      "atMs": 13687,
+      "type": "turn.delta",
+      "turn_id": "turn-7",
+      "delta": " me"
+    },
+    {
+      "atMs": 14424,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-7",
+        "role": "user",
+        "transcript": "Can you hear me"
+      }
+    },
+    {
+      "atMs": 14428,
+      "type": "turn.created",
+      "turn": {
+        "id": "turn-8",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    },
+    {
+      "atMs": 15828,
+      "type": "turn.done",
+      "turn": {
+        "id": "turn-8",
+        "role": "assistant",
+        "transcript": "I hear you."
+      }
+    }
+  ]
+}

@@ -66,6 +66,7 @@ export async function runMemoryConsolidation(runtime, options = {}, services = {
   };
 
   for (const prep of prepared) {
+    options.signal?.throwIfAborted();
     if (prep.status && prep.status !== "prepared" && prep.status !== "claimed") {
       stage1.skipped += 1;
       continue;
@@ -171,6 +172,7 @@ async function sampleStage1Memory(prep, runtime, options, services) {
   }
   return runInternalZyraMemoryPrompt(runtime, prompt, {
     model: options.stage1Model ?? options.model,
+    signal: options.signal,
     source: "memory-stage1",
   }, services);
 }
@@ -225,6 +227,7 @@ async function samplePhase2Memory(root, runtime, options, services) {
   }
   return runInternalZyraMemoryPrompt(runtime, prompt, {
     model: options.phase2Model ?? options.model,
+    signal: options.signal,
     source: "memory-phase2",
   }, services);
 }
@@ -240,6 +243,7 @@ async function parseMemoryWorkerOutput(rawOutput, requiredKeys, runtime, options
       ? await options.repairSampler({ prompt, rawOutput, requiredKeys, error })
       : await runInternalZyraMemoryPrompt(runtime, prompt, {
         model: options.repairModel ?? options.model,
+        signal: options.signal,
         source: "memory-json-repair",
       }, services);
     return parseZyraMemoryWorkerJson(repaired, requiredKeys);
@@ -273,7 +277,10 @@ async function runInternalZyraMemoryPrompt(runtime, prompt, options = {}, servic
     throw new Error("Memory worker session factory did not return a prompt-capable session.");
   }
 
+  const abort = () => { void workerSession.abort?.(); };
+  options.signal?.addEventListener("abort", abort, { once: true });
   try {
+    options.signal?.throwIfAborted();
     await workerSession.prompt(prompt, { source: options.source ?? "memory-worker" });
     const lastMessage = workerSession.state?.messages?.at?.(-1);
     if (lastMessage?.role !== "assistant") return "";
@@ -282,6 +289,7 @@ async function runInternalZyraMemoryPrompt(runtime, prompt, options = {}, servic
     }
     return extractAssistantText(lastMessage.content);
   } finally {
+    options.signal?.removeEventListener("abort", abort);
     await workerSession.dispose?.();
   }
 }

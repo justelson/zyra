@@ -59,8 +59,8 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     runtimeMode: AssistantRuntimeMode
     interactionMode: 'default' | 'plan'
     activeProfile: 'safe-dev' | 'yolo-fast'
-    zyraProfile: 'default' | 'builder'
-    onZyraProfileChange: (profile: 'default' | 'builder') => void
+    zyraProfile: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful'
+    onZyraProfileChange: (profile: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful') => void
     activeStatusLabel: string
     isConnecting?: boolean
     reconnectPending?: boolean

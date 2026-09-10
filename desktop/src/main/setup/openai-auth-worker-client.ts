@@ -49,6 +49,12 @@ export class OpenAIAuthWorkerClient {
         removeZyraAuth: (method: 'subscription' | 'api') => this.request({ operation: 'removeZyraAuth', method })
     }
 
+    readonly providers = {
+        disconnect: (provider: string) => this.request({ operation: 'disconnectModelProvider', provider }),
+        connect: (input: unknown) => this.request({ operation: 'connectModelProvider', input }),
+        list: () => this.request({ operation: 'listModelProviders' })
+    }
+
     readonly account = {
         buildChatGptAccountStatus: (provider?: string, options?: { includeUsage?: boolean; refreshCredential?: boolean }) => this.request({
             operation: 'buildChatGptAccountStatus',
@@ -83,12 +89,12 @@ export class OpenAIAuthWorkerClient {
         const worker = this.ensureWorker()
         const id = this.nextRequestId++
         const operation = String(message.operation || '')
-        const timeoutMs = operation === 'loginZyraAuth' ? 0 : operation === 'warm' ? 30_000 : 20_000
+        const timeoutMs = operation === 'connectModelProvider' ? 60_000 : operation === 'loginZyraAuth' ? 0 : operation === 'warm' ? 30_000 : 20_000
         return new Promise((resolve, reject) => {
             const timeout = timeoutMs > 0
                 ? setTimeout(() => {
                     if (!this.pending.delete(id)) return
-                    reject(new Error('OpenAI connection check timed out. Try again.'))
+                    reject(new Error('Connection check timed out. Try again.'))
                 }, timeoutMs)
                 : null
             this.pending.set(id, { resolve, reject, timeout, ...callbacks })
@@ -97,7 +103,7 @@ export class OpenAIAuthWorkerClient {
             } catch (error) {
                 this.pending.delete(id)
                 if (timeout) clearTimeout(timeout)
-                reject(error instanceof Error ? error : new Error('Could not start the OpenAI connection action.'))
+                reject(error instanceof Error ? error : new Error('Could not start the connection action.'))
             }
         })
     }

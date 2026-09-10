@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import { readImageDimensions } from "../src/clipboard-image.mjs";
-import { buildProfileChangePrompt, handleSlash } from "../src/slash-command-handlers.mjs";
+import { handleSlash } from "../src/slash-command-handlers.mjs";
 import { getSlashCommand } from "../src/slash-commands.mjs";
 import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
 import { markOnboardingComplete, readOnboardingState, shouldRunOnboarding } from "../src/onboarding.mjs";
@@ -2144,17 +2144,19 @@ async function runEditorArrowCursorEditingRegression() {
   editor.dispose();
 }
 
-function runProfileChangePromptRegression() {
-  const prompt = buildProfileChangePrompt({
-    autoProfile: "builder",
-    previousProfile: "builder",
-    requestedProfile: "learner",
-    profile: "learner",
-  });
-  assert.match(prompt, /hidden from the visible transcript UI/, "profile switch prompt should mark itself as hidden UI context");
-  assert.match(prompt, /configured auto profile is \"builder\"/, "profile switch prompt should include the auto profile source of truth");
-  assert.match(prompt, /active profile is now \"learner\"/, "profile switch prompt should include the resolved active profile");
-  assert.match(prompt, /one short, witty, human confirmation/, "profile switch prompt should ask for a short visible confirmation");
+async function runSpeakingStyleRegression() {
+  const project = mkdtempSync(path.join(os.tmpdir(), "zyra-style-"));
+  try {
+    const notices = [];
+    const runtime = { project, session: { systemPrompt: "Base instructions", sessionManager: {}, prompt() { throw new Error("A style switch must not spend a model response"); } } };
+    await handleSlash(runtime, { info: text => notices.push(text) }, "/profile friendly");
+    assert.equal(runtime.profile, "friendly");
+    assert.match(runtime.session._baseSystemPrompt, /Sound warm, relaxed and attentive/);
+    assert.deepEqual(notices, ["Speaking style: friendly"]);
+    await handleSlash(runtime, { info() {} }, "/profile builder");
+    assert.equal(runtime.profile, "concise");
+    assert.doesNotMatch(runtime.session._baseSystemPrompt, /Sound warm, relaxed and attentive/);
+  } finally { rmSync(project, { recursive: true, force: true }); }
 }
 
 function runThemeSelectorStartsOnActiveThemeRegression() {
@@ -2636,7 +2638,7 @@ async function runRuntimePreferencePersistenceRegression() {
     const model = { provider: "openai-codex", id: "gpt-test", name: "GPT Test" };
     const runtime = {
       project,
-      profile: "builder",
+      profile: "thoughtful",
       session: {
         agent: { state: { systemPrompt: "" } },
         activeTools: ["read", "bash", "edit", "write", "web_search", "web_fetch"],
@@ -2675,7 +2677,7 @@ async function runRuntimePreferencePersistenceRegression() {
       },
     };
 
-    setProfile(runtime, "learner");
+    setProfile(runtime, "friendly");
     setThinking(runtime, "high");
     await setModel(runtime, "gpt-test");
     await setModel(runtime, "openai-codex/gpt-test");
@@ -2683,8 +2685,8 @@ async function runRuntimePreferencePersistenceRegression() {
     setWebFetch(runtime, false);
 
     const preferences = JSON.parse(readFileSync(path.join(project, ".zyra", "preferences.json"), "utf8"));
-    assert.equal(preferences.profile, "learner");
-    assert.equal(preferences.profileResolved, "learner");
+    assert.equal(preferences.profile, "friendly");
+    assert.equal(preferences.profileResolved, "friendly");
     assert.equal(preferences.thinking, "high");
     assert.equal(preferences.model, "openai-codex/gpt-test");
     assert.equal(preferences.webSearch, false);
@@ -2697,20 +2699,20 @@ async function runRuntimePreferencePersistenceRegression() {
     assert.match(runtime.session.agent.state.systemPrompt, /ZYRA_LEVEL_1_GUIDE/);
 
     const startup = resolveZyraStartupPreferences(project);
-    assert.equal(startup.profile, "learner");
+    assert.equal(startup.profile, "friendly");
     assert.equal(startup.thinking, "high");
     assert.equal(startup.model, "openai-codex/gpt-test");
     assert.equal(startup.webSearch, false);
     assert.equal(startup.webFetch, false);
 
     const overridden = resolveZyraStartupPreferences(project, {
-      profile: "builder",
+      profile: "thoughtful",
       thinking: "low",
       model: "openai-codex/gpt-other",
       webSearch: true,
       webFetch: true,
     });
-    assert.equal(overridden.profile, "builder");
+    assert.equal(overridden.profile, "thoughtful");
     assert.equal(overridden.thinking, "low");
     assert.equal(overridden.model, "openai-codex/gpt-other");
     assert.equal(overridden.webSearch, true);
@@ -2855,7 +2857,7 @@ runCursorOnlyMovementRegression();
 runEditorSessionResetRegression();
 runEditorImmediateSlashRegression();
 await runEditorArrowCursorEditingRegression();
-runProfileChangePromptRegression();
+await runSpeakingStyleRegression();
 runThemeSelectorStartsOnActiveThemeRegression();
 runFixedOnlyInputRenderAvoidsTranscriptReplayRegression();
 runStatusLineColorRegression();

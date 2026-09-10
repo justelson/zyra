@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { resolveMonacoLanguage } from './monacoLanguage'
-import { PreviewContentSkeleton } from './PreviewLoadingSkeleton'
+import { CodePreviewPlaceholder } from './CodePreviewPlaceholder'
 
 const MonacoEditorComponent = lazy(() => import('./MonacoPreviewEditor'))
 
@@ -92,7 +92,7 @@ export default function SyntaxPreview({
             data-syntax-preview-model-path={modelPath}
         >
             <Suspense
-                fallback={<PreviewContentSkeleton label="Rendering file..." />}
+                fallback={<CodePreviewPlaceholder content={safeContent} fontSize={fontSize} wordWrap={wordWrap} />}
             >
                 <MonacoEditorComponent
                     value={safeContent}

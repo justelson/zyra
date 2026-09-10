@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties,
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { cn } from '@/lib/utils'
-import { AudioLines, Check, ChevronDown, ChevronUp, FilePenLine, Gauge, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, ShieldCheck, Zap } from 'lucide-react'
+import { AudioLines, Check, ChevronDown, ChevronUp, FilePenLine, Gauge, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, ShieldCheck, Square, Zap } from 'lucide-react'
 import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { formatAssistantModelLabel } from './assistant-model-labels'
@@ -389,8 +389,8 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     selectedRuntimeMode: AssistantRuntimeMode
     setSelectedRuntimeMode: Dispatch<SetStateAction<AssistantRuntimeMode>>
     displayedProfile: string
-    zyraProfile?: 'default' | 'builder'
-    onZyraProfileChange?: (profile: 'default' | 'builder') => void
+    zyraProfile?: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful'
+    onZyraProfileChange?: (profile: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful') => void
     isConnected?: boolean
     isConnecting?: boolean
     reconnectPending?: boolean

@@ -188,7 +188,7 @@ export function ReviewStep({
         {
             id: 'account',
             label: 'Account',
-            value: accountUsesApiKey ? 'OpenAI API' : 'ChatGPT',
+            value: record.data.auth?.label?.replace(/ connected$/i, '') || (accountUsesApiKey ? 'OpenAI API' : 'ChatGPT'),
             detail: accountUsesApiKey ? 'API key verified' : 'Subscription connected',
             icon: <OpenAiLogo className="size-[15px]" />
         },

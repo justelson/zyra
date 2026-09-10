@@ -1,3 +1,5 @@
+import { getSharedOpenAIAuthWorkerClient } from '../../setup/openai-auth-worker-client'
+import type { ModelProviderInput } from '../../../shared/onboarding/contracts'
 import { BrowserWindow } from 'electron'
 import {
     ONBOARDING_IPC,
@@ -31,6 +33,8 @@ const PRE_ONBOARDING_SETUP_CHANNELS = new Set<string>([
     DEVICE_PREFERENCES_IPC.get,
     DEVICE_SECRETS_IPC.migrateLegacyHostedAiKeys,
     ONBOARDING_IPC.getState,
+    ONBOARDING_IPC.connectModelProvider,
+    ONBOARDING_IPC.listModelProviders,
     ONBOARDING_IPC.getAuthStatus,
     ONBOARDING_IPC.connectChatGpt,
     ONBOARDING_IPC.connectApiKey,
@@ -121,6 +125,13 @@ export function registerSetupIpcHandlers(services: DesktopSetupServices): void {
     ipcMain.handle(ONBOARDING_IPC.getState, () => result(async () => ({
         snapshot: await services.onboarding.getState()
     })))
+    ipcMain.handle(ONBOARDING_IPC.disconnectModelProvider, (_event, provider: string) => result(async () => await getSharedOpenAIAuthWorkerClient().providers.disconnect(provider)))
+    ipcMain.handle(ONBOARDING_IPC.listModelProviders, () => result(async () => ({ connections: await getSharedOpenAIAuthWorkerClient().providers.list() })))
+    ipcMain.handle(ONBOARDING_IPC.connectModelProvider, (_event, input: ModelProviderInput) => result(async () => {
+        const connection = await getSharedOpenAIAuthWorkerClient().providers.connect(input)
+        await services.preferences.updateSharedFromMain({ assistantDefaultModel: connection.model })
+        return { connection }
+    }))
     ipcMain.handle(ONBOARDING_IPC.getAuthStatus, () => result(async () => ({
         status: await services.onboarding.getAuthStatus()
     })))

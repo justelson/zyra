@@ -1032,6 +1032,15 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         if (deps.isAssistantTextSuppressed(eventThreadId, resolvedTurnId)) return
         const messageId = `assistant-message-${event.itemId || event.turnId || event.eventId}`
         const key = assistantTextBufferKey(eventThreadId, messageId)
+        if (typeof event.payload.replaceText === 'string') {
+            deps.flushAssistantTextDelta({ threadId: eventThreadId, messageId })
+            deps.assistantTextBuffers.set(key, event.payload.replaceText)
+            deps.appendEvent('thread.message.assistant.delta', event.createdAt, {
+                threadId: eventThreadId, messageId, delta: '', replaceText: event.payload.replaceText, turnId: resolvedTurnId
+            }, eventSession.id, eventThreadId)
+            deps.updateLatestTurnAssistantMessage(eventSession.id, eventThreadId, messageId, event.createdAt)
+            return
+        }
         deps.assistantTextBuffers.set(key, `${deps.assistantTextBuffers.get(key) || ''}${event.payload.delta}`)
         deps.queueAssistantTextDelta({
             sessionId: eventSession.id,

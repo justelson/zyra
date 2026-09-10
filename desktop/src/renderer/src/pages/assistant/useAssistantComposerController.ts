@@ -82,7 +82,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         modelsError = null,
         onRefreshModels,
         activeProfile,
-        zyraProfile = 'default',
+        zyraProfile = 'concise',
         onZyraProfileChange,
         runtimeMode,
         interactionMode,

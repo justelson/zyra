@@ -78,6 +78,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         })
     ],
     account: [
+        sectionTarget('Other model providers', 'Other model providers', 'opencode zen claude anthropic custom endpoint api key connect disconnect models'),
         ...rows('OpenAI connections', ['ChatGPT subscription', 'OpenAI API key', 'New-chat default'], {
             'ChatGPT subscription': 'connect reconnect disconnect oauth retry use new chats',
             'OpenAI API key': 'add replace verify remove disconnect api credential',
@@ -104,12 +105,12 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Trusted devices', 'Other devices', 'phone computer pair pairing remote lan tailscale revoke')
     ],
     assistant: [
-        ...rows('Assistant defaults', ['Model', 'Chat title model', 'Refresh chat titles', 'Title refresh interval', 'Zyra profile', 'Permission mode', 'Reasoning effort', 'Fast service tier', 'Web access', 'Busy send behavior', 'Default prompt'], {
+        ...rows('Assistant defaults', ['Model', 'Chat title model', 'Refresh chat titles', 'Title refresh interval', 'Speaking style', 'Permission mode', 'Reasoning effort', 'Fast service tier', 'Web access', 'Busy send behavior', 'Default prompt'], {
             Model: 'default ai model chat',
             'Chat title model': 'name naming generation luna utility',
             'Refresh chat titles': 'automatic regenerate rename interval turns cost recent prompts final responses',
             'Title refresh interval': 'automatic regenerate rename completed turns minimum',
-            'Zyra profile': 'default builder instructions profile',
+            'Speaking style': 'concise friendly direct thoughtful playful tone',
             'Permission mode': 'supervised auto review edits only approval full access browser chrome computer security',
             'Reasoning effort': 'thinking depth high low max',
             'Fast service tier': 'priority fast provider',
@@ -252,12 +253,6 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Global identity', 'Git author', 'name email commit identity')
     ],
     memory: [
-        ...rows('Memory', ['Zyra root', 'Memory directory', 'Sessions directory', 'Runtime defaults'], {
-            'Zyra root': 'installation local path',
-            'Memory directory': 'profile facts preferences context path',
-            'Sessions directory': 'canonical records path',
-            'Runtime defaults': 'model thinking level'
-        }),
         sectionTarget('Layers', 'Memory layers', 'profile facts preferences project context files'),
         row('Layers', 'File content', 'read local memory file contents'),
         sectionTarget('Recommended prompts', 'Recommended prompts', 'suggested memory setup prompts')

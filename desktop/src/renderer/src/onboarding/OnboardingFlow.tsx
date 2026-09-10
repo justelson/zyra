@@ -28,7 +28,7 @@ type StepTransitionDirection = 'forward' | 'backward'
 
 const STEP_LABELS: Record<OnboardingStep, string> = {
     welcome: 'Welcome',
-    'connect-openai': 'Connect ChatGPT',
+    'connect-openai': 'Connect a provider',
     appearance: 'Choose your look',
     projects: 'Choose a projects folder',
     review: 'Review setup'
@@ -36,7 +36,7 @@ const STEP_LABELS: Record<OnboardingStep, string> = {
 
 const STEP_DESCRIPTIONS: Record<OnboardingStep, string> = {
     welcome: '',
-    'connect-openai': 'Sign in with ChatGPT to start using Zyra.',
+    'connect-openai': 'Choose how Zyra connects to its models.',
     appearance: 'Make this space feel like yours.',
     projects: 'Choose the folder where you keep your work.',
     review: 'Your essentials are ready. You can change them later in Settings.'

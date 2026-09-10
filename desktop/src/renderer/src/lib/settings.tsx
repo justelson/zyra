@@ -1,3 +1,4 @@
+import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { ACCENT_COLORS, type AccentColor } from '@shared/preferences/accent-presets'
 /**
  * Zyra - Settings Store & Context
@@ -97,7 +98,7 @@ export type AssistantDefaultEffort = AssistantReasoningEffort
 export type AssistantReasoningSummary = AssistantReasoningSummaryMode
 export type AssistantTranscriptionEngine = 'browser' | 'codex'
 export type AssistantBusyMessageMode = 'queue' | 'force'
-export type AssistantProductProfile = 'default' | 'builder'
+export type AssistantProductProfile = 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful'
 export type AppearanceThemeMode = 'system' | 'light' | 'dark'
 export type AppearanceManagedFont = `managed:${string}`
 export type AppearanceLocalFont = `local:${string}`
@@ -387,7 +388,7 @@ const DEFAULT_SETTINGS: Settings = {
     assistantTitleAutoRegenerate: false,
     assistantTitleAutoRegenerateTurns: DEFAULT_ASSISTANT_AUTO_TITLE_TURNS,
     assistantDefaultPromptTemplate: '',
-    assistantProductProfile: 'default',
+    assistantProductProfile: 'concise',
     assistantDefaultRuntimeMode: 'approval-required',
     assistantDefaultEffort: 'medium',
     assistantDefaultFastMode: false,
@@ -635,9 +636,6 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
             const legacyFileDiffRenderMode = useRendererLegacyStorage
                 ? localStorage.getItem('devscope:project-details:diff-render-mode:v1')
                 : null
-            const legacyProductProfile = useRendererLegacyStorage
-                ? localStorage.getItem('zyra-ui:active-profile:v2') || localStorage.getItem('zyra-ui:active-profile:v1')
-                : null
 
             return {
                 settingsSchemaVersion: 4,
@@ -759,11 +757,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 assistantTitleAutoRegenerate: candidate.assistantTitleAutoRegenerate === true,
                 assistantTitleAutoRegenerateTurns: normalizeAssistantAutoTitleTurnInterval(candidate.assistantTitleAutoRegenerateTurns),
                 assistantDefaultPromptTemplate: sanitizeString(candidate.assistantDefaultPromptTemplate, 32_000, false),
-                assistantProductProfile: parsed.assistantProductProfile === 'builder'
-                    || (parsed.assistantProductProfile === undefined && legacyProductProfile === ['e', 'lson'].join(''))
-                    || (parsed.assistantProductProfile === undefined && legacyProductProfile === 'builder')
-                    ? 'builder'
-                    : 'default',
+                assistantProductProfile: normalizeSpeakingStyle(parsed.assistantProductProfile),
                 assistantDefaultRuntimeMode: sanitizeAssistantDefaultRuntimeMode(candidate.assistantDefaultRuntimeMode),
                 assistantDefaultEffort: sanitizeAssistantDefaultEffort(candidate.assistantDefaultEffort),
                 assistantDefaultFastMode: !!candidate.assistantDefaultFastMode,

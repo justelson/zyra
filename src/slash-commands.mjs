@@ -81,13 +81,6 @@ const slashCommands = [
     inlineArgs: INTERRUPT_MODES,
   },
   {
-    name: "start",
-    description: "ask for the repo starting point",
-    submitOnEnter: true,
-    availableDuringTask: false,
-    terminalState: "working",
-  },
-  {
     name: "new",
     description: "start a fresh chat",
     submitOnEnter: true,
@@ -113,9 +106,9 @@ const slashCommands = [
   },
   {
     name: "profile",
-    description: "show or switch profile overlay",
+    description: "show or change speaking style",
     panelLabel: "/profile [name]",
-    inlineArgs: ["auto", "default", "learner", "builder"],
+    inlineArgs: ["auto", "concise", "friendly", "direct", "thoughtful", "playful"],
   },
   {
     name: "thinking",

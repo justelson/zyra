@@ -20,7 +20,6 @@ import { PreviewTreeSkeleton } from '@/components/ui/file-preview/PreviewLoading
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { IncognitoIcon } from '@/components/ui/IncognitoIcon'
 import { preloadPreviewRenderer } from '@/components/ui/file-preview/useFilePreview'
-import { warmPreviewFileSearchIndex } from '@/components/ui/file-preview/usePreviewFileSearch'
 import { useSettings } from '@/lib/settings'
 import { captureProductEventOnce } from '@/lib/product-analytics'
 import { normalizeAnalyticsWorkspaceKind as analyticsWorkspaceKind } from '@shared/analytics/contracts'
@@ -280,11 +279,11 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     useEffect(() => () => window.clearTimeout(loadingTimerRef.current), [])
 
     useEffect(() => {
-        if (!filesProjectPath) return
+        if (!open || workspaceTabs.find(tab => tab.id === activeTabId)?.kind !== 'explorer') return
         const warmFilesWorkspace = () => {
             void import('./AssistantFilesWorkspace')
             preloadPreviewRenderer('code')
-            void warmPreviewFileSearchIndex(filesProjectPath)
+
         }
         if (typeof window.requestIdleCallback === 'function') {
             const idleId = window.requestIdleCallback(warmFilesWorkspace, { timeout: 1200 })
@@ -292,7 +291,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         }
         const timeoutId = window.setTimeout(warmFilesWorkspace, 240)
         return () => window.clearTimeout(timeoutId)
-    }, [filesProjectPath])
+    }, [activeTabId, open, workspaceTabs])
 
     useEffect(() => {
         let cancelled = false
@@ -514,7 +513,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 icon: <SquareTerminal size={12} />,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id,
-                preview: projectPath ? `Terminal · ${projectPath}` : 'No project attached'
+                preview: projectPath ? `Terminal Â· ${projectPath}` : 'No project attached'
             }]
         }
         if (tab.kind === 'browser') {
@@ -545,7 +544,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 attention: pendingForTab > 0,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id || browserTab?.status === 'loading',
-                preview: browserTab?.url || (projectPath ? `Browser · ${projectPath}` : 'No project attached'),
+                preview: browserTab?.url || (projectPath ? `Browser Â· ${projectPath}` : 'No project attached'),
                 previewDisabled: tab.id === activeTabId,
                 loadPreviewImage: tab.id !== activeTabId && Boolean(browserTab?.url)
                     ? () => captureAssistantBrowserTabHoverPreview(tab.id)
@@ -584,7 +583,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 count: agents.length || undefined,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id || fleetSnapshotLoading,
-                preview: `${Object.keys(effectiveFleetSnapshot?.agents ?? {}).length} child agents · ${Object.keys(effectiveFleetSnapshot?.workflows ?? {}).length} workflows`
+                preview: `${Object.keys(effectiveFleetSnapshot?.agents ?? {}).length} child agents Â· ${Object.keys(effectiveFleetSnapshot?.workflows ?? {}).length} workflows`
             }]
         }
         const turn = turns.find((entry) => entry.id === tab.turnId)
@@ -1365,7 +1364,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                         ) : (
                                             <div>
                                                 <LoaderCircle size={18} className="mx-auto animate-spin text-[var(--accent-primary)]/75" />
-                                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turn’s messages and diffs…</p>
+                                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turnâ€™s messages and diffsâ€¦</p>
                                             </div>
                                         )}
                                     </div>
@@ -1548,7 +1547,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                         ) : (
                             <div>
                                 <LoaderCircle size={18} className="mx-auto animate-spin text-[var(--accent-primary)]/75" />
-                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turn’s messages and diffs…</p>
+                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turnâ€™s messages and diffsâ€¦</p>
                             </div>
                         )}
                     </div>

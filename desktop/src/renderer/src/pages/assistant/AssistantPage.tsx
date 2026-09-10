@@ -1,3 +1,4 @@
+import { AssistantInspectorFrame } from './AssistantInspectorFrame'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { AssistantActivity, AssistantChatScopeRoot, AssistantMessage, AssistantSession, AssistantTurnDetail, FleetSnapshot } from '@shared/assistant/contracts'
@@ -524,10 +525,11 @@ export default function AssistantPage() {
                             onShowToast={showToast}
                         />
                         {inspectorMounted || inspectorOpen ? (
+                            <AssistantInspectorFrame open={inspectorOpen} width={inspectorOpen ? paneLayout.inspectorWidth : rightSidebarWidth}>
                             <Suspense fallback={(
                                 <aside
                                     className="h-full shrink-0 border-l border-[var(--surface-panel-divider)] bg-[var(--surface-panel)]"
-                                    style={{ width: paneLayout.inspectorWidth }}
+                                    style={{ width: '100%' }}
                                     aria-label="Opening inspector"
                                 />
                             )}>
@@ -564,6 +566,7 @@ export default function AssistantPage() {
                                     onClose={handleCloseDiff}
                                 />
                             </Suspense>
+                            </AssistantInspectorFrame>
                         ) : null}
                     </div>
                 </div>

@@ -47,6 +47,8 @@ export type OnboardingRecord = {
     data: {
         auth?: {
             method: OnboardingAuthMethod
+            provider?: string
+            label?: string
             verifiedAt: string
         }
         appearance?: OnboardingAppearanceSelection
@@ -74,7 +76,7 @@ export type OnboardingAuthStatus = {
     checking: boolean
     verified: boolean
     method: OnboardingAuthMethod | null
-    provider: 'openai-codex' | 'openai' | null
+    provider: string | null
     label: string
     detail: string | null
     checkedAt: string
@@ -138,7 +140,12 @@ export type CancelOnboardingReviewInput = {
     expectedRevision: number
 }
 
+export type ModelProviderInput = { provider: 'opencode' | 'anthropic' | 'custom'; apiKey: string; name?: string; baseUrl?: string; model?: string; api?: 'openai-completions' | 'openai-responses' | 'anthropic-messages' }
+export type ModelProviderConnection = { provider: string; label: string; model: string; verified: boolean; verifiedAt?: string }
 export const ONBOARDING_IPC = {
+    connectModelProvider: 'zyra:providers:connect',
+    disconnectModelProvider: 'zyra:providers:disconnect',
+    listModelProviders: 'zyra:providers:list',
     getState: 'zyra:onboarding:get-state',
     getAuthStatus: 'zyra:onboarding:get-auth-status',
     getConnectionsStatus: 'zyra:account:get-openai-connections',

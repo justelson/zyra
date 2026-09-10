@@ -1,3 +1,4 @@
+import { useInspectorFrame } from './AssistantInspectorFrame'
 import {
     DndContext,
     DragOverlay,
@@ -265,7 +266,9 @@ export function AssistantInspectorSidebar({
     addTabItems: FileActionsMenuItem[]
     children: ReactNode
 }) {
-    const rootRef = useRef<HTMLDivElement | null>(null)
+    const localRootRef = useRef<HTMLDivElement | null>(null)
+    const sharedFrame = useInspectorFrame()
+    const rootRef = sharedFrame?.element || localRootRef
     const titleBarSurfaceRef = useRef<HTMLDivElement | null>(null)
     const tabRailRef = useRef<HTMLDivElement | null>(null)
     const dropZoneWindowPositionRef = useRef('')
@@ -295,12 +298,14 @@ export function AssistantInspectorSidebar({
     const [nativeTearOffTabId, setNativeTearOffTabId] = useState<string | null>(null)
     const [closingTabIds, setClosingTabIds] = useState<Set<string>>(() => new Set())
     const [tabPreview, setTabPreview] = useState<AssistantInspectorTabPreview | null>(null)
-    const [presented, setPresented] = useState(false)
+    const [localPresented, setPresented] = useState(open)
+    const presented = sharedFrame?.presented ?? localPresented
     useLayoutEffect(() => {
+        if (sharedFrame) return
         if (!open) { setPresented(false); return }
         const frame = window.requestAnimationFrame(() => setPresented(true))
         return () => window.cancelAnimationFrame(frame)
-    }, [open])
+    }, [open, sharedFrame])
     const resolvedWidth = clampInspectorWidth(width, maxWidth)
     const tabIdentity = tabs.map((tab) => tab.id).join('|')
     const targetWorkspaceTabWidth = calculateWorkspaceTabWidth(resolvedWidth, tabs.length)
@@ -922,13 +927,13 @@ export function AssistantInspectorSidebar({
 
     return (
         <div
-            ref={rootRef}
+            ref={localRootRef}
             className={cn(
-                'relative shrink-0 overflow-visible [contain:layout]',
-                !resizing && 'transition-[width] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                'relative h-full min-h-0 shrink-0 overflow-visible [contain:layout]',
+                !sharedFrame && !resizing && 'transition-[width] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                 !open && 'pointer-events-none'
             )}
-            style={{ width: open && presented ? `${resolvedWidth}px` : '0px' }}
+            style={{ width: sharedFrame ? '100%' : open && presented ? `${resolvedWidth}px` : '0px' }}
         >
             {open ? (
                 <button

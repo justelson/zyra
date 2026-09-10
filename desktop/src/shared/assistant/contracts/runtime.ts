@@ -190,6 +190,7 @@ export type AssistantRuntimeEvent =
         payload: {
             streamKind: AssistantContentStreamKind
             delta: string
+            replaceText?: string
         }
     })
     | (AssistantRuntimeEventBase & {

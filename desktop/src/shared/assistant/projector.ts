@@ -1,3 +1,4 @@
+import { applyAssistantTextUpdate } from './stream-text-update'
 import type {
     AssistantDomainEvent,
     AssistantMessage,
@@ -369,13 +370,12 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
             const loadedMessageCountBefore = writable.thread.messages.length
             if (event.type === 'thread.message.assistant.delta') {
                 const messageId = String(event.payload['messageId'] || '')
-                const delta = String(event.payload['delta'] || '')
                 const existing = writable.thread.messages.find((message) => message.id === messageId)
                 const nextMessage: AssistantMessage = existing
                     ? {
                         ...existing,
                         role: 'assistant',
-                        text: `${existing.text}${delta}`,
+                        text: applyAssistantTextUpdate(existing.text, event.payload),
                         turnId: existing.turnId || String(event.payload['turnId'] || '') || null,
                         streaming: true,
                         updatedAt: event.occurredAt
@@ -383,7 +383,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                     : {
                         id: messageId,
                         role: 'assistant',
-                        text: delta,
+                        text: applyAssistantTextUpdate('', event.payload),
                         turnId: String(event.payload['turnId'] || '') || null,
                         streaming: true,
                         timelineSequence: event.sequence,

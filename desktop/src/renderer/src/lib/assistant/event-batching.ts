@@ -53,6 +53,12 @@ export function collapseAssistantDeltaEvents(events: AssistantDomainEvent[]): As
         if (event.type === 'thread.message.assistant.delta') {
             const messageId = readMessageId(event)
             const key = messageId ? `${event.threadId || ''}:${messageId}` : ''
+            // A replacement is an ordered boundary, never part of an append batch.
+            if (typeof event.payload['replaceText'] === 'string') {
+                if (key) messageIndexByKey.delete(key)
+                collapsed.push(event)
+                continue
+            }
             const previousIndex = key ? messageIndexByKey.get(key) : undefined
             let combinedDelta = readDelta(event)
             if (previousIndex !== undefined) {

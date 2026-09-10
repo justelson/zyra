@@ -1,3 +1,4 @@
+import type { ModelProviderInput, ModelProviderConnection } from '../onboarding/contracts'
 import type {
     AssistantApprovalResponseInput,
     AssistantAccountOverviewPayload,
@@ -545,6 +546,9 @@ export interface DevScopeSecretsApi {
 
 export interface DevScopeOnboardingApi {
     getState: () => Promise<DevScopeResult<{ snapshot: OnboardingSnapshot }>>
+    connectModelProvider: (input: ModelProviderInput) => Promise<DevScopeResult<{ connection: ModelProviderConnection }>>
+    disconnectModelProvider: (provider: string) => Promise<DevScopeResult<{ provider: string }>>
+    listModelProviders: () => Promise<DevScopeResult<{ connections: ModelProviderConnection[] }>>
     getAuthStatus: () => Promise<DevScopeResult<{ status: OnboardingAuthStatus }>>
     getConnectionsStatus: (input?: AccountConnectionStatusInput) => Promise<DevScopeResult<{ status: OpenAIConnectionsStatus }>>
     connectChatGpt: (input?: AccountConnectionAnalyticsInput) => Promise<DevScopeResult<{ status: OnboardingAuthStatus }>>

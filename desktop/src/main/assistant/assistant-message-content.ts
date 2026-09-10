@@ -53,13 +53,6 @@ function extractAssistantContentParts(content: unknown): AssistantContentParts {
     }
 }
 
-function commonPrefixLength(left: string, right: string): number {
-    const max = Math.min(left.length, right.length)
-    let index = 0
-    while (index < max && left[index] === right[index]) index += 1
-    return index
-}
-
 function suffixPrefixOverlap(left: string, right: string): number {
     const max = Math.min(left.length, right.length)
     for (let size = max; size > 0; size -= 1) {
@@ -80,22 +73,6 @@ function separateThinkingFromAssistantText(content: AssistantContentParts): Assi
         ...content,
         text: content.text.slice(overlap).replace(/^(?:\r?\n){1,2}/, '')
     }
-}
-
-function mergeAssistantTextDelta(currentText: string, deltaText: string): string {
-    if (!currentText) return deltaText
-    if (!deltaText) return currentText
-    if (deltaText === currentText || currentText.endsWith(deltaText)) return currentText
-    if (deltaText.startsWith(currentText)) return deltaText
-    const sharedPrefix = commonPrefixLength(currentText, deltaText)
-    if (sharedPrefix >= 5 && deltaText.length >= Math.floor(currentText.length * 0.6)) return deltaText
-    if (sharedPrefix >= 12 && deltaText.length >= Math.floor(currentText.length * 0.35)) return deltaText
-    if (currentText.includes(deltaText) && (deltaText.length >= 8 || /\r|\n/.test(deltaText))) return currentText
-
-    const overlap = suffixPrefixOverlap(currentText, deltaText)
-    if (overlap > 0) return `${currentText}${deltaText.slice(overlap)}`
-
-    return `${currentText}${deltaText}`
 }
 
 function hasAssistantContentSnapshot(value: unknown): boolean {
@@ -129,19 +106,19 @@ export function extractAssistantEventContentParts(
         return applyAssistantContentSnapshot(current, extractAssistantContentParts(snapshotValue))
     }
 
-    const delta = asString(assistantMessageEvent?.['delta'])
+    const delta = typeof assistantMessageEvent?.['delta'] === 'string' ? assistantMessageEvent['delta'] as string : null
     const eventType = asString(assistantMessageEvent?.['type'])
     if (eventType === 'thinking_delta' && delta) {
         return {
             ...current,
             hasThinkingBlock: true,
-            thinking: mergeAssistantTextDelta(current.thinking, delta)
+            thinking: current.thinking + delta
         }
     }
     if (eventType === 'text_delta' && delta) {
         return {
             ...current,
-            text: mergeAssistantTextDelta(current.text, delta)
+            text: current.text + delta
         }
     }
 

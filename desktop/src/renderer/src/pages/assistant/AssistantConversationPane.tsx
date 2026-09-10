@@ -1,3 +1,4 @@
+import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessage, AssistantProposedPlan, AssistantSession, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reconciliation'
@@ -106,11 +107,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         startedAt: string
     } | null>(null)
     const [voicePreferences] = useState(readInstructorVoicePreferences)
-    const synchronizedZyraProfile = controller.activeThread?.profile === 'builder'
-        ? 'builder'
-        : controller.activeThread?.profile === 'default'
-            ? 'default'
-            : null
+    const synchronizedZyraProfile = controller.activeThread?.profile ? normalizeSpeakingStyle(controller.activeThread.profile) : null
     const activeZyraProfile = zyraProfileOverride || synchronizedZyraProfile || settings.assistantProductProfile
     const activeRuntimeZyraProfile = zyraProfileOverride || controller.activeThread?.profile || activeZyraProfile
     const setActiveZyraProfile = useCallback((assistantProductProfile: AssistantProductProfile) => {

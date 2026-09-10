@@ -1,3 +1,4 @@
+import { CodePreviewPlaceholder } from './CodePreviewPlaceholder'
 import Editor from '@monaco-editor/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { editor as MonacoEditor } from 'monaco-editor'
@@ -450,6 +451,7 @@ export default function MonacoPreviewEditor({
 
     return (
         <Editor
+            loading={<CodePreviewPlaceholder content={value} fontSize={fontSize} wordWrap={wordWrap} />}
             defaultValue={value}
             language={language}
             path={modelPath}

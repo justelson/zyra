@@ -11,6 +11,7 @@ export interface InstructorTranscriptEntry {
     role: string
     text: string
     final: boolean
+    transcriptSource?: 'turn' | 'chunk'
     canonicalMessageId?: string
     images?: InstructorTranscriptImage[]
 }
@@ -92,6 +93,19 @@ function updateEntry(
     return next
 }
 
+function latestMirroredChunk(entries: InstructorTranscriptEntry[], role: string): InstructorTranscriptEntry | undefined {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index]
+        if (entry.role === role && entry.transcriptSource === 'chunk' && !entry.final) return entry
+    }
+    return undefined
+}
+
+function discardMirroredChunks(entries: InstructorTranscriptEntry[], role: string): InstructorTranscriptEntry[] {
+    const mirrored = (entry: InstructorTranscriptEntry) => entry.role === role && entry.transcriptSource === 'chunk' && !entry.final
+    return entries.some(mirrored) ? entries.filter(entry => !mirrored(entry)) : entries
+}
+
 function findActiveTranscriptEntry(entries: InstructorTranscriptEntry[], role: string): InstructorTranscriptEntry | null {
     let active: InstructorTranscriptEntry | null = null
     for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -147,20 +161,23 @@ export function applyRealtimeTranscriptEvent(
     if (type === 'turn.created') {
         const turn = readRealtimeTurn(payload?.turn)
         if (!turn) return entries
-        const existing = entries.find((entry) => entry.id === turn.id)
+        const provisional = latestMirroredChunk(entries, turn.role)
+        const logicalEntries = discardMirroredChunks(entries, turn.role)
+        const existing = logicalEntries.find((entry) => entry.id === turn.id)
         if (existing) {
-            if (existing.final) return entries
-            return updateEntry(entries, turn.id, (entry) => ({
+            if (existing.final && existing.transcriptSource === 'turn') return logicalEntries
+            return updateEntry(logicalEntries, turn.id, (entry) => ({
                 ...entry,
-                role: turn.role,
-                text: turn.transcript.trimStart() || entry.text
+                transcriptSource: 'turn',
+                ...(entry.final ? {} : { role: turn.role, text: turn.transcript.trimStart() || entry.text })
             }))
         }
-        return [...entries, {
+        return [...logicalEntries, {
             id: turn.id,
             role: turn.role,
-            text: turn.transcript.trimStart(),
-            final: false
+            text: turn.transcript.trimStart() || provisional?.text || '',
+            final: false,
+            transcriptSource: 'turn'
         }]
     }
 
@@ -170,33 +187,38 @@ export function applyRealtimeTranscriptEvent(
         if (!turnId || !delta) return entries
         return updateEntry(entries, turnId, (entry) => entry.final ? entry : {
             ...entry,
-            text: appendTranscriptDelta(entry.text, delta)
+            text: appendTranscriptDelta(entry.text, delta),
+            transcriptSource: 'turn'
         })
     }
 
     if (type === 'turn.done') {
         const turn = readRealtimeTurn(payload?.turn)
         if (!turn) return entries
-        const text = turn.transcript.trim()
-        const deduplicatedEntries = removeMatchingComposerResponse(entries, turn.role, text, turn.id)
+        const provisional = latestMirroredChunk(entries, turn.role)
+        const text = turn.transcript.trim() || provisional?.text.trim() || ''
+        const logicalEntries = discardMirroredChunks(entries, turn.role)
+        const deduplicatedEntries = removeMatchingComposerResponse(logicalEntries, turn.role, text, turn.id)
         const streamingEntry = findTranscriptCompletionTarget(
             deduplicatedEntries,
             turn.id,
             turn.role
         )
-        const completedEntries = streamingEntry
+        const completedEntries: InstructorTranscriptEntry[] = streamingEntry
             ? updateEntry(deduplicatedEntries, streamingEntry.id, (entry) => ({
                 ...entry,
                 id: turn.id,
                 role: turn.role,
                 text: text || entry.text,
-                final: true
+                final: true,
+                transcriptSource: 'turn'
             }))
             : [...deduplicatedEntries, {
                 id: turn.id,
                 role: turn.role,
                 text,
-                final: true
+                final: true,
+                transcriptSource: 'turn'
             }]
         return removeAdjacentUserPrefix(completedEntries, turn.id)
     }
@@ -221,7 +243,9 @@ export function applyRealtimeTranscriptEvent(
             ? item.text
             : ''
     if (type === 'input_transcript.added' || type === 'output_transcript.added') {
-        if (!delta) return entries
+        // Frameless sends each word through both chunk items and logical turns.
+        // Once this speaker's turn stream is known, only that stream owns text.
+        if (!delta || entries.some(entry => entry.role === role && entry.transcriptSource === 'turn')) return entries
         // Frameless v3 assigns an item ID to each transcript chunk rather than
         // to the whole turn. Keep the active role's chunks in one provisional
         // entry; turn.done below finalizes that entry with the complete text.
@@ -231,14 +255,15 @@ export function applyRealtimeTranscriptEvent(
         if (active) {
             return updateEntry(entries, active.id, (entry) => ({
                 ...entry,
-                text: appendTranscriptDelta(entry.text, delta)
+                text: appendTranscriptDelta(entry.text, delta),
+                transcriptSource: 'chunk'
             }))
         }
         const fallbackId = itemId
             || asNonEmptyString(payload?.event_id)
             || asNonEmptyString(payload?.response_id)
             || `frameless-${role}-${entries.length + 1}`
-        return [...entries, { id: fallbackId, role, text: delta.trimStart(), final: false }]
+        return [...entries, { id: fallbackId, role, text: delta.trimStart(), final: false, transcriptSource: 'chunk' }]
     }
     if (!itemId) return entries
     if (type?.endsWith('.transcript.delta')

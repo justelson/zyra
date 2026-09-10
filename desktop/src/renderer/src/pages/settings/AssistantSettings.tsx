@@ -1,3 +1,4 @@
+import { SPEAKING_STYLES } from '@shared/assistant/speaking-style'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
@@ -137,7 +138,7 @@ export default function AssistantSettings() {
                         </div>
                     )}
                 />
-                <SettingsRow title="Zyra profile" description="Choose the instruction style for new or reconnected chats." control={<SettingsSegmented value={settings.assistantProductProfile} options={[{ value: 'default', label: 'Default' }, { value: 'builder', label: 'Builder' }]} onChange={(assistantProductProfile) => updateSettings({ assistantProductProfile })} label="Zyra profile" />} />
+                <SettingsRow title="Speaking style" description="Choose how Zyra sounds. Its tools and abilities stay the same." control={<SettingsSegmented value={settings.assistantProductProfile} options={SPEAKING_STYLES.map(style => ({ ...style }))} onChange={(assistantProductProfile) => updateSettings({ assistantProductProfile })} label="Speaking style" />} />
                 <SettingsRow title="Permission mode" description="Default approval rules for new chats and app control." info="Applies to chat tools, the Browser, paired Chrome and computer use." control={<SettingsSelect value={settings.assistantDefaultRuntimeMode} onChange={(event) => setPermissionMode(event.target.value as typeof settings.assistantDefaultRuntimeMode)} aria-label="Default permission mode"><option value="approval-required">Supervised</option><option value="auto-review">Auto review</option><option value="edits-only">Edits only</option><option value="full-access">Full access</option></SettingsSelect>} />
                 <SettingsRow title="Reasoning effort" description="Set the default reasoning depth for compatible models." control={<SettingsSelect value={settings.assistantDefaultEffort} onChange={(event) => updateSettings({ assistantDefaultEffort: event.target.value as typeof settings.assistantDefaultEffort })} aria-label="Default reasoning effort">{['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((effort) => <option key={effort} value={effort}>{effort === 'xhigh' ? 'Extra high' : effort.charAt(0).toUpperCase() + effort.slice(1)}</option>)}</SettingsSelect>} />
                 <SettingsRow title="Fast service tier" description="Request priority processing for new chats." info="Only supported providers can honor the priority tier." control={<SettingsSwitch checked={settings.assistantDefaultFastMode} onCheckedChange={(assistantDefaultFastMode) => updateSettings({ assistantDefaultFastMode })} label="Fast service tier" />} />

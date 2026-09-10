@@ -92,7 +92,7 @@ function parseRecord(value: unknown): OnboardingRecord | null {
     const auth: OnboardingRecord['data']['auth'] = isRecord(data.auth)
         && (data.auth.method === 'chatgpt' || data.auth.method === 'api-key')
         && validTimestamp(data.auth.verifiedAt)
-        ? { method: data.auth.method as 'chatgpt' | 'api-key', verifiedAt: data.auth.verifiedAt }
+        ? { method: data.auth.method as 'chatgpt' | 'api-key', verifiedAt: data.auth.verifiedAt, ...(typeof data.auth.provider === 'string' ? { provider: data.auth.provider.slice(0, 160) } : {}), ...(typeof data.auth.label === 'string' ? { label: data.auth.label.slice(0, 160) } : {}) }
         : undefined
     const appearance: OnboardingRecord['data']['appearance'] = isRecord(data.appearance)
         && (data.appearance.appearanceThemeMode === 'system' || data.appearance.appearanceThemeMode === 'light' || data.appearance.appearanceThemeMode === 'dark')
@@ -247,7 +247,8 @@ export class OnboardingService {
         private readonly preferences: DevicePreferencesService,
         private readonly auth: OpenAIConnectionService,
         private readonly now: () => Date = () => new Date(),
-        private readonly validateProjectsFolder: (path: string) => Promise<string> = validateOnboardingProjectsFolder
+        private readonly validateProjectsFolder: (path: string) => Promise<string> = validateOnboardingProjectsFolder,
+        private readonly getAdditionalConnections: () => Promise<Array<{ provider: string; label: string; verified: boolean }>> = async () => []
     ) {}
 
     async initialize(): Promise<OnboardingSnapshot> {
@@ -285,8 +286,11 @@ export class OnboardingService {
         return this.snapshot(hydrated.record)
     }
 
-    getAuthStatus(): Promise<OnboardingAuthStatus> {
-        return this.auth.getStatus()
+    async getAuthStatus(): Promise<OnboardingAuthStatus> {
+        const status = await this.auth.getStatus()
+        if (status.verified) return status
+        const additional = (await this.getAdditionalConnections()).find(connection => connection.verified)
+        return additional ? { checking: false, verified: true, method: 'api-key', provider: additional.provider, label: `${additional.label} connected`, detail: null, checkedAt: this.now().toISOString() } : status
     }
 
     connectChatGpt(): Promise<OnboardingAuthStatus> {
@@ -330,16 +334,16 @@ export class OnboardingService {
                     break
                 }
                 case 'connect-openai': {
-                    const authStatus = await this.auth.getStatus()
+                    const authStatus = await this.getAuthStatus()
                     if (!authStatus.verified || !authStatus.method) {
-                        throw new Error(authStatus.detail || 'Connect and verify an OpenAI account before continuing.')
+                        throw new Error(authStatus.detail || 'Connect a model provider before continuing.')
                     }
                     next = withRevision(record, now, {
                         completedSteps: markStepCompleted(record, input.step),
                         currentStep: 'appearance',
                         data: {
                             ...record.data,
-                            auth: { method: authStatus.method, verifiedAt: authStatus.checkedAt }
+                            auth: { method: authStatus.method, provider: authStatus.provider || undefined, label: authStatus.label, verifiedAt: authStatus.checkedAt }
                         }
                     })
                     break
@@ -375,9 +379,9 @@ export class OnboardingService {
                     if (!record.data.appearance || !record.data.projects) {
                         throw new Error('Setup choices are incomplete. Go back and review them.')
                     }
-                    const authStatus = await this.auth.getStatus()
+                    const authStatus = await this.getAuthStatus()
                     if (!authStatus.verified || !authStatus.method) {
-                        throw new Error(authStatus.detail || 'OpenAI must be connected when setup is completed.')
+                        throw new Error(authStatus.detail || 'A model provider must be connected when setup is completed.')
                     }
                     next = withRevision(record, now, {
                         status: 'completed',
@@ -387,7 +391,7 @@ export class OnboardingService {
                         completedAt: now,
                         data: {
                             ...record.data,
-                            auth: { method: authStatus.method, verifiedAt: authStatus.checkedAt }
+                            auth: { method: authStatus.method, provider: authStatus.provider || undefined, label: authStatus.label, verifiedAt: authStatus.checkedAt }
                         }
                     })
                     break

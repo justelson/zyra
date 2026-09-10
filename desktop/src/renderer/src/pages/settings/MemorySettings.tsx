@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, RefreshCw } from 'lucide-react'
 import type { ZyraMemoryOverview } from '@shared/contracts/memory-contracts'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
-import { SettingsKeyValueList } from './SettingsKeyValueList'
 import {
     SettingsButton,
     SettingsNotice,
@@ -117,13 +116,7 @@ export default function MemorySettings() {
         <SettingsPageContainer title="Memory" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Memory" headerAction={<SettingsButton variant="ghost" onClick={() => void load(true)} disabled={state.status === 'loading'}><RefreshCw size={12} className={state.status === 'loading' ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 {state.status === 'error' ? <SettingsNotice tone="error">{state.error}</SettingsNotice> : null}
-                <SettingsKeyValueList label="Memory locations and runtime" items={[
-                    ...([{ label: 'Zyra root', path: overview?.rootPath }, { label: 'Memory directory', path: overview?.memoryDirectory }, { label: 'Sessions directory', path: overview?.sessionsDirectory }]).map(entry => ({
-                        id: entry.label, label: entry.label, searchTargetId: createSettingsRowTargetId('Memory', entry.label),
-                        value: entry.path ? <span className="flex min-w-0 items-center justify-end gap-2"><code className="truncate text-[11px]" title={entry.path}>{entry.path}</code>{copyButton(entry.path, entry.label)}</span> : state.status === 'loading' ? 'Loading…' : 'Unavailable'
-                    })),
-                    { id: 'runtime', label: 'Runtime defaults', searchTargetId: createSettingsRowTargetId('Memory', 'Runtime defaults'), value: overview ? `${overview.defaultModel} · ${overview.defaultThinking}` : state.status === 'loading' ? 'Loading…' : 'Unavailable' }
-                ]} />
+                <SettingsNotice>Useful context is saved locally after conversations become idle. Memory can be reviewed here and updated from chat.</SettingsNotice>
             </SettingsSection>
 
             <SettingsSection title="Layers">

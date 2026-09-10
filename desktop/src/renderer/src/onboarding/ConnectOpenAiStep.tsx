@@ -1,3 +1,5 @@
+import { SettingsDialog } from '@/pages/settings/settings-layout'
+import { ModelProviderForm } from '@/components/ui/ModelProviderForm'
 import { useEffect, useState } from 'react'
 import { Check, KeyRound, RefreshCw } from 'lucide-react'
 import type { OnboardingAuthStatus } from '@shared/onboarding/contracts'
@@ -15,12 +17,13 @@ export function ConnectOpenAiStep({ status, loading, activity, error, onRefresh,
     onConnectChatGpt: () => Promise<void>
     onConnectApiKey: (apiKey: string) => Promise<void>
 }) {
+    const [otherProvidersOpen, setOtherProvidersOpen] = useState(false)
     const [apiKey, setApiKey] = useState('')
     const [showApiKey, setShowApiKey] = useState(false)
     const [apiKeyOpen, setApiKeyOpen] = useState(false)
     const connected = status?.verified === true
     const chatGptConnected = connected && status?.method === 'chatgpt'
-    const apiKeyConnected = connected && status?.method === 'api-key'
+    const apiKeyConnected = connected && status?.provider === 'openai'
 
     useEffect(() => {
         if (!apiKeyConnected) return
@@ -38,7 +41,7 @@ export function ConnectOpenAiStep({ status, loading, activity, error, onRefresh,
         <div className="mx-auto w-full max-w-[360px] text-center" data-onboarding-sign-in>
             <h1 id="onboarding-step-title" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">Connect Zyra</h1>
             <p className="mx-auto mt-3 max-w-[340px] text-[13px] leading-[1.7] text-sparkle-text-secondary">
-                Zyra uses OpenAI models to answer questions and carry out tasks. Connect ChatGPT or use an API key to get started.
+                Connect a model provider so Zyra can answer questions and carry out tasks. ChatGPT is recommended and includes subscription access and Voice.
             </p>
 
             <div className="mt-8 flex flex-col gap-3">
@@ -65,6 +68,10 @@ export function ConnectOpenAiStep({ status, loading, activity, error, onRefresh,
                 </div>
             </div>
 
+            <button type="button" className="mt-4 text-[12px] text-sparkle-text-secondary hover:text-sparkle-text" disabled={loading} onClick={() => setOtherProvidersOpen(true)}>Other providers</button>
+            <SettingsDialog open={otherProvidersOpen} title="Connect a provider" description="OpenCode Zen, Claude API or your own endpoint." onClose={() => setOtherProvidersOpen(false)}>
+                <ModelProviderForm onConnected={async () => { await onRefresh(); setOtherProvidersOpen(false) }} />
+            </SettingsDialog>
             <div className="mt-4 flex min-h-6 items-center justify-center gap-2 text-[11px] leading-5" role={error ? 'alert' : 'status'} aria-live="polite">
                 {loading ? <RefreshCw size={12} className="shrink-0 animate-spin motion-reduce:animate-none" /> : null}
                 <span className={error ? 'text-[var(--status-danger)]' : connected ? 'text-[var(--status-success)]' : 'text-sparkle-text-muted'}>{statusCopy}</span>

@@ -40,7 +40,10 @@ export function createDesktopSetupServices(userDataPath: string): DesktopSetupSe
     const onboarding = new OnboardingService(
         join(setupDirectory, 'onboarding.json'),
         preferences,
-        auth
+        auth,
+        undefined,
+        undefined,
+        () => authWorker.providers.list()
     )
     const analytics = new DesktopAnalyticsService(userDataPath)
     return { preferences, secrets, auth, onboarding, analytics }

@@ -84,8 +84,8 @@ export type AssistantComposerProps = {
     modelsError?: string | null
     onRefreshModels?: () => void
     activeProfile?: string
-    zyraProfile?: 'default' | 'builder'
-    onZyraProfileChange?: (profile: 'default' | 'builder') => void
+    zyraProfile?: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful'
+    onZyraProfileChange?: (profile: 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful') => void
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     projectId?: string | null

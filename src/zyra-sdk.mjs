@@ -1,3 +1,4 @@
+import { registerSavedProviders } from "./provider-connections.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -113,7 +114,7 @@ const ZYRA_DESKTOP_UI_MARKER = "ZYRA_DESKTOP_UI_SURFACE";
 const ZYRA_FLEET_MARKER = "ZYRA_AGENT_FLEET";
 const PROJECT_DATA_DIR = ".zyra";
 const PROJECT_PREFERENCES_FILE = "preferences.json";
-const BUILT_IN_PROFILE_NAMES = ["default", "learner", "builder"];
+const BUILT_IN_PROFILE_NAMES = ["concise", "friendly", "direct", "thoughtful", "playful"];
 const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const commandCache = new Map();
 
@@ -571,9 +572,7 @@ function hasProfilePrompt(profile, project = defaults.project) {
 }
 
 function profileDescription(profile) {
-  if (profile === "default") return "public default";
-  if (profile === "learner") return "beginner-safe learning support";
-  if (profile === "builder") return "builder/product work";
+  if (BUILT_IN_PROFILE_NAMES.includes(profile)) return `${profile} speaking style`;
   return "local profile";
 }
 
@@ -592,24 +591,24 @@ export function listZyraProfiles(project = defaults.project) {
 }
 
 function buildProfilePrompt(profile, project = defaults.project) {
-  const selected = resolveProfileName(profile, project) ?? "default";
+  const selected = resolveProfileName(profile, project) ?? "concise";
   const sections = [];
   const publicText = readOptionalPrompt(profilePromptPath(defaults.profileDir, selected));
   const localText = readOptionalPrompt(profilePromptPath(localProfileDir(project), selected));
-  if (publicText) sections.push(`Public profile: ${selected}\n${publicText}`);
+  if (publicText) sections.push(`Speaking style: ${selected}\n${publicText}`);
   if (localText) sections.push(`Local profile overlay: ${selected}\n${localText}`);
   if (!sections.length) {
-    const fallback = readOptionalPrompt(profilePromptPath(defaults.profileDir, "default"));
-    sections.push(`Public profile: default\n${fallback || "Use Zyra's public default behavior."}`);
+    const fallback = readOptionalPrompt(profilePromptPath(defaults.profileDir, "concise"));
+    sections.push(`Speaking style: concise\n${fallback || "Use Zyra's public default behavior."}`);
   }
-  return [`Active profile: ${selected}`, ...sections].join("\n\n---\n\n");
+  return [`Active speaking style: ${selected}`, ...sections].join("\n\n---\n\n");
 }
 
 function resolveProfileName(profile, project = defaults.project) {
   const normalized = normalizeProfile(profile);
   if (!normalized) return undefined;
   const selected = normalized === "auto" ? detectDefaultProfile() : normalized;
-  return hasProfilePrompt(selected, project) ? selected : "default";
+  return hasProfilePrompt(selected, project) ? selected : "concise";
 }
 
 function readSessionSystemPrompt(session) {
@@ -1460,7 +1459,7 @@ function ensureSessionProfile(sessionManager, options = {}) {
   const projectPreference = readProjectProfilePreference(options.project, options.preferences);
   const stored = readSessionProfile(sessionManager);
   const selected = requested ?? stored ?? projectPreference ?? "auto";
-  const profile = resolveProfileName(selected, options.project) ?? "default";
+  const profile = resolveProfileName(selected, options.project) ?? "concise";
   if (options.persist && typeof sessionManager.appendCustomEntry === "function" && profile !== stored) {
     sessionManager.appendCustomEntry(ZYRA_PROFILE_CUSTOM_TYPE, {
       profile,
@@ -1485,12 +1484,13 @@ function readSessionProfile(sessionManager) {
 function detectDefaultProfile() {
   const envProfile = normalizeProfile(process.env.ZYRA_PROFILE);
   if (envProfile && envProfile !== "auto") return envProfile;
-  return "default";
+  return "concise";
 }
 
 function normalizeProfile(value) {
   const profile = String(value ?? "").trim().toLowerCase();
   if (!profile) return undefined;
+  if (["default", "learner", "builder"].includes(profile)) return "concise";
   if (profile === "auto") return profile;
   return PROFILE_NAME_PATTERN.test(profile) ? profile : undefined;
 }
@@ -1864,13 +1864,13 @@ export function getAutoProfile() {
 export function setProfile(runtime, profile) {
   const next = normalizeProfile(profile);
   if (!next) {
-    throw new Error("Profile must be auto, default, learner, builder, or a local .zyra/profiles/<name>.md profile.");
+    throw new Error("Choose concise, friendly, direct, thoughtful, playful, or a local speaking style.");
   }
   const requested = next === "auto" ? detectDefaultProfile() : next;
   if (!hasProfilePrompt(requested, runtime.project)) {
-    throw new Error(`Profile not found: ${requested}. Create .zyra/profiles/${requested}.md or choose default, learner, or builder.`);
+    throw new Error(`Profile not found: ${requested}. Create .zyra/profiles/${requested}.md or choose a built-in speaking style.`);
   }
-  const resolved = resolveProfileName(next, runtime.project) ?? "default";
+  const resolved = resolveProfileName(next, runtime.project) ?? "concise";
   runtime.profile = resolved;
   writeProjectProfilePreference(runtime.project, next, resolved);
   injectActiveProfile(runtime.session, resolved, runtime.project);
@@ -2634,6 +2634,8 @@ export async function setModel(runtime, selector, options = {}) {
     }
   }
 
+  registerSavedProviders(runtime.session.modelRegistry);
+  await runtime.session.modelRegistry.refresh?.({ allowNetwork: false });
   const available = getZyraAvailableModels(runtime.session.modelRegistry);
   const exact = available.find((model) => {
     const fullSlash = `${model.provider}/${model.id}`.toLowerCase();

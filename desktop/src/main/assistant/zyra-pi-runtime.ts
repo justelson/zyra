@@ -1,3 +1,4 @@
+import { assistantTextUpdate } from '../../shared/assistant/stream-text-update'
 import { createHash, randomUUID } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
@@ -2963,7 +2964,7 @@ export class ZyraPiRuntime extends EventEmitter {
             if (hasAssistantThinkingText(content) || isReasoningOnlyAssistantEvent(event)) {
                 this.streamInternalText(context, turnId, content.thinking || content.text, itemId)
             }
-            if (hasAssistantContentText(content) && !isReasoningOnlyAssistantEvent(event)) {
+            if ((hasAssistantContentText(content) || currentContent.text) && !isReasoningOnlyAssistantEvent(event)) {
                 this.streamAssistantText(context, turnId, content.text, itemId)
             }
             if (type === 'message_end') {
@@ -3191,10 +3192,10 @@ export class ZyraPiRuntime extends EventEmitter {
     private streamAssistantText(context: ZyraSessionContext, turnId: string, text: string, itemId = `zyra-assistant-${turnId}`): void {
         const previousText = context.assistantTextByItemId.get(itemId) || ''
         const nextText = text
-        const delta = deltaFromMergedText(previousText, nextText)
+        const update = assistantTextUpdate(previousText, nextText)
         context.lastAssistantItemId = itemId
         context.assistantTextByItemId.set(itemId, nextText)
-        if (!delta || (previousText && !nextText.startsWith(previousText))) return
+        if (!update) return
         this.emitRuntime({
             eventId: randomUUID(),
             type: 'content.delta',
@@ -3205,7 +3206,7 @@ export class ZyraPiRuntime extends EventEmitter {
             itemId,
             payload: {
                 streamKind: 'assistant_text',
-                delta
+                ...update
             }
         })
     }

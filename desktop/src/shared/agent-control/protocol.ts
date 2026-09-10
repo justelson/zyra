@@ -21,6 +21,7 @@ export const AGENT_CONTROL_IPC = {
     revokeGrant: 'zyra:agent-control:revoke-grant',
     emergencyStop: 'zyra:agent-control:emergency-stop',
     clearAudit: 'zyra:agent-control:clear-audit',
+    openChromeExtensionFolder: 'zyra:agent-control:open-chrome-extension-folder',
     startChromePairing: 'zyra:agent-control:start-chrome-pairing',
     stopChromePairing: 'zyra:agent-control:stop-chrome-pairing',
     listWindows: 'zyra:agent-control:list-windows',

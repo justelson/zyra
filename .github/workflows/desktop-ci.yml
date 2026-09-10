@@ -104,7 +104,10 @@ jobs:
         run: npm --prefix desktop run runtime:validate && npm --prefix desktop run test:packaged-runtime
 
       - name: Validate browser extension
-        run: npm --prefix extensions/zyra-browser-control test
+        run: |
+          npm --prefix extensions/zyra-browser-control ci --no-audit --no-fund
+          npm --prefix extensions/zyra-browser-control run typecheck
+          npm --prefix extensions/zyra-browser-control test
 
       - name: Smoke node-pty under pinned Electron
         run: npm --prefix desktop run test:native-abi

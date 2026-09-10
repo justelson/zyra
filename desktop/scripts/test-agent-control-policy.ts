@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { AgentControlBroker } from '../src/main/agent-control/agent-control-broker'
-import { assertActionAllowed } from '../src/main/agent-control/capability-policy'
+import { assertActionAllowed, assertCapabilitiesSupportedByTarget } from '../src/main/agent-control/capability-policy'
 import { FakeControlDriver } from '../src/main/agent-control/drivers/fake-driver'
 
 const driver = new FakeControlDriver('zyra-browser')
@@ -86,6 +86,11 @@ broker.registerTarget({
     driver: chromeDriver,
     trustedIdentity: {}
 })
+const readOnlyChromeTarget = { ...broker.targets.get(chromeTargetId).target, accessMode: 'read' as const }
+assert.doesNotThrow(() => assertCapabilitiesSupportedByTarget(['observe.structure', 'observe.screenshot'], readOnlyChromeTarget))
+assert.throws(() => assertCapabilitiesSupportedByTarget(['pointer.click'], readOnlyChromeTarget), /read-only access/)
+assert.throws(() => assertCapabilitiesSupportedByTarget(['window.focus'], readOnlyChromeTarget), /read-only access/)
+assert.doesNotThrow(() => assertCapabilitiesSupportedByTarget(['pointer.drag', 'window.focus'], { ...readOnlyChromeTarget, accessMode: 'control' }))
 const autoChromeGrantPromise = broker.handleToolOperation(principal, {
     operation: 'request_grant', targetId: chromeTargetId, capabilities: ['observe.structure'], durationMs: 30_000, maxActions: 2
 }, undefined, { permissionMode: 'auto-review' })

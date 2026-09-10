@@ -28,6 +28,7 @@ try {
         assistantContextCompactionThresholdTokens: 256_000,
         assistantChatDisplayMode: 'detailed',
         browserViewMode: 'grid',
+        assistantShowActionStats: true,
         startWithWindows: true,
         groqApiKey: 'must-not-migrate',
         theme: 'midnight',
@@ -41,7 +42,7 @@ try {
         assistantReasoningSummary: 'detailed',
         assistantContextCompactionThresholdTokens: 256_000
     })
-    assert.deepEqual(partitioned.surface, { assistantChatDisplayMode: 'detailed', browserViewMode: 'grid' })
+    assert.deepEqual(partitioned.surface, { assistantChatDisplayMode: 'detailed', browserViewMode: 'grid', assistantShowActionStats: true })
     assert.equal(getDevicePreferenceOwnership('startWithWindows'), 'os')
     assert.equal(getDevicePreferenceOwnership('groqApiKey'), 'secret')
     assert.equal(sanitizeDevicePreferenceValue('appearanceLightTheme', 'forest'), undefined, 'dark themes cannot enter the light half')
@@ -188,6 +189,10 @@ try {
         service.update({ surface: 'desktop', expectedRevision: desktop.revision, patch: { compactMode: true } }),
         /expected revision/
     )
+    const stats = await service.updateSurfaceFromMain('desktop', { assistantShowActionStats: true })
+    assert.equal(stats.settings.assistantShowActionStats, true)
+    assert.equal((await new DevicePreferencesService(path, now).get({ surface: 'desktop' })).settings.assistantShowActionStats, true, 'action statistics survive a restart')
+    assert.equal((await service.get({ surface: 'browser' })).settings.assistantShowActionStats, undefined, 'action statistics remain local to the surface')
     const persisted = await readFile(path, 'utf8')
     assert.equal(persisted.includes('secret-groq'), false)
     assert.equal(persisted.includes('secret-gemini'), false)

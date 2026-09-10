@@ -1308,6 +1308,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
 
     return (
         <AssistantInspectorSidebar
+            onClose={onClose}
             open={open}
             width={width}
             maxWidth={maxWidth}

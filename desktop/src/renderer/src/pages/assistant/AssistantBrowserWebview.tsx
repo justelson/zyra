@@ -271,7 +271,9 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
             return
         }
         if (presentationRequested) {
-            if (tab.url && !snapshotDataUrlRef.current) void refreshPresentationSnapshot().catch(() => undefined)
+            // Page readiness can precede app hydration (canvas editors, sign-in flows).
+            // Refresh each time a menu/overlay covers the native view, even if an earlier image exists.
+            if (tab.url) void refreshPresentationSnapshot().catch(() => undefined)
             return
         }
         if (tab.status !== 'ready' || snapshotDataUrlRef.current) return

@@ -15,6 +15,6 @@ export function isAllowedPageUrl(value) {
 
 export function assertBoundedMessage(value) {
   const encoded = JSON.stringify(value)
-  if (encoded.length > MAX_MESSAGE_BYTES) throw new Error('Zyra control message exceeds the extension size limit.')
+  if (new TextEncoder().encode(encoded).byteLength > MAX_MESSAGE_BYTES) throw new Error('Zyra control message exceeds the extension size limit.')
   return value
 }

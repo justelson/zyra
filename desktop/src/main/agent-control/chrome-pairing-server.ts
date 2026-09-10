@@ -11,11 +11,11 @@ const SESSION_TTL_MS = 30 * 60 * 1000
 const MAX_REQUESTS_PER_SECOND = 30
 
 type PendingPair = { sessionId: string; extensionId: string; nonce: string; challenge: string; expiresAt: number }
-type PairSession = { pairId: string; extensionId: string; token: string; expiresAt: number; requests: Array<{ requestId: string; operation: unknown }> }
+type PairSession = { pairId: string; extensionId: string; token: string; expiresAt: number; requests: Array<{ requestId: string; operation: unknown; deadline?: number }> }
 type PendingDriverRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 
 export type ChromePairingEvent =
-    | { type: 'tab.register'; pairId: string; extensionId: string; tabId: number; url: string; title: string; documentId: string }
+    | { type: 'tab.register'; pairId: string; extensionId: string; tabId: number; url: string; title: string; documentId: string; mode?: 'read' | 'control' }
     | { type: 'tab.closed'; pairId: string; tabId: number }
     | { type: 'session.disconnected'; pairId: string; reason: string }
 
@@ -27,6 +27,10 @@ export class ChromePairingServer extends EventEmitter {
     private readonly pendingPairs = new Map<string, PendingPair>()
     private readonly sessions = new Map<string, PairSession>()
     private readonly pendingDriver = new Map<string, PendingDriverRequest>()
+    private appearance: Record<string, unknown> = {}
+
+    setAppearance(appearance: Record<string, unknown>): void { this.appearance = appearance }
+
     private readonly rates = new Map<string, { second: number; count: number }>()
 
     state(): ControlPairingState {
@@ -76,18 +80,27 @@ export class ChromePairingServer extends EventEmitter {
         this.pairingExpiresAt = 0
     }
 
-    async request(pairId: string, operation: unknown, timeoutMs: number = CONTROL_BOUNDS.defaultActionTimeoutMs): Promise<unknown> {
+    async request(pairId: string, operation: unknown, timeoutMs: number = CONTROL_BOUNDS.defaultActionTimeoutMs, signal?: AbortSignal): Promise<unknown> {
+        signal?.throwIfAborted()
         const session = [...this.sessions.values()].find((entry) => entry.pairId === pairId)
         if (!session || session.expiresAt <= Date.now()) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'The Chrome extension is disconnected.', { retryable: true })
         if (session.requests.length >= CONTROL_BOUNDS.maxPendingPairingRequests) throw new AgentControlError('CONTROL_QUEUE_FULL', 'Too many Chrome extension requests are pending.', { retryable: true })
         const requestId = `chrome-request:${randomUUID()}`
-        session.requests.push({ requestId, operation })
+        session.requests.push({ requestId, operation, deadline: Date.now() + timeoutMs })
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.pendingDriver.delete(requestId)
-                reject(new AgentControlError('CONTROL_TIMEOUT', 'Chrome extension request timed out.', { retryable: true }))
-            }, timeoutMs)
-            this.pendingDriver.set(requestId, { resolve, reject, timer })
+            const cancel = (error: Error) => {
+                if (!this.pendingDriver.delete(requestId)) return
+                const queued = session.requests.findIndex((entry) => entry.requestId === requestId)
+                if (queued >= 0) session.requests.splice(queued, 1)
+                else if (session.requests.length < CONTROL_BOUNDS.maxPendingPairingRequests) session.requests.push({ requestId: `cancel:${requestId}`, operation: { type: 'cancel', requestId }, deadline: Date.now() + 5000 })
+                finish(); reject(error)
+            }
+            const abort = () => cancel(new AgentControlError('CONTROL_CANCELLED', 'Chrome action cancelled.'))
+            const timer = setTimeout(() => cancel(new AgentControlError('CONTROL_TIMEOUT', 'Chrome extension request timed out. Observe the page before retrying.')), timeoutMs)
+            const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
+            this.pendingDriver.set(requestId, { resolve: (value) => { finish(); resolve(value) }, reject: (error) => { finish(); reject(error) }, timer })
+            signal?.addEventListener('abort', abort, { once: true })
+            if (signal?.aborted) abort()
         })
     }
 
@@ -108,7 +121,7 @@ export class ChromePairingServer extends EventEmitter {
             session.expiresAt = Date.now() + SESSION_TTL_MS
             if (request.url === '/v1/poll') {
                 const requests = session.requests.splice(0, CONTROL_BOUNDS.maxPendingPairingRequests)
-                return this.reply(response, 200, { nextToken, requests })
+                return this.reply(response, 200, { nextToken, requests, appearance: this.appearance })
             }
             if (request.url === '/v1/respond') {
                 const requestId = String(body.requestId || '')
@@ -116,7 +129,7 @@ export class ChromePairingServer extends EventEmitter {
                 if (!pending) return this.reply(response, 409, { error: 'unknown-or-late-request', nextToken })
                 clearTimeout(pending.timer)
                 this.pendingDriver.delete(requestId)
-                if (body.ok === false) pending.reject(new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', String(body.error || 'Chrome extension action failed.'), { retryable: true }))
+                if (body.ok === false) pending.reject(new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', String(body.error || 'Chrome extension action failed.'), { retryable: false }))
                 else pending.resolve(body.result)
                 return this.reply(response, 200, { ok: true, nextToken })
             }
@@ -191,7 +204,7 @@ export class ChromePairingServer extends EventEmitter {
             if (!Number.isInteger(tabId) || tabId < 0 || !/^https?:\/\//.test(url)) throw new Error('Invalid exact-tab registration.')
             this.emitEvent({
                 type, pairId: session.pairId, extensionId: session.extensionId, tabId,
-                url, title: String(body.title || '').slice(0, 512), documentId: String(body.documentId || '').slice(0, 192)
+                url, mode: body.mode === 'read' ? 'read' : 'control', title: String(body.title || '').slice(0, 512), documentId: String(body.documentId || '').slice(0, 192)
             })
             return
         }

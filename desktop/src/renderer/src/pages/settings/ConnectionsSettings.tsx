@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ChromeBrowserConnectionSettings } from './ChromeBrowserConnectionSettings'
 import { Copy, ExternalLink } from 'lucide-react'
 import { BROWSER_CLIENT_HOST_ORIGIN } from '@shared/browser-assistant-bridge'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
@@ -80,6 +81,8 @@ export default function ConnectionsSettings() {
                     statusTone="ready"
                 />
             </SettingsSection>
+
+            {desktopHost ? <ChromeBrowserConnectionSettings /> : null}
 
             <SettingsSection title="Trusted devices">
                 <SettingsRow

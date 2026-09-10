@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/lib/settings'
 import { getTimelineActivityDomId } from './assistant-timeline-helpers'
 
 export function formatAssistantActionTime(value: string): string {
@@ -30,6 +31,7 @@ export function AssistantTimelineActionShell(props: {
     onToggle?: () => void
     children?: ReactNode
 }) {
+    const { settings } = useSettings()
     const actionable = Boolean(props.onToggle)
     const canToggle = Boolean(props.expandable && props.onToggle)
     const meta = [formatAssistantActionTime(props.createdAt), props.elapsed].filter(Boolean).join(' · ')
@@ -64,14 +66,17 @@ export function AssistantTimelineActionShell(props: {
                         {props.target}
                     </span>
                 ) : null}
-                {meta ? <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</span> : null}
+                {settings.assistantShowActionStats && meta ? <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</span> : null}
                 {props.status === 'failed' ? <span className="size-1.5 shrink-0 rounded-full bg-[var(--status-danger)] opacity-70" aria-label="Failed" /> : null}
                 {canToggle ? (
                     <ChevronDown size={11} className={cn('shrink-0 text-sparkle-text-muted transition-transform duration-200', props.expanded && 'rotate-180')} />
                 ) : <span className="w-[11px] shrink-0" />}
             </button>
             <AnimatedHeight isOpen={Boolean(props.expanded && canToggle)} duration={220}>
-                <div className="pb-2 pl-6 pr-1 pt-1">{props.children}</div>
+                <div className="pb-2 pl-6 pr-1 pt-1">
+                    {!settings.assistantShowActionStats && meta ? <div className="mb-2 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</div> : null}
+                    {props.children}
+                </div>
             </AnimatedHeight>
         </div>
     )

@@ -253,7 +253,10 @@ async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme
         }
         const divider = document.createElement('span')
         divider.className = 'divider'
-        const clearButton = makeButton('⌫', 'Clear annotation', 'icon')
+        const clearButton = makeButton('', 'Clear annotation', 'icon')
+        clearButton.setAttribute('aria-label', 'Clear annotation')
+        // A recognizable eraser, consistent with the rest of Zyra's tools.
+        clearButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l10.6-10.6a2.4 2.4 0 0 1 3.4 0l4.6 4.6a2.4 2.4 0 0 1 0 3.4L11 21H7Z"/><path d="m5 11 9 9M11 21h10"/></svg>'
         clearButton.addEventListener('click', clear)
         const cancelButton = makeButton('×', 'Cancel annotation', 'icon')
         toolbar.append(divider, clearButton, cancelButton)

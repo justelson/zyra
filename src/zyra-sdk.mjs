@@ -474,6 +474,7 @@ async function createZyraResourceLoader(project, options = {}) {
     pluginSkillSources: options.pluginSkillSources,
   });
   const loadSkills = async () => loadZyraSkills(project, {
+    nativeBrowserAvailable: options.nativeBrowserAvailable === true,
     projectTrusted,
     sources: await resolveZyraSkillSources({
       project,
@@ -921,6 +922,7 @@ export async function createZyraSession(options = {}) {
   const codexServiceTierState = { value: startupPreferences.codexServiceTier };
   const startupResources = await createZyraResourceLoader(project, {
     filesystemScope: options.filesystemScope,
+    nativeBrowserAvailable: Boolean(options.controlBridgeClient),
     enablePiExtensions: options.enablePiExtensions || process.env.ZYRA_ENABLE_PI_EXTENSIONS === "1",
     codexServiceTierState,
     thinkingState,
@@ -2858,6 +2860,7 @@ async function loadZyraSkills(project, options = {}) {
     }
     const { zyraSourceOrder: _sourceOrder, skillReadResource, ...publicSkill } = winner;
     if (skillReadResource) skillReadResources.push(skillReadResource);
+    if (options.nativeBrowserAvailable && name === "ego-browser") publicSkill.disableModelInvocation = true;
     skills.push(publicSkill);
   }
 

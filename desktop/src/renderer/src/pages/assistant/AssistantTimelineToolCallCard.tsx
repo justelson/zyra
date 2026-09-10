@@ -8,7 +8,7 @@ import {
 } from '@shared/assistant/read-activity'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { getFileUrl } from '@/components/ui/file-preview/utils'
-import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
+import { useSettings, type AssistantChatDisplayMode, type AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { extractFilePatch, scanPatchFileSummaries } from '@/lib/diffRendering'
 import { AssistantAttachmentImageCard } from './AssistantAttachmentImageCard'
@@ -311,6 +311,8 @@ export const TimelineToolCallCard = memo(({
         [activity, filePaths, primaryValue, rawOutput]
     )
     const detailLines = useMemo(() => expanded ? rawDetailLines : [], [expanded, rawDetailLines])
+    const { settings } = useSettings()
+    const showStats = settings.assistantShowActionStats || expanded
     const patchFileSummaries = useMemo(() => expanded && patch ? scanPatchFileSummaries(patch) : [], [expanded, patch])
     const fileSectionEntries = useMemo(() => {
         if (!expanded) return []
@@ -727,15 +729,15 @@ export const TimelineToolCallCard = memo(({
                                     ? 'text-[color-mix(in_srgb,var(--status-warning)_48%,var(--color-text-muted))]'
                                     : 'text-sparkle-text-muted group-hover:text-sparkle-text-secondary'
                             )}>
-                                {formatAssistantActionTime(activityStartedAt)}{elapsed ? ` · ${elapsed}` : ''}
+                                {showStats ? `${formatAssistantActionTime(activityStartedAt)}${elapsed ? ` · ${elapsed}` : ''}` : ''}
                             </span>
                         ) : activity.kind === 'file-change' ? (
                             <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted transition-colors group-hover:text-sparkle-text-secondary">
-                                {elapsed || ''}
+                                {showStats ? elapsed || '' : ''}
                             </span>
                         ) : (
                             <span className={cn('hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] text-sparkle-text-muted', !minimal && 'sm:inline')}>
-                                {title}{elapsed ? <span className="ml-1.5 normal-case tracking-normal text-sparkle-text-muted"> - {elapsed}</span> : null}
+                                {title}{showStats && elapsed ? <span className="ml-1.5 normal-case tracking-normal text-sparkle-text-muted"> - {elapsed}</span> : null}
                             </span>
                         )}
                     </div>

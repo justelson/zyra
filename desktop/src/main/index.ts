@@ -25,6 +25,8 @@ import { registerFileProtocol } from './file-protocol'
 import { configureBrowserActionAnalytics, configureBrowserPermissionAnalytics, flushGlobalBrowserProfileStorage, isSafeBrowserNavigationUrl } from './ipc/handlers/browser-preview-handlers'
 import {
     configureWindowsControlOverlayAppearance,
+    configureChromeBrowserAppearance,
+    refreshChromeBrowserAppearance,
     disposeAgentControlBroker,
     getAgentControlBroker,
     refreshWindowsControlOverlayAppearance
@@ -131,6 +133,10 @@ async function readMainRendererOverlayAppearance(): Promise<Record<string, unkno
 
 const launchStartedAt = performance.now()
 const setupServices = createDesktopSetupServices(app.getPath('userData'))
+configureChromeBrowserAppearance(async () => {
+    const { settings } = await setupServices.preferences.get({ surface: 'desktop' })
+    return Object.fromEntries(['appearanceThemeMode', 'appearanceLightTheme', 'appearanceDarkTheme', 'accentColor', 'appearanceCustomTheme', 'appearanceCustomThemeActive', 'accessibilityReduceMotion'].map((key) => [key, settings[key]]))
+})
 configureWindowsControlOverlayAppearance(async () => {
     const settings = (await setupServices.preferences.get({ surface: 'desktop' })).settings
     const accent = settings.accentColor && typeof settings.accentColor === 'object' && !Array.isArray(settings.accentColor)
@@ -162,6 +168,7 @@ const WINDOWS_OVERLAY_APPEARANCE_KEYS = new Set([
 setupServices.preferences.subscribe((event) => {
     if (event.changedKeys.some((key) => WINDOWS_OVERLAY_APPEARANCE_KEYS.has(key))) {
         setTimeout(refreshWindowsControlOverlayAppearance, 50).unref?.()
+        void refreshChromeBrowserAppearance().catch(() => undefined)
     }
 })
 configureProjectOpenAnalytics((projectPath, outcome) => captureProjectOpenAnalytics(projectPath, outcome))

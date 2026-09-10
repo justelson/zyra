@@ -230,7 +230,7 @@ export class BrowserSurfaceHost {
             (entry.request.mode || 'open') === 'open'
             && entry.request.tabId === target.tabId
             && entry.request.threadId === target.ownerThreadId
-            && (entry.request.sessionMode || 'incognito') === target.sessionMode
+            && (entry.request.sessionMode || 'normal') === target.sessionMode
         ))
         if (!pending) return false
         const taken = this.takePending(pending.request.requestId)

@@ -34,14 +34,19 @@ export class ChromeExtensionDriver implements AgentControlDriver {
         const trusted = target.trustedIdentity as ChromeTrustedTab
         const result = await this.pairing.request(trusted.pairId, {
             type: 'observe', tabId: trusted.tabId, documentId: trusted.documentId,
+            observationRevision: options.revision,
             includeScreenshot: options.includeScreenshot,
             bounds: { maxElements: CONTROL_BOUNDS.maxObservationElements, maxBytes: CONTROL_BOUNDS.maxObservationBytes }
-        }) as Record<string, unknown>
+        }, undefined, options.signal) as Record<string, unknown>
         const elements = normalizeElements(result.elements)
         const screenshotRef = this.persistScreenshot(result.screenshotData)
         const url = safeString(result.url, CONTROL_BOUNDS.maxUrlLength)
         const origin = normalizedOrigin(url) || undefined
-        if (target.target.kind === 'chrome-tab') target.target.origin = origin || null
+        if (target.target.kind === 'chrome-tab') {
+            target.target.origin = origin || null
+            target.target.url = url || undefined
+            target.target.title = safeString(result.title, 512) || undefined
+        }
         return {
             version: 1,
             observationId: `control-observation:${randomUUID()}`,
@@ -66,8 +71,9 @@ export class ChromeExtensionDriver implements AgentControlDriver {
         const result = await this.pairing.request(trusted.pairId, {
             type: 'action', tabId: trusted.tabId, documentId: trusted.documentId,
             observationRevision: context.revision,
+            allowWindowFocus: context.allowWindowFocus === true,
             action
-        }) as Record<string, unknown>
+        }, action.type === 'stroke' ? Math.min(30_000, Math.max(15_000, action.points.length * 55 + (action.durationMs || 400) + 2_000)) : undefined, context.signal) as Record<string, unknown>
         if (result.documentId && result.documentId !== trusted.documentId) trusted.documentId = safeString(result.documentId, 192)
         return { changed: result.changed !== false }
     }
@@ -131,7 +137,7 @@ export class ChromeExtensionDriver implements AgentControlDriver {
                 tabToken
             }
             const targetId = this.onRegister?.({
-                target: { kind: 'chrome-tab', pairId: event.pairId, tabToken, origin: normalizedOrigin(event.url) },
+                target: { kind: 'chrome-tab', accessMode: event.mode || 'control', pairId: event.pairId, tabToken, title: safeString(event.title, 512), url: safeString(event.url, CONTROL_BOUNDS.maxUrlLength), origin: normalizedOrigin(event.url) },
                 trustedIdentity
             })
             if (targetId) this.targetByTab.set(key, targetId)

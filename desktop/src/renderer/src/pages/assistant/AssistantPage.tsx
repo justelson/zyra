@@ -129,6 +129,7 @@ export default function AssistantPage() {
         rightPanelMode,
         setRightPanelMode,
         setRightSidebarWidth,
+        rightSidebarWidth,
         railMode,
         setRailMode,
         paneLayout
@@ -172,6 +173,8 @@ export default function AssistantPage() {
         }
     }, areAssistantDiffSourceSelectionsEqual)
     const inspectorOpen = rightPanelMode === 'review'
+    const [inspectorMounted, setInspectorMounted] = useState(inspectorOpen)
+    useEffect(() => { if (inspectorOpen) setInspectorMounted(true) }, [inspectorOpen])
     const prepareInspector = useCallback(() => {
         void loadAssistantDiffPanel().catch(() => undefined)
     }, [])
@@ -520,7 +523,7 @@ export default function AssistantPage() {
                             onViewDiff={handleViewDiff}
                             onShowToast={showToast}
                         />
-                        {inspectorOpen ? (
+                        {inspectorMounted || inspectorOpen ? (
                             <Suspense fallback={(
                                 <aside
                                     className="h-full shrink-0 border-l border-[var(--surface-panel-divider)] bg-[var(--surface-panel)]"
@@ -529,12 +532,12 @@ export default function AssistantPage() {
                                 />
                             )}>
                                 <AssistantDiffPanel
-                                    open
+                                    open={inspectorOpen}
                                     sessionId={shell.selectedSessionId}
                                     threadId={diffSource.threadId}
                                     canonicalChatId={diffSource.canonicalChatId}
                                     chatTitle={diffSource.chatTitle}
-                                    width={paneLayout.inspectorWidth}
+                                    width={inspectorOpen ? paneLayout.inspectorWidth : rightSidebarWidth}
                                     maxWidth={paneLayout.maxInspectorWidth}
                                     turns={diffTurns}
                                     reviewIndexReady={Boolean(reviewIndex)}

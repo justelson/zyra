@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, shell, type IpcMainInvokeEvent } from 'electron'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import {
     AGENT_CONTROL_IPC,
     type BrowserSurfaceClaim,
@@ -146,6 +148,16 @@ export function createAgentControlHandlers(mainWindow: BrowserWindow) {
             assertTrustedRenderer(event, mainWindow)
             broker.clearAudit()
             return { cleared: true }
+        }),
+        openChromeExtensionFolder: (event: IpcMainInvokeEvent) => result(async () => {
+            assertTrustedRenderer(event, mainWindow)
+            const folder = app.isPackaged
+                ? join(process.resourcesPath, 'zyra-browser-control-extension')
+                : join(app.getAppPath(), '..', 'extensions', 'zyra-browser-control', 'dist', 'unpacked')
+            if (!existsSync(join(folder, 'manifest.json'))) throw new Error('The Browser extension is missing from this build. Reinstall Zyra or build the development extension.')
+            const error = await shell.openPath(folder)
+            if (error) throw new Error(error)
+            return { opened: true }
         }),
         startChromePairing: (event: IpcMainInvokeEvent) => result(async () => {
             assertTrustedRenderer(event, mainWindow)

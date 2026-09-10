@@ -587,6 +587,7 @@ export interface DevScopeAgentControlApi {
     revokeGrant: (grantId: string) => Promise<DevScopeResult<{ revoked: boolean }>>
     emergencyStop: () => Promise<DevScopeResult<{ stopped: boolean }>>
     clearAudit: () => Promise<DevScopeResult<{ cleared: boolean }>>
+    openChromeExtensionFolder: () => Promise<DevScopeResult<{ opened: boolean }>>
     startChromePairing: () => Promise<DevScopeResult<{ pairing: ControlStateSnapshot['pairing'] }>>
     stopChromePairing: () => Promise<DevScopeResult<{ pairing: ControlStateSnapshot['pairing'] }>>
     listWindows: () => Promise<DevScopeResult<{ windows: ControlWindowCandidate[] }>>

@@ -1,19 +1,43 @@
 {
   "manifest_version": 3,
-  "name": "Zyra Browser Control",
-  "version": "0.1.0",
-  "description": "Pairs one explicitly selected Chrome tab with the local Zyra desktop control broker.",
-  "permissions": ["activeTab", "scripting", "storage", "webNavigation"],
-  "optional_host_permissions": ["http://127.0.0.1/*"],
+  "name": "Zyra Browser",
+  "version": "1.0.0",
+  "description": "Share selected Chrome tabs with Zyra. Explicit access, reliable input, and a connected app experience.",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "storage",
+    "webNavigation",
+    "favicon"
+  ],
+  "optional_host_permissions": [
+    "http://127.0.0.1/*"
+  ],
   "action": {
-    "default_title": "Pair this tab with Zyra",
-    "default_popup": "popup.html"
+    "default_title": "Zyra Browser",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png"
+    }
   },
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:*; style-src 'self'; font-src 'self'; img-src 'self' data:; base-uri 'none'"
+  },
+  "minimum_chrome_version": "125",
+  "incognito": "not_allowed",
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "options_ui": {
+    "page": "console.html",
+    "open_in_tab": true
   }
 }

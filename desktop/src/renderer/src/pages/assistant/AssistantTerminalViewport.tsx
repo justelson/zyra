@@ -72,6 +72,15 @@ export const AssistantTerminalViewport = memo(function AssistantTerminalViewport
         let inputDisposable: { dispose: () => void } | null = null
         let titleDisposable: { dispose: () => void } | null = null
         let syncFrame = 0
+        // Output can arrive before the lazy xterm runtime resolves. Retain it in order.
+        const pendingEvents: Parameters<Parameters<typeof window.devscope.onPreviewTerminalEvent>[0]>[0][] = []
+        let pendingChars = 0
+        const applyEvent = (terminal: XtermTerminal, event: typeof pendingEvents[number]) => {
+            if (event.type === 'output') terminal.write(String(event.data || ''))
+            else if (event.type === 'clear') terminal.clear()
+            else if (event.type === 'error') terminal.write(`\r\n[terminal] ${event.message || 'Terminal error'}\r\n`)
+            else if (event.type === 'exit') terminal.write(`\r\n[terminal] Process exited${typeof event.exitCode === 'number' ? ` (${event.exitCode})` : ''}.\r\n`)
+        }
 
         const syncSize = () => {
             window.cancelAnimationFrame(syncFrame)
@@ -111,6 +120,7 @@ export const AssistantTerminalViewport = memo(function AssistantTerminalViewport
             terminalRef.current = terminal
             fitAddonRef.current = fitAddon
             if (initialOutputRef.current) terminal.write(initialOutputRef.current)
+            for (const event of pendingEvents.splice(0)) applyEvent(terminal, event)
 
             terminal.attachCustomKeyEventHandler((event) => {
                 const primary = event.ctrlKey || event.metaKey
@@ -171,11 +181,16 @@ export const AssistantTerminalViewport = memo(function AssistantTerminalViewport
         const unsubscribe = window.devscope.onPreviewTerminalEvent((event) => {
             if (event.sessionId !== session.sessionId) return
             const terminal = terminalRef.current
-            if (!terminal) return
-            if (event.type === 'output') terminal.write(String(event.data || ''))
-            else if (event.type === 'clear') terminal.clear()
-            else if (event.type === 'error') terminal.write(`\r\n[terminal] ${event.message || 'Terminal error'}\r\n`)
-            else if (event.type === 'exit') terminal.write(`\r\n[terminal] Process exited${typeof event.exitCode === 'number' ? ` (${event.exitCode})` : ''}.\r\n`)
+            if (terminal) applyEvent(terminal, event)
+            else {
+                const queued = event.type === 'output' ? { ...event, data: String(event.data || '').slice(-60_000) } : event
+                pendingEvents.push(queued)
+                pendingChars += queued.type === 'output' ? String(queued.data || '').length : 0
+                while (pendingEvents.length > 256 || pendingChars > 60_000) {
+                    const removed = pendingEvents.shift()
+                    if (removed?.type === 'output') pendingChars -= String(removed.data || '').length
+                }
+            }
         }, workspaceCapability)
 
         return () => {

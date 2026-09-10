@@ -8,8 +8,9 @@ export function groupAssistantControlActionRuns(activities: AssistantActivity[])
     for (const activity of activities) {
         const previous = runs.at(-1)
         const last = previous?.at(-1)
-        if (last && getAssistantActionFamily(last) === 'computer'
-            && getAssistantActionFamily(activity) === 'computer'
+        const family = getAssistantActionFamily(activity)
+        if (last && (family === 'computer' || family === 'browser')
+            && getAssistantActionFamily(last) === family
             && (last.turnId || null) === (activity.turnId || null)
             && readAssistantActionBatchIntent(last) === readAssistantActionBatchIntent(activity)) {
             previous!.push(activity)

@@ -62,6 +62,7 @@ if (platform !== hostPlatform) {
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const extensionRoot = path.join(repositoryRoot, 'extensions', 'zyra-browser-control')
+await run(npm, ['--prefix', extensionRoot, 'ci', '--no-audit', '--no-fund'], repositoryRoot)
 await run(npm, ['--prefix', extensionRoot, 'run', 'package'], repositoryRoot)
 await requireFile(path.join(extensionRoot, 'dist', 'unpacked', 'manifest.json'), 'Packaged browser extension')
 await requireFile(path.join(extensionRoot, 'dist', 'zyra-browser-control.zip'), 'Browser extension ZIP')

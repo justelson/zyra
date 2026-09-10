@@ -165,7 +165,7 @@ export function resolveAssistantBrowserSurfaceTabSessionMode(
 ): BrowserSessionMode {
     if (!request || request.tabId !== selectedTabId) return 'normal'
     return (request.mode || 'open') === 'open'
-        ? request.sessionMode || 'incognito'
+        ? request.sessionMode || 'normal'
         : trustedSessionMode || 'normal'
 }
 

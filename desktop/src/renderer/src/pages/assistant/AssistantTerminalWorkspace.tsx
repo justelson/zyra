@@ -276,7 +276,9 @@ export const AssistantTerminalWorkspace = memo(function AssistantTerminalWorkspa
         setLoading(true)
         void refreshSessions().then((knownSessions) => {
             if (cancelled) return
-            if (knownSessions.length === 0) void createTerminal('new', 'horizontal', settings.defaultShell)
+            if (knownSessions.length === 0) return createTerminal('new', 'horizontal', settings.defaultShell)
+        }).catch((reason: unknown) => {
+            if (!cancelled) setError(reason instanceof Error ? reason.message : 'Failed to start terminal workspace.')
         }).finally(() => {
             if (!cancelled) setLoading(false)
         })

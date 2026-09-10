@@ -9,6 +9,7 @@ export const BROWSER_TOOLSET_NAMES = Object.freeze([
   "browser_tabs",
   "browser_access",
   "browser_observe",
+  "browser_act",
   "browser_perform",
   "browser_session",
 ]);
@@ -29,6 +30,7 @@ const waitCondition = Type.Union([
   Type.Object({ type: Type.Literal("url-changed"), from: Type.Optional(Type.String()) }, { additionalProperties: false }),
 ]);
 const action = Type.Union([
+  Type.Object({ type: Type.Literal("focus") }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("move"), x: Type.Number(), y: Type.Number(), durationMs: Type.Optional(Type.Number()) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("click"), elementRef: Type.Optional(Type.String()), x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()), button: Type.Optional(button), clickCount: Type.Optional(Type.Number()), sideEffect: Type.Optional(sideEffect) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("drag"), fromX: Type.Number(), fromY: Type.Number(), toX: Type.Number(), toY: Type.Number(), durationMs: Type.Optional(Type.Number()), button: Type.Optional(button) }, { additionalProperties: false }),
@@ -45,6 +47,7 @@ const browserUseSchema = Type.Object({ action: operation("load", "unload", "stat
 const browserTabsSchema = Type.Object({
   operation: operation("list", "open", "reveal", "layout", "resize", "refresh", "close", "open_external"),
   targetId: Type.Optional(Type.String()),
+  targetKind: Type.Optional(operation("zyra-browser", "chrome-tab")),
   primaryTargetId: Type.Optional(Type.String()),
   secondaryTargetId: Type.Optional(Type.String()),
   grantId: Type.Optional(Type.String()),
@@ -67,6 +70,9 @@ const browserObserveSchema = Type.Object({
   grantId: Type.String(),
   mode: Type.Optional(observationMode),
   includeScreenshot: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+const browserActSchema = Type.Object({
+  targetId: Type.String(), grantId: Type.String(), observationRevision: Type.Number(), action,
 }, { additionalProperties: false });
 const browserPerformSchema = Type.Object({
   targetId: Type.String(),
@@ -94,14 +100,14 @@ export function createBrowserToolSet(options = {}) {
     defineTool({
       name: BROWSER_LOADER_TOOL_NAME,
       label: "Browser tools",
-      description: "Load or unload Zyra's bounded in-app Browser tools on demand. Use this only when the task requires Browser tabs or web interaction.",
+      description: "Load Zyra's built-in tools for in-app Browser and paired Chrome interaction. Use these app tools instead of external browser skills or CLI setup. Honor the user's requested surface; list targets and reuse its tab first. Chrome requires the Zyra Browser extension paired from Settings; never silently substitute the in-app browser. Computer/desktop apps use the computer tools.",
       parameters: browserUseSchema,
       execute: async (_toolCallId, input = {}) => localToolResult(controller.run(input.action)),
     }),
     bridgeTool({
       name: "browser_tabs",
       label: "Browser tabs",
-      description: "Discover, open, reveal, arrange, resize, refresh, close, or externally hand off retained in-app Browser tabs. New tabs default to incognito; choose normal only when the task needs saved sign-in or site state. Closing requires an exact tab.manage grantId; refreshing requires navigate; external handoff requires tab.manage plus the exact allowed origin.",
+      description: "Discover, open, reveal, arrange, resize, refresh, close, or externally hand off retained in-app Browser tabs. Use the requested browser surface and reuse an existing matching tab first. New in-app tabs use the normal saved profile; incognito is opt-in. Use paired Chrome targets for explicit Chrome requests. These app tools work without any external browser skill, script or MCP setup. Closing requires an exact tab.manage grantId; refreshing requires navigate; external handoff requires tab.manage plus the exact allowed origin.",
       parameters: browserTabsSchema,
       client: options.client,
       timeoutMs: 60_000,
@@ -131,9 +137,18 @@ export function createBrowserToolSet(options = {}) {
       toOperation: (input) => ({ operation: "observe", ...input, mode: input.mode || "both", includeScreenshot: input.includeScreenshot ?? input.mode !== "structure" }),
     }),
     bridgeTool({
+      name: "browser_act",
+      label: "Use Browser",
+      description: "Perform one observed action in a paired Chrome or in-app Browser target. Use for Chrome interactions; the returned observation is the next revision. Browser stages are for integrated Zyra tabs only.",
+      parameters: browserActSchema,
+      client: options.client,
+      timeoutMs: 10 * 60 * 1000,
+      toOperation: (input) => ({ operation: "act", version: 1, requestId: `tool:${randomUUID()}`, ...input }),
+    }),
+    bridgeTool({
       name: "browser_perform",
       label: "Perform Browser stage",
-      description: "Execute one bounded target-local Browser stage continuously, including multi-point pen strokes, then return one checkpoint observation. Stages pause only for purposeful interaction on that exact target; other tabs never interrupt them.",
+      description: "Execute one bounded in-app Zyra Browser stage continuously (use browser_act for paired Chrome), including multi-point pen strokes, then return one checkpoint observation. Stages pause only for purposeful interaction on that exact target; other tabs never interrupt them.",
       parameters: browserPerformSchema,
       client: options.client,
       timeoutMs: 30_000,

@@ -195,7 +195,11 @@ export function getAssistantActionTitle(
         return `Reading ${pageTitle || hostLabel(readActionUrl(activity)) || 'web page'}`
     }
     if (family === 'search') return query ? `Searching ${query}` : 'Searching the project'
-    if (family === 'browser') return operationIntent(operation, hostLabel(readActionUrl(activity)), 'browser')
+    if (family === 'browser') {
+        if (getAssistantActivityToolName(activity) === 'browser_use') return 'Getting browser tools'
+        const stageIntent = shortIntentTarget(text(record(args.stage)?.summary))
+        return stageIntent || operationIntent(text(record(args.action)?.type) || operation || getAssistantActivityToolName(activity).replace(/^browser_/, ''), hostLabel(readActionUrl(activity)), 'browser')
+    }
     if (family === 'computer') {
         const target = shortIntentTarget(text(args.application) || text(args.name) || text(args.targetId) || text(activity.payload?.targetId), 36)
         const controlOperation = operation || getAssistantActivityToolName(activity).replace(/^computer_/, '')

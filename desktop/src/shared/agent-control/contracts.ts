@@ -35,6 +35,9 @@ export type ControlTarget =
     }
     | {
         kind: 'chrome-tab'
+        accessMode?: 'read' | 'control'
+        title?: string | null
+        url?: string | null
         targetId: string
         pairId: string
         tabToken: string

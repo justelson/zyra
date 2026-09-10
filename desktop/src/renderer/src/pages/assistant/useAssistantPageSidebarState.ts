@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
 import { useSettings } from '@/lib/settings'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import {
@@ -13,6 +13,13 @@ import {
 const LEGACY_LEFT_SIDEBAR_COLLAPSED_STORAGE_KEY = 'assistant-left-sidebar-collapsed'
 const RIGHT_SIDEBAR_OPEN_STORAGE_KEY = 'assistant-right-sidebar-open'
 const RIGHT_PANEL_MODE_STORAGE_KEY = 'assistant-right-panel-mode'
+const RIGHT_PANEL_MODES_STORAGE_KEY = 'assistant-right-panel-modes:v1'
+
+function readRightPanelMode(sessionId: string | null): AssistantRightPanelMode {
+    try {
+        return sessionId && JSON.parse(localStorage.getItem(RIGHT_PANEL_MODES_STORAGE_KEY) || '{}')[sessionId] === 'review' ? 'review' : 'none'
+    } catch { return 'none' }
+}
 const RIGHT_SIDEBAR_WIDTHS_STORAGE_KEY = 'assistant-right-sidebar-widths:v1'
 const RAIL_MODE_STORAGE_KEY = 'assistant-rail-mode'
 const RAIL_GROUP_MODE_STORAGE_KEY = 'assistant-rail-group-mode:v2'
@@ -73,7 +80,21 @@ export function useAssistantPageSidebarState(selectedSessionId: string | null = 
         resolveStoredAssistantLeftSidebarWidth(localStorage.getItem(ASSISTANT_LEFT_SIDEBAR_WIDTH_STORAGE_KEY))
     ))
     const [bubblePreviewPinned, setBubblePreviewPinned] = useState(readAssistantBubblePreviewPinned)
-    const [rightPanelMode, setRightPanelMode] = useState<AssistantRightPanelMode>('none')
+    const [panelState, setPanelState] = useState(() => ({ sessionId: selectedSessionId, mode: readRightPanelMode(selectedSessionId) }))
+    const rightPanelMode = panelState.sessionId === selectedSessionId ? panelState.mode : readRightPanelMode(selectedSessionId)
+    const rightPanelModeRef = useRef(rightPanelMode)
+    rightPanelModeRef.current = rightPanelMode
+    const setRightPanelMode = useCallback((value: SetStateAction<AssistantRightPanelMode>) => {
+        const next = typeof value === 'function' ? value(rightPanelModeRef.current) : value
+        rightPanelModeRef.current = next
+        setPanelState({ sessionId: selectedSessionId, mode: next })
+        if (selectedSessionId) {
+            try {
+                const modes = JSON.parse(localStorage.getItem(RIGHT_PANEL_MODES_STORAGE_KEY) || '{}')
+                localStorage.setItem(RIGHT_PANEL_MODES_STORAGE_KEY, JSON.stringify({ ...modes, [selectedSessionId]: next }))
+            } catch {}
+        }
+    }, [selectedSessionId])
     const [rightSidebarWidthState, setRightSidebarWidthState] = useState(() => readRightSidebarWidth(selectedSessionId))
     const selectedSessionIdRef = useRef(selectedSessionId)
     const [railMode, setRailMode] = useState<AssistantRailMode>(() => {
@@ -112,7 +133,7 @@ export function useAssistantPageSidebarState(selectedSessionId: string | null = 
         writeAssistantBubblePreviewPinned(bubblePreviewPinned)
     }, [bubblePreviewPinned])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         selectedSessionIdRef.current = selectedSessionId
         setRightSidebarWidthState(readRightSidebarWidth(selectedSessionId))
     }, [selectedSessionId])

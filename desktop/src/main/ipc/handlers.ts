@@ -342,6 +342,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(AGENT_CONTROL_IPC.revokeGrant, controlHandlers.revokeGrant)
     ipcMain.handle(AGENT_CONTROL_IPC.emergencyStop, controlHandlers.emergencyStop)
     ipcMain.handle(AGENT_CONTROL_IPC.clearAudit, controlHandlers.clearAudit)
+    ipcMain.handle(AGENT_CONTROL_IPC.openChromeExtensionFolder, controlHandlers.openChromeExtensionFolder)
     ipcMain.handle(AGENT_CONTROL_IPC.startChromePairing, controlHandlers.startChromePairing)
     ipcMain.handle(AGENT_CONTROL_IPC.stopChromePairing, controlHandlers.stopChromePairing)
     ipcMain.handle(AGENT_CONTROL_IPC.listWindows, controlHandlers.listWindows)

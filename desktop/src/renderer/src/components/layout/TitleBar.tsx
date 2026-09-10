@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, Copy, Minus, PanelLeftClose, PanelLeftOpen, ShieldAlert, Square, X } from 'lucide-react'
+import { ChevronDown, Copy, Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import { useAssistantTitleBarContent, useAssistantTitleBarEndRegion } from '@/lib/assistant/assistant-title-bar'
 import { useLoadingScreenActive } from '@/components/ui/LoadingState'
@@ -19,6 +19,8 @@ import {
 import { buildAssistantChatRoute } from '@/pages/assistant/assistant-chat-route'
 import { createAssistantChatAndNavigate } from '@/pages/assistant/create-assistant-chat-and-navigate'
 import { cn } from '@/lib/utils'
+import { AssistantControlStatus } from '@/pages/assistant/AssistantControlStatus'
+import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import { useWindowChrome } from '@/lib/useWindowChrome'
 import {
     FILE_PREVIEW_FOCUS_STATE_EVENT,
@@ -74,7 +76,8 @@ export default function TitleBar() {
     const pendingNavigationKeyRef = useRef<string | null>(null)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(settings.sidebarCollapsed)
     const [appMenuOpen, setAppMenuOpen] = useState(false)
-    const [controlActive, setControlActive] = useState(false)
+    const [controlState, setControlState] = useState<ControlStateSnapshot | null>(null)
+    const controlActive = Boolean(controlState?.active || (controlState && controlState.pairing.state !== 'stopped') || controlState?.pendingGrants.length)
     const [filePreviewFocusState, setFilePreviewFocusState] = useState<FilePreviewFocusState>({ active: false, leftPanelOpen: false })
     const [appHistory, setAppHistory] = useState<{ entries: AppNavEntry[]; index: number }>({ entries: [], index: -1 })
     const assistantWorkspaceActive = location.pathname.startsWith('/assistant') && location.pathname !== '/assistant/instructor'
@@ -87,9 +90,9 @@ export default function TitleBar() {
 
     useEffect(() => {
         void window.devscope.agentControl.getState().then((result) => {
-            if (result.success) setControlActive(result.state.active || result.state.pairing.state !== 'stopped')
+            if (result.success) setControlState(result.state)
         }).catch(() => undefined)
-        return window.devscope.agentControl.onStateChange((state) => setControlActive(state.active || state.pairing.state !== 'stopped'))
+        return window.devscope.agentControl.onStateChange(setControlState)
     }, [])
 
     useLayoutEffect(() => {
@@ -272,8 +275,8 @@ export default function TitleBar() {
         action()
     }
 
-    const primaryShortcut = isMac ? '⌘' : 'Ctrl '
-    const closeShortcut = isMac ? '⌘W' : 'Alt F4'
+    const primaryShortcut = isMac ? 'âŒ˜' : 'Ctrl '
+    const closeShortcut = isMac ? 'âŒ˜W' : 'Alt F4'
     const appMenuGroups: AppMenuItem[][] = [
         [
             { id: 'new-chat', label: 'New chat', shortcut: `${primaryShortcut}N`, action: handleNewChat },
@@ -282,7 +285,7 @@ export default function TitleBar() {
         [
             ...(sidebarWorkspaceActive ? [{ id: 'sidebar', label: sidebarActionLabel, action: handleToggleSidebar }] : []),
             { id: 'plugins', label: 'Plugins', action: () => navigate('/plugins') },
-            { id: 'settings', label: 'Settings', shortcut: isMac ? '⌘,' : undefined, action: () => navigate('/settings') },
+            { id: 'settings', label: 'Settings', shortcut: isMac ? 'âŒ˜,' : undefined, action: () => navigate('/settings') },
             { id: 'reload', label: 'Reload UI', shortcut: `${primaryShortcut}R`, action: () => window.location.reload() }
         ],
         [
@@ -410,11 +413,7 @@ export default function TitleBar() {
                     )}
                     style={{ WebkitAppRegion: 'no-drag' } as any}
                 >
-                    {controlActive ? (
-                        <button type="button" onClick={() => void window.devscope.agentControl.emergencyStop()} className="mr-1 inline-flex h-6 items-center gap-1 rounded border border-red-300/20 bg-red-400/[0.08] px-2 text-[9px] text-red-100 hover:bg-red-400/[0.14]" title="Emergency stop all Browser and computer control">
-                            <ShieldAlert size={10} /> Stop control
-                        </button>
-                    ) : null}
+                    {controlActive ? <AssistantControlStatus state={controlState} /> : null}
                     {desktopWindowControlsAvailable ? (
                         <>
                             <button onClick={handleMinimize} className={cn(windowControlClass, 'hover:bg-[var(--surface-hover)]')} aria-label="Minimize">

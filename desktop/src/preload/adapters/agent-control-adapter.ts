@@ -24,6 +24,7 @@ export function createAgentControlAdapter() {
         revokeGrant: (grantId: string) => ipcRenderer.invoke(AGENT_CONTROL_IPC.revokeGrant, grantId),
         emergencyStop: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.emergencyStop),
         clearAudit: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.clearAudit),
+        openChromeExtensionFolder: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.openChromeExtensionFolder),
         startChromePairing: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.startChromePairing),
         stopChromePairing: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.stopChromePairing),
         listWindows: () => ipcRenderer.invoke(AGENT_CONTROL_IPC.listWindows) as Promise<{ success: boolean; windows?: ControlWindowCandidate[]; error?: string }>,

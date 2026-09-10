@@ -87,6 +87,7 @@ export function AssistantInspectorDeveloperToast({
         return (
             <div
                 className="absolute bottom-3 right-3 z-[390] w-[min(320px,calc(100%-24px))]"
+                data-zyra-native-view-occluder="true"
                 style={{
                     transform: toast.closing ? 'translate3d(calc(100% + 24px),0,0)' : `translate3d(${dragX}px,0,0)`,
                     opacity: toast.closing ? 0 : Math.max(0.22, 1 - dragX / 260),
@@ -139,6 +140,7 @@ export function AssistantInspectorDeveloperToast({
                 toast.closing && 'translate-x-[calc(100%_+_24px)] opacity-0',
                 toast.tone === 'error' ? 'border-red-400/30 text-red-300' : 'border-[var(--surface-divider)] text-sparkle-text-secondary'
             )}
+            data-zyra-native-view-occluder="true"
             role="status"
             aria-live="polite"
         >

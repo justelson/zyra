@@ -1,3 +1,4 @@
+import { captureBrowserPage } from './browser-page-capture'
 import {
     BrowserWindow,
     WebContentsView,
@@ -574,7 +575,7 @@ export class BrowserViewManager implements BrowserViewTransferHost {
         } else if (command.type === 'blur') {
             record.ownerWindow.webContents.focus()
         } else if (command.type === 'capture') {
-            const captured = await page.capturePage()
+            const captured = await captureBrowserPage(page)
             const size = captured.getSize()
             const scale = Math.min(
                 1,

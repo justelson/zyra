@@ -2,6 +2,14 @@
 
 Zyra’s Assistant Browser is an Inspector workspace for the selected chat project. It completes the local development loop alongside Explorer and Terminal.
 
+## Surface selection and presentation
+
+Browser tools honor the requested in-app Browser or paired Chrome surface. Desktop sessions suppress automatic activation of the personal `ego-browser` skill when the native app bridge is available. Agent-created in-app tabs use the normal saved profile by default; incognito is opt-in. Chrome setup is available in Settings → Device connections, backed by the bundled extension and the main-process broker.
+
+Inspector mode and width are remembered per chat alongside the existing workspace tabs. The mounted panel animates open/closed and snaps shut when resized below its close threshold. Browser overlays request a fresh presentation capture on every entry, since document readiness may precede application hydration; screenshots and access popovers are explicit native-view occluders. Dismissing them restores the retained live view. Terminal views buffer output while the lazy xterm runtime loads.
+
+Consecutive browser/computer observations and input collapse into their recorded purpose. Activity counts and timing are opt-in through Action statistics; expanded individual actions retain timing and captured output. A cursor button in main and detached windows opens access details and Emergency stop.
+
 ## Ownership
 
 The browser keeps presentation and authority separate:

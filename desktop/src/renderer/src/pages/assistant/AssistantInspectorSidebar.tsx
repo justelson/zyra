@@ -241,6 +241,7 @@ export function AssistantInspectorSidebar({
     tabs,
     activeTabId,
     onWidthChange,
+    onClose,
     onSelectTab,
     onCloseTab,
     onReorderTab,
@@ -255,6 +256,7 @@ export function AssistantInspectorSidebar({
     tabs: AssistantInspectorTab[]
     activeTabId: string
     onWidthChange: (width: number) => void
+    onClose: () => void
     onSelectTab: (tabId: string) => void
     onCloseTab: (tabId: string) => void
     onReorderTab: (fromTabId: string, toTabId: string) => void
@@ -293,6 +295,12 @@ export function AssistantInspectorSidebar({
     const [nativeTearOffTabId, setNativeTearOffTabId] = useState<string | null>(null)
     const [closingTabIds, setClosingTabIds] = useState<Set<string>>(() => new Set())
     const [tabPreview, setTabPreview] = useState<AssistantInspectorTabPreview | null>(null)
+    const [presented, setPresented] = useState(false)
+    useLayoutEffect(() => {
+        if (!open) { setPresented(false); return }
+        const frame = window.requestAnimationFrame(() => setPresented(true))
+        return () => window.cancelAnimationFrame(frame)
+    }, [open])
     const resolvedWidth = clampInspectorWidth(width, maxWidth)
     const tabIdentity = tabs.map((tab) => tab.id).join('|')
     const targetWorkspaceTabWidth = calculateWorkspaceTabWidth(resolvedWidth, tabs.length)
@@ -445,11 +453,12 @@ export function AssistantInspectorSidebar({
         titleBarSurfaceRef.current?.style.setProperty('width', `${state.width}px`)
         titleBarSurfaceRef.current?.style.removeProperty('transition')
         setResizing(false)
-        onWidthChange(state.width)
+        if (state.width < ASSISTANT_MIN_INSPECTOR_WIDTH * 0.7) onClose()
+        else onWidthChange(clampInspectorWidth(state.width, maxWidth))
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
         document.body.style.removeProperty('cursor')
         document.body.style.removeProperty('user-select')
-    }, [onWidthChange, synchronizeTabWidths])
+    }, [onClose, maxWidth, onWidthChange, synchronizeTabWidths])
 
     const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
         if (!open || event.button !== 0) return
@@ -472,7 +481,7 @@ export function AssistantInspectorSidebar({
     const handleResizePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
         const state = resizeStateRef.current
         if (!state || state.pointerId !== event.pointerId) return
-        state.width = clampInspectorWidth(state.startWidth + state.startX - event.clientX, maxWidth)
+        state.width = Math.max(120, Math.min(maxWidth, state.startWidth + state.startX - event.clientX))
         if (resizeFrameRef.current) return
         resizeFrameRef.current = window.requestAnimationFrame(() => {
             resizeFrameRef.current = 0
@@ -777,7 +786,7 @@ export function AssistantInspectorSidebar({
                 'drag-region relative h-full shrink-0 overflow-visible transition-[width,opacity] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                 !open && 'pointer-events-none opacity-0'
             )}
-            style={{ width: open ? `${resolvedWidth}px` : '0px' }}
+            style={{ width: open && presented ? `${resolvedWidth}px` : '0px' }}
             data-assistant-inspector-titlebar=""
             data-open={open ? 'true' : 'false'}
         >
@@ -899,6 +908,7 @@ export function AssistantInspectorSidebar({
         nativeTearOffTabId,
         onSelectTab,
         open,
+        presented,
         requestTabClose,
         reducedMotion,
         resizing,
@@ -918,7 +928,7 @@ export function AssistantInspectorSidebar({
                 !resizing && 'transition-[width] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                 !open && 'pointer-events-none'
             )}
-            style={{ width: open ? `${resolvedWidth}px` : '0px' }}
+            style={{ width: open && presented ? `${resolvedWidth}px` : '0px' }}
         >
             {open ? (
                 <button
@@ -948,11 +958,12 @@ export function AssistantInspectorSidebar({
                 className={cn(
                     'flex h-full min-h-0 flex-col overflow-hidden border-l border-[var(--surface-panel-divider)] bg-sparkle-bg [contain:layout_paint] transform-gpu transition-[transform,opacity] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                     resizing ? 'relative w-full' : 'absolute inset-y-0 right-0',
-                    open ? 'translate-x-0 opacity-100' : 'translate-x-2 opacity-0'
+                    open && presented ? 'translate-x-0 opacity-100' : 'translate-x-2 opacity-0'
                 )}
                 style={resizing ? undefined : { width: `${resolvedWidth}px` }}
                 aria-label="Assistant inspector workspace"
                 aria-hidden={!open}
+                inert={!open ? true : undefined}
             >
                 {tabPreview ? (
                     <div

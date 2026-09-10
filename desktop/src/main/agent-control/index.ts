@@ -13,6 +13,12 @@ import {
     type WindowsControlOverlayAppearance
 } from './windows-control-overlay'
 
+let chromePairing: ChromePairingServer | null = null
+let chromeAppearanceProvider: (() => Promise<Record<string, unknown>>) | null = null
+export function configureChromeBrowserAppearance(provider: () => Promise<Record<string, unknown>>) { chromeAppearanceProvider = provider }
+export async function refreshChromeBrowserAppearance(): Promise<void> {
+    if (chromePairing && chromeAppearanceProvider) chromePairing.setAppearance(await chromeAppearanceProvider())
+}
 let broker: AgentControlBroker | null = null
 let chromeDriver: ChromeExtensionDriver | null = null
 let browserDriver: ZyraBrowserDriver | null = null
@@ -38,6 +44,8 @@ export function getAgentControlBroker(): AgentControlBroker {
     const artifactRoot = join(userData, 'agent-control', 'artifacts')
     rmSync(artifactRoot, { recursive: true, force: true })
     const pairing = new ChromePairingServer()
+    chromePairing = pairing
+    void refreshChromeBrowserAppearance().catch(() => undefined)
     browserDriver = new ZyraBrowserDriver(join(artifactRoot, 'browser'))
     chromeDriver = new ChromeExtensionDriver(pairing, join(artifactRoot, 'chrome'))
     const windowsDriver = new WindowsDesktopDriver(join(userData, 'agent-control', 'artifacts', 'windows'))

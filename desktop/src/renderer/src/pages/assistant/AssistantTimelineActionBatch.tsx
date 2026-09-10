@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronRight, ListTree, Loader2, Monitor } from 'lucide-react'
+import { ChevronRight, ListTree, Loader2, Monitor, MousePointer2 } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { readAssistantActionBatchIntent } from '@shared/assistant/action-batch-intent'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
-import { getAssistantActionTitle } from './assistant-action-presentation'
+import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
+import { useSettings } from '@/lib/settings'
 import { formatAssistantActionTime } from './AssistantTimelineActionShell'
 import { getActivityElapsed, getActivityStatus } from './assistant-timeline-helpers'
 import { requestAssistantTimelineDisclosureAnchor } from './assistant-timeline-scroll-events'
@@ -17,6 +18,7 @@ export function AssistantTimelineActionBatch(props: {
     controlRun?: boolean
     children: ReactNode
 }) {
+    const { settings } = useSettings()
     const [expanded, setExpanded] = useState(false)
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const [nowIso, setNowIso] = useState(() => new Date().toISOString())
@@ -28,7 +30,8 @@ export function AssistantTimelineActionBatch(props: {
     const settledIntent = [...props.activities].reverse()
         .map(readAssistantActionBatchIntent)
         .find((value): value is string => Boolean(value)) || null
-    const title = settledIntent || (props.controlRun ? 'Using the computer' : currentActionTitle)
+    const browserRun = props.controlRun && getAssistantActionFamily(currentActivity) === 'browser'
+    const title = settledIntent || (props.controlRun ? browserRun ? 'Using the browser' : 'Using the computer' : currentActionTitle)
     const elapsed = useMemo(
         () => getActivityElapsed(currentActivity, running ? nowIso : null),
         [currentActivity, nowIso, running]
@@ -70,7 +73,7 @@ export function AssistantTimelineActionBatch(props: {
                     'inline-flex size-4 shrink-0 items-center justify-center',
                     running ? 'text-[color-mix(in_srgb,var(--status-warning)_72%,var(--color-text))]' : failed ? 'text-[color-mix(in_srgb,var(--status-danger)_72%,var(--color-text))]' : 'text-sparkle-text-muted'
                 )}>
-                    {running ? <Loader2 size={13} className="motion-safe:animate-spin" /> : props.controlRun ? <Monitor size={13} /> : <ListTree size={13} />}
+                    {running ? <Loader2 size={13} className="motion-safe:animate-spin" /> : browserRun ? <MousePointer2 size={13} /> : props.controlRun ? <Monitor size={13} /> : <ListTree size={13} />}
                 </span>
                 <span className={cn(
                     'min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-sparkle-text-secondary group-hover/action-batch:text-sparkle-text',
@@ -78,7 +81,7 @@ export function AssistantTimelineActionBatch(props: {
                 )}>
                     {title}
                 </span>
-                {meta ? <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</span> : null}
+                {settings.assistantShowActionStats && meta ? <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</span> : null}
                 {failed ? <span className="size-1.5 shrink-0 rounded-full bg-[var(--status-danger)] opacity-70" aria-label="Failed action in batch" /> : null}
                 <ChevronRight
                     size={11}

@@ -3,6 +3,7 @@ import {
     ArrowLeft,
     ArrowRight,
     Camera,
+    ChevronDown,
     Circle,
     Clock3,
     Code2,
@@ -235,7 +236,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
         const initialNavigationTabId = navigationRequest?.tabId || null
         const initialTabId = selectedTabId || initialSurfaceTabId || initialNavigationTabId
         const initialSessionMode = initialTabId && initialTabId === initialSurfaceTabId
-            ? surfaceRequest?.sessionMode || 'incognito'
+            ? surfaceRequest?.sessionMode || 'normal'
             : initialTabId && initialTabId === initialNavigationTabId
                 ? navigationRequest?.sessionMode || 'normal'
                 : 'normal'
@@ -346,7 +347,6 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             : browserHistory
     const historyPanelSearching = Boolean(historyPanelQuery.trim() && historyPanelSearch.query !== historyPanelQuery.trim()) || historyPanelLoading
     const activeControlTargetId = activeTab ? controlTargetsByTab[activeTab.id] : undefined
-    const activeControlGrant = controlState?.grants.find((grant) => grant.targetId === activeControlTargetId && grant.state === 'active') || null
     const activePendingGrant = controlState?.pendingGrants.find((grant) => grant.targetId === activeControlTargetId) || null
     const prepareActiveBrowserOverlay = useCallback(async (): Promise<boolean> => {
         const state = workspaceStateRef.current
@@ -1433,7 +1433,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             workspaceStateRef.current,
             surfaceRequest.tabId,
             surfaceRequest.secondaryTabId || null,
-            mode === 'open' ? surfaceRequest.sessionMode || 'incognito' : 'normal'
+            mode === 'open' ? surfaceRequest.sessionMode || 'normal' : 'normal'
         )
         if (requestedTabIds.some((tabId) => !requestedState.tabs.some((tab) => tab.id === tabId))) {
             failSurfaceRequest(surfaceRequest, `Close a Browser tab first; the ${ASSISTANT_BROWSER_TAB_LIMIT}-tab limit is full.`)
@@ -1903,7 +1903,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                             <span className="max-w-[58%] shrink-0 truncate text-[11px] font-medium text-[var(--color-text)]">{suggestion.label}</span>
                                             {suggestion.kind === 'history' ? (
                                                 <>
-                                                    <span aria-hidden="true" className="shrink-0 text-[9px] text-[color-mix(in_srgb,var(--color-text)_36%,transparent)]">—</span>
+                                                    <span aria-hidden="true" className="shrink-0 text-[9px] text-[color-mix(in_srgb,var(--color-text)_36%,transparent)]">â€”</span>
                                                     <span className="min-w-0 flex-1 truncate text-[9px] text-[color-mix(in_srgb,var(--color-text)_52%,transparent)]">{suggestion.detail}</span>
                                                 </>
                                             ) : null}
@@ -1912,7 +1912,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 )) : (
                                     <div role="status" className="flex h-10 items-center gap-2 px-2 text-[10px] text-[color-mix(in_srgb,var(--color-text)_52%,transparent)]">
                                         <Search size={12} />
-                                        <span>{omniboxLoading ? 'Finding suggestions…' : 'Press Enter to search'}</span>
+                                        <span>{omniboxLoading ? 'Finding suggestionsâ€¦' : 'Press Enter to search'}</span>
                                     </div>
                                 )}
                             </div>
@@ -1941,13 +1941,6 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                         <ShieldAlert size={9} />
                         <span>Waiting in chat</span>
                     </div>
-                ) : activeControlGrant ? (
-                    <div className="flex h-5 items-center gap-1 border border-amber-300/25 bg-amber-400/[0.08] px-1 text-[8px] text-amber-100" title={`Controlled by ${activeControlGrant.principal.type === 'root' ? 'root agent' : activeControlGrant.principal.agentRunId}`}>
-                        <ShieldAlert size={9} />
-                        <span>{Math.max(0, activeControlGrant.maxActions - activeControlGrant.actionCount)}</span>
-                        <button type="button" onClick={() => void window.devscope.agentControl.revokeGrant(activeControlGrant.grantId)} className="px-0.5 hover:bg-white/[0.08]" title="Revoke Browser control">Revoke</button>
-                        <button type="button" onClick={() => void window.devscope.agentControl.emergencyStop()} className="px-0.5 text-red-200 hover:bg-red-400/[0.12]" title="Emergency stop all control">Stop all</button>
-                    </div>
                 ) : null}
                 <div ref={profileMenuRef} className="relative">
                     <button
@@ -1968,7 +1961,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                             'relative',
                             profileMenuOpen && 'bg-[var(--surface-hover)] text-emerald-300/80'
                         )}
-                        title={popupWindows.length > 0 ? `Browser menu · ${popupWindows.length} open window${popupWindows.length === 1 ? '' : 's'}` : 'Browser menu'}
+                        title={popupWindows.length > 0 ? `Browser menu Â· ${popupWindows.length} open window${popupWindows.length === 1 ? '' : 's'}` : 'Browser menu'}
                         aria-label="Browser menu"
                         aria-expanded={profileMenuOpen}
                     >
@@ -2036,13 +2029,16 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                             <PanelsTopLeft size={12} className="shrink-0 text-[var(--accent-primary)]" />
                                             <span className="min-w-0 flex-1">
                                                 <span className="block truncate text-[10px] font-medium text-[var(--color-text)]">{popupWindow.title}</span>
-                                                <span className="block truncate text-[8px] text-[color-mix(in_srgb,var(--color-text)_48%,transparent)]">{popupWindow.minimized ? 'Minimized · ' : ''}{popupWindow.origin}</span>
+                                                <span className="block truncate text-[8px] text-[color-mix(in_srgb,var(--color-text)_48%,transparent)]">{popupWindow.minimized ? 'Minimized Â· ' : ''}{popupWindow.origin}</span>
                                             </span>
                                         </button>
                                     ))}
                                 </>
                             ) : null}
                             <div className="my-1 h-px bg-[var(--surface-divider)]" />
+                            <details className="group/browser-data">
+                                <summary className={cn(BROWSER_MENU_ROW_CLASS, 'cursor-pointer list-none [&::-webkit-details-marker]:hidden')}><Trash2 size={12} /><span className="flex-1">Clear browser data</span><ChevronDown size={11} className="transition-transform group-open/browser-data:rotate-180" /></summary>
+                                <div className="ml-2 border-l border-[var(--surface-divider)] pl-1">
                             <button type="button" onClick={() => void clearHistory()} className={cn(BROWSER_MENU_ROW_CLASS, historyClearArmed && 'text-red-300')}><Clock3 size={12} /><span>{historyClearArmed ? 'Confirm clear history' : 'Clear history'}</span></button>
                             <button type="button" onClick={() => void clearBrowserCookies()} className={cn(BROWSER_MENU_ROW_CLASS, siteSignOutArmed && 'text-red-300')}><ShieldCheck size={12} /><span>{siteSignOutArmed ? 'Confirm sign out of websites' : 'Sign out of websites'}</span></button>
                             <button type="button" onClick={() => void clearBrowserCache()} className={BROWSER_MENU_ROW_CLASS}><Trash2 size={12} /><span>Clear temporary cache</span></button>
@@ -2051,6 +2047,8 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 <span>{clearingProfile ? 'Resetting Browser profile' : clearProfileArmed ? 'Confirm reset Browser profile' : 'Reset Browser profile'}</span>
                             </button>
                             {profileNotice ? <p className="px-2 py-1 text-[9px] leading-3.5 text-[color-mix(in_srgb,var(--color-text)_58%,transparent)]">{profileNotice.message}</p> : null}
+                                </div>
+                            </details>
                         </div>
                     ) : null}
                 </div>

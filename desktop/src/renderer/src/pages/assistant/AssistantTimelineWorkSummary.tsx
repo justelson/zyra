@@ -1,7 +1,7 @@
 import { memo, startTransition, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
-import type { AssistantChatDisplayMode } from '@/lib/settings'
+import { useSettings, type AssistantChatDisplayMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { formatWorkingTimer } from './assistant-timeline-helpers'
 import {
@@ -82,6 +82,8 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     revealContent?: boolean
     renderChildren: () => ReactNode
 }) {
+    const { settings } = useSettings()
+    const visibleActionCount = settings.assistantShowActionStats ? actionCount : 0
     const initialExpandedRef = useRef<boolean | null>(null)
     if (initialExpandedRef.current === null) {
         initialExpandedRef.current = running && readWorkSummaryExpandedPreference()
@@ -99,18 +101,18 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const contentUnmountTimerRef = useRef<number | null>(null)
     const pendingExpansionAnchorRef = useRef<HTMLElement | null>(null)
     const minimal = displayMode === 'minimal'
-    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running, actionCount)
+    const statusText = formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount)
     useEffect(() => {
         const updateStatusText = () => {
             if (statusTextRef.current) {
-                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running, actionCount)
+                statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount)
             }
         }
         updateStatusText()
         if (!running) return
         const intervalId = window.setInterval(updateStatusText, 1000)
         return () => window.clearInterval(intervalId)
-    }, [actionCount, completedAt, displayMode, running, startedAt])
+    }, [visibleActionCount, completedAt, displayMode, running, startedAt])
     const outcomeLabel = outcome === 'failed'
         ? 'Failed'
         : outcome === 'no-response'

@@ -10,6 +10,9 @@ import { AgentControlError } from './control-errors'
 export function assertCapabilitiesSupportedByTarget(capabilities: ControlCapability[], target: ControlTarget): void {
     const supported = TARGET_CAPABILITIES[target.kind]
     for (const capability of capabilities) {
+        if (target.kind === 'chrome-tab' && target.accessMode === 'read' && !capability.startsWith('observe.')) {
+            throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'This Chrome tab has read-only access. Choose Control in the Zyra Browser extension to interact.')
+        }
         if (!supported.has(capability)) throw new AgentControlError('CONTROL_CAPABILITY_DENIED', `${capability} is unavailable for ${target.kind}.`)
     }
 }

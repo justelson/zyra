@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
+import { renderToStaticMarkup as renderMarkup } from 'react-dom/server'
+import type { ReactNode } from 'react'
 import type { AssistantActivity, AssistantMessage } from '../src/shared/assistant/contracts'
 import { TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
 import { AssistantTimelineActionShell } from '../src/renderer/src/pages/assistant/AssistantTimelineActionShell'
@@ -21,12 +22,18 @@ import { parseAssistantSkillSnapshot } from '../src/renderer/src/pages/assistant
 import { groupAssistantControlActionRuns } from '../src/renderer/src/pages/assistant/assistant-control-action-runs'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
 import { areActivitiesEquivalent, estimateTimelineRowHeight, getTimelineEntries } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
-import { SettingsProvider } from '../src/renderer/src/lib/settings'
+import { SettingsProvider, loadSettings } from '../src/renderer/src/lib/settings'
 import {
     acknowledgeAssistantInspectorNavigation,
     requestAssistantInspectorNavigation,
     subscribeAssistantInspectorNavigation
 } from '../src/renderer/src/pages/assistant/assistant-inspector-navigation'
+
+assert.equal(loadSettings({}).assistantShowActionStats, false)
+assert.equal(loadSettings({ assistantShowActionStats: true }).assistantShowActionStats, true)
+assert.equal(loadSettings({ assistantShowActionStats: 'true' }).assistantShowActionStats, false)
+
+const renderToStaticMarkup = (node: ReactNode) => renderMarkup(createElement(SettingsProvider, null, node))
 
 const createdAt = '2026-09-03T12:00:00.000Z'
 function activity(input: Partial<AssistantActivity> & Pick<AssistantActivity, 'id' | 'kind'>): AssistantActivity {
@@ -241,6 +248,12 @@ assert.match(drawingMarkup, /Drawing an owl in Paint/)
 assert.equal((drawingMarkup.match(/data-assistant-typed-action="drawing:/g) || []).length, 3, 'individual calls remain available within the disclosure')
 assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, command, drawingActions[1]!]).map((run) => run.length), [1, 1, 1], 'unrelated actions cannot be moved inside a computer run')
 assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, { ...drawingActions[1]!, payload: { actionBatchIntent: 'Saving the drawing' } }, { ...drawingActions[2]!, turnId: 'next-turn' }]).map((run) => run.length), [1, 1, 1], 'a new purpose or turn starts its own computer run')
+const browsingActions = [1, 2, 3].map(index => activity({ id: `browsing:${index}`, kind: 'browser-control', payload: { toolName: index === 1 ? 'browser_observe' : 'browser_perform', actionBatchIntent: 'Drawing a fish in the browser', status: 'completed' } }))
+const browsingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [webSearch, ...browsingActions] }))
+assert.equal((browsingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 1, 'browser observations and input share a collapsed intent row')
+assert.equal((browsingMarkup.match(/data-assistant-typed-action="browsing:/g) || []).length, 3, 'all individual browser actions remain accessible')
+assert.deepEqual(groupAssistantControlActionRuns([browsingActions[0]!, drawingActions[0]!, browsingActions[1]!]).map(run => run.length), [1, 1, 1], 'different surfaces do not merge across each other')
+assert.doesNotMatch(browsingMarkup.split('data-assistant-action-batch-trigger="true"')[1]?.split('</button>')[0] || '', /3 actions|tabular-nums/, 'aggregate stats are hidden by default')
 const onlyDrawingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: drawingActions }))
 assert.equal((onlyDrawingMarkup.match(/data-assistant-action-batch="true"/g) || []).length, 1, 'a computer-only block avoids a redundant outer disclosure')
 const recovery = activity({ id: 'recovery', kind: 'connection.recovery', payload: { status: 'recovered' } })

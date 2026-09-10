@@ -31,7 +31,7 @@ const common = {
   sessionMode: Type.Optional(Type.Union([
     Type.Literal("normal"),
     Type.Literal("incognito"),
-  ], { description: "Storage mode for a new in-app Browser tab. Defaults to incognito for agent-opened tabs." })),
+  ], { description: "Storage mode for a new in-app Browser tab. Defaults to the normal saved profile. Incognito must be explicitly requested." })),
   capabilities: Type.Optional(Type.Array(capability, { maxItems: CONTROL_CAPABILITIES.length })),
   maxActions: Type.Optional(Type.Number()),
   allowedOrigins: Type.Optional(Type.Array(Type.String(), { maxItems: 32 })),

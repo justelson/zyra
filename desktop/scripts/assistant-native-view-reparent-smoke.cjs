@@ -6,7 +6,6 @@ const failTimer = setTimeout(() => {
     app.exit(1)
 }, 20_000)
 
-app.commandLine.appendSwitch('disable-gpu')
 if (process.env.ZYRA_REPARENT_SMOKE_USER_DATA) app.setPath('userData', process.env.ZYRA_REPARENT_SMOKE_USER_DATA)
 
 app.whenReady().then(async () => {
@@ -26,6 +25,7 @@ app.whenReady().then(async () => {
             backgroundThrottling: false
         }
     })
+    await source.loadURL('data:text/html,<html><body>Browser view fixture</body></html>')
     source.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 34, width: 640, height: 446 })
     const firstUrl = `data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><title>First</title><p>history entry</p>')}`
@@ -49,6 +49,26 @@ app.whenReady().then(async () => {
     assert.equal(preferences.nodeIntegration, false)
     assert.equal(Boolean(preferences.preload), false, 'the Browser page must have no preload')
     assert.equal(view.webContents.navigationHistory.canGoBack(), true)
+
+    source.showInactive()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    source.showInactive()
+    const { captureBrowserPage } = require(process.env.ZYRA_REPARENT_CAPTURE_MODULE)
+    await view.webContents.executeJavaScript("document.body.style.background='rgb(10,20,30)'")
+    const loadingCapture = (await captureBrowserPage(view.webContents)).toPNG()
+    view.setVisible(false)
+    await view.webContents.executeJavaScript("new Promise(resolve => setTimeout(() => { document.body.style.background='rgb(40,170,80)'; globalThis.hydrated=true; resolve() }, 120))")
+    const hydratedCapture = (await captureBrowserPage(view.webContents)).toPNG()
+    assert.ok(loadingCapture.length > 100 && hydratedCapture.length > 100)
+    assert.notDeepEqual(hydratedCapture, loadingCapture, 'occluded captures must include late page hydration')
+    const cropped = await captureBrowserPage(view.webContents, { x: 20, y: 20, width: 80, height: 60 })
+    assert.deepEqual(cropped.getSize(), { width: 80, height: 60 }, 'annotation crops use viewport coordinates')
+    for (let index = 0; index < 3; index++) {
+        view.setVisible(true)
+        assert.equal(await view.webContents.executeJavaScript('globalThis.hydrated'), true)
+        view.setVisible(false)
+    }
+    view.setVisible(true)
 
     source.contentView.removeChildView(view)
     destination.contentView.addChildView(view)

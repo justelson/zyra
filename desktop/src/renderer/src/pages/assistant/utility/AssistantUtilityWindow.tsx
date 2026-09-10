@@ -1,3 +1,5 @@
+import { AssistantControlStatus } from '../AssistantControlStatus'
+import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import {
     DndContext,
     DragOverlay,
@@ -62,6 +64,13 @@ const AssistantUtilityWorkspaceHost = lazy(async () => ({
 
 export function AssistantUtilityWindow() {
     useAssistantStoreLifecycle()
+    const [controlState, setControlState] = useState<ControlStateSnapshot | null>(null)
+    useEffect(() => {
+        let disposed = false
+        void window.devscope.agentControl.getState().then(result => { if (!disposed && result.success) setControlState(result.state) }).catch(() => undefined)
+        const unsubscribe = window.devscope.agentControl.onStateChange(setControlState)
+        return () => { disposed = true; unsubscribe() }
+    }, [])
     const windowId = decodeURIComponent(window.location.hash.match(/^#\/assistant-utility\/([^/?]+)/)?.[1] || 'default')
     const [state, setState] = useState<AssistantUtilityWindowState>({ ...EMPTY_STATE, id: windowId })
     const [activeDragId, setActiveDragId] = useState<string | null>(null)
@@ -745,6 +754,7 @@ export function AssistantUtilityWindow() {
                             />
                         ) : null}
                     </nav>
+                    {controlState && (controlState.active || controlState.pairing.state !== 'stopped' || controlState.pendingGrants.length > 0) ? <div className="no-drag flex items-center"><AssistantControlStatus state={controlState} /></div> : null}
                     {windowChromePolicy.customWindowControls ? (
                         <UtilityWindowControls isMaximized={isMaximized} />
                     ) : null}

@@ -6,7 +6,7 @@ export function createBrowserControlTool(options = {}) {
   return defineTool({
     name: "browser_control",
     label: "Browser control",
-    description: "Discover and reveal Browser targets, create normal or incognito in-app tabs when needed, request bounded access, then visually observe and control only granted targets. The chat permission mode applies here too: Full access and routine Auto review in-app grants proceed automatically; Supervised, Edits only, and Auto review for paired Chrome ask in chat. Critical side effects always pause in chat. New tabs default to incognito; choose normal only when saved sign-in or site state is required.",
+    description: "Discover and reveal Browser targets, create normal or incognito in-app tabs when needed, request bounded access, then visually observe and control only granted targets. The chat permission mode applies here too: Full access and routine Auto review in-app grants proceed automatically; Supervised, Edits only, and Auto review for paired Chrome ask in chat. Critical side effects always pause in chat. Use this built-in tool for browser interaction; no external browser skill or local CLI is required. Honor the requested surface: Chrome means paired Chrome targets, in-app means Zyra Browser. Discover existing targets first and reuse the intended tab. New in-app tabs use the normal saved profile by default; incognito is opt-in. If the requested surface is unavailable, report its connection or access requirement instead of silently switching surfaces.",
     parameters: browserControlSchema,
     execute: async (_toolCallId, input = {}, signal) => {
       const normalized = normalizeControlToolInput(input);

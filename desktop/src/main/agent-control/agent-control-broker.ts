@@ -1157,7 +1157,7 @@ export class AgentControlBroker extends EventEmitter {
                     throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents may create background Browser tabs but cannot reveal or take over the user interface.')
                 }
                 const revealed = principal.type === 'root' && operation.reveal === true
-                const sessionMode = operation.sessionMode || 'incognito'
+                const sessionMode = operation.sessionMode || 'normal'
                 const requestedUrl = String(operation.url || '').trim()
                 if (requestedUrl && (!normalizedOrigin(requestedUrl) || requestedUrl.length > CONTROL_BOUNDS.maxUrlLength)) {
                     throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Opening a Browser tab requires a bounded HTTP(S) URL.')
@@ -1399,7 +1399,7 @@ export class AgentControlBroker extends EventEmitter {
                     const includeScreenshot = requestedTarget.kind === 'windows-window'
                         && grant.capabilities.includes('observe.screenshot') && !options.deferInitialScreenshot
                     const includeStructure = grant.capabilities.includes('observe.structure')
-                    const observation = requestedTarget.kind !== 'chrome-tab' && (includeStructure || includeScreenshot)
+                    const observation = (includeStructure || includeScreenshot)
                         ? await this.observe(principal, grant.grantId, requestedTarget.targetId, includeScreenshot, signal, includeStructure ? 'structure' : 'visual')
                         : undefined
                     const screenshot = observation?.screenshotRef

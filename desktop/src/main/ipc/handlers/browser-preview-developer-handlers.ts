@@ -1,3 +1,4 @@
+import { captureBrowserPage } from '../../browser-page-capture'
 import { randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -441,7 +442,7 @@ export async function handleClearBrowserPreviewCookies(_event: IpcMainInvokeEven
 export async function handleCaptureBrowserPreviewScreenshot(event: IpcMainInvokeEvent, input: DevScopeBrowserGuestTargetInput) {
     try {
         const guest = resolveGuest(event, input)
-        const artifact = storeScreenshotArtifact(event.sender.id, input.tabId, await guest.capturePage())
+        const artifact = storeScreenshotArtifact(event.sender.id, input.tabId, await captureBrowserPage(guest))
         return { success: true as const, artifact }
     } catch (error) {
         log.error('[BrowserPreview] Screenshot capture failed:', error)
@@ -549,7 +550,7 @@ export async function handleStartBrowserPreviewAnnotation(
             const annotation = normalizeAnnotationPayload(raw.annotation, guest, input.tabId)
             if (!annotation) throw new Error('The annotation did not contain a valid target.')
             const captureRect = normalizeAnnotationRect(raw.captureRect)
-            const image = captureRect ? await guest.capturePage(captureRect) : await guest.capturePage()
+            const image = await captureBrowserPage(guest, captureRect || undefined)
             const artifact = storeScreenshotArtifact(annotationSession.ownerWebContentsId, input.tabId, image)
             return { success: true as const, annotation, artifact }
         } catch (error) {

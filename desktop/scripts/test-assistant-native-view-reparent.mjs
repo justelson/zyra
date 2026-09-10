@@ -1,3 +1,4 @@
+import { build } from 'esbuild'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,6 +10,8 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const smokeScript = join(scriptDirectory, 'assistant-native-view-reparent-smoke.cjs')
 const userDataPath = await mkdtemp(join(tmpdir(), 'zyra-browser-reparent-'))
 try {
+    const captureModule = join(userDataPath, 'capture.cjs')
+    await build({ entryPoints: [join(scriptDirectory, '../src/main/browser-page-capture.ts')], outfile: captureModule, bundle: true, platform: 'node', format: 'cjs', external: ['electron'] })
     const exitCode = await new Promise((resolveExit, reject) => {
         const useVirtualDisplay = process.platform === 'linux' && Boolean(process.env.CI) && !process.env.DISPLAY
         const electronArgs = [
@@ -20,7 +23,7 @@ try {
             useVirtualDisplay ? ['--auto-servernum', electronPath, ...electronArgs] : electronArgs,
             {
                 cwd: resolve(scriptDirectory, '..'),
-                env: { ...process.env, ZYRA_REPARENT_SMOKE_USER_DATA: userDataPath },
+                env: { ...process.env, ZYRA_REPARENT_SMOKE_USER_DATA: userDataPath, ZYRA_REPARENT_CAPTURE_MODULE: captureModule },
                 stdio: 'inherit',
                 shell: false,
                 windowsHide: true

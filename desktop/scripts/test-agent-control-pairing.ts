@@ -23,14 +23,39 @@ const forgedOrigin = await post('/v1/poll', {}, `https://example.test`, firstPol
 assert.equal(forgedOrigin.status, 403)
 const eventPromise = new Promise<any>((resolve) => server.once('extension-event', resolve))
 const tabEvent = await post('/v1/event', {
-    type: 'tab.register', tabId: 42, documentId: 'document:test', url: 'https://example.test/', title: 'Fixture'
+    type: 'tab.register', tabId: 42, documentId: 'document:test', url: 'https://example.test/', title: 'Fixture', mode: 'read'
 }, origin, firstPoll.body.nextToken)
 assert.equal(tabEvent.status, 200)
 const event = await eventPromise
 assert.equal(event.tabId, 42)
 assert.equal(event.extensionId, extensionId)
+assert.equal(event.mode, 'read', 'tab registration carries the user-selected access mode')
+let currentToken = tabEvent.body.nextToken
+async function authenticated(pathname: string, body: unknown) {
+    const response = await post(pathname, body, origin, currentToken)
+    if (response.body.nextToken) currentToken = response.body.nextToken
+    return response
+}
+server.setAppearance({ theme: 'dark', accentColor: { primary: '#aabbcc' } })
+assert.equal((await authenticated('/v1/poll', {})).body.appearance.theme, 'dark')
+const cancellation = new AbortController()
+const pendingInput = server.request(paired.body.pairId, { type: 'action', tabId: 42 }, 5_000, cancellation.signal)
+const rejectedInput = assert.rejects(pendingInput, (error: any) => error.code === 'CONTROL_CANCELLED')
+const delivered = (await authenticated('/v1/poll', {})).body.requests[0]
+assert.ok(delivered.deadline > Date.now())
+cancellation.abort()
+await rejectedInput
+const cancelCommand = (await authenticated('/v1/poll', {})).body.requests[0]
+assert.equal(cancelCommand.operation.type, 'cancel')
+assert.equal(cancelCommand.operation.requestId, delivered.requestId)
+const late = await authenticated('/v1/respond', { requestId: delivered.requestId, ok: true, result: {} })
+assert.equal(late.status, 409)
+assert.ok(late.body.nextToken, 'a late response still rotates the authenticated transport token')
+assert.equal((await authenticated('/v1/poll', {})).status, 200, 'connection remains usable after cancelling input')
+await assert.rejects(server.request(paired.body.pairId, { type: 'action', tabId: 42 }, 15), (error: any) => error.code === 'CONTROL_TIMEOUT')
+assert.deepEqual((await authenticated('/v1/poll', {})).body.requests, [], 'expired queued input must never reach the extension')
 const disconnectPromise = new Promise<any>((resolve) => server.once('extension-event', resolve))
-const disconnected = await post('/v1/event', { type: 'session.disconnect' }, origin, tabEvent.body.nextToken)
+const disconnected = await post('/v1/event', { type: 'session.disconnect' }, origin, currentToken)
 assert.equal(disconnected.status, 200)
 const disconnectEvent = await disconnectPromise
 assert.equal(disconnectEvent.type, 'session.disconnected')

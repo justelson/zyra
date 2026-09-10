@@ -1,4 +1,4 @@
-import { createContext, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAssistantStoreSelector } from '@/lib/assistant/store'
 import { ConnectedAssistantSessionsRail } from './AssistantConnectedSessionsRail'
@@ -22,7 +22,7 @@ export function AssistantWorkspaceLayout({ children }: { children: ReactNode }) 
     const chatActive = pathname === '/assistant' || pathname.startsWith('/assistant/')
     const selectedSessionId = useAssistantStoreSelector((state) => state.snapshot.selectedSessionId)
     const sidebar = useAssistantPageSidebarState(selectedSessionId)
-    const { leftSidebarCollapsed, setLeftSidebarCollapsed, leftSidebarWidth, rightPanelMode, setRightPanelMode, rightSidebarWidth } = sidebar
+    const { leftSidebarCollapsed, setLeftSidebarCollapsed, leftSidebarWidth, rightPanelMode, rightSidebarWidth } = sidebar
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
     const autoCollapsedLeftSidebarRef = useRef(false)
     const { toast, showToast } = useAssistantTransientToast()
@@ -39,10 +39,6 @@ export function AssistantWorkspaceLayout({ children }: { children: ReactNode }) 
         window.addEventListener('resize', resize)
         return () => window.removeEventListener('resize', resize)
     }, [])
-    useLayoutEffect(() => {
-        // The Inspector still closes when its Chat page unmounts.
-        if (!chatActive) setRightPanelMode('none')
-    }, [chatActive, setRightPanelMode])
     useEffect(() => {
         if (paneLayout.autoCollapseLeftSidebar && !leftSidebarCollapsed) {
             autoCollapsedLeftSidebarRef.current = true

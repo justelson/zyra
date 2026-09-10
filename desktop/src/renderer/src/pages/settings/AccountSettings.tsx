@@ -9,6 +9,10 @@ import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { buildRateLimitCards, formatFetchedAt, formatPlan } from './assistant-account-rate-limits'
 import { AccountResetCreditsSection } from './AccountResetCreditsSection'
+import { startAccountOverviewPolling } from './account-overview-polling'
+import { SettingsActionsMenu } from './SettingsActionsMenu'
+import { SettingsKeyValueList } from './SettingsKeyValueList'
+import { SettingsProviderIcon } from './SettingsProviderIcon'
 import { invalidateSettingsModels, loadSettingsModels } from './settings-model-catalog-cache'
 import { createSettingsRowTargetId } from './settings-search'
 import {
@@ -206,26 +210,18 @@ export default function AccountSettings() {
     }, [])
 
     useEffect(() => {
-        let pollTimer = 0
-        const schedulePoll = () => {
-            window.clearTimeout(pollTimer)
-            pollTimer = window.setTimeout(() => {
-                if (document.visibilityState === 'visible') {
-                    void loadOverview(true).finally(schedulePoll)
-                    return
-                }
-                schedulePoll()
-            }, ACCOUNT_POLL_INTERVAL_MS)
-        }
-        void loadOverview().finally(schedulePoll)
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') void loadOverview()
-        }
-        document.addEventListener('visibilitychange', handleVisibility)
+        const polling = startAccountOverviewPolling({
+            refresh: loadOverview,
+            isVisible: () => document.visibilityState === 'visible',
+            intervalMs: ACCOUNT_POLL_INTERVAL_MS,
+            setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+            clearTimer: (timer) => window.clearTimeout(timer)
+        })
+        document.addEventListener('visibilitychange', polling.refreshIfVisible)
         return () => {
             overviewRequestIdRef.current += 1
-            window.clearTimeout(pollTimer)
-            document.removeEventListener('visibilitychange', handleVisibility)
+            polling.dispose()
+            document.removeEventListener('visibilitychange', polling.refreshIfVisible)
         }
     }, [loadOverview])
 
@@ -367,35 +363,38 @@ export default function AccountSettings() {
                 {connectionError ? <SettingsNotice tone="error">{connectionError}</SettingsNotice> : null}
                 <SettingsRow
                     title="ChatGPT subscription"
-                    description="OAuth connection stored by Pi. Use it for ChatGPT models, Voice, account limits, and banked resets."
-                    status={desktopHost ? connectionStatusLabel(chatGptConnection) : overview?.requiresOpenaiAuth ? 'Not connected' : 'Connected'}
-                    statusTone={desktopHost ? connectionStatusTone(chatGptConnection) : overview?.requiresOpenaiAuth ? 'muted' : 'ready'}
+                    description="Use your subscription for ChatGPT models, Voice and usage limits."
+                    icon={<SettingsProviderIcon provider="chatgpt" />}
+                    status={desktopHost ? connectionStatusLabel(chatGptConnection) : initialAccountLoading ? 'Checking…' : !overview ? 'Unavailable' : overview.requiresOpenaiAuth ? 'Not connected' : 'Connected'}
+                    statusTone={desktopHost ? connectionStatusTone(chatGptConnection) : !overview || overview.requiresOpenaiAuth ? 'muted' : 'ready'}
                     statusTitle={chatGptConnection?.detail || undefined}
-                    control={desktopHost ? (
-                        <div className="flex flex-wrap justify-end gap-2">
-                            {chatGptConnection?.verified ? <SettingsButton variant="ghost" disabled={connectionBusy || activeDefaultMethod === 'chatgpt'} onClick={() => void switchDefaultConnection('chatgpt')}>{activeDefaultMethod === 'chatgpt' ? 'Default' : 'Use for new chats'}</SettingsButton> : null}
-                            <SettingsButton disabled={connectionBusy} onClick={() => void connectChatGpt()}>{connectionAction === 'chatgpt' ? 'Waiting…' : chatGptConnection?.configured ? 'Reconnect' : 'Connect'}</SettingsButton>
-                            {chatGptConnection?.configured ? <SettingsButton variant="danger" disabled={connectionBusy} onClick={() => setDisconnectMethod('chatgpt')}>Disconnect</SettingsButton> : null}
-                        </div>
-                    ) : <span className="text-xs text-sparkle-text-muted">Managed in Desktop</span>}
+                    control={desktopHost ? chatGptConnection?.configured ? (
+                        <SettingsActionsMenu label={connectionAction === 'chatgpt' ? 'Waiting…' : 'Manage'} ariaLabel="Manage ChatGPT connection" disabled={connectionBusy} items={[
+                            { id: 'reconnect', label: 'Reconnect', onSelect: connectChatGpt },
+                            ...(chatGptConnection.verified ? [{ id: 'default', label: 'Use for new chats', checked: activeDefaultMethod === 'chatgpt', disabled: activeDefaultMethod === 'chatgpt', onSelect: () => switchDefaultConnection('chatgpt') }] : []),
+                            { id: 'disconnect', label: 'Disconnect', danger: true, separatorBefore: true, onSelect: () => setDisconnectMethod('chatgpt') }
+                        ]} />
+                    ) : <SettingsButton disabled={connectionBusy} onClick={() => void connectChatGpt()}>{connectionAction === 'chatgpt' ? 'Waiting…' : 'Connect'}</SettingsButton> : <span className="text-xs text-sparkle-text-muted">Managed in Desktop</span>}
                 />
                 <SettingsRow
                     title="OpenAI API key"
-                    description="Verified API credential stored by Pi. The key is never returned to this Settings page after it is saved."
+                    description="Connect an API key for usage billed to your OpenAI account."
+                    info="The key is verified before saving and is never returned to this page."
+                    icon={<SettingsProviderIcon provider="openai" />}
                     status={desktopHost ? connectionStatusLabel(apiKeyConnection) : 'Desktop only'}
                     statusTone={desktopHost ? connectionStatusTone(apiKeyConnection) : 'muted'}
                     statusTitle={apiKeyConnection?.detail || undefined}
-                    control={desktopHost ? (
-                        <div className="flex flex-wrap justify-end gap-2">
-                            {apiKeyConnection?.verified ? <SettingsButton variant="ghost" disabled={connectionBusy || activeDefaultMethod === 'api-key'} onClick={() => void switchDefaultConnection('api-key')}>{activeDefaultMethod === 'api-key' ? 'Default' : 'Use for new chats'}</SettingsButton> : null}
-                            <SettingsButton disabled={connectionBusy} onClick={() => setApiKeyDialogOpen(true)}>{apiKeyConnection?.configured ? 'Replace key' : 'Add key'}</SettingsButton>
-                            {apiKeyConnection?.configured ? <SettingsButton variant="danger" disabled={connectionBusy} onClick={() => setDisconnectMethod('api-key')}>Disconnect</SettingsButton> : null}
-                        </div>
-                    ) : <span className="text-xs text-sparkle-text-muted">Managed in Desktop</span>}
+                    control={desktopHost ? apiKeyConnection?.configured ? (
+                        <SettingsActionsMenu ariaLabel="Manage OpenAI API key" disabled={connectionBusy} items={[
+                            { id: 'replace', label: 'Replace key', onSelect: () => setApiKeyDialogOpen(true) },
+                            ...(apiKeyConnection.verified ? [{ id: 'default', label: 'Use for new chats', checked: activeDefaultMethod === 'api-key', disabled: activeDefaultMethod === 'api-key', onSelect: () => switchDefaultConnection('api-key') }] : []),
+                            { id: 'disconnect', label: 'Remove key', danger: true, separatorBefore: true, onSelect: () => setDisconnectMethod('api-key') }
+                        ]} />
+                    ) : <SettingsButton disabled={connectionBusy} onClick={() => setApiKeyDialogOpen(true)}>Add key</SettingsButton> : <span className="text-xs text-sparkle-text-muted">Managed in Desktop</span>}
                 />
                 <SettingsRow
                     title="New-chat default"
-                    description="New chats use this provider model. Existing chats keep their canonical model and connection."
+                    description="Connection used for new chats, without changing existing chats."
                     status={activeDefaultMethod ? 'Configured' : 'Uses Assistant default'}
                     statusTone={activeDefaultMethod ? 'ready' : 'muted'}
                     control={<span title={settings.assistantDefaultModel || undefined} className="max-w-64 truncate text-xs font-medium text-sparkle-text-secondary">{activeDefaultMethod === 'chatgpt' ? 'ChatGPT subscription' : activeDefaultMethod === 'api-key' ? 'OpenAI API' : settings.assistantDefaultModel || 'Automatic'}</span>}
@@ -407,23 +406,19 @@ export default function AccountSettings() {
                 {overview?.requiresOpenaiAuth ? <SettingsNotice tone="warning">Connect your ChatGPT account through Zyra to view its identity, plan, usage limits, and banked resets.</SettingsNotice> : null}
                 <SettingsRow
                     title="Connection"
-                    description="Zyra uses this ChatGPT/OpenAI account through Pi for supported models and account limits."
+                    description="Account used for subscription models and usage limits."
                     status={initialAccountLoading ? 'Checking' : overview?.requiresOpenaiAuth ? 'Connect account' : overview ? 'Connected' : 'Unavailable'}
                     statusTone={overview?.requiresOpenaiAuth ? 'warning' : overview ? 'ready' : 'muted'}
                     control={<span className="text-xs font-medium text-sparkle-text-secondary">{connectionLabel}</span>}
                 />
-                <SettingsRow
-                    title="Email"
-                    description="Email returned by the connected ChatGPT account."
-                    status={overview?.emailVerified === true ? 'Verified' : null}
-                    statusTone="ready"
-                    control={<span title={overview?.account?.email || undefined} className="max-w-64 truncate text-xs font-medium text-sparkle-text-secondary">{displayAccountValue(overview?.account?.email)}</span>}
-                />
-                <SettingsRow title="Plan" description="Plan reported by ChatGPT for this account." control={<span className="text-xs font-medium text-sparkle-text-secondary">{accountPlan}</span>} />
-                <SettingsRow title="Pi provider" description="Provider identifier Pi uses for this ChatGPT connection." control={<span className="max-w-64 truncate text-xs font-medium text-sparkle-text-secondary">{displayAccountValue(overview?.provider)}</span>} />
-                <SettingsRow title="Account ID" description="OpenAI account identifier associated with the connected ChatGPT account." control={<span title={overview?.accountId || undefined} className="max-w-64 truncate text-xs font-medium text-sparkle-text-secondary">{displayAccountValue(overview?.accountId)}</span>} />
-                <SettingsRow title="Access refresh" description="When Pi is expected to refresh the current ChatGPT access token." control={<span className="text-xs font-medium text-sparkle-text-secondary">{initialAccountLoading ? 'Checking…' : formatAccountDateTime(overview?.tokenExpiresAt)}</span>} />
-                <SettingsRow title="Connection source" description="Where Zyra reads the account connection and quota snapshot." control={<span title={overview?.source || undefined} className="max-w-64 truncate text-xs font-medium text-sparkle-text-secondary">{displayAccountValue(overview?.source)}</span>} />
+                <SettingsKeyValueList label="ChatGPT account details" items={[
+                    { id: 'email', label: 'Email', value: <span title={overview?.account?.email || undefined}>{displayAccountValue(overview?.account?.email)}{overview?.emailVerified === true ? <span className="ml-2 text-[10px] text-[var(--status-success)]">Verified</span> : null}</span>, searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Email') },
+                    { id: 'plan', label: 'Plan', value: accountPlan, searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Plan') },
+                    { id: 'provider', label: 'Provider', value: displayAccountValue(overview?.provider), searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Pi provider') },
+                    { id: 'account-id', label: 'Account ID', value: <span className="font-mono text-[11px]">{displayAccountValue(overview?.accountId)}</span>, searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Account ID') },
+                    { id: 'expiry', label: 'Access expires', value: initialAccountLoading ? 'Checking…' : formatAccountDateTime(overview?.tokenExpiresAt), info: 'The connection refreshes automatically when needed.', searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Access refresh') },
+                    { id: 'source', label: 'Connection source', value: displayAccountValue(overview?.source), searchTargetId: createSettingsRowTargetId('ChatGPT account', 'Connection source') }
+                ]} />
             </SettingsSection>
 
             <SettingsSection title="Usage limits">
@@ -467,7 +462,7 @@ export default function AccountSettings() {
             <SettingsDialog
                 open={apiKeyDialogOpen}
                 title="Connect OpenAI API"
-                description="Zyra verifies the key before Pi stores it. Closing this dialog does not save the draft."
+                description="Verify and save the key, or cancel without changing your connection."
                 onClose={() => {
                     if (connectionAction === 'api-key') return
                     setApiKeyDraft('')

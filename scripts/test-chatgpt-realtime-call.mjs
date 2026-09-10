@@ -240,4 +240,34 @@ const cancelledCall = createChatGptRealtimeCall({ ...input, signal: callerAbort.
 callerAbort.abort();
 await assert.rejects(cancelledCall, /signaling was cancelled/u);
 
-console.log("ChatGPT realtime direct-call contract: ok");
+for (const expectedPhase of ["account-access", "provider-response", "sdp-response"]) {
+  let fireTimeout, resolveReached, bodyController, diagnostic;
+  const reached = new Promise(resolve => { resolveReached = resolve; });
+  const never = () => new Promise(() => undefined);
+  const call = createChatGptRealtimeCall(input, {
+    resolveAuth: async () => {
+      if (expectedPhase === "account-access") { resolveReached(); return never(); }
+      return { accessToken, accountId };
+    },
+    fetchImpl: async () => {
+      if (expectedPhase === "provider-response") { resolveReached(); return never(); }
+      return new Response(new ReadableStream({ start(controller) { bodyController = controller; resolveReached(); } }), {
+        status: 200, headers: { location: "/calls/rtc_delayed_body" }
+      });
+    },
+    setTimeoutImpl: (callback, delay) => { assert.equal(delay, 30_000, "the production deadline is unchanged"); fireTimeout = callback; return 1; },
+    clearTimeoutImpl: () => undefined,
+    onFailure: value => { diagnostic = value; throw Error("diagnostic observers must be isolated"); }
+  });
+  await reached;
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  fireTimeout();
+  await assert.rejects(call, /signaling timed out/u);
+  bodyController?.error(new Error("fixture cleanup"));
+  assert.equal(diagnostic.phase, expectedPhase);
+  assert.equal(diagnostic.timedOut, true);
+  assert.deepEqual(Object.keys(diagnostic).sort(), ["cancelled", "elapsedMs", "phase", "timedOut"]);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /oauth-secret-token|acct_test_123|v=0/u);
+}
+
+console.log("ChatGPT realtime direct-call contract: stage-specific safe diagnostics and unchanged deadline: ok");

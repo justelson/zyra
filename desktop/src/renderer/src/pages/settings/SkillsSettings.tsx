@@ -21,6 +21,8 @@ import {
     SettingsSwitch
 } from './settings-layout'
 import { createSettingsRowTargetId } from './settings-search'
+import { SettingsActionsMenu } from './SettingsActionsMenu'
+import { SettingsProviderIcon } from './SettingsProviderIcon'
 
 let cachedOverview: AssistantSkillSourceOverviewPayload | null = null
 let cachedOverviewAt = 0
@@ -230,7 +232,8 @@ export default function SkillsSettings({ embedded = false, onSaved }: { embedded
             >
                 <SettingsRow
                     title="Resolution order"
-                    description="Higher sources win when the same skill name appears more than once. Project skills still win over personal skills."
+                    description="Choose which source wins when skill names overlap."
+                    info="Sources are checked from top to bottom, and Project skills still win over personal skills."
                     status={overview ? `${enabledCount} enabled` : loading ? 'Checking' : undefined}
                     statusTone="info"
                 />
@@ -238,44 +241,21 @@ export default function SkillsSettings({ embedded = false, onSaved }: { embedded
                     <SettingsRow
                         key={source.id}
                         title={source.label}
-                        description={source.description}
+                        description={source.custom ? 'Skills from a folder you added.' : source.description}
+                        icon={<SettingsProviderIcon provider={source.id} />}
+                        info={<div className="space-y-2">{source.paths.length ? source.paths.map(entry => <div key={`${entry.scope}:${entry.path}`}>
+                            <span className="block font-medium capitalize text-[var(--settings-text)]">{entry.scope}</span>
+                            <code className="break-all text-[11px]">{entry.path}</code>
+                        </div>) : <p>No folders were found for this source.</p>}</div>}
                         status={sourceStatus(source)}
                         statusTone={sourceStatusTone(source)}
-                        statusTitle={source.paths.map((entry) => entry.path).join('\n') || undefined}
                         control={(
-                            <div className="flex items-center gap-0.5">
-                                <SettingsButton
-                                    variant="ghost"
-                                    className="size-7 px-0"
-                                    onClick={() => moveSource(source.id, -1)}
-                                    disabled={saving || index === 0}
-                                    aria-label={`Raise ${source.label} priority`}
-                                    title="Move up"
-                                >
-                                    <ChevronUp size={13} />
-                                </SettingsButton>
-                                <SettingsButton
-                                    variant="ghost"
-                                    className="size-7 px-0"
-                                    onClick={() => moveSource(source.id, 1)}
-                                    disabled={saving || index === overview.sources.length - 1}
-                                    aria-label={`Lower ${source.label} priority`}
-                                    title="Move down"
-                                >
-                                    <ChevronDown size={13} />
-                                </SettingsButton>
-                                {source.custom ? (
-                                    <SettingsButton
-                                        variant="ghost"
-                                        className="size-7 px-0"
-                                        onClick={() => removeFolder(source.id)}
-                                        disabled={saving}
-                                        aria-label={`Remove ${source.label}`}
-                                        title="Remove source without deleting its files"
-                                    >
-                                        <Trash2 size={12} />
-                                    </SettingsButton>
-                                ) : null}
+                            <div className="flex items-center gap-2">
+                                <SettingsActionsMenu label="Order" ariaLabel={`Manage ${source.label} source`} disabled={saving} items={[
+                                    { id: 'up', label: 'Move up', icon: <ChevronUp size={13} />, disabled: index === 0, onSelect: () => moveSource(source.id, -1) },
+                                    { id: 'down', label: 'Move down', icon: <ChevronDown size={13} />, disabled: index === overview.sources.length - 1, onSelect: () => moveSource(source.id, 1) },
+                                    ...(source.custom ? [{ id: 'remove', label: 'Remove source, keep files', icon: <Trash2 size={13} />, danger: true, separatorBefore: true, onSelect: () => removeFolder(source.id) }] : [])
+                                ]} />
                                 <SettingsSwitch
                                     checked={source.enabled}
                                     onCheckedChange={(checked) => toggleSource(source.id, checked)}
@@ -284,18 +264,7 @@ export default function SkillsSettings({ embedded = false, onSaved }: { embedded
                                 />
                             </div>
                         )}
-                    >
-                        {source.paths.length ? (
-                            <div className="mt-2 space-y-1">
-                                {source.paths.map((entry) => (
-                                    <div key={`${entry.scope}:${entry.path}`} className="flex min-w-0 items-center gap-2 text-[10px] text-[var(--settings-text-muted)]">
-                                        <span className="shrink-0 capitalize">{entry.scope}</span>
-                                        <code className="min-w-0 truncate font-mono" title={entry.path}>{entry.path}</code>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : null}
-                    </SettingsRow>
+                    />
                 ))}
                 {!overview && loading ? (
                     <SettingsRow title="Detecting folders" description="Checking compatible skill locations on this device." status="Checking" statusTone="muted" />
@@ -305,18 +274,19 @@ export default function SkillsSettings({ embedded = false, onSaved }: { embedded
             <SettingsSection title="Name conflicts">
                 <SettingsRow
                     searchTargetId={createSettingsRowTargetId('Name conflicts', 'Overlapping names')}
-                    title={conflicts.length ? `${conflicts.length} overlapping ${conflicts.length === 1 ? 'name' : 'names'}` : 'No overlapping names'}
-                    description={conflicts.length
-                        ? 'Source priority already chooses a winner. Review only the names you want to override.'
+                    title={!overview ? 'Name conflicts' : conflicts.length ? `${conflicts.length} overlapping ${conflicts.length === 1 ? 'name' : 'names'}` : 'No overlapping names'}
+                    description={!overview ? 'Load skill sources to check for overlapping names.' : conflicts.length
+                        ? 'Choose a preferred source for any overlapping skill name.'
                         : 'Each enabled skill name currently resolves to one source.'}
-                    status={conflicts.length ? 'Resolved' : 'Clear'}
-                    statusTone={conflicts.length ? 'info' : 'ready'}
+                    info={conflicts.length ? 'Source priority already chooses a winner; only override names that need a different source.' : undefined}
+                    status={!overview ? loading ? 'Checking' : 'Unavailable' : conflicts.length ? 'Resolved' : 'Clear'}
+                    statusTone={!overview ? 'muted' : conflicts.length ? 'info' : 'ready'}
                     control={conflicts.length ? <SettingsButton onClick={() => setConflictsOpen(true)}>Review</SettingsButton> : undefined}
                 />
             </SettingsSection>
 
             <SettingsSection title="When changes apply">
-                <SettingsRow title="New chats" description="New agents use the selected sources immediately. Run /reload in an existing chat to refresh its skills." />
+                <SettingsRow title="New chats" description="Changes apply to new chats; use /reload for existing chats." />
             </SettingsSection>
 
             {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
@@ -325,7 +295,7 @@ export default function SkillsSettings({ embedded = false, onSaved }: { embedded
                 open={conflictsOpen}
                 onClose={() => setConflictsOpen(false)}
                 title="Resolve skill names"
-                description="Automatic follows the source order. A choice here applies only to that skill name."
+                description="Override the source for individual skill names."
                 className="max-w-[560px]"
                 contentClassName="space-y-0 p-0"
                 footer={<SettingsButton onClick={() => setConflictsOpen(false)}>Done</SettingsButton>}

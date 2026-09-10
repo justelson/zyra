@@ -1,10 +1,12 @@
 import type { ComponentType } from 'react'
 import {
+    AppWindow,
     Archive,
     AudioLines,
     Bot,
     Brain,
     CircleUserRound,
+    Database,
     Files,
     FolderKanban,
     GitBranch,
@@ -13,11 +15,13 @@ import {
     KeyRound,
     MonitorSmartphone,
     Palette,
+    PanelsTopLeft,
     Puzzle,
     Settings2,
     ShieldCheck,
     SlidersHorizontal,
-    TerminalSquare
+    TerminalSquare,
+    UsersRound
 } from 'lucide-react'
 
 export type SettingsIcon = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
@@ -92,7 +96,7 @@ export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     {
         id: 'assistant',
         categoryId: 'assistant',
-        label: 'Defaults',
+        label: 'Chat defaults',
         description: 'Models, behavior, permissions, context, and output',
         keywords: 'assistant model reasoning permission prompt history transcription context compaction',
         to: '/settings/assistant/defaults',
@@ -121,13 +125,13 @@ export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     },
     {
         id: 'providers',
-        categoryId: 'assistant',
+        categoryId: 'account',
         label: 'AI providers',
-        description: 'Hosted providers and Git model connections',
+        description: 'Hosted credentials and provider connections',
         keywords: 'groq gemini chatgpt codex api key commit pull request',
-        to: '/settings/assistant/providers',
+        to: '/settings/account/providers',
         icon: KeyRound,
-        legacyPaths: ['/settings/providers', '/settings/ai']
+        legacyPaths: ['/settings/assistant/providers', '/settings/providers', '/settings/ai']
     },
     {
         id: 'browser-control',
@@ -190,7 +194,7 @@ export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     },
     {
         id: 'memory',
-        categoryId: 'data',
+        categoryId: 'assistant',
         label: 'Memory',
         description: 'Local memory layers and project context',
         keywords: 'profile facts retrieval preferences sessions local files',
@@ -200,7 +204,7 @@ export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     },
     {
         id: 'archived',
-        categoryId: 'data',
+        categoryId: 'assistant',
         label: 'Archived chats',
         description: 'Restore canonical archived conversations',
         keywords: 'chats history recover restore archive',
@@ -220,9 +224,9 @@ export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     },
     {
         id: 'about',
-        categoryId: 'about',
+        categoryId: 'data',
         label: 'About & updates',
-        description: 'Version, signed updates, links, and license',
+        description: 'Version, updates, links and license',
         keywords: 'download install update channel github issue build terminal command',
         to: '/settings/about',
         icon: Info
@@ -236,26 +240,17 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
         description: 'General behavior and appearance',
         keywords: 'startup sidebar interface theme font motion',
         to: '/settings/app',
-        icon: Settings2,
+        icon: AppWindow,
         detailPageIds: ['general', 'appearance']
-    },
-    {
-        id: 'account',
-        label: 'Account & connections',
-        description: 'OpenAI and connected devices',
-        keywords: 'chatgpt api key browser trusted device',
-        to: '/settings/account',
-        icon: CircleUserRound,
-        detailPageIds: ['account', 'connections']
     },
     {
         id: 'assistant',
         label: 'Assistant',
-        description: 'Defaults, skills, voice, and providers',
+        description: 'Chat behavior, skills, voice and saved context',
         keywords: 'models reasoning permissions skills voice ai',
         to: '/settings/assistant',
         icon: Bot,
-        detailPageIds: ['assistant', 'skills', 'voice', 'providers']
+        detailPageIds: ['assistant', 'skills', 'voice', 'memory', 'archived']
     },
     {
         id: 'workspace',
@@ -263,26 +258,26 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
         description: 'Browser, files, terminal, projects, and Git',
         keywords: 'browser editor terminal projects source control',
         to: '/settings/workspace',
-        icon: Files,
-        detailPageIds: ['browser-control', 'files-editor', 'terminal-runtime', 'projects', 'source-control']
+        icon: PanelsTopLeft,
+        detailPageIds: ['projects', 'files-editor', 'terminal-runtime', 'source-control', 'browser-control']
+    },
+    {
+        id: 'account',
+        label: 'Connections',
+        description: 'Accounts, AI providers and connected devices',
+        keywords: 'chatgpt api key browser trusted device',
+        to: '/settings/account',
+        icon: UsersRound,
+        detailPageIds: ['account', 'providers', 'connections']
     },
     {
         id: 'data',
-        label: 'Data & privacy',
-        description: 'Privacy, memory, archives, and diagnostics',
-        keywords: 'analytics cache memory archived logs privacy',
+        label: 'Privacy & support',
+        description: 'Privacy, maintenance, diagnostics and updates',
+        keywords: 'analytics cache logs privacy version updates help',
         to: '/settings/data',
-        icon: ShieldCheck,
-        detailPageIds: ['privacy', 'memory', 'archived', 'diagnostics']
-    },
-    {
-        id: 'about',
-        label: 'About & updates',
-        description: 'Version, updates, and links',
-        keywords: 'version release channel license github',
-        to: '/settings/about',
-        icon: Info,
-        detailPageIds: ['about']
+        icon: Database,
+        detailPageIds: ['privacy', 'diagnostics', 'about']
     }
 ]
 
@@ -303,8 +298,9 @@ export function findSettingsDestination(pathname: string): SettingsDestination |
 }
 
 export function settingsNavigationItemMatchesPath(item: SettingsNavigationItem, pathname: string): boolean {
-    if (pathname === item.to || pathname.startsWith(`${item.to}/`)) return true
-    return findSettingsDestination(pathname)?.categoryId === item.id
+    const destination = findSettingsDestination(pathname)
+    if (destination) return destination.categoryId === item.id
+    return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
 
 export function findSettingsNavigationItem(pathname: string): SettingsNavigationItem {
@@ -313,7 +309,14 @@ export function findSettingsNavigationItem(pathname: string): SettingsNavigation
 }
 
 export function getSettingsCategoryDestinations(categoryId: string): SettingsDestination[] {
-    return SETTINGS_DESTINATIONS.filter((destination) => destination.categoryId === categoryId)
+    const category = SETTINGS_NAVIGATION_ITEMS.find(item => item.id === categoryId)
+    return category?.detailPageIds
+        ? category.detailPageIds.map(findSettingsDestinationById).filter((destination): destination is SettingsDestination => Boolean(destination && destination.categoryId === categoryId))
+        : SETTINGS_DESTINATIONS.filter(destination => destination.categoryId === categoryId)
+}
+
+export function getSettingsCategoryEntry(categoryId: string): SettingsDestination {
+    return getSettingsCategoryDestinations(categoryId)[0] || SETTINGS_DESTINATIONS[0]!
 }
 
 export const SETTINGS_NAVIGATION_ICON = Settings2

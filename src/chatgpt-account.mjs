@@ -216,6 +216,8 @@ export async function createChatGptRealtimeCall(input = {}, dependencies = {}) {
   else externalSignal?.addEventListener?.("abort", abortFromCaller, { once: true });
 
   let timedOut = false;
+  let phase = "account-access";
+  const startedAt = performance.now();
   const scheduleTimeout = dependencies.setTimeoutImpl ?? setTimeout;
   const cancelTimeout = dependencies.clearTimeoutImpl ?? clearTimeout;
   const timeout = scheduleTimeout(() => {
@@ -241,6 +243,7 @@ export async function createChatGptRealtimeCall(input = {}, dependencies = {}) {
     }
     const accountId = normalizeRealtimeHeaderValue(rawAccountId, "ChatGPT account id");
 
+    phase = "provider-response";
     const response = await runAbortableRealtimeOperation(
       () => fetchImpl(CHATGPT_REALTIME_CALL_URL, {
         method: "POST",
@@ -263,6 +266,7 @@ export async function createChatGptRealtimeCall(input = {}, dependencies = {}) {
       controller.signal,
     );
 
+    phase = "sdp-response";
     if (!response?.ok) {
       const failure = await runAbortableRealtimeOperation(
         () => readBoundedRealtimeFailure(response),
@@ -281,6 +285,10 @@ export async function createChatGptRealtimeCall(input = {}, dependencies = {}) {
     const callId = parseChatGptRealtimeCallId(response.headers?.get?.("location"));
     return { sdp: answerSdp, callId };
   } catch (error) {
+    // Diagnostics never contain auth, request bodies, SDP or provider errors.
+    try {
+      dependencies.onFailure?.({ phase, elapsedMs: Math.round(performance.now() - startedAt), timedOut, cancelled: Boolean(externalSignal?.aborted) });
+    } catch { /* Diagnostics cannot change the signaling outcome. */ }
     if (timedOut) throw new ChatGptRealtimeCallError("ChatGPT Voice signaling timed out. Try again.");
     if (externalSignal?.aborted) throw new ChatGptRealtimeCallError("ChatGPT Voice signaling was cancelled.");
     if (error instanceof ChatGptRealtimeCallError) throw error;

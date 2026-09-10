@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import type { AssistantRuntimeMode, AssistantVoiceTranscriptionState } from '@shared/assistant/contracts'
+import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import {
     DEFAULT_ASSISTANT_TITLE_MODEL,
     DEFAULT_ASSISTANT_TITLE_MODEL_LABEL,
@@ -35,9 +35,6 @@ export default function AssistantSettings() {
     const [models, setModels] = useState<ModelOption[]>(readCachedSettingsModels)
     const [modelsLoading, setModelsLoading] = useState(false)
     const [modelsError, setModelsError] = useState<string | null>(null)
-    const [transcriptionState, setTranscriptionState] = useState<AssistantVoiceTranscriptionState | null>(null)
-    const [transcriptionStateLoading, setTranscriptionStateLoading] = useState(false)
-    const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
     const [promptTemplateOpen, setPromptTemplateOpen] = useState(false)
     const [promptTemplateDraft, setPromptTemplateDraft] = useState(settings.assistantDefaultPromptTemplate)
 
@@ -53,28 +50,9 @@ export default function AssistantSettings() {
         }
     }, [])
 
-    const loadTranscriptionState = useCallback(async () => {
-        setTranscriptionStateLoading(true)
-        try {
-            const result = await window.devscope.assistant.getVoiceTranscriptionState()
-            if (!result.success) throw new Error(result.error || 'Could not read ChatGPT transcription status.')
-            setTranscriptionState(result.state)
-            setTranscriptionError(null)
-        } catch (error) {
-            setTranscriptionError(error instanceof Error ? error.message : 'Could not read ChatGPT transcription status.')
-        } finally {
-            setTranscriptionStateLoading(false)
-        }
-    }, [])
-
     useEffect(() => {
         void loadModels(false)
     }, [loadModels])
-
-    useEffect(() => {
-        if (!settings.assistantTranscriptionEnabled || settings.assistantTranscriptionEngine !== 'codex') return
-        void loadTranscriptionState()
-    }, [loadTranscriptionState, settings.assistantTranscriptionEnabled, settings.assistantTranscriptionEngine])
 
     const setPermissionMode = (assistantDefaultRuntimeMode: AssistantRuntimeMode) => {
         updateSettings({ assistantDefaultRuntimeMode })
@@ -100,8 +78,6 @@ export default function AssistantSettings() {
         }
         return options.filter((model, index) => options.findIndex((candidate) => candidate.id === model.id) === index)
     }, [models, settings.assistantTitleModel])
-    const browserSpeechAvailable = typeof window !== 'undefined'
-        && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
     const webDefaultMode = settings.assistantDefaultWebSearch
         ? settings.assistantDefaultWebFetch ? 'all' : 'search'
         : settings.assistantDefaultWebFetch ? 'fetch' : 'off'
@@ -109,17 +85,6 @@ export default function AssistantSettings() {
         assistantDefaultWebSearch: mode === 'all' || mode === 'search',
         assistantDefaultWebFetch: mode === 'all' || mode === 'fetch'
     })
-    const chatGptVoiceStatus: { label: string; tone: 'ready' | 'warning' | 'muted'; title?: string } = transcriptionStateLoading
-        ? { label: 'Checking', tone: 'muted' }
-        : transcriptionError
-            ? { label: 'Unavailable', tone: 'warning', title: transcriptionError }
-            : transcriptionState?.status === 'ready'
-                ? { label: 'Ready', tone: 'ready', title: transcriptionState.message || undefined }
-                : transcriptionState?.status === 'signed-out'
-                    ? { label: 'Connect account', tone: 'warning', title: transcriptionState.message || undefined }
-                    : transcriptionState?.status === 'unavailable'
-                        ? { label: 'Unavailable', tone: 'warning', title: transcriptionState.message || undefined }
-                        : { label: 'Checking', tone: 'muted' }
 
     return (
         <SettingsPageContainer title="Defaults" backTo="/settings/assistant" backLabel="Assistant">
@@ -148,14 +113,14 @@ export default function AssistantSettings() {
                 />
                 <SettingsRow
                     title="Refresh chat titles"
-                    description="Regenerate from recent user prompts and final assistant responses. Each refresh uses one title-model request."
+                    description="Refresh chat titles periodically using one title-model request."
                     status={settings.assistantTitleAutoRegenerate ? 'On' : 'Off'}
                     statusTone={settings.assistantTitleAutoRegenerate ? 'ready' : 'muted'}
                     control={<SettingsSwitch checked={settings.assistantTitleAutoRegenerate} onCheckedChange={(assistantTitleAutoRegenerate) => updateSettings({ assistantTitleAutoRegenerate })} label="Automatically refresh chat titles" />}
                 />
                 <SettingsRow
                     title="Title refresh interval"
-                    description={`Run after this many completed turns. Minimum ${MIN_ASSISTANT_AUTO_TITLE_TURNS}.`}
+                    description={`Update after at least ${MIN_ASSISTANT_AUTO_TITLE_TURNS} completed turns.`}
                     control={(
                         <div className="flex items-center gap-2">
                             <SettingsInput
@@ -172,15 +137,15 @@ export default function AssistantSettings() {
                         </div>
                     )}
                 />
-                <SettingsRow title="Zyra profile" description="Choose the instruction profile used when Desktop starts or reconnects a chat." control={<SettingsSegmented value={settings.assistantProductProfile} options={[{ value: 'default', label: 'Default' }, { value: 'builder', label: 'Builder' }]} onChange={(assistantProductProfile) => updateSettings({ assistantProductProfile })} label="Zyra profile" />} />
-                <SettingsRow title="Permission mode" description="Use one permission policy for chat tools, Browser, paired Chrome, and computer use." control={<SettingsSelect value={settings.assistantDefaultRuntimeMode} onChange={(event) => setPermissionMode(event.target.value as typeof settings.assistantDefaultRuntimeMode)} aria-label="Default permission mode"><option value="approval-required">Supervised</option><option value="auto-review">Auto review</option><option value="edits-only">Edits only</option><option value="full-access">Full access</option></SettingsSelect>} />
+                <SettingsRow title="Zyra profile" description="Choose the instruction style for new or reconnected chats." control={<SettingsSegmented value={settings.assistantProductProfile} options={[{ value: 'default', label: 'Default' }, { value: 'builder', label: 'Builder' }]} onChange={(assistantProductProfile) => updateSettings({ assistantProductProfile })} label="Zyra profile" />} />
+                <SettingsRow title="Permission mode" description="Default approval rules for new chats and app control." info="Applies to chat tools, the Browser, paired Chrome and computer use." control={<SettingsSelect value={settings.assistantDefaultRuntimeMode} onChange={(event) => setPermissionMode(event.target.value as typeof settings.assistantDefaultRuntimeMode)} aria-label="Default permission mode"><option value="approval-required">Supervised</option><option value="auto-review">Auto review</option><option value="edits-only">Edits only</option><option value="full-access">Full access</option></SettingsSelect>} />
                 <SettingsRow title="Reasoning effort" description="Set the default reasoning depth for compatible models." control={<SettingsSelect value={settings.assistantDefaultEffort} onChange={(event) => updateSettings({ assistantDefaultEffort: event.target.value as typeof settings.assistantDefaultEffort })} aria-label="Default reasoning effort">{['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((effort) => <option key={effort} value={effort}>{effort === 'xhigh' ? 'Extra high' : effort.charAt(0).toUpperCase() + effort.slice(1)}</option>)}</SettingsSelect>} />
-                <SettingsRow title="Fast service tier" description="Request the faster provider service tier for new chats." control={<SettingsSwitch checked={settings.assistantDefaultFastMode} onCheckedChange={(assistantDefaultFastMode) => updateSettings({ assistantDefaultFastMode })} label="Fast service tier" />} />
-                <SettingsRow title="Web access" description="Choose which web tools new chats start with. Existing chats keep their own choice." control={<SettingsSegmented value={webDefaultMode} options={[{ value: 'all', label: 'Search + fetch' }, { value: 'search', label: 'Search' }, { value: 'fetch', label: 'Fetch' }, { value: 'off', label: 'Off' }]} onChange={setWebDefaultMode} label="Default web access" />} />
+                <SettingsRow title="Fast service tier" description="Request priority processing for new chats." info="Only supported providers can honor the priority tier." control={<SettingsSwitch checked={settings.assistantDefaultFastMode} onCheckedChange={(assistantDefaultFastMode) => updateSettings({ assistantDefaultFastMode })} label="Fast service tier" />} />
+                <SettingsRow title="Web access" description="Choose the web tools available to new chats." info="Existing chats keep their own choice." control={<SettingsSelect value={webDefaultMode} onChange={event => setWebDefaultMode(event.target.value as typeof webDefaultMode)} aria-label="Default web access"><option value="all">Search + fetch</option><option value="search">Search only</option><option value="fetch">Fetch only</option><option value="off">Off</option></SettingsSelect>} />
                 <SettingsRow title="Busy send behavior" description="Choose what Send does while the current turn is still active." control={<SettingsSegmented value={settings.assistantBusyMessageMode} options={[{ value: 'queue', label: 'Queue next' }, { value: 'force', label: 'Interrupt' }]} onChange={(assistantBusyMessageMode) => updateSettings({ assistantBusyMessageMode })} label="Busy send behavior" />} />
                 <SettingsRow
                     title="Default prompt"
-                    description="Optional starting instructions placed into the composer for new chats."
+                    description="Prefill the composer when you start a new chat." info="The draft is not sent until you submit it."
                     status={settings.assistantDefaultPromptTemplate.trim() ? 'Custom prompt saved' : 'No default prompt'}
                     statusTone={settings.assistantDefaultPromptTemplate.trim() ? 'ready' : 'muted'}
                     control={<SettingsButton onClick={openPromptTemplate}>Edit prompt</SettingsButton>}
@@ -190,7 +155,8 @@ export default function AssistantSettings() {
             <SettingsSection title="Reasoning and context">
                 <SettingsRow
                     title="Reasoning summaries"
-                    description="Ask reasoning models for readable progress summaries. Detailed summaries still exclude private chain-of-thought."
+                    description="Show readable progress summaries from reasoning models."
+                    info="Detailed summaries still exclude private chain-of-thought."
                     control={(
                         <SettingsSelect
                             value={settings.assistantReasoningSummary}
@@ -205,7 +171,8 @@ export default function AssistantSettings() {
                 />
                 <SettingsRow
                     title="Context limit"
-                    description="Automatically summarize older context before a new turn would exceed this size. Smaller model windows use a lower safe limit."
+                    description="Summarize older context before it reaches this token limit."
+                    info="Smaller model windows use a lower safe limit."
                     status={formatContextTokenLimit(settings.assistantContextCompactionThresholdTokens)}
                     statusTone="info"
                     control={(
@@ -223,32 +190,13 @@ export default function AssistantSettings() {
             </SettingsSection>
 
             <SettingsSection title="Output and history">
-                <SettingsRow title="Action statistics" description="Show timings and action counts in the activity rail. When off, timings appear only inside individual actions you expand." control={<SettingsSwitch checked={settings.assistantShowActionStats} onCheckedChange={(assistantShowActionStats) => updateSettings({ assistantShowActionStats })} label="Show action statistics" />} />
+                <SettingsRow title="Action statistics" description="Show timings and action counts in the activity rail." info="When off, timings appear only inside individual actions you expand." control={<SettingsSwitch checked={settings.assistantShowActionStats} onCheckedChange={(assistantShowActionStats) => updateSettings({ assistantShowActionStats })} label="Show action statistics" />} />
                 <SettingsRow title="Chat display" description="Choose a quiet conversation view or the full activity treatment." control={<SettingsSegmented value={settings.assistantChatDisplayMode} options={[{ value: 'minimal', label: 'Minimal' }, { value: 'detailed', label: 'Detailed' }]} onChange={(assistantChatDisplayMode) => updateSettings({ assistantChatDisplayMode })} label="Chat display" />} />
                 <SettingsRow title="Assistant output" description="Show token-by-token output or grouped chunks while a response is generated." control={<SettingsSegmented value={settings.assistantTextStreamingMode} options={[{ value: 'stream', label: 'Live stream' }, { value: 'chunks', label: 'Chunks' }]} onChange={(assistantTextStreamingMode) => updateSettings({ assistantTextStreamingMode })} label="Assistant output mode" />} />
-                <SettingsRow title="Open live tool output" description="Automatically expand running tool and command output. Turn this off to keep tool calls closed unless you open them." control={<SettingsSwitch checked={settings.assistantToolOutputDefaultMode === 'expanded'} onCheckedChange={(enabled) => updateSettings({ assistantToolOutputDefaultMode: enabled ? 'expanded' : 'minimized' })} label="Automatically open live tool output" />} />
-                <SettingsRow title="Reconnect on startup" description="Attach the selected chat to its canonical server worker after the cached shell appears." control={<SettingsSwitch checked={settings.assistantAutoReconnect} onCheckedChange={(assistantAutoReconnect) => updateSettings({ assistantAutoReconnect })} label="Reconnect selected chat on startup" />} />
-                <SettingsRow title="Cross-surface status" description="Show when this canonical chat is open or running in another Zyra surface." control={<SettingsSwitch checked={settings.assistantShowStatusDetails} onCheckedChange={(assistantShowStatusDetails) => updateSettings({ assistantShowStatusDetails })} label="Show cross-surface status" />} />
+                <SettingsRow title="Open live tool output" description="Expand tool output automatically while actions run." control={<SettingsSwitch checked={settings.assistantToolOutputDefaultMode === 'expanded'} onCheckedChange={(enabled) => updateSettings({ assistantToolOutputDefaultMode: enabled ? 'expanded' : 'minimized' })} label="Automatically open live tool output" />} />
+                <SettingsRow title="Reconnect on startup" description="Reconnect the selected chat after the app opens." control={<SettingsSwitch checked={settings.assistantAutoReconnect} onCheckedChange={(assistantAutoReconnect) => updateSettings({ assistantAutoReconnect })} label="Reconnect selected chat on startup" />} />
+                <SettingsRow title="Cross-surface status" description="Show when this chat is open or running in another Zyra client." control={<SettingsSwitch checked={settings.assistantShowStatusDetails} onCheckedChange={(assistantShowStatusDetails) => updateSettings({ assistantShowStatusDetails })} label="Show cross-surface status" />} />
                 <SettingsRow title="Canonical diagnostics" description="Show canonical worker presence and replay sequence in the chat header." control={<SettingsSwitch checked={settings.assistantShowDiagnostics} onCheckedChange={(assistantShowDiagnostics) => updateSettings({ assistantShowDiagnostics })} label="Show canonical diagnostics" />} />
-            </SettingsSection>
-
-            <SettingsSection title="Voice transcription">
-                <SettingsRow title="Voice input" description="Enable speech-to-text in assistant composers." control={<SettingsSwitch checked={settings.assistantTranscriptionEnabled} onCheckedChange={(assistantTranscriptionEnabled) => updateSettings({ assistantTranscriptionEnabled })} label="Enable voice input" />} />
-                <SettingsRow title="Transcription engine" description="Use live browser dictation or send a recorded voice note to ChatGPT." control={<SettingsSegmented value={settings.assistantTranscriptionEngine} options={[{ value: 'browser', label: 'Browser' }, { value: 'codex', label: 'ChatGPT' }]} onChange={(assistantTranscriptionEngine) => updateSettings({ assistantTranscriptionEngine })} label="Transcription engine" disabled={!settings.assistantTranscriptionEnabled} />} />
-                <SettingsRow
-                    title="ChatGPT transcription"
-                    description="Records one bounded voice note and transcribes it using the ChatGPT account connected through Pi."
-                    status={chatGptVoiceStatus.label}
-                    statusTone={chatGptVoiceStatus.tone}
-                    statusTitle={chatGptVoiceStatus.title}
-                    control={<SettingsButton variant="ghost" onClick={() => void loadTranscriptionState()} disabled={!settings.assistantTranscriptionEnabled || settings.assistantTranscriptionEngine !== 'codex' || transcriptionStateLoading}><RefreshCw size={12} className={transcriptionStateLoading ? 'animate-spin motion-reduce:animate-none' : ''} />Refresh status</SettingsButton>}
-                />
-                <SettingsRow
-                    title="Browser dictation"
-                    description="Uses Chromium's live speech-recognition service when this runtime provides it."
-                    status={browserSpeechAvailable ? 'Available' : 'Unavailable'}
-                    statusTone={browserSpeechAvailable ? 'ready' : 'warning'}
-                />
             </SettingsSection>
 
             <SettingsDialog

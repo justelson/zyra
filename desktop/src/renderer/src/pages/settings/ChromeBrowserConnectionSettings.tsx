@@ -22,7 +22,7 @@ export function ChromeBrowserConnectionSettings() {
         finally { setBusy(false) }
     }
     return <SettingsSection title="Chrome browser">
-        <SettingsRow title={<span className="inline-flex items-center gap-2"><img src={chromeLogo} width={16} height={16} alt="" aria-hidden="true" />Zyra Browser extension</span>} description="Connect Chrome tabs for read or control access from chat." status={pairing.state === 'paired' ? 'Connected' : pairing.state === 'waiting' ? 'Waiting for Chrome' : 'Disconnected'} statusTone={pairing.state === 'paired' ? 'ready' : 'muted'} control={<>
+        <SettingsRow title="Zyra Browser extension" description="Connect Chrome tabs for read or control access from chat." icon={<img src={chromeLogo} width={16} height={16} alt="" aria-hidden="true" />} info={<ol className="list-decimal space-y-2 pl-4"><li>Open the extension folder using the button in this row.</li><li>In Chrome, open chrome://extensions, enable Developer mode and load that folder unpacked.</li><li>Connect Chrome here, then enter the code and port in the extension's Connect tab.</li><li>Choose which tabs to share with Read or Control access.</li></ol>} status={pairing.state === 'paired' ? 'Connected' : pairing.state === 'waiting' ? 'Waiting for Chrome' : 'Disconnected'} statusTone={pairing.state === 'paired' ? 'ready' : 'muted'} control={<>
             <SettingsButton variant="ghost" disabled={busy} onClick={() => void run(() => window.devscope.agentControl.openChromeExtensionFolder())}><FolderOpen size={12} />Extension folder</SettingsButton>
             {pairing.state === 'stopped' || pairing.state === 'error' ? <SettingsButton disabled={busy} onClick={() => void run(() => window.devscope.agentControl.startChromePairing())}>Connect Chrome</SettingsButton> : <SettingsButton disabled={busy} onClick={() => void run(() => window.devscope.agentControl.stopChromePairing())}>{pairing.state === 'waiting' ? 'Cancel pairing' : 'Disconnect'}</SettingsButton>}
         </>}>
@@ -31,7 +31,6 @@ export function ChromeBrowserConnectionSettings() {
                 <div><div className="mb-1 text-[var(--settings-text-secondary)]">Port</div><code className="select-all text-base">{pairing.port}</code></div>
                 <p className="basis-full text-[11px] text-[var(--settings-text-secondary)]">Enter these in the extension's Connect tab. This code expires in five minutes.</p>
             </div>}
-            <details className="mt-3 text-xs text-[var(--settings-text-secondary)]"><summary className="cursor-pointer">First-time setup</summary><div className="pt-3"><ol className="list-decimal space-y-2 pl-4"><li>Open the extension folder using the button in this row.</li><li>In Chrome, open chrome://extensions, enable Developer mode and load that folder unpacked.</li><li>Connect Chrome here, then enter the code and port in the extension's Connect tab.</li><li>Choose which tabs to share with Read or Control access.</li></ol></div></details>
             {error && <p role="alert" className="mt-2 text-xs text-[var(--status-danger)]">{error}</p>}
         </SettingsRow>
     </SettingsSection>

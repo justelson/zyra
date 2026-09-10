@@ -33,6 +33,8 @@ export class OpenAIAuthWorkerClient {
     private readonly pending = new Map<number, PendingRequest>()
     private warmPromise: Promise<void> | null = null
 
+    constructor(private readonly createWorker: () => Worker = () => new Worker(workerUrl())) {}
+
     readonly sdk = {
         loginZyraAuth: (provider: string, options: Record<string, unknown> = {}) => this.request({
             operation: 'loginZyraAuth',
@@ -53,7 +55,8 @@ export class OpenAIAuthWorkerClient {
             provider,
             options
         }),
-        resolveChatGptAccountAuth: () => this.request({ operation: 'resolveChatGptAccountAuth' })
+        resolveChatGptAccountAuth: () => this.request({ operation: 'resolveChatGptAccountAuth' }),
+        fetchCodexResetCredits: () => this.request({ operation: 'fetchCodexResetCredits' })
     }
 
     warm(): Promise<void> {
@@ -101,7 +104,7 @@ export class OpenAIAuthWorkerClient {
 
     private ensureWorker(): Worker {
         if (this.worker) return this.worker
-        const worker = new Worker(workerUrl())
+        const worker = this.createWorker()
         worker.unref()
         worker.on('message', (message: WorkerResponse) => this.handleMessage(message))
         worker.on('error', (error) => {

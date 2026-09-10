@@ -1112,6 +1112,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             isWorking={timelinePresentationIsWorking}
                             activeStatusLabel={activeStatusLabel}
                             isConnecting={isThreadConnecting && !voiceVisible}
+                            suppressEmptyProjectBadge={voiceVisible}
                             activeWorkStartedAt={effectiveLatestTurnStartedAt}
                             latestAssistantMessageId={controller.activeThread?.latestTurn?.assistantMessageId || null}
                             latestTurnStartedAt={effectiveLatestTurnStartedAt}

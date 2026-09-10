@@ -85,6 +85,7 @@ export function AppearanceFontManagerDialog({
         }
         return matches.slice(0, 40)
     }, [normalizedQuery, query])
+    const visibleManagedFonts = useMemo(() => managedFonts.filter(font => !normalizedQuery || font.family.toLowerCase().includes(normalizedQuery)), [managedFonts, normalizedQuery])
     const visibleInstalledFonts = useMemo(() => installedFonts
         .filter((family) => !normalizedQuery || family.toLowerCase().includes(normalizedQuery))
         .slice(0, 100), [installedFonts, normalizedQuery])
@@ -183,13 +184,13 @@ export function AppearanceFontManagerDialog({
         closeDialog()
     }
 
-    const listClass = 'min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--settings-border)] bg-[var(--settings-section)]'
+    const listClass = 'min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--settings-border)] bg-[var(--settings-section)] [scrollbar-gutter:stable]'
 
     return (
         <SettingsDialog
             open={open}
             title={target === 'code' ? 'Choose a code font' : 'Choose a UI font'}
-            description="Built-in choices stay in the dropdown. Add Google, installed, or imported fonts here."
+            description="Choose a downloaded, installed or imported font."
             onClose={closeDialog}
             className="flex h-[680px] max-h-[calc(100vh-40px)] !max-w-[680px] flex-col"
             contentClassName="flex min-h-0 flex-1 flex-col !space-y-0 gap-4 overflow-y-auto"
@@ -223,7 +224,7 @@ export function AppearanceFontManagerDialog({
             {tab === 'google' ? (
                 <>
                     <SettingsNotice className="shrink-0">
-                        Fonts added here are downloaded once and cached in Zyra for offline use. This manager contacts Google only after you click Download.
+                        Fonts download only after you click Download and are then cached for offline use.
                     </SettingsNotice>
                     <div className={listClass}>
                         {googleFonts.map((family) => {
@@ -251,8 +252,8 @@ export function AppearanceFontManagerDialog({
 
             {tab === 'downloaded' ? (
                 <div className={listClass}>
-                    {managedFonts.length === 0 ? <div className="flex h-full min-h-24 items-center justify-center px-4 text-center text-xs text-[var(--settings-text-muted)]">No downloaded or imported fonts yet.</div> : null}
-                    {managedFonts.filter((font) => !normalizedQuery || font.family.toLowerCase().includes(normalizedQuery)).map((font) => (
+                    {visibleManagedFonts.length === 0 ? <div className="flex h-full min-h-24 items-center justify-center px-4 text-center text-xs text-[var(--settings-text-muted)]">{managedFonts.length ? 'No matching fonts.' : 'No downloaded or imported fonts yet.'}</div> : null}
+                    {visibleManagedFonts.map((font) => (
                         <div key={font.id} className="flex min-h-14 items-center gap-3 border-b border-[var(--settings-row-divider)] px-3 py-2 last:border-b-0">
                             <HardDrive size={14} className="shrink-0 text-[var(--settings-text-muted)]" />
                             <div className="min-w-0 flex-1">
@@ -277,14 +278,14 @@ export function AppearanceFontManagerDialog({
             {tab === 'installed' ? (
                 <>
                     <div className="flex shrink-0 items-center justify-between gap-3">
-                        <p className="text-[11px] leading-5 text-[var(--settings-text-secondary)]">Browse fonts registered with Windows. Zyra uses them in place and does not copy their files.</p>
+                        <p className="text-[11px] leading-5 text-[var(--settings-text-secondary)]">Use fonts registered on this device without copying their files.</p>
                         <SettingsButton variant="outline" disabled={Boolean(busyKey)} onClick={() => void scanInstalledFonts()}>
                             <Monitor size={12} />
                             {busyKey === 'installed:scan' ? 'Scanning…' : 'Browse installed'}
                         </SettingsButton>
                     </div>
                     <div className={listClass}>
-                        {installedFonts.length === 0 ? <div className="flex h-full min-h-24 items-center justify-center px-4 text-center text-xs text-[var(--settings-text-muted)]">Choose “Browse installed” to read the Windows font list.</div> : null}
+                        {visibleInstalledFonts.length === 0 ? <div className="flex h-full min-h-24 items-center justify-center px-4 text-center text-xs text-[var(--settings-text-muted)]">{installedFonts.length ? 'No matching fonts.' : 'Choose Browse installed to load the font list.'}</div> : null}
                         {visibleInstalledFonts.map((family) => (
                             <div key={family} className="flex min-h-14 items-center gap-3 border-b border-[var(--settings-row-divider)] px-3 py-2 last:border-b-0">
                                 <Monitor size={14} className="shrink-0 text-[var(--settings-text-muted)]" />

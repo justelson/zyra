@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, RefreshCw } from 'lucide-react'
 import type { ZyraMemoryOverview } from '@shared/contracts/memory-contracts'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
+import { SettingsKeyValueList } from './SettingsKeyValueList'
 import {
     SettingsButton,
     SettingsNotice,
     SettingsPageContainer,
     SettingsRow,
-    SettingsSection
+    SettingsSection,
+    SettingsSelect
 } from './settings-layout'
 import { createSettingsRowTargetId } from './settings-search'
 
@@ -115,35 +117,29 @@ export default function MemorySettings() {
         <SettingsPageContainer title="Memory" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Memory" headerAction={<SettingsButton variant="ghost" onClick={() => void load(true)} disabled={state.status === 'loading'}><RefreshCw size={12} className={state.status === 'loading' ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 {state.status === 'error' ? <SettingsNotice tone="error">{state.error}</SettingsNotice> : null}
-                <SettingsRow title="Zyra root" description="Local root used by the active Zyra installation." status={overview?.rootPath || 'Loading…'} statusTone={overview ? 'muted' : 'info'} control={overview ? copyButton(overview.rootPath, 'Zyra root') : null} />
-                <SettingsRow title="Memory directory" description="Folder containing the memory layers loaded before a chat starts." status={overview?.memoryDirectory || 'Loading…'} statusTone={overview ? 'muted' : 'info'} control={overview ? copyButton(overview.memoryDirectory, 'memory directory') : null} />
-                <SettingsRow title="Sessions directory" description="Local location for canonical session records." status={overview?.sessionsDirectory || 'Loading…'} statusTone={overview ? 'muted' : 'info'} control={overview ? copyButton(overview.sessionsDirectory, 'sessions directory') : null} />
-                <SettingsRow title="Runtime defaults" description="Default model and thinking level used by the local runtime." control={<span className="text-xs font-medium text-sparkle-text-secondary">{overview ? `${overview.defaultModel} · ${overview.defaultThinking}` : 'Loading…'}</span>} />
+                <SettingsKeyValueList label="Memory locations and runtime" items={[
+                    ...([{ label: 'Zyra root', path: overview?.rootPath }, { label: 'Memory directory', path: overview?.memoryDirectory }, { label: 'Sessions directory', path: overview?.sessionsDirectory }]).map(entry => ({
+                        id: entry.label, label: entry.label, searchTargetId: createSettingsRowTargetId('Memory', entry.label),
+                        value: entry.path ? <span className="flex min-w-0 items-center justify-end gap-2"><code className="truncate text-[11px]" title={entry.path}>{entry.path}</code>{copyButton(entry.path, entry.label)}</span> : state.status === 'loading' ? 'Loading…' : 'Unavailable'
+                    })),
+                    { id: 'runtime', label: 'Runtime defaults', searchTargetId: createSettingsRowTargetId('Memory', 'Runtime defaults'), value: overview ? `${overview.defaultModel} · ${overview.defaultThinking}` : state.status === 'loading' ? 'Loading…' : 'Unavailable' }
+                ]} />
             </SettingsSection>
 
             <SettingsSection title="Layers">
-                {overview?.memoryLayers.length ? overview.memoryLayers.map((layer) => (
-                    <SettingsRow
-                        key={layer.id}
-                        title={layer.title}
-                        description={layer.summary || 'No stable summary yet.'}
-                        status={`${formatBytes(layer.size)} · updated ${new Date(layer.updatedAt).toLocaleString()}`}
-                        className={selectedLayer?.id === layer.id ? 'bg-[var(--settings-active)]' : undefined}
-                        control={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={() => setSelectedId(layer.id)}>{selectedLayer?.id === layer.id ? 'Selected' : 'View'}</SettingsButton>{copyButton(layer.filePath, `${layer.title} path`)}</div>}
+                {overview?.memoryLayers.length && selectedLayer ? <>
+                    <SettingsRow title="Memory layer" description="Choose a file to read its saved context."
+                        status={formatBytes(selectedLayer.size)}
+                        info={<div className="space-y-2"><p>{selectedLayer.summary || 'No stable summary yet.'}</p><p>Updated {new Date(selectedLayer.updatedAt).toLocaleString()}</p><code className="block break-all text-[11px]">{selectedLayer.filePath}</code></div>}
+                        control={<div className="flex items-center gap-1"><SettingsSelect value={selectedLayer.id} onChange={event => setSelectedId(event.target.value)} aria-label="Memory layer">{overview.memoryLayers.map(layer => <option key={layer.id} value={layer.id}>{layer.title}</option>)}</SettingsSelect>{copyButton(selectedLayer.filePath, `${selectedLayer.title} path`)}</div>}
                     />
-                )) : <SettingsNotice>{state.status === 'loading' ? 'Loading memory layers…' : 'No memory layers were found.'}</SettingsNotice>}
+                    <pre data-settings-search-target={createSettingsRowTargetId('Layers', 'File content')} tabIndex={-1} aria-label={`${selectedLayer.title} content`}
+                        className="max-h-[400px] overflow-auto whitespace-pre-wrap break-words border-t border-[var(--settings-row-divider)] p-4 font-mono text-[12px] leading-5 text-[var(--settings-text-secondary)] [scrollbar-gutter:stable]">{selectedLayer.content || 'This memory layer is empty.'}</pre>
+                </> : <SettingsNotice>{state.status === 'loading' ? 'Loading memory layers…' : state.status === 'error' ? 'Memory layers could not be loaded.' : 'No memory layers were found.'}</SettingsNotice>}
             </SettingsSection>
 
-            {selectedLayer ? (
-                <SettingsSection title={selectedLayer.title}>
-                    <SettingsRow searchTargetId={createSettingsRowTargetId('Layers', 'File content')} title="File content" description="Read-only view of the selected local memory layer.">
-                        <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border-t border-[var(--settings-border)] py-4 font-mono text-[12px] leading-relaxed text-sparkle-text-secondary">{selectedLayer.content || 'This memory layer is empty.'}</pre>
-                    </SettingsRow>
-                </SettingsSection>
-            ) : null}
-
             <SettingsSection title="Recommended prompts">
-                {overview?.recommendedPrompts.length ? overview.recommendedPrompts.map((prompt) => <SettingsRow key={prompt} title={prompt} description="Suggested prompt derived from the active memory setup." />) : <SettingsNotice>No recommended prompts are available.</SettingsNotice>}
+                {overview?.recommendedPrompts.length ? overview.recommendedPrompts.map((prompt) => <SettingsRow key={prompt} title={<span className="block truncate" title={prompt}>{prompt}</span>} description="Copy this suggestion into a chat." control={copyButton(prompt, 'suggested prompt')} />) : <SettingsNotice>{state.status === 'loading' ? 'Loading suggestions…' : 'No recommended prompts are available.'}</SettingsNotice>}
             </SettingsSection>
         </SettingsPageContainer>
     )

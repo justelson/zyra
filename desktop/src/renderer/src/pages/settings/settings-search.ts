@@ -100,6 +100,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Zyra in your browser': 'browser link url chrome open copy local host',
             'Connection scope': 'loopback local network reach'
         }),
+        row('Chrome browser', 'Zyra Browser extension', 'chrome extension pairing connect disconnect tabs read control'),
         row('Trusted devices', 'Other devices', 'phone computer pair pairing remote lan tailscale revoke')
     ],
     assistant: [
@@ -120,6 +121,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Reasoning summaries': 'auto detailed concise readable thoughts chain of thought progress',
             'Context limit': 'window tokens automatic compaction compact summarize 128k 200k 256k 320k 372k'
         }),
+        row('Output and history', 'Action statistics', 'timings duration counts activity rail actions'),
         ...rows('Output and history', ['Chat display', 'Assistant output', 'Open live tool output', 'Reconnect on startup', 'Cross-surface status', 'Canonical diagnostics'], {
             'Chat display': 'minimal detailed quiet compact activity timeline conversation',
             'Assistant output': 'stream chunks token text response',
@@ -127,12 +129,6 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Reconnect on startup': 'connect selected chat launch',
             'Cross-surface status': 'desktop browser active status',
             'Canonical diagnostics': 'worker replay sequence debug'
-        }),
-        ...rows('Voice transcription', ['Voice input', 'Transcription engine', 'ChatGPT transcription', 'Browser dictation'], {
-            'Voice input': 'microphone speech to text voice note',
-            'Transcription engine': 'browser chatgpt codex speech',
-            'ChatGPT transcription': 'recording account readiness',
-            'Browser dictation': 'web speech microphone'
         })
     ],
     skills: [
@@ -147,11 +143,19 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Name conflicts', 'Overlapping names', 'duplicate collision choose preferred winner resolve', 'Overlapping names'),
         row('When changes apply', 'New chats', 'reload existing active agent')
     ],
-    voice: rows('Instructor Voice Lab', ['Voice', 'Output', 'Instructions'], {
-        Voice: 'speaker realtime audio persona',
-        Output: 'audio text spoken response',
-        Instructions: 'voice prompt behavior'
-    }),
+    voice: [
+        ...rows('Voice transcription', ['Voice input', 'Transcription engine', 'ChatGPT transcription', 'Browser dictation'], {
+            'Voice input': 'microphone speech to text voice note',
+            'Transcription engine': 'browser chatgpt codex speech',
+            'ChatGPT transcription': 'recording account readiness',
+            'Browser dictation': 'web speech microphone'
+        }),
+        ...rows('Instructor Voice Lab', ['Voice', 'Output', 'Instructions'], {
+            Voice: 'speaker realtime audio persona',
+            Output: 'audio text spoken response',
+            Instructions: 'voice prompt behavior'
+        })
+    ],
     'browser-control': [
         ...rows('Browser workspace', ['Restore Browser tabs', 'Website sign-ins', 'Google search suggestions', 'Built-in ad blocking', 'New Tab backgrounds', 'Background behavior', 'Retained workspaces', 'Browser history', 'Temporary cache', 'Sign out of websites', 'Reset Browser profile'], {
             'Restore Browser tabs': 'reopen retained workspace',
@@ -165,6 +169,10 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Temporary cache': 'downloaded page resources clear',
             'Sign out of websites': 'cookies authentication sessions clear logout',
             'Reset Browser profile': 'permissions history cache cookies site data clear'
+        }).map(target => {
+            const section = ['Restore Browser tabs', 'New Tab backgrounds', 'Background behavior'].includes(target.label) ? 'Browsing'
+                : ['Website sign-ins', 'Google search suggestions', 'Built-in ad blocking'].includes(target.label) ? 'Browser privacy' : 'Site data'
+            return { ...target, section, sectionTargetId: createSettingsSectionTargetId(section) }
         })
     ],
     'files-editor': [
@@ -195,13 +203,10 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Package runtime', 'Project script runner', 'node npm pnpm yarn bun package manager')
     ],
     providers: [
-        row('Providers', 'Default Git AI provider', 'groq gemini chatgpt codex commit pull request'),
-        row('Groq', 'Groq API key', 'credential hosted provider test connection', 'API key'),
-        row('Google Gemini', 'Gemini API key', 'google credential hosted provider test connection', 'API key'),
-        ...rows('Zyra · ChatGPT', ['Commit model', 'Pull-request model'], {
-            'Commit model': 'git generated commit message chatgpt codex',
-            'Pull-request model': 'git pr title body chatgpt codex'
-        }),
+        { ...row('Groq', 'Groq API key', 'credential hosted provider test connection', 'API key'), section: 'Hosted providers', sectionTargetId: createSettingsSectionTargetId('Hosted providers') },
+        { ...row('Google Gemini', 'Gemini API key', 'google credential hosted provider test connection', 'API key'), section: 'Hosted providers', sectionTargetId: createSettingsSectionTargetId('Hosted providers') },
+        row('ChatGPT', 'Connected account', 'openai subscription test manage account'),
+        row('Text generation', 'Git writing defaults', 'source control models commit pr provider'),
         row('Stored credentials', 'Clear hosted API keys', 'remove groq gemini credentials')
     ],
     projects: [
@@ -221,6 +226,9 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
         row('Project icons', 'Automatic detection', 'app icon manifest favicon override')
     ],
     'source-control': [
+        { ...row('Providers', 'Default Git AI provider', 'groq gemini chatgpt codex commit pull request'), section: 'Text generation', sectionTargetId: createSettingsSectionTargetId('Text generation') },
+        { ...row('Zyra · ChatGPT', 'ChatGPT commit model', 'git generated commit message chatgpt codex', 'Commit model'), section: 'Text generation', sectionTargetId: createSettingsSectionTargetId('Text generation') },
+        { ...row('Zyra · ChatGPT', 'ChatGPT pull-request model', 'git pr title body chatgpt codex', 'Pull-request model'), section: 'Text generation', sectionTargetId: createSettingsSectionTargetId('Text generation') },
         ...rows('Pull requests', ['Default guide source', 'Default target branch', 'Default change source', 'Draft by default', 'Global guide mode', 'Global guide', 'Guide file'], {
             'Default guide source': 'pr instructions repository template',
             'Default target branch': 'base branch pull request',
@@ -251,6 +259,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Runtime defaults': 'model thinking level'
         }),
         sectionTarget('Layers', 'Memory layers', 'profile facts preferences project context files'),
+        row('Layers', 'File content', 'read local memory file contents'),
         sectionTarget('Recommended prompts', 'Recommended prompts', 'suggested memory setup prompts')
     ],
     archived: rows('Archive', ['Archived chats', 'Search'], {
@@ -269,7 +278,7 @@ export const SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly SettingsS
             'Release channel': 'alpha beta update feed',
             Platform: 'windows operating system',
             'Application stack': 'electron react typescript',
-            License: 'mit source code'
+            License: 'apache apache-2.0 source code'
         }),
         row('Terminal', 'zyra command', 'install remove bundled tui terminal path'),
         ...rows('Updates', ['Update status', 'Available version', 'Downloaded version', 'Download progress', 'Skipped version', 'Update actions', 'Defer this update'], {
@@ -324,6 +333,24 @@ export function findSettingsSearchTargets(pageId: string, rawQuery: string): Set
 
 export function getSettingsSearchTarget(pageId: string, targetId: string): SettingsSearchTarget | null {
     return SETTINGS_SEARCH_TARGETS[pageId]?.find((target) => target.targetId === targetId) || null
+}
+
+// Bookmarked exact-setting links follow their controls when a page is reorganized.
+export function resolveSettingsSearchLocation(pageId: string | null, targetId: string): { pathname: string; targetId: string } | null {
+    if (targetId === createSettingsSectionTargetId('Browser workspace')) return { pathname: SETTINGS_DESTINATIONS.find(entry => entry.id === 'browser-control')!.to, targetId: createSettingsSectionTargetId('Browsing') }
+    if (targetId === createSettingsSectionTargetId('Discovery locations')) return { pathname: SETTINGS_DESTINATIONS.find(entry => entry.id === 'projects')!.to, targetId: createSettingsSectionTargetId('Project roots') }
+    if (targetId.startsWith('settings-row-discovery-locations-')) return { pathname: SETTINGS_DESTINATIONS.find(entry => entry.id === 'projects')!.to, targetId: targetId.replace('settings-row-discovery-locations-', 'settings-row-project-roots-') }
+    if (targetId === createSettingsSectionTargetId('Providers') || targetId === createSettingsSectionTargetId('Zyra · ChatGPT')) {
+        return { pathname: SETTINGS_DESTINATIONS.find(entry => entry.id === 'source-control')!.to, targetId: createSettingsSectionTargetId('Text generation') }
+    }
+    if (targetId === createSettingsSectionTargetId('Groq') || targetId === createSettingsSectionTargetId('Google Gemini')) {
+        return { pathname: SETTINGS_DESTINATIONS.find(entry => entry.id === 'providers')!.to, targetId: createSettingsSectionTargetId('Hosted providers') }
+    }
+    const ownsTarget = (id: string) => SETTINGS_SEARCH_TARGETS[id]?.some(target => target.targetId === targetId || target.sectionTargetId === targetId)
+    const destination = pageId && ownsTarget(pageId)
+        ? SETTINGS_DESTINATIONS.find(entry => entry.id === pageId)
+        : SETTINGS_DESTINATIONS.find(entry => ownsTarget(entry.id))
+    return destination ? { pathname: destination.to, targetId } : null
 }
 
 export type SettingsSearchMatch = {

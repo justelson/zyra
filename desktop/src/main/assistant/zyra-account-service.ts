@@ -9,6 +9,7 @@ import type {
     AssistantRateLimitWindow,
     AssistantRedeemAccountResetInput
 } from '../../shared/assistant/contracts'
+import { getSharedOpenAIAuthWorkerClient } from '../setup/openai-auth-worker-client'
 import { resolveZyraRoot } from '../zyra/zyra-root'
 
 const CHATGPT_ACCOUNT_PROVIDER = 'openai-codex'
@@ -38,17 +39,29 @@ type NormalizedUsageWindow = {
     window: AssistantRateLimitWindow
 }
 
-let accountModulePromise: Promise<ChatGptAccountModule> | null = null
+let redemptionModulePromise: Promise<ChatGptAccountModule> | null = null
 
-async function loadChatGptAccountModule(): Promise<ChatGptAccountModule> {
-    if (!accountModulePromise) {
+async function redeemResetOnMain(creditId: string): Promise<unknown> {
+    // Preserve ownership of the existing external mutation. A worker exit after
+    // the POST must not introduce a new ambiguous-redemption failure path.
+    if (!redemptionModulePromise) {
         const moduleUrl = pathToFileURL(join(resolveZyraRoot(), 'src', 'chatgpt-account.mjs')).href
-        accountModulePromise = (import(/* @vite-ignore */ moduleUrl) as Promise<ChatGptAccountModule>).catch((error) => {
-            accountModulePromise = null
+        redemptionModulePromise = (import(/* @vite-ignore */ moduleUrl) as Promise<ChatGptAccountModule>).catch(error => {
+            redemptionModulePromise = null
             throw error
         })
     }
-    return accountModulePromise
+    return (await redemptionModulePromise).redeemCodexResetCredit(creditId)
+}
+
+async function loadChatGptAccountModule(): Promise<ChatGptAccountModule> {
+    // Opening/polling Account must not import or create Pi runtimes in main.
+    const { account } = getSharedOpenAIAuthWorkerClient()
+    return {
+        buildChatGptAccountStatus: account.buildChatGptAccountStatus,
+        fetchCodexResetCredits: account.fetchCodexResetCredits,
+        redeemCodexResetCredit: redeemResetOnMain
+    }
 }
 
 export class ZyraAccountService {

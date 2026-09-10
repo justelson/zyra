@@ -92,16 +92,16 @@ export default function TerminalRuntimeSettings() {
                         </span>
                     )}
                 />
-                <SettingsRow title="Font size" description="Apply the terminal text size to Assistant and file-preview terminals." control={<SettingsInput type="number" min={10} max={24} value={settings.terminalFontSize} onChange={(event) => updateSettings({ terminalFontSize: Math.max(10, Math.min(24, Math.round(Number(event.target.value) || 12))) })} className="sm:w-24" aria-label="Terminal font size" />} />
+                <SettingsRow title="Font size" description="Set text size for embedded terminals." control={<SettingsInput type="number" min={10} max={24} value={settings.terminalFontSize} onChange={(event) => updateSettings({ terminalFontSize: Math.max(10, Math.min(24, Math.round(Number(event.target.value) || 12))) })} className="sm:w-24" aria-label="Terminal font size" />} />
                 <SettingsRow title="Blinking cursor" description="Blink the cursor in embedded terminals." control={<SettingsSwitch checked={settings.terminalCursorBlink} onCheckedChange={(terminalCursorBlink) => updateSettings({ terminalCursorBlink })} label="Blinking terminal cursor" />} />
                 <SettingsRow title="Scrollback" description="Lines retained by each embedded terminal, from 1,000 to 50,000." control={<SettingsInput type="number" min={1000} max={50000} step={1000} value={settings.terminalScrollback} onChange={(event) => updateSettings({ terminalScrollback: Math.max(1_000, Math.min(50_000, Math.round(Number(event.target.value) || 5_000))) })} className="sm:w-28" aria-label="Terminal scrollback lines" />} />
-                <SettingsRow title="Preview panel height" description="Default height, in pixels, for the file-preview terminal panel." control={<SettingsInput type="number" min={140} max={720} value={settings.filePreviewTerminalPanelHeight} onChange={(event) => updateSettings({ filePreviewTerminalPanelHeight: Math.max(140, Math.min(720, Number(event.target.value) || 220)) })} className="sm:w-24" aria-label="Terminal panel height" />} />
+                <SettingsRow title="Preview panel height" description="Set the starting height of the file-preview terminal." control={<SettingsInput type="number" min={140} max={720} value={settings.filePreviewTerminalPanelHeight} onChange={(event) => updateSettings({ filePreviewTerminalPanelHeight: Math.max(140, Math.min(720, Number(event.target.value) || 220)) })} className="sm:w-24" aria-label="Terminal panel height" />} />
             </SettingsSection>
 
             <SettingsSection title="Package runtime" headerAction={<SettingsButton variant="ghost" onClick={() => void refreshRuntimes(true)} disabled={runtimeLoading}><RefreshCw size={12} className={runtimeLoading ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 <SettingsRow
                     title="Project script runner"
-                    description="Choose the runtime used by project script actions. Auto follows project lockfiles."
+                    description="Choose a script runner or follow the project's lockfile."
                     status={runtimeError ? 'Unavailable' : runtimeLoading ? 'Checking' : null}
                     statusTone={runtimeError ? 'danger' : 'info'}
                     statusTitle={runtimeError || undefined}

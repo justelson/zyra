@@ -1,6 +1,6 @@
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ArrowLeft, PanelLeftOpen, Pin, Search, X } from 'lucide-react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { captureProductEventOnce } from '@/lib/product-analytics'
@@ -16,15 +16,16 @@ import {
     findSettingsDestination,
     findSettingsNavigationItem,
     SETTINGS_DESTINATIONS,
-    SETTINGS_NAVIGATION_GROUPS,
-    settingsNavigationItemMatchesPath,
     type SettingsDestination
 } from './settings-navigation'
+import { SettingsSidebarNavigation } from './SettingsSidebarNavigation'
+import { getSettingsSearchKeyAction } from './settings-search-keyboard'
 import { preloadSettingsRoute } from './settings-route-loaders'
 import {
     findAllSettingsSearchMatches,
     getSettingsSearchTarget,
     isSettingsSearchTargetId,
+    resolveSettingsSearchLocation,
     type SettingsSearchTarget
 } from './settings-search'
 
@@ -70,7 +71,7 @@ function analyticsSettingsSection(value: string): AnalyticsSettingsSection {
 
 function SettingsRouteFallback() {
     return (
-        <div className="mx-auto w-full max-w-[680px] px-5 pb-16 pt-8 sm:px-10 sm:pt-10" aria-busy="true" aria-label="Opening settings page">
+        <div className="mx-auto w-full max-w-[760px] px-5 pb-16 pt-8 sm:px-10 sm:pt-10" aria-busy="true" aria-label="Opening settings page">
             <div className="space-y-10">
                 {[0, 1].map((section) => (
                     <div key={section} className="space-y-2.5">
@@ -88,6 +89,8 @@ export default function SettingsShell() {
     const navigate = useNavigate()
     const { settings, updateSettings } = useSettings()
     const [query, setQuery] = useState('')
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const searchResultsRef = useRef<HTMLDivElement | null>(null)
     const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(localStorage.getItem(SETTINGS_SIDEBAR_WIDTH_KEY))))
     const [resizingSidebar, setResizingSidebar] = useState(false)
     const resizeStateRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
@@ -99,6 +102,17 @@ export default function SettingsShell() {
     const normalizedQuery = query.trim().toLowerCase()
     const activeItem = findSettingsNavigationItem(location.pathname)
     const activeDestination = findSettingsDestination(location.pathname)
+    const handleSearchKeyDown = (event: ReactKeyboardEvent, fromInput: boolean) => {
+        if (!normalizedQuery || event.metaKey || event.ctrlKey || event.altKey) return
+        const links = [...(searchResultsRef.current?.querySelectorAll<HTMLAnchorElement>('[data-settings-search-result]') || [])]
+        const action = getSettingsSearchKeyAction(event.key, links.length, links.indexOf(document.activeElement as HTMLAnchorElement), fromInput)
+        if (!action) return
+        event.preventDefault()
+        event.stopPropagation()
+        if (action.type === 'clear') { setQuery(''); searchInputRef.current?.focus() }
+        else if (action.type === 'activate') links[action.index]?.click()
+        else links[action.index]?.focus()
+    }
     const activeAnalyticsId = activeDestination?.id || null
     useEffect(() => {
         if (!activeAnalyticsId) return
@@ -116,6 +130,15 @@ export default function SettingsShell() {
         () => normalizedQuery ? groupSettingsSearchMatches(normalizedQuery) : [],
         [normalizedQuery]
     )
+
+    useEffect(() => {
+        if (!requestedSearchTarget) return
+        const resolved = resolveSettingsSearchLocation(activeDestination?.id || null, requestedSearchTarget)
+        if (!resolved || resolved.pathname === location.pathname && resolved.targetId === requestedSearchTarget) return
+        const search = new URLSearchParams(location.search)
+        search.set('setting', resolved.targetId)
+        navigate({ pathname: resolved.pathname, search: `?${search}`, hash: location.hash }, { replace: true, state: location.state })
+    }, [activeDestination?.id, location.pathname, location.search, location.hash, location.state, requestedSearchTarget, navigate])
 
     useLayoutEffect(() => {
         if (requestedSearchTarget) return
@@ -137,6 +160,7 @@ export default function SettingsShell() {
         let clearTimer = 0
         let observer: MutationObserver | null = null
         let highlighted: HTMLElement | null = null
+        let previousScrollMarginTop: string | null = null
 
         const findTarget = (targetId: string | null) => targetId
             ? scrollContainer.querySelector<HTMLElement>(`[data-settings-search-target="${targetId}"]`)
@@ -149,9 +173,15 @@ export default function SettingsShell() {
             highlighted = target
             observer?.disconnect()
             target.classList.add('zyra-settings-search-target')
+            const sectionTarget = target.tagName === 'SECTION'
+            if (sectionTarget) {
+                previousScrollMarginTop = target.style.scrollMarginTop
+                const navigation = scrollContainer.querySelector<HTMLElement>('nav[aria-label="On this page"]')
+                target.style.scrollMarginTop = `${(navigation?.getBoundingClientRect().height || 0) + 12}px`
+            }
             target.focus({ preventScroll: true })
             target.scrollIntoView({
-                block: 'center',
+                block: sectionTarget ? 'start' : 'center',
                 behavior: settings.accessibilityReduceMotion ? 'auto' : 'smooth'
             })
             clearTimer = window.setTimeout(() => target.classList.remove('zyra-settings-search-target'), 2_200)
@@ -168,6 +198,7 @@ export default function SettingsShell() {
             window.clearTimeout(clearTimer)
             observer?.disconnect()
             highlighted?.classList.remove('zyra-settings-search-target')
+            if (highlighted && previousScrollMarginTop !== null) highlighted.style.scrollMarginTop = previousScrollMarginTop
         }
     }, [activeDestination, location.key, requestedSearchTarget, settings.accessibilityReduceMotion])
 
@@ -362,6 +393,8 @@ export default function SettingsShell() {
                     <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-[var(--settings-border)] bg-[var(--settings-control)] px-2 text-[var(--settings-text-muted)] transition-colors hover:border-[var(--settings-border-strong)] focus-within:border-[var(--accent-primary)] focus-within:text-[var(--settings-text-secondary)]">
                         <Search size={13} strokeWidth={1.8} className="shrink-0" />
                         <input
+                            ref={searchInputRef}
+                            onKeyDown={event => handleSearchKeyDown(event, true)}
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
                             placeholder="Find settings"
@@ -411,7 +444,7 @@ export default function SettingsShell() {
                 <nav className="settings-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3" aria-label="Settings sections">
                     {normalizedQuery ? (
                         searchResultGroups.length ? (
-                            <div className="space-y-3 pb-2 pt-1">
+                            <div ref={searchResultsRef} onKeyDown={event => handleSearchKeyDown(event, false)} className="space-y-3 pb-2 pt-1">
                                 {searchResultGroups.map((resultGroup) => {
                                     const { destination } = resultGroup
                                     const Icon = destination.icon
@@ -420,6 +453,8 @@ export default function SettingsShell() {
                                         <div key={destination.id}>
                                             <Link
                                                 to={destination.to}
+                                                data-settings-search-result={resultGroup.targets.length === 0 ? 'page' : undefined}
+                                                onClick={() => setQuery('')}
                                                 onPointerEnter={() => preloadSettingsRoute(destination.to)}
                                                 onPointerDown={() => preloadSettingsRoute(destination.to)}
                                                 onFocus={() => preloadSettingsRoute(destination.to)}
@@ -436,6 +471,8 @@ export default function SettingsShell() {
                                                             key={`${target.section}:${target.targetId}`}
                                                             to={`${destination.to}?setting=${encodeURIComponent(target.targetId)}`}
                                                             state={{ settingsSearchRequest: target.targetId }}
+                                                            data-settings-search-result="target"
+                                                            onClick={() => setQuery('')}
                                                             onPointerEnter={() => preloadSettingsRoute(destination.to)}
                                                             onPointerDown={() => preloadSettingsRoute(destination.to)}
                                                             onFocus={() => preloadSettingsRoute(destination.to)}
@@ -454,6 +491,7 @@ export default function SettingsShell() {
                                                 {resultGroup.targets.length === 0 && resultGroup.pageMatched ? (
                                                     <Link
                                                         to={destination.to}
+                                                        onClick={() => setQuery('')}
                                                         className="block min-h-7 truncate rounded-md px-2 py-1 text-[11px] leading-5 text-[var(--settings-text-secondary)] transition-colors hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]"
                                                     >
                                                         {destination.description}
@@ -467,40 +505,8 @@ export default function SettingsShell() {
                         ) : (
                             <div className="px-2 py-6 text-center text-[12px] text-[var(--settings-text-muted)]">No matching settings</div>
                         )
-                    ) : SETTINGS_NAVIGATION_GROUPS.map((group) => (
-                        <div key={group.id} className="mb-3 last:mb-0">
-                            {group.label ? <div className="px-2 pb-1 pt-1 text-[10px] font-semibold text-[var(--settings-text-faint)]">{group.label}</div> : null}
-                            <div className="space-y-0.5">
-                                {group.items.map((item) => {
-                                    const Icon = item.icon
-                                    const isActive = settingsNavigationItemMatchesPath(item, location.pathname)
-                                    return (
-                                        <NavLink
-                                            key={item.id}
-                                            to={item.to}
-                                            aria-current={isActive ? 'page' : undefined}
-                                            onPointerEnter={() => preloadSettingsRoute(item.to)}
-                                            onPointerDown={() => preloadSettingsRoute(item.to)}
-                                            onFocus={() => preloadSettingsRoute(item.to)}
-                                            className={cn(
-                                                'group flex min-h-8 items-center gap-2 rounded-md px-2 text-[12px] transition-colors duration-100',
-                                                isActive
-                                                    ? 'bg-[var(--settings-nav-active)] font-medium text-[var(--settings-text)]'
-                                                    : 'text-[var(--settings-text-secondary)] hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-text)]'
-                                            )}
-                                        >
-                                            <Icon
-                                                size={14}
-                                                strokeWidth={isActive ? 1.9 : 1.7}
-                                                className={cn('shrink-0 transition-colors', isActive ? 'text-[var(--settings-text-secondary)]' : 'text-[var(--settings-text-faint)] group-hover:text-[var(--settings-text-secondary)]')}
-                                            />
-                                            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                        </NavLink>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    ))}
+                    ) : null}
+                    <SettingsSidebarNavigation hidden={Boolean(normalizedQuery)} preloadRoute={preloadSettingsRoute} />
                 </nav>
 
                 <div className="mx-2 mt-auto shrink-0 border-t border-[var(--surface-divider)] pb-2.5 pt-2">

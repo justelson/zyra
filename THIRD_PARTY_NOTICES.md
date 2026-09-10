@@ -10,6 +10,10 @@ Desktop packages also retain Electron's license and Chromium's generated license
 
 Zyra can send explicitly enabled, allowlisted product events to a user-configured [PostHog](https://posthog.com/) project through PostHog's documented capture API. Zyra does not bundle the PostHog SDK or enable its browser autocapture, session replay, heatmap, DOM capture, or remote feature-flag features. Use of a configured PostHog service remains subject to the service operator's terms and privacy settings.
 
+## Provider logos from T3 Code
+
+The Claude and Gemini SVG marks are adapted from the MIT-licensed [T3 Code icon source](https://github.com/pingdotgg/t3code/blob/de37964db26bd3260d253f138bfde2ac60fe254e/apps/web/src/components/Icons.tsx). Copyright (c) 2026 T3 Tools Inc. The complete notice is retained with the assets in `desktop/src/renderer/src/assets/provider-logos/LICENSE.t3-code.txt`. Product trademarks remain with their owners.
+
 ## Product logos from SVGL
 
 Zyra includes logo artwork published by the SVGL project:

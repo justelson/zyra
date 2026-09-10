@@ -101,7 +101,7 @@ export default function GeneralSettings() {
                         statusTitle={startupStatus && startupStatus !== 'Saved' ? startupStatus : undefined}
                         control={<SettingsSwitch checked={settings.startWithWindows} onCheckedChange={(checked) => void setStartup(checked, checked ? settings.startMinimized : false)} label="Open Zyra at login" />}
                     />
-                    <SettingsRow title="Start hidden" description="Start Zyra in the background. Open Zyra again whenever you want to show the window." control={<SettingsSwitch checked={settings.startWithWindows && settings.startMinimized} disabled={!settings.startWithWindows} onCheckedChange={(checked) => void setStartup(true, checked)} label="Start Zyra hidden" />} />
+                    <SettingsRow title="Start hidden" description="Start in the background when you sign in." info="Open Zyra again whenever you want to show the window." control={<SettingsSwitch checked={settings.startWithWindows && settings.startMinimized} disabled={!settings.startWithWindows} onCheckedChange={(checked) => void setStartup(true, checked)} label="Start Zyra hidden" />} />
                 </SettingsSection>
             ) : (
                 <SettingsSection title="Desktop host">
@@ -112,14 +112,15 @@ export default function GeneralSettings() {
             <SettingsSection title="Interface">
                 <SettingsRow title="Chat rail" description="Keep the conversation sidebar collapsed across restarts on this surface." control={<SettingsSwitch checked={settings.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => updateSettings({ sidebarCollapsed })} label="Collapse chat rail" />} />
                 <SettingsRow title="Sidebar hover preview" description="Temporarily show a minimized sidebar when the pointer reaches the left edge." control={<SettingsSwitch checked={settings.sidebarHoverPreviewEnabled} onCheckedChange={(sidebarHoverPreviewEnabled) => updateSettings({ sidebarHoverPreviewEnabled })} label="Preview minimized sidebar on hover" />} />
-                <SettingsRow title="Agent Inbox sidebar" description="Use one flat chat list in creation order. Active work renders as rich cards; settled chats collapse to compact rows. Switch back any time." control={<SettingsSwitch checked={settings.assistantAgentInboxSidebarEnabled} onCheckedChange={(assistantAgentInboxSidebarEnabled) => updateSettings({ assistantAgentInboxSidebarEnabled })} label="Use Agent Inbox sidebar" />} />
+                <SettingsRow title="Agent Inbox sidebar" description="Keep chats in creation order with compact completed rows." info="Active work uses expanded cards; turn this off to return to the standard chat list." control={<SettingsSwitch checked={settings.assistantAgentInboxSidebarEnabled} onCheckedChange={(assistantAgentInboxSidebarEnabled) => updateSettings({ assistantAgentInboxSidebarEnabled })} label="Use Agent Inbox sidebar" />} />
             </SettingsSection>
 
             {desktopHost ? (
                 <SettingsSection title="Setup">
                     <SettingsRow
                         title="Review device setup"
-                        description="Revisit your OpenAI connection, appearance, and projects folder. Your completed status stays valid while you review."
+                        description="Review your connection, appearance and project preferences."
+                        info="Your completed setup stays valid while you review."
                         status={onboarding.snapshot?.record?.completedAt ? 'Completed' : null}
                         statusTone="ready"
                         control={<SettingsButton onClick={() => void reviewSetup()}>Review setup</SettingsButton>}

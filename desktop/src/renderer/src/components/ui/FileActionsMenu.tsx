@@ -29,6 +29,7 @@ interface FileActionsMenuProps {
     openButtonClassName?: string
     menuClassName?: string
     title?: string
+    disabled?: boolean
     triggerIcon?: React.ReactNode
     presentation?: 'portal' | 'inline'
     preferredDirection?: 'up' | 'down'
@@ -45,6 +46,7 @@ export function FileActionsMenu({
     openButtonClassName,
     menuClassName,
     title = 'Actions',
+    disabled = false,
     triggerIcon,
     presentation = 'portal',
     preferredDirection,
@@ -119,6 +121,8 @@ export function FileActionsMenu({
                 maxHeight: Math.max(1, spaceBelow - gap)
             })
     }
+
+    useEffect(() => { if (disabled) setOpen(false) }, [disabled])
 
     useEffect(() => {
         if (!open) return
@@ -343,6 +347,7 @@ export function FileActionsMenu({
             <button
                 ref={buttonRef}
                 type="button"
+                disabled={disabled}
                 onClick={(event) => {
                     event.stopPropagation()
                     if (!open) {

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
+import { SettingsActionsMenu } from './SettingsActionsMenu'
+import { SettingsListPagination } from './SettingsListPagination'
+import { paginateSettingsItems } from './settings-list-page'
+import { SettingsProviderIcon } from './SettingsProviderIcon'
 import {
     SettingsButton,
+    SettingsDialog,
     SettingsNotice,
     SettingsPageContainer,
     SettingsRow,
     SettingsSection,
-    SettingsSegmented
+    SettingsSelect
 } from './settings-layout'
 
 type ProviderFilter = 'all' | 'groq' | 'gemini' | 'codex'
@@ -57,6 +62,7 @@ export default function LogsSettings() {
     const [filter, setFilter] = useState<ProviderFilter>('all')
     const [copiedKey, setCopiedKey] = useState<string | null>(null)
     const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [requestedPage, setPage] = useState(0)
 
     const loadLogs = async (forceRefresh = false) => {
         if (!forceRefresh && cachedLogs && Date.now() - cachedLogsAt < LOGS_CACHE_TTL_MS) {
@@ -82,13 +88,18 @@ export default function LogsSettings() {
     useEffect(() => { void loadLogs() }, [])
 
     const filteredLogs = useMemo(() => filter === 'all' ? logs : logs.filter((entry) => entry.provider === filter), [filter, logs])
+    const page = paginateSettingsItems(filteredLogs, requestedPage)
+    const selectedEntry = logs.find(entry => entry.id === expandedId) || null
 
     const copyText = async (key: string, value: string) => {
         if (!value.trim()) return
         try {
             const result = await window.devscope.copyToClipboard?.(value)
             if (result && result.success === false) throw new Error(result.error || 'Could not copy logs.')
-            if (!result && navigator.clipboard?.writeText) await navigator.clipboard.writeText(value)
+            if (!result) {
+                if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.')
+                await navigator.clipboard.writeText(value)
+            }
             setCopiedKey(key)
             window.setTimeout(() => setCopiedKey((current) => current === key ? null : current), 1500)
         } catch (copyError) {
@@ -114,31 +125,39 @@ export default function LogsSettings() {
 
     return (
         <SettingsPageContainer title="Diagnostics" backTo="/settings/data" backLabel="Data & privacy">
-            <SettingsSection title="Diagnostics" headerAction={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={() => void loadLogs(true)} disabled={loading}><RefreshCw size={12} className={loading ? 'animate-spin' : ''} />Refresh</SettingsButton><SettingsButton variant="ghost" onClick={() => void copyText('visible', filteredLogs.map(formatLogEntry).join('\n\n====================\n\n'))} disabled={filteredLogs.length === 0}>{copiedKey === 'visible' ? <Check size={12} /> : <Copy size={12} />}Copy visible</SettingsButton></div>}>
+            <SettingsSection title="Diagnostics" headerAction={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={() => void loadLogs(true)} disabled={loading}><RefreshCw size={12} className={loading ? 'animate-spin' : ''} />Refresh</SettingsButton><SettingsButton variant="ghost" onClick={() => void copyText('visible', filteredLogs.map(formatLogEntry).join('\n\n====================\n\n'))} disabled={filteredLogs.length === 0}>{copiedKey === 'visible' ? <Check size={12} /> : <Copy size={12} />}Copy matching</SettingsButton></div>}>
                 {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
                 <SettingsRow title="AI debug logs" description="Local provider requests and responses retained for Git AI troubleshooting." control={<span className="font-mono text-xs tabular-nums text-sparkle-text-secondary">{logs.length}</span>} />
-                <SettingsRow title="Provider filter" description="Limit the visible log records by provider." control={<SettingsSegmented value={filter} options={[{ value: 'all', label: 'All' }, { value: 'groq', label: 'Groq' }, { value: 'gemini', label: 'Gemini' }, { value: 'codex', label: 'ChatGPT' }]} onChange={setFilter} label="AI log provider filter" />} />
+                <SettingsRow title="Provider filter" description="Limit the visible log records by provider." control={<SettingsSelect value={filter} onChange={event => { setFilter(event.target.value as ProviderFilter); setPage(0) }} aria-label="AI log provider filter"><option value="all">All providers</option><option value="groq">Groq</option><option value="gemini">Gemini</option><option value="codex">ChatGPT</option></SettingsSelect>} />
                 <SettingsRow title="Clear logs" description="Remove all local AI provider debug records." control={<SettingsButton variant="danger" onClick={() => void clearLogs()} disabled={clearing || logs.length === 0}><Trash2 size={12} />{clearing ? 'Clearing…' : 'Clear'}</SettingsButton>} />
             </SettingsSection>
 
             <SettingsSection title="AI provider records">
-                {filteredLogs.length === 0 ? <SettingsNotice>{loading ? 'Loading logs…' : 'No matching debug records.'}</SettingsNotice> : filteredLogs.map((entry) => {
-                    const expanded = expandedId === entry.id
-                    const payload = expanded ? formatLogEntry(entry) : ''
+                <div className="max-h-[520px] overflow-y-auto [scrollbar-gutter:stable]">
+                {page.total === 0 ? <SettingsNotice>{loading ? 'Loading logs…' : error ? 'Records could not be loaded.' : 'No matching debug records.'}</SettingsNotice> : page.items.map((entry) => {
                     return (
                         <SettingsRow
                             key={entry.id}
                             title={`${entry.provider === 'codex' ? 'ChatGPT' : entry.provider.toUpperCase()} · ${entry.action === 'testConnection' ? 'Connection test' : 'Commit message'}`}
-                            description={entry.error || entry.finalMessage || entry.candidateMessage || entry.promptPreview || 'No summary available.'}
-                            status={`${entry.status} · ${new Date(entry.timestamp).toLocaleString()}${entry.model ? ` · ${entry.model}` : ''}`}
+                            description={<span className="block truncate">{entry.error || entry.finalMessage || entry.candidateMessage || entry.promptPreview || 'No summary available.'}</span>}
+                            icon={entry.provider === 'codex' || entry.provider === 'gemini' ? <SettingsProviderIcon provider={entry.provider} /> : undefined}
+                            status={entry.status === 'success' ? 'Success' : 'Error'}
                             statusTone={entry.status === 'success' ? 'ready' : 'danger'}
-                            control={<div className="flex gap-1"><SettingsButton variant="ghost" onClick={() => setExpandedId(expanded ? null : entry.id)}>{expanded ? 'Hide' : 'Details'}</SettingsButton><SettingsButton variant="ghost" onClick={() => void copyText(entry.id, formatLogEntry(entry))}>{copiedKey === entry.id ? <Check size={12} /> : <Copy size={12} />}</SettingsButton></div>}
-                        >
-                            {expanded ? <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap border-t border-[var(--settings-border)] py-4 font-mono text-[11px] leading-relaxed text-sparkle-text-secondary">{payload}</pre> : null}
-                        </SettingsRow>
+                            info={<span>{new Date(entry.timestamp).toLocaleString()}{entry.model ? ` · ${entry.model}` : ''}</span>}
+                            control={<SettingsActionsMenu label="View" ariaLabel={`Actions for ${entry.provider} record`} items={[
+                                { id: 'details', label: 'View details', onSelect: () => setExpandedId(entry.id) },
+                                { id: 'copy', label: copiedKey === entry.id ? 'Copied' : 'Copy record', icon: copiedKey === entry.id ? <Check size={13} /> : <Copy size={13} />, onSelect: () => copyText(entry.id, formatLogEntry(entry)) }
+                            ]} />}
+                        />
                     )
                 })}
+                </div>
+                <SettingsListPagination {...page} onPageChange={setPage} />
             </SettingsSection>
+            <SettingsDialog open={selectedEntry !== null} title="Diagnostic record" onClose={() => setExpandedId(null)} className="max-w-[720px]"
+                footer={<><SettingsButton variant="ghost" onClick={() => setExpandedId(null)}>Close</SettingsButton>{selectedEntry ? <SettingsButton onClick={() => void copyText(selectedEntry.id, formatLogEntry(selectedEntry))}>{copiedKey === selectedEntry.id ? <Check size={13} /> : <Copy size={13} />}{copiedKey === selectedEntry.id ? 'Copied' : 'Copy record'}</SettingsButton> : null}</>}>
+                {selectedEntry ? <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-[var(--settings-text-secondary)]">{formatLogEntry(selectedEntry)}</pre> : null}
+            </SettingsDialog>
         </SettingsPageContainer>
     )
 }

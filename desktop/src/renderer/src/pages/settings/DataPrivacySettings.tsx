@@ -8,9 +8,9 @@ import {
     SettingsNotice,
     SettingsPageContainer,
     SettingsRow,
-    SettingsSection,
-    SettingsSwitch
+    SettingsSection
 } from './settings-layout'
+import { AnalyticsPrivacyRow } from './AnalyticsPrivacyRow'
 
 export default function DataPrivacySettings() {
     const { clearCache } = useSettings()
@@ -56,25 +56,11 @@ export default function DataPrivacySettings() {
         <SettingsPageContainer title="Privacy & maintenance" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Privacy">
                 {desktopHost ? (
-                    <>
-                        <SettingsRow
-                            title="Share product analytics"
-                            description="Send coarse feature outcomes, performance timings, and allowlisted diagnostic codes tied to a stable random installation ID that keeps pseudonymous events together across sessions and is not derived from your account or device identity. Unsent events expire from the local queue after 7 days. Zyra never includes prompts, responses, files, paths, URLs, account identity, terminal content, or raw errors."
-                            status={analyticsStatus?.enabled ? 'Ready' : analyticsStatus?.requested ? 'Needs setup' : 'Off'}
-                            statusTone={analyticsStatus?.enabled ? 'ready' : analyticsStatus?.requested ? 'warning' : 'muted'}
-                            control={(
-                                <SettingsSwitch
-                                    checked={analyticsStatus?.requested === true}
-                                    disabled={!analyticsStatus || !analyticsStatus.canChangeEnabled}
-                                    onCheckedChange={(enabled) => void setAnalyticsEnabled(enabled)}
-                                    label="Share product analytics"
-                                />
-                            )}
-                        />
-                        {analyticsStatus?.enabledSource === 'environment' ? <SettingsNotice tone="neutral">Your environment controls this setting.</SettingsNotice> : null}
-                        {analyticsStatus?.requested && !analyticsStatus.enabled ? <SettingsNotice tone="warning">Analytics will stay off until this device has a valid PostHog project key and approved HTTPS host.</SettingsNotice> : null}
-                        {analyticsError ? <SettingsNotice tone="error">{analyticsError}</SettingsNotice> : null}
-                    </>
+                    <AnalyticsPrivacyRow
+                        status={analyticsStatus}
+                        error={analyticsError}
+                        onEnabledChange={(enabled) => void setAnalyticsEnabled(enabled)}
+                    />
                 ) : (
                     <SettingsNotice tone="neutral">Open Zyra Desktop on this computer to review product analytics.</SettingsNotice>
                 )}
@@ -83,7 +69,8 @@ export default function DataPrivacySettings() {
             <SettingsSection title="Local maintenance">
                 <SettingsRow
                     title="Cached UI data"
-                    description="Clear non-setting renderer caches. Canonical transcripts, retained workspaces, settings, and project files are preserved."
+                    description="Clear cached interface data without deleting your settings."
+                    info="Chats, retained workspaces and project files are preserved."
                     control={<SettingsButton onClick={clearCache}>Clear cache</SettingsButton>}
                 />
             </SettingsSection>

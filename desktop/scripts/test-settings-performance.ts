@@ -65,6 +65,9 @@ try {
     assert.doesNotMatch(connectionLoadSource, /listModels/, 'opening Account cannot discover models as an unrelated side effect')
     assert.match(accountSource, /ACCOUNT_POLL_INTERVAL_MS = 60_000/, 'Account polling uses a quiet one-minute cadence')
     assert.match(accountSource, /document\.visibilityState === 'visible'/, 'Account polling pauses network work while hidden')
+    assert.match(accountSource, /startAccountOverviewPolling\(\{\s*refresh: loadOverview,/, 'the Account page must use the lifecycle-owned poller')
+    assert.match(accountSource, /return \(\) => \{\s*overviewRequestIdRef\.current \+= 1\s*polling\.dispose\(\)/, 'navigation invalidates pending UI updates and permanently stops polling')
+    assert.doesNotMatch(accountSource, /finally\(schedulePoll\)/, 'unmounted refresh completions must not resurrect timers')
 
     const settingsStoreSource = readFileSync(new URL('../src/renderer/src/lib/settings.tsx', import.meta.url), 'utf8')
     assert.match(settingsStoreSource, /clearProjectViewCaches\(\)[\s\S]{0,160}clearSettingsRuntimeCaches\(\)/, 'Clear cache includes loaded Settings runtime caches')

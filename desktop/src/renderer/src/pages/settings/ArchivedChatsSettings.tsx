@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArchiveRestore, ExternalLink, Trash2 } from 'lucide-react'
 import type { AssistantSession } from '@shared/assistant/contracts'
+import { SettingsActionsMenu } from './SettingsActionsMenu'
+import { SettingsListPagination } from './SettingsListPagination'
+import { paginateSettingsItems } from './settings-list-page'
+import { createSettingsRowTargetId } from './settings-search'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import {
     formatAssistantSidebarRelativeTime,
@@ -24,6 +28,8 @@ export default function ArchivedChatsSettings() {
     const sessions = useAssistantStoreSelector((state) => state.snapshot.sessions)
     const [query, setQuery] = useState('')
     const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
+    const [requestedPage, setPage] = useState(0)
+    const [actionError, setActionError] = useState<string | null>(null)
 
     const archivedSessions = useMemo(() => sessions.filter((session) => session.archived).sort((left, right) => getSortableTimestamp(getSessionLastActivityAt(right)) - getSortableTimestamp(getSessionLastActivityAt(left))), [sessions])
     const filteredSessions = useMemo(() => {
@@ -35,12 +41,17 @@ export default function ArchivedChatsSettings() {
     const restore = async (session: AssistantSession, openAfterRestore: boolean) => {
         if (pendingSessionId) return
         setPendingSessionId(session.id)
+        setActionError(null)
         try {
-            await actions.archiveSession(session.id, false)
+            const result = await actions.archiveSessionResult(session.id, false)
+            if (!result.success) throw new Error(result.error || 'Could not restore the chat.')
             if (openAfterRestore) {
-                await actions.selectSession(session.id, { force: true })
+                const selected = await actions.selectSessionResult(session.id, { force: true })
+                if (!selected.success) throw new Error(`Chat restored, but could not open it: ${selected.error}`)
                 navigate('/assistant')
             }
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : 'Could not restore the chat.')
         } finally {
             setPendingSessionId(null)
         }
@@ -49,33 +60,49 @@ export default function ArchivedChatsSettings() {
     const deleteSession = async (session: AssistantSession) => {
         if (pendingSessionId || !window.confirm(`Delete "${getSessionDisplayTitle(session)}"? This cannot be undone.`)) return
         setPendingSessionId(session.id)
+        setActionError(null)
         try {
-            await actions.deleteSession(session.id)
+            const result = await actions.deleteSessionResult(session.id)
+            if (!result.success) throw new Error(result.error || 'Could not delete the chat.')
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : 'Could not delete the chat.')
         } finally {
             setPendingSessionId(null)
         }
     }
 
+    const page = paginateSettingsItems(filteredSessions, requestedPage)
+
     return (
         <SettingsPageContainer title="Archived chats" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Archive">
-                <SettingsRow title="Archived chats" description="Hidden canonical chats that remain intact until restored or explicitly deleted." control={<span className="font-mono text-xs tabular-nums text-sparkle-text-secondary">{archivedSessions.length}</span>} />
-                <SettingsRow title="Search" description="Filter by title, project path, or canonical chat ID." control={<SettingsInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search archive" aria-label="Search archived chats" />} />
+                <SettingsRow title="Archived chats" description="Chats stay saved until you restore or delete them." control={<span className="font-mono text-xs tabular-nums text-sparkle-text-secondary">{archivedSessions.length}</span>} />
+                {actionError ? <SettingsNotice tone="error">{actionError}</SettingsNotice> : null}
             </SettingsSection>
 
             <SettingsSection title="Chats">
-                {filteredSessions.length === 0 ? <SettingsNotice>{query ? 'No archived chats match this search.' : 'No chats are archived.'}</SettingsNotice> : filteredSessions.map((session) => {
+                <div className="border-b border-[var(--settings-row-divider)] px-4 py-3" data-settings-search-target={createSettingsRowTargetId('Archive', 'Search')} tabIndex={-1}>
+                    <SettingsInput value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} placeholder="Search by title, project or chat ID" aria-label="Search archived chats" className="sm:w-full" />
+                </div>
+                <div className="max-h-[520px] overflow-y-auto [scrollbar-gutter:stable]">
+                {page.total === 0 ? <SettingsNotice>{query ? 'No archived chats match this search.' : 'No chats are archived.'}</SettingsNotice> : page.items.map((session) => {
                     const pending = pendingSessionId === session.id
                     return (
                         <SettingsRow
                             key={session.id}
-                            title={getSessionDisplayTitle(session)}
-                            description={session.projectPath || 'No project folder'}
-                            status={`${formatAssistantSidebarRelativeTime(getSessionLastActivityAt(session))} · ${session.id}`}
-                            control={<div className="flex gap-1"><SettingsButton onClick={() => void restore(session, false)} disabled={pending}><ArchiveRestore size={13} />Restore</SettingsButton><SettingsButton variant="ghost" onClick={() => void restore(session, true)} disabled={pending}><ExternalLink size={13} />Restore and open</SettingsButton><SettingsButton variant="ghost" onClick={() => void deleteSession(session)} disabled={pending} aria-label="Delete archived chat"><Trash2 size={13} /></SettingsButton></div>}
+                            title={<span className="block truncate" title={getSessionDisplayTitle(session)}>{getSessionDisplayTitle(session)}</span>}
+                            description={session.projectPath ? <code className="block truncate text-[11px]" title={session.projectPath}>{session.projectPath}</code> : 'No project folder.'}
+                            status={formatAssistantSidebarRelativeTime(getSessionLastActivityAt(session))}
+                            info={<div className="space-y-1"><span>Chat ID</span><code className="block break-all text-[11px]">{session.id}</code></div>}
+                            control={<div className="flex gap-2"><SettingsButton onClick={() => void restore(session, false)} disabled={Boolean(pendingSessionId)}><ArchiveRestore size={13} />{pending ? 'Working…' : 'Restore'}</SettingsButton><SettingsActionsMenu label="More" ariaLabel={`Actions for ${getSessionDisplayTitle(session)}`} disabled={Boolean(pendingSessionId)} items={[
+                                { id: 'open', label: 'Restore and open', icon: <ExternalLink size={13} />, onSelect: () => restore(session, true) },
+                                { id: 'delete', label: 'Delete chat', icon: <Trash2 size={13} />, danger: true, separatorBefore: true, onSelect: () => deleteSession(session) }
+                            ]} /></div>}
                         />
                     )
                 })}
+                </div>
+                <SettingsListPagination {...page} onPageChange={setPage} />
             </SettingsSection>
         </SettingsPageContainer>
     )

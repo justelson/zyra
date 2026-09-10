@@ -1,3 +1,5 @@
+import { getSettingsCategoryEntry, SETTINGS_NAVIGATION_ITEMS } from './settings-navigation'
+
 export const loadSettingsShell = () => import('./SettingsShell')
 export const loadSettingsOverview = () => import('./SettingsOverview')
 export const loadGeneralSettings = () => import('../Settings')
@@ -20,16 +22,12 @@ export const loadDataPrivacySettings = () => import('./DataPrivacySettings')
 export const loadAboutSettings = () => import('./AboutSettings')
 
 const routeLoaders: Record<string, () => Promise<unknown>> = {
-    '/settings': loadSettingsOverview,
-    '/settings/app': loadSettingsOverview,
-    '/settings/account': loadSettingsOverview,
-    '/settings/assistant': loadSettingsOverview,
-    '/settings/workspace': loadSettingsOverview,
-    '/settings/data': loadSettingsOverview,
+    '/settings': loadGeneralSettings,
     '/settings/app/general': loadGeneralSettings,
     '/settings/app/appearance': loadAppearanceSettings,
     '/settings/account/openai': loadAccountSettings,
     '/settings/account/devices': loadConnectionsSettings,
+    '/settings/account/providers': loadProviderSettings,
     '/settings/assistant/defaults': loadAssistantSettings,
     '/settings/assistant/skills': loadSkillsSettings,
     '/settings/assistant/voice': loadVoiceSettings,
@@ -62,7 +60,9 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
 
 export function preloadSettingsRoute(value: string): void {
     const pathname = value.split(/[?#]/, 1)[0] || '/settings'
-    const loader = routeLoaders[pathname] || null
+    const category = SETTINGS_NAVIGATION_ITEMS.find(item => item.to === pathname)
+    const destination = category ? getSettingsCategoryEntry(category.id).to : pathname
+    const loader = routeLoaders[destination] || null
     void loadSettingsShell().catch(() => undefined)
     void loader?.().catch(() => undefined)
 }

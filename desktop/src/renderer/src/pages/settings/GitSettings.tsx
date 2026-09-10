@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { useSettings } from '@/lib/settings'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
+import { GitTextGenerationSettings } from './GitTextGenerationSettings'
 import {
     SettingsButton,
     SettingsDialog,
@@ -110,6 +111,7 @@ export default function GitSettings() {
 
     return (
         <SettingsPageContainer title="Source control" backTo="/settings/workspace" backLabel="Workspace">
+            <GitTextGenerationSettings />
             <SettingsSection title="Pull requests">
                 <SettingsRow title="Default guide source" description="Instructions used unless the active project stores its own PR settings." control={<SettingsSelect value={settings.gitPullRequestDefaultGuideSource} onChange={(event) => updateSettings({ gitPullRequestDefaultGuideSource: event.target.value as typeof settings.gitPullRequestDefaultGuideSource })} aria-label="Default PR guide source"><option value="global">Global guide</option><option value="repo-template">Repository template</option><option value="none">None</option></SettingsSelect>} />
                 <SettingsRow title="Default target branch" description="Base branch proposed by the pull-request flow." status={settings.gitPullRequestDefaultTargetBranch} control={<SettingsButton onClick={() => openTextEditor('target-branch', settings.gitPullRequestDefaultTargetBranch)}>Edit</SettingsButton>} />
@@ -138,7 +140,7 @@ export default function GitSettings() {
                 {globalAuthorMessage ? <SettingsNotice tone={globalAuthorMessage.includes('updated') ? 'success' : 'neutral'}>{globalAuthorMessage}</SettingsNotice> : null}
                 <SettingsRow
                     title="Git author"
-                    description="Machine-wide author used by future commits. This does not change GitHub authentication."
+                    description="Set the default author for future commits on this machine." info="This does not change GitHub authentication."
                     status={savedGlobalAuthor.name && savedGlobalAuthor.email ? `${savedGlobalAuthor.name} · ${savedGlobalAuthor.email}` : 'No global identity configured'}
                     statusTone={savedGlobalAuthor.name && savedGlobalAuthor.email ? 'ready' : 'warning'}
                     control={<SettingsButton onClick={() => { setGlobalAuthorDraft(savedGlobalAuthor); setEditDialog('identity') }} disabled={globalAuthorLoading}>{globalAuthorLoading ? 'Loading…' : 'Edit identity'}</SettingsButton>}

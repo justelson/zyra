@@ -92,6 +92,20 @@ function updateEntry(
     return next
 }
 
+function findActiveTranscriptEntry(entries: InstructorTranscriptEntry[], role: string): InstructorTranscriptEntry | null {
+    let active: InstructorTranscriptEntry | null = null
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index]
+        if (entry.role !== role) continue
+        if (entry.final) break
+        // Different speakers can overlap, but multiple unfinished utterances of
+        // the same speaker require an explicit provider identity to resolve.
+        if (active) return null
+        active = entry
+    }
+    return active
+}
+
 function findTranscriptCompletionTarget(
     entries: InstructorTranscriptEntry[],
     id: string,
@@ -99,8 +113,7 @@ function findTranscriptCompletionTarget(
 ): InstructorTranscriptEntry | null {
     const existing = entries.find((entry) => entry.id === id)
     if (existing) return existing
-    const latest = entries.at(-1)
-    return latest?.role === role && !latest.final ? latest : null
+    return findActiveTranscriptEntry(entries, role)
 }
 
 function removeAdjacentUserPrefix(
@@ -212,9 +225,11 @@ export function applyRealtimeTranscriptEvent(
         // Frameless v3 assigns an item ID to each transcript chunk rather than
         // to the whole turn. Keep the active role's chunks in one provisional
         // entry; turn.done below finalizes that entry with the complete text.
+        const exact = itemId ? entries.find(entry => entry.id === itemId && !entry.final) : null
         const latest = entries.at(-1)
-        if (latest && latest.role === role && !latest.final) {
-            return updateEntry(entries, latest.id, (entry) => ({
+        const active = exact || (latest?.role === role && !latest.final ? latest : findActiveTranscriptEntry(entries, role))
+        if (active) {
+            return updateEntry(entries, active.id, (entry) => ({
                 ...entry,
                 text: appendTranscriptDelta(entry.text, delta)
             }))

@@ -1,10 +1,12 @@
-import { createContext, useContext, useEffect } from 'react'
+import { createContext, useContext, useEffect, useRef } from 'react'
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, Undo2, X } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useInRouterContext } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { createSettingsRowTargetId, createSettingsSectionTargetId } from './settings-search'
+import { SettingsInfoTooltip } from './SettingsInfoTooltip'
+import { SettingsSectionNavigation } from './SettingsSectionNavigation'
 
 const SettingsSearchSectionContext = createContext<string | null>(null)
 
@@ -15,13 +17,16 @@ export function SettingsPageContainer({ children, className, title, backTo, back
     backTo?: string
     backLabel?: string
 }) {
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const inRouter = useInRouterContext()
+    const showBackLink = backTo && !backTo.startsWith('/settings')
     return (
-        <div className="zyra-settings-page-container flex w-full min-w-0 justify-center px-5 pb-16 pt-8 sm:px-10 sm:pt-10">
-            <div className={cn('zyra-settings-page-column flex w-full max-w-[680px] flex-col', title ? 'gap-8' : 'gap-10', className)}>
+        <div ref={containerRef} className="zyra-settings-page-container flex w-full min-w-0 justify-center px-5 pb-16 pt-8 sm:px-10 sm:pt-10">
+            <div className={cn('zyra-settings-page-column flex w-full max-w-[760px] flex-col', title ? 'gap-4' : 'gap-10', className)}>
                 {title ? (
                     <header className="px-0.5">
-                        {backTo ? (
-                            <Link to={backTo} className="mb-2 inline-flex h-6 items-center gap-0.5 text-[11px] font-medium text-[var(--settings-text-muted)] transition-colors hover:text-[var(--settings-text)]">
+                        {showBackLink ? (
+                            <Link to={backTo!} className="mb-2 inline-flex h-6 items-center gap-0.5 text-[11px] font-medium text-[var(--settings-text-muted)] transition-colors hover:text-[var(--settings-text)]">
                                 <ChevronLeft size={13} strokeWidth={1.8} />
                                 {backLabel || 'Settings'}
                             </Link>
@@ -29,14 +34,17 @@ export function SettingsPageContainer({ children, className, title, backTo, back
                         <h1 className="text-[24px] font-medium tracking-[-0.025em] text-[var(--settings-text)]">{title}</h1>
                     </header>
                 ) : null}
-                {children}
+                {inRouter ? <SettingsSectionNavigation containerRef={containerRef} /> : null}
+                <div className={cn('flex min-w-0 flex-col', title ? 'gap-8' : 'gap-10')} data-settings-page-content="true">{children}</div>
             </div>
         </div>
     )
 }
 
-export function SettingsSection({ title, headerAction, children, className }: {
+export function SettingsSection({ title, searchSection, icon, headerAction, children, className }: {
     title: string
+    searchSection?: string
+    icon?: ReactNode
     headerAction?: ReactNode
     children: ReactNode
     className?: string
@@ -49,10 +57,10 @@ export function SettingsSection({ title, headerAction, children, className }: {
             tabIndex={-1}
         >
             <div className="flex min-h-7 items-center justify-between gap-4 px-1">
-                <h2 className="text-[15px] font-semibold tracking-[-0.015em] text-[var(--settings-text)]">{title}</h2>
+                <h2 className="flex min-w-0 items-center gap-2 text-[14px] font-medium tracking-[-0.01em] text-[var(--settings-text-secondary)]">{icon}{title}</h2>
                 <div className="flex min-h-7 items-center justify-end">{headerAction}</div>
             </div>
-            <SettingsSearchSectionContext.Provider value={title}>
+            <SettingsSearchSectionContext.Provider value={searchSection || title}>
                 <div className="zyra-settings-section-body relative overflow-visible rounded-xl border border-[var(--settings-border)] bg-[var(--settings-section)] text-[var(--settings-text)] shadow-[inset_0_1px_0_var(--settings-section-highlight)]">{children}</div>
             </SettingsSearchSectionContext.Provider>
         </section>
@@ -83,9 +91,11 @@ export function SettingsStatusPill({ label, tone = 'muted', title }: {
     )
 }
 
-export function SettingsRow({ title, description, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, searchTargetId: explicitSearchTargetId, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
+export function SettingsRow({ title, description, icon, info, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, searchTargetId: explicitSearchTargetId, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
     title: ReactNode
     description: ReactNode
+    icon?: ReactNode
+    info?: ReactNode
     status?: ReactNode
     statusTone?: SettingsStatusTone
     statusTitle?: string
@@ -103,10 +113,12 @@ export function SettingsRow({ title, description, status, statusTone = 'muted', 
             tabIndex={searchTargetId ? -1 : props.tabIndex}
             className={cn('zyra-settings-row px-4 transition-colors duration-100 hover:bg-[var(--settings-row-hover)] [content-visibility:auto] [contain-intrinsic-size:auto_68px]', children ? 'pb-2.5 pt-3.5' : 'py-3.5', className)}
         >
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
+            <div className={cn('grid gap-3', Boolean(control) && 'sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center sm:gap-8')}>
                 <div className="min-w-0 space-y-1">
                     <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        {icon ? <span className="inline-flex size-4 shrink-0 items-center justify-center">{icon}</span> : null}
                         <h3 className="min-w-0 text-[13px] font-medium tracking-[-0.003em] text-[var(--settings-text)]">{title}</h3>
+                        {info ? <SettingsInfoTooltip label={typeof title === 'string' ? `About ${title}` : 'Setting details'}>{info}</SettingsInfoTooltip> : null}
                         {status ? <SettingsStatusPill label={status} tone={statusTone} title={statusTitle ?? (typeof status === 'string' ? status : undefined)} /> : null}
                         {resetAction ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{resetAction}</span> : null}
                     </div>

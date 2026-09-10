@@ -2201,6 +2201,7 @@ body.zyra-reduce-motion .assistant-browser-viewport-frame {
 }
 
 /* Settings keep theme identity while reserving accent color for real signals. */
+.settings-sidebar-scrollbar,
 .settings-content-scrollbar {
   scrollbar-gutter: stable;
 }

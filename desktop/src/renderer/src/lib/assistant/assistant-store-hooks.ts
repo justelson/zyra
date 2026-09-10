@@ -83,6 +83,7 @@ const assistantStoreActions = {
     createSessionResult: (input?: AssistantCreateSessionInput) => assistantStore.createSession(input),
     createPluginChatResult: (input: import('@shared/assistant/contracts').AssistantCreatePluginChatInput) => assistantStore.createPluginChat(input),
     selectSession: (sessionId: string, options?: { force?: boolean }) => assistantStore.selectSession(sessionId, options).then(() => undefined),
+    selectSessionResult: (sessionId: string, options?: { force?: boolean }) => assistantStore.selectSession(sessionId, options),
     selectThread: (input: { sessionId: string; threadId: string }, options?: { force?: boolean }) => assistantStore.selectThread(input, options).then(() => undefined),
     renameSession: (sessionId: string, title: string) => assistantStore.renameSession(sessionId, title).then(() => undefined),
     renameSessionResult: (sessionId: string, title: string) => assistantStore.renameSession(sessionId, title),

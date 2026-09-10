@@ -12,7 +12,7 @@ import {
     type AppearanceUiFont
 } from '@/lib/settings'
 import type { ThemeDefinition, ThemeTokens } from '@/lib/settings-theme-catalog'
-import { SettingsButton, SettingsSelect } from '../settings-layout'
+import { SettingsButton, SettingsNotice, SettingsSelect } from '../settings-layout'
 import { createSettingsRowTargetId } from '../settings-search'
 
 const TOKEN_LABELS: ReadonlyArray<{ key: keyof ThemeTokens; label: string }> = [
@@ -123,19 +123,21 @@ export function AppearanceThemeController({
     onOpenFontManager: (target: 'ui' | 'code') => void
 }) {
     const [copied, setCopied] = useState(false)
+    const [copyError, setCopyError] = useState<string | null>(null)
     const modeTitle = customActive
         ? `Custom ${theme.name} theme`
         : mode === 'system' ? 'System default' : `${theme.name} theme`
     const modeDescription = customActive
         ? `Saved custom values based on ${theme.name}`
         : mode === 'system'
-            ? `Following Windows · currently using ${theme.name}`
+            ? `Following system appearance · ${theme.name}`
             : theme.description
     const matchedAccent = ACCENT_COLORS.find((entry) => (
         entry.primary.toLowerCase() === accent.primary.toLowerCase()
         && entry.secondary.toLowerCase() === accent.secondary.toLowerCase()
     ))
     const copyTheme = async () => {
+        setCopyError(null)
         try {
             await navigator.clipboard.writeText(JSON.stringify({
                 mode: customActive ? 'custom' : mode,
@@ -149,6 +151,7 @@ export function AppearanceThemeController({
             window.setTimeout(() => setCopied(false), 1600)
         } catch {
             setCopied(false)
+            setCopyError('Could not copy theme values to the clipboard.')
         }
     }
 
@@ -174,7 +177,8 @@ export function AppearanceThemeController({
                 </div>
             </div>
 
-            <div className="overflow-hidden border-t border-[var(--settings-border)]">
+            {copyError ? <SettingsNotice tone="error">{copyError}</SettingsNotice> : null}
+            <div className="max-h-[420px] overflow-auto border-t border-[var(--settings-border)] [scrollbar-gutter:stable]">
                 <table
                     className="w-full table-fixed border-collapse"
                     aria-label="Editable theme values"
@@ -185,7 +189,7 @@ export function AppearanceThemeController({
                         <col className="w-[42%]" />
                         <col />
                     </colgroup>
-                    <thead>
+                    <thead className="sticky top-0 z-10">
                         <tr className="bg-[var(--settings-control)] text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--settings-text-muted)]">
                             <th scope="col" className="px-4 py-2 text-left">Property</th>
                             <th scope="col" className="px-4 py-2 text-right">Value</th>

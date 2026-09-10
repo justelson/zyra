@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from './aiSettingsConfig'
 import { loadSettingsModels, readCachedSettingsModels } from '../settings-model-catalog-cache'
 
-export function useCodexModelOptions(effectiveCodexModels: string[]) {
+export function useCodexModelOptions(effectiveCodexModels: string[], enabled = true) {
     const [codexModelOptions, setCodexModelOptions] = useState<ModelOption[]>(readCachedSettingsModels)
     const [codexModelsError, setCodexModelsError] = useState('')
 
     useEffect(() => {
+        if (!enabled) return
         let cancelled = false
 
         async function loadCodexModels() {
@@ -27,7 +28,7 @@ export function useCodexModelOptions(effectiveCodexModels: string[]) {
         return () => {
             cancelled = true
         }
-    }, [])
+    }, [enabled])
 
     const resolvedCodexModelOptions = useMemo(() => {
         const options = [...codexModelOptions]

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { INSTRUCTOR_REALTIME_VOICES } from '@shared/assistant/contracts'
+import { VoiceTranscriptionSettings } from './VoiceTranscriptionSettings'
 import {
     readInstructorVoicePreferences,
     writeInstructorVoicePreferences,
@@ -31,6 +32,7 @@ export default function VoiceSettings() {
 
     return (
         <SettingsPageContainer title="Voice" backTo="/settings/assistant" backLabel="Assistant">
+            <VoiceTranscriptionSettings />
             <SettingsSection title="Instructor Voice Lab" headerAction={<SettingsButton variant="ghost" onClick={() => navigate('/assistant/instructor')}>Open Voice Lab</SettingsButton>}>
                 <SettingsRow
                     title="Voice"
@@ -44,7 +46,8 @@ export default function VoiceSettings() {
                 <SettingsRow title="Output" description="Play spoken responses or keep the session text-only." control={<SettingsSegmented value={preferences.outputModality} options={[{ value: 'audio', label: 'Audio' }, { value: 'text', label: 'Text' }]} onChange={(outputModality) => updatePreferences({ outputModality })} label="Voice Lab output" />} />
                 <SettingsRow
                     title="Instructions"
-                    description="Set the standing guidance for new Voice Lab sessions. Existing sessions keep their current instructions."
+                    description="Set instructions for new Voice Lab sessions."
+                    info="Existing sessions keep their current instructions."
                     status={preferences.instructions.trim() ? 'Custom guidance saved' : 'No standing guidance'}
                     statusTone={preferences.instructions.trim() ? 'ready' : 'muted'}
                     control={<SettingsButton onClick={() => { setInstructionsDraft(preferences.instructions); setInstructionsOpen(true) }}>Edit</SettingsButton>}

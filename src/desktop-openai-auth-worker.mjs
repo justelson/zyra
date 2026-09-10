@@ -8,6 +8,7 @@ import {
 } from "./desktop-openai-auth.mjs";
 import {
   buildChatGptAccountStatus,
+  fetchCodexResetCredits,
   resolveChatGptAccountAuth,
 } from "./chatgpt-account.mjs";
 
@@ -31,6 +32,8 @@ async function execute(message) {
       return buildChatGptAccountStatus(message.provider, message.options);
     case "resolveChatGptAccountAuth":
       return resolveChatGptAccountAuth();
+    case "fetchCodexResetCredits":
+      return fetchCodexResetCredits();
     case "getZyraAuthStatus":
       return getZyraAuthStatus(message.provider);
     case "loginZyraAuth":

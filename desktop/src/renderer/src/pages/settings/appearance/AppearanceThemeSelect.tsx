@@ -115,7 +115,10 @@ function AppearanceThemeSelect({
             if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false)
         }
         const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-            if (event.key === 'Escape') setOpen(false)
+            if (event.key === 'Escape') {
+                setOpen(false)
+                rootRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+            }
         }
         const updatePosition = () => positionPopover()
         document.addEventListener('pointerdown', closeOnOutsidePointer)
@@ -150,6 +153,14 @@ function AppearanceThemeSelect({
     const popover = open && popoverLayout ? (
         <div
             ref={popoverRef}
+            onKeyDown={event => {
+                const options = [...(listRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') || [])]
+                if (event.target === searchRef.current && event.key === 'Enter') { event.preventDefault(); options[0]?.click(); return }
+                if (!['ArrowDown', 'ArrowUp'].includes(event.key) || !options.length) return
+                event.preventDefault()
+                const index = options.indexOf(document.activeElement as HTMLButtonElement)
+                options[event.key === 'ArrowDown' ? (index + 1) % options.length : index <= 0 ? options.length - 1 : index - 1]?.focus()
+            }}
             className="fixed z-[120] overflow-hidden rounded-lg border border-[var(--settings-border-strong)] bg-[var(--settings-popover)] shadow-[0_18px_60px_color-mix(in_srgb,var(--color-bg)_45%,transparent)] backdrop-blur-xl"
             style={{
                 left: popoverLayout.left,
@@ -172,7 +183,7 @@ function AppearanceThemeSelect({
                 id={listboxId}
                 role="listbox"
                 aria-label={label}
-                className="overflow-y-auto border-t border-[var(--settings-border)] p-1"
+                className="overflow-y-auto border-t border-[var(--settings-border)] p-1 [scrollbar-gutter:stable]"
                 style={{ maxHeight: popoverLayout.listHeight }}
             >
                 {filteredThemes.map((theme) => {

@@ -21,7 +21,7 @@ export default function ConnectionsSettings() {
     const desktopHost = isElectronRendererRuntime()
 
     useEffect(() => {
-        if (!actionStatus) return
+        if (!actionStatus || actionStatus.tone === 'danger') return
         const timer = window.setTimeout(() => setActionStatus(null), 3_000)
         return () => window.clearTimeout(timer)
     }, [actionStatus])
@@ -59,7 +59,8 @@ export default function ConnectionsSettings() {
             <SettingsSection title="This device">
                 <SettingsRow
                     title="Zyra in your browser"
-                    description="Open the same chats, projects, files, terminals, and approvals in Chrome."
+                    description="Use your chats, files and approvals in a browser."
+                    info={<div className="space-y-2"><p>The local browser client includes projects and terminals on this computer.</p><code className="block break-all text-[11px]">{BROWSER_CLIENT_HOST_ORIGIN}</code></div>}
                     status={actionStatus?.label || (desktopHost ? 'This computer' : 'Connected')}
                     statusTone={actionStatus?.tone || (desktopHost ? 'info' : 'ready')}
                     statusTitle={actionStatus?.detail}
@@ -69,11 +70,7 @@ export default function ConnectionsSettings() {
                             {desktopHost ? <SettingsButton onClick={() => void openLocalBrowserClient()}><ExternalLink size={12} />Open</SettingsButton> : null}
                         </>
                     )}
-                >
-                    <code className="mt-3 block w-full select-all overflow-x-auto rounded-md border border-[var(--settings-border)] bg-[var(--settings-control)] px-3 py-2 font-mono text-[11px] text-[var(--settings-text-secondary)]">
-                        {BROWSER_CLIENT_HOST_ORIGIN}
-                    </code>
-                </SettingsRow>
+                />
                 <SettingsRow
                     title="Connection scope"
                     description="The local browser client accepts connections from this computer only."

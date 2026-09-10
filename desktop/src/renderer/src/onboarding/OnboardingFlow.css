@@ -88,7 +88,7 @@
     grid-row: span 2;
     align-items: center;
     justify-content: center;
-    color: var(--color-text-secondary);
+    color: var(--color-text);
 }
 
 .onboarding-review-detail {
@@ -343,4 +343,29 @@ body.zyra-reduce-motion .onboarding-action-dock { animation: none !important; }
 .onboarding-page-body[data-reduced-motion="true"] .onboarding-welcome-button { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
     .onboarding-page-body, .onboarding-welcome-letters > span, .onboarding-welcome-button { animation: none !important; }
+}
+
+.onboarding-progress-fill { transform-origin: left; transition: transform 680ms cubic-bezier(0.22, 1, 0.36, 1); }
+.onboarding-dock-copy { display: inline-flex; animation: onboarding-dock-copy-in 520ms cubic-bezier(0.22, 1, 0.36, 1); }
+.onboarding-action-dock[data-direction="backward"] { --dock-offset: -8px; }
+.onboarding-action-dock[data-changing="true"] .onboarding-dock-copy { display: inline-flex; animation: onboarding-dock-copy-out 140ms ease-in forwards; }
+.onboarding-action-dock[data-leaving="true"] { animation: onboarding-dock-out 140ms ease-in forwards; }
+@keyframes onboarding-dock-copy-in { from { opacity: 0; transform: translateX(var(--dock-offset, 8px)); } to { opacity: 1; transform: none; } }
+@keyframes onboarding-dock-copy-out { to { opacity: 0; transform: translateX(calc(-1 * var(--dock-offset, 8px))); } }
+@keyframes onboarding-dock-out { to { opacity: 0; transform: translateY(6px); } }
+.onboarding-review-item, .onboarding-review-choice {
+    animation: onboarding-review-in 650ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    animation-delay: calc(80ms + var(--item-index, 3) * 65ms);
+}
+.onboarding-page-body[data-leaving="true"] .onboarding-review-item,
+.onboarding-page-body[data-leaving="true"] .onboarding-review-choice { animation: onboarding-review-out 140ms ease-in forwards; }
+@keyframes onboarding-review-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@keyframes onboarding-review-out { to { opacity: 0; transform: translateX(-8px); } }
+.onboarding-action-dock[data-reduced-motion="true"],
+.onboarding-action-dock[data-reduced-motion="true"] *,
+.onboarding-page-body[data-reduced-motion="true"] .onboarding-review-item,
+.onboarding-page-body[data-reduced-motion="true"] .onboarding-review-choice { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    .onboarding-dock-copy, .onboarding-review-item, .onboarding-review-choice { animation: none !important; }
+    .onboarding-progress-fill { transition: none !important; }
 }

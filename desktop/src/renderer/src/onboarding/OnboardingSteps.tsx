@@ -211,17 +211,17 @@ export function ReviewStep({
     return (
         <div className="mx-auto w-full max-w-[440px]">
             <dl className="onboarding-review-grid">
-                {items.map((item) => (
-                    <div key={item.id} className="onboarding-review-item">
+                {items.map((item, index) => (
+                    <div key={item.id} className="onboarding-review-item" style={{ '--item-index': index } as CSSProperties}>
                         <span className="onboarding-review-icon">{item.icon}</span>
-                        <dt className="row-span-2 text-[12px] text-sparkle-text-secondary">{item.label}</dt>
+                        <dt className="row-span-2 text-[12px] font-medium text-sparkle-text">{item.label}</dt>
                         <dd className="truncate text-right text-[13px] font-medium text-sparkle-text" title={item.value}>{item.value}</dd>
                         <dd className={cn('onboarding-review-detail truncate text-right text-[11px] text-sparkle-text-muted', item.id === 'projects' && 'font-mono')} title={item.detail}>{item.detail}</dd>
                     </div>
                 ))}
             </dl>
 
-            <div className="mt-4"><OnboardingAnalyticsChoice analyticsChoice={analyticsChoice} analyticsConfigured={analyticsConfigured} analyticsManagedByEnvironment={analyticsManagedByEnvironment} analyticsLoading={analyticsLoading} analyticsError={analyticsError} onAnalyticsChoice={onAnalyticsChoice} /></div>
+            <div className="onboarding-review-choice mt-4"><OnboardingAnalyticsChoice analyticsChoice={analyticsChoice} analyticsConfigured={analyticsConfigured} analyticsManagedByEnvironment={analyticsManagedByEnvironment} analyticsLoading={analyticsLoading} analyticsError={analyticsError} onAnalyticsChoice={onAnalyticsChoice} /></div>
 
         </div>
     )

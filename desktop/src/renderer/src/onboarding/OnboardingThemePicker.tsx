@@ -1,15 +1,11 @@
 import { type ThemeRevealOrigin } from './useThemeReveal'
 import { ChevronDown, Ellipsis } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
-import { DARK_THEMES, LIGHT_THEMES, type Theme } from '@/lib/settings-theme-catalog'
+import { DARK_THEMES, LIGHT_THEMES, type Theme, type ThemeDefinition } from '@/lib/settings-theme-catalog'
 import { themeRevealOrigin } from './useThemeReveal'
 import { OnboardingThemeSwatch } from './OnboardingThemeSwatch'
 import { OnboardingThemeBrowser } from './OnboardingThemeBrowser'
-
-const SUGGESTED = {
-    dark: ['dark', 'midnight', 'nord', 'gruvbox', 'rose-pine', 'catppuccin-mocha', 'dracula', 'forest', 'ocean', 'one-dark', 'tokyo-night'],
-    light: ['light', 'paper-light', 'nord-snow', 'rose-pine-dawn', 'catppuccin-latte', 'everforest-light', 'github-light', 'solarized-light', 'ocean-mist', 'lavender-light', 'tokyo-day']
-}
+import { getThemeWindow } from './onboarding-theme-window'
 
 export function OnboardingThemePicker({ appearance, value, onChange }: {
     appearance: 'light' | 'dark'
@@ -19,10 +15,9 @@ export function OnboardingThemePicker({ appearance, value, onChange }: {
     const [expanded, setExpanded] = useState(false)
     const frameRef = useRef<HTMLDivElement>(null)
     const id = useId()
-    const themes = appearance === 'light' ? LIGHT_THEMES : DARK_THEMES
+    const themes: readonly (ThemeDefinition & { id: Theme })[] = appearance === 'light' ? LIGHT_THEMES : DARK_THEMES
     const selected = themes.find(theme => theme.id === value) || themes[0]
-    const suggested = SUGGESTED[appearance].flatMap(id => themes.filter(theme => theme.id === id))
-    if (!suggested.some(theme => theme.id === selected.id)) suggested[suggested.length - 1] = selected
+    const suggested = getThemeWindow(themes, selected.id)
     return <div ref={frameRef} className="onboarding-theme-picker" data-browsing={expanded}>
         <div className="onboarding-theme-caption">
             <span className="onboarding-theme-current">{selected.name}</span>
@@ -31,8 +26,8 @@ export function OnboardingThemePicker({ appearance, value, onChange }: {
             </button>
         </div>
         <fieldset className="onboarding-theme-suggestions">
-            <legend className="sr-only">Suggested {appearance} themes</legend>
-            {suggested.map(theme => <label key={theme.id} className="onboarding-theme-choice">
+            <legend className="sr-only">Nearby {appearance} themes</legend>
+            {suggested.map(theme => <label key={theme.id} data-theme-id={theme.id} className="onboarding-theme-choice">
                 <input className="sr-only" type="radio" name={id} value={theme.id} checked={theme.id === selected.id} onChange={event => onChange(theme.id, themeRevealOrigin(event.currentTarget))} />
                 <OnboardingThemeSwatch theme={theme} /><span className="onboarding-theme-choice-name" title={theme.name}>{theme.name}</span>
             </label>)}

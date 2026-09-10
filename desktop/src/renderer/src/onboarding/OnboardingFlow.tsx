@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { ONBOARDING_STEPS, getPreviousOnboardingStep, type OnboardingStep } from '@shared/onboarding/contracts'
 import type { AnalyticsStatus } from '@shared/analytics/contracts'
 import { getDesktopAnalyticsStatus, onDesktopAnalyticsStatusChange, setDesktopAnalyticsEnabled } from '@/lib/product-analytics'
@@ -10,6 +9,7 @@ import { onboardingThemeStyle } from './onboarding-theme'
 import { useThemeReveal, type ThemeRevealOrigin } from './useThemeReveal'
 import { OnboardingShowcase } from './OnboardingShowcase'
 import { OnboardingStage } from './OnboardingStage'
+import { OnboardingFooter } from './OnboardingFooter'
 import { OnboardingBackground } from './OnboardingBackground'
 import { OnboardingChrome } from './OnboardingChrome'
 import './OnboardingFlow.css'
@@ -301,29 +301,13 @@ export function OnboardingFlow() {
                     {recovery ? <p role="status" className="mx-auto mt-5 max-w-[440px] text-center text-[11px] leading-5 text-[var(--status-warning)]">Zyra recovered setup from a fresh checkpoint.</p> : null}
                 </OnboardingStage>
 
-                {record.currentStep !== 'welcome' ? (
-                        <footer className="onboarding-action-dock">
-                            {error ? <p role="alert" className="onboarding-action-error">{error}</p> : null}
-                            <div className="onboarding-action-row">
-                                <button type="button" disabled={saving} onClick={() => void goBack()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-full text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:opacity-45">
-                                    <ArrowLeft size={13} />Back
-                                </button>
-
-                                <div className="onboarding-dock-progress" aria-label={`Setup step ${currentIndex + 1} of ${ONBOARDING_STEPS.length}: ${STEP_LABELS[record.currentStep]}`}>
-                                    <div className="mb-2 text-center text-[10px] font-medium text-sparkle-text-muted">
-                                        {currentIndex + 1} of {ONBOARDING_STEPS.length}
-                                    </div>
-                                    <div className="h-px overflow-hidden bg-[color-mix(in_srgb,var(--color-text)_14%,transparent)]">
-                                        <div className="h-full bg-[var(--accent-primary)] transition-[width] duration-500 ease-out motion-reduce:transition-none" style={{ width: `${((currentIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
-                                    </div>
-                                </div>
-
-                                <button type="button" disabled={saving || analyticsLoading || !canContinue || !projectReady} onClick={() => void continueStep()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-full bg-[var(--accent-primary)] px-4 text-[12px] font-semibold text-[var(--accent-on-primary)] shadow-[0_8px_24px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
-                                    {continueLabel}{record.currentStep !== 'review' ? <ArrowRight size={13} /> : null}
-                                </button>
-                            </div>
-                        </footer>
-                ) : null}
+                <OnboardingFooter
+                    visible={record.currentStep !== 'welcome'} index={currentIndex} total={ONBOARDING_STEPS.length}
+                    stepLabel={STEP_LABELS[record.currentStep]} continueLabel={continueLabel} finalStep={record.currentStep === 'review'}
+                    backDisabled={saving} continueDisabled={saving || analyticsLoading || !canContinue || !projectReady}
+                    reducedMotion={settings.accessibilityReduceMotion} direction={transitionDirection.current} error={error}
+                    onBack={() => void goBack()} onContinue={() => void continueStep()}
+                />
             </main>
         </div>
     )

@@ -150,3 +150,5 @@ body.zyra-reduce-motion .onboarding-specimen { transition: none !important; }
     .onboarding-theme-more > span:first-child { height: 24px; }
     .onboarding-theme-more { font-size: 9px; }
 }
+
+html.onboarding-theme-reveal::view-transition { pointer-events: none; }

@@ -11,10 +11,27 @@ export function themeRevealOrigin(element: HTMLElement): ThemeRevealOrigin {
 export function useThemeReveal(reducedMotion: boolean) {
     const current = useRef<ViewTransition | null>(null)
     const deadline = useRef<ReturnType<typeof setTimeout> | null>(null)
-    useEffect(() => () => {
-        current.current?.skipTransition()
-        if (deadline.current) clearTimeout(deadline.current)
-        document.documentElement.classList.remove('onboarding-theme-reveal')
+    useEffect(() => {
+        // View-transition snapshots are static. Give scrolling and the next input
+        // the live page immediately instead of making them wait for the reveal.
+        const release = () => current.current?.skipTransition()
+        const onKey = (event: KeyboardEvent) => {
+            if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Escape', 'Tab', ' '].includes(event.key)) release()
+        }
+        const options = { passive: true, capture: true } as const
+        window.addEventListener('wheel', release, options)
+        window.addEventListener('touchmove', release, options)
+        window.addEventListener('pointerdown', release, options)
+        window.addEventListener('keydown', onKey, true)
+        return () => {
+            window.removeEventListener('wheel', release, true)
+            window.removeEventListener('touchmove', release, true)
+            window.removeEventListener('pointerdown', release, true)
+            window.removeEventListener('keydown', onKey, true)
+            release()
+            if (deadline.current) clearTimeout(deadline.current)
+            document.documentElement.classList.remove('onboarding-theme-reveal')
+        }
     }, [])
     return useCallback((update: () => void, origin?: ThemeRevealOrigin) => {
         current.current?.skipTransition()

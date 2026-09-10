@@ -1,27 +1,23 @@
-.onboarding-fixed-heading {
-    position: fixed;
-    top: clamp(70px, 9vh, 96px);
-    left: 50%;
-    z-index: 20;
-    width: min(560px, calc(100vw - 48px));
-    transform: translateX(-50%);
-    pointer-events: none;
+.onboarding-step-heading {
+    width: min(520px, 100%);
+    margin: 0 auto 28px;
 }
 
-.onboarding-fixed-step-scroll {
+.onboarding-step-scroll {
     position: fixed;
     inset-inline: 0;
-    top: clamp(164px, 20vh, 196px);
+    top: 34px;
     bottom: clamp(108px, 13vh, 128px);
     z-index: 10;
+    display: flex;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable both-edges;
 }
 
 .onboarding-step-content {
-    padding-top: 4px;
-    padding-bottom: 24px;
+    margin-block: auto;
+    padding-block: 32px;
 }
 
 .onboarding-action-dock {
@@ -40,11 +36,15 @@
 
 .onboarding-action-row {
     display: grid;
-    grid-template-columns: 120px minmax(120px, 1fr) 120px;
+    grid-template-columns: 100px minmax(0, 1fr) 100px;
     align-items: end;
-    gap: 24px;
-    width: min(640px, 100%);
+    gap: 16px;
+    width: min(520px, 100%);
     margin-inline: auto;
+}
+
+.onboarding-action-row > button {
+    width: 100%;
 }
 
 .onboarding-dock-progress {
@@ -65,85 +65,34 @@
     color: var(--status-danger);
 }
 
-.onboarding-review-ready {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.onboarding-review-ready-mark {
-    display: inline-flex;
-    width: 40px;
-    height: 40px;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid color-mix(in srgb, var(--status-success) 34%, transparent);
-    border-radius: 50%;
-    color: var(--status-success);
-    background: color-mix(in srgb, var(--status-success) 11%, var(--color-bg));
-    box-shadow: 0 0 0 7px color-mix(in srgb, var(--status-success) 5%, transparent);
-}
-
 .onboarding-review-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--color-text) 13%, transparent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--color-bg) 80%, transparent);
-    box-shadow: 0 20px 52px color-mix(in srgb, var(--color-bg) 24%, transparent);
-    backdrop-filter: blur(14px);
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .onboarding-review-item {
+    display: grid;
+    grid-template-columns: 30px minmax(70px, 0.4fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 3px 12px;
     min-width: 0;
-    padding: 18px;
+    padding: 16px 0;
 }
 
 .onboarding-review-item + .onboarding-review-item {
-    border-left: 1px solid var(--surface-divider);
+    border-top: 1px solid var(--surface-divider);
 }
 
 .onboarding-review-icon {
     display: inline-flex;
-    width: 30px;
-    height: 30px;
+    grid-row: span 2;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
-    color: var(--accent-primary);
-    background: color-mix(in srgb, var(--accent-primary) 11%, transparent);
+    color: var(--color-text-secondary);
 }
 
-@media (max-width: 560px) {
-    .onboarding-review-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .onboarding-review-item {
-        display: grid;
-        grid-template-columns: 30px minmax(76px, 0.4fr) minmax(0, 1fr);
-        align-items: center;
-        gap: 12px;
-        padding: 13px 15px;
-    }
-
-    .onboarding-review-item + .onboarding-review-item {
-        border-top: 1px solid var(--surface-divider);
-        border-left: 0;
-    }
-
-    .onboarding-review-item dt,
-    .onboarding-review-item dd {
-        margin-top: 0;
-    }
-
-    .onboarding-review-item dd:last-child {
-        display: none;
-    }
+.onboarding-review-detail {
+    grid-column: 3;
 }
 
 @keyframes onboarding-step-in-forward {

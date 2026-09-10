@@ -22,7 +22,7 @@ void main() {
 // Adapted from ThreeUI's Cloud Field raw-WebGL composition:
 // https://threeui.com/backgrounds/portal-field/cloud-field
 // The shader anatomy is preserved (stars, migrating strata, horizon haze and
-// occasional meteor), while its fixed violet palette is replaced by Zyra's
+// staggered meteors), while its fixed violet palette is replaced by Zyra's
 // semantic theme colors and its lifecycle is owned by React.
 const FRAGMENT_SHADER = `
 precision highp float;
@@ -73,13 +73,14 @@ float stars(vec2 uv, float density) {
     return star * (0.58 + 0.42 * sin(u_time * (1.0 + seed * 3.0) + seed * 6.28));
 }
 
-float meteor(vec2 uv, float time) {
-    float cycle = mod(time * 0.11, 1.0);
-    float seed = floor(time * 0.11);
+float meteor(vec2 uv, float time, float stream, float aspect) {
+    float phase = time * mix(0.18, 0.13, stream * 0.5) + stream * 0.37;
+    float cycle = fract(phase);
+    float seed = floor(phase) + stream * 31.7;
     float first = hash(seed * 7.31);
     float second = hash(seed * 13.17);
-    if (first > 0.22) return 0.0;
-    vec2 start = vec2(0.2 + second * 0.6, 0.72 + first * 0.22);
+    if (first > 0.75) return 0.0;
+    vec2 start = vec2((0.08 + second * 0.72) * aspect, 0.76 + first * 0.2);
     vec2 direction = normalize(vec2(1.0, -0.62 - first * 0.24));
     vec2 position = start + direction * smoothstep(0.0, 0.7, cycle) * 0.5;
     vec2 delta = uv - position;
@@ -157,7 +158,9 @@ void main() {
 
     vec3 light = mix(u_ink, u_accent, 0.25);
     color += light * starField * starMask * mix(0.52, 0.13, u_light_mode);
-    color += light * meteor(starUv, u_time) * starMask * mix(0.82, 0.18, u_light_mode);
+    color += light * (meteor(starUv, u_time, 0.0, aspect)
+        + meteor(starUv, u_time, 1.0, aspect) * 0.72
+        + meteor(starUv, u_time, 2.0, aspect) * 0.54) * starMask * mix(0.82, 0.18, u_light_mode);
 
     float vignette = 1.0 - mix(0.28, 0.08, u_light_mode)
         * pow(length((uv - 0.5) * vec2(1.1, 1.6)), 2.0);

@@ -6,6 +6,7 @@ import { getDesktopAnalyticsStatus, onDesktopAnalyticsStatusChange, setDesktopAn
 import { useSettings } from '@/lib/settings'
 import { useOnboarding } from '@/lib/onboarding'
 import { cn } from '@/lib/utils'
+import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 import { OnboardingBackground } from './OnboardingBackground'
 import { OnboardingChrome } from './OnboardingChrome'
 import './OnboardingFlow.css'
@@ -26,7 +27,7 @@ const STEP_LABELS: Record<OnboardingStep, string> = {
     welcome: 'Welcome',
     'connect-openai': 'Connect ChatGPT',
     appearance: 'Choose your look',
-    projects: 'Choose your projects folder',
+    projects: 'Choose a projects folder',
     review: 'Review setup'
 }
 
@@ -35,7 +36,7 @@ const STEP_DESCRIPTIONS: Record<OnboardingStep, string> = {
     'connect-openai': 'Sign in with ChatGPT to start using Zyra.',
     appearance: 'Pick the appearance that feels right.',
     projects: 'Choose the folder where you keep your work.',
-    review: 'Check the essentials before opening Zyra.'
+    review: 'Your essentials are ready. You can change them later in Settings.'
 }
 
 export function OnboardingFlow() {
@@ -261,7 +262,7 @@ export function OnboardingFlow() {
         ? 'Ready to open Zyra'
         : STEP_LABELS[record.currentStep]
     const stepDescription = record.currentStep === 'review' && !record.reviewActive
-        ? 'Everything is ready.'
+        ? 'Your essentials are ready. You can change them later in Settings.'
         : STEP_DESCRIPTIONS[record.currentStep]
     const continueLabel = record.currentStep === 'review'
         ? record.reviewActive ? 'Save setup' : 'Open Zyra'
@@ -294,15 +295,16 @@ export function OnboardingFlow() {
                     </div>
                 ) : (
                     <div className="relative h-full min-h-0">
-                        <div className="onboarding-fixed-heading">
-                            <header key={`heading-${record.currentStep}`} className={cn('onboarding-step-transition-surface text-center', stepMotionClass)}>
-                                <h1 id="onboarding-step-title" className="text-[27px] font-medium tracking-[-0.04em] text-sparkle-text sm:text-[30px]">{stepTitle}</h1>
-                                <p className="mt-2 text-[13px] leading-5 text-sparkle-text-secondary">{stepDescription}</p>
-                            </header>
-                        </div>
-
-                        <div ref={stepScrollRef} className="onboarding-fixed-step-scroll px-6 sm:px-10">
+                        <div ref={stepScrollRef} className="onboarding-step-scroll px-6 sm:px-10">
                             <section key={record.currentStep} aria-labelledby="onboarding-step-title" className={cn('onboarding-step-content onboarding-step-transition-surface mx-auto w-full max-w-[640px]', stepMotionClass)}>
+                                {record.currentStep !== 'connect-openai' ? (
+                                    <header className="onboarding-step-heading text-center">
+                                        <div role="img" aria-label="Zyra" className="mb-6 flex justify-center"><ZyraLogoASCII size="md" variant="loading" /></div>
+                                        <h1 id="onboarding-step-title" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">{stepTitle}</h1>
+                                        <p className="mx-auto mt-3 max-w-[360px] text-[13px] leading-[1.7] text-sparkle-text-secondary">{stepDescription}</p>
+                                    </header>
+                                ) : null}
+
                                 {recovery ? (
                                     <p role="status" className="mb-7 text-center text-[11px] leading-5 text-[var(--status-warning)]">
                                         Zyra recovered setup from a fresh checkpoint.
@@ -341,7 +343,7 @@ export function OnboardingFlow() {
                         <footer className="onboarding-action-dock">
                             {error ? <p role="alert" className="onboarding-action-error">{error}</p> : null}
                             <div className="onboarding-action-row">
-                                <button type="button" disabled={saving} onClick={() => void goBack()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-md text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:opacity-45">
+                                <button type="button" disabled={saving} onClick={() => void goBack()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-full text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:opacity-45">
                                     <ArrowLeft size={13} />Back
                                 </button>
 
@@ -354,7 +356,7 @@ export function OnboardingFlow() {
                                     </div>
                                 </div>
 
-                                <button type="button" disabled={saving || analyticsLoading || !canContinue || !projectReady} onClick={() => void continueStep()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-[12px] font-semibold text-[var(--accent-on-primary)] shadow-[0_8px_24px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
+                                <button type="button" disabled={saving || analyticsLoading || !canContinue || !projectReady} onClick={() => void continueStep()} className="inline-flex h-11 w-[120px] items-center justify-center gap-1.5 rounded-full bg-[var(--accent-primary)] px-4 text-[12px] font-semibold text-[var(--accent-on-primary)] shadow-[0_8px_24px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                                     {continueLabel}{record.currentStep !== 'review' ? <ArrowRight size={13} /> : null}
                                 </button>
                             </div>

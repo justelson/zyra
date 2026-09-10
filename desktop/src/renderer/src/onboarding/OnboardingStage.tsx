@@ -44,10 +44,10 @@ export function OnboardingStage({ step, direction, reducedMotion, children }: {
         const animation = changing
             ? body.animate([
                 { opacity: getComputedStyle(body).opacity, transform: getComputedStyle(body).transform },
-                { opacity: 0, transform: `translate3d(${-offset}px, -3px, 0)` }
+                { opacity: 0, transform: `translate3d(${-offset}px, 0, 0)` }
             ], { duration: 140, easing: 'ease-in', fill: 'forwards' })
             : body.animate([
-                { opacity: body.style.opacity || 0, transform: body.style.transform || `translate3d(${offset}px, 7px, 0)` },
+                { opacity: body.style.opacity || 0, transform: body.style.transform || `translate3d(${offset}px, 0, 0)` },
                 { opacity: 1, transform: 'none' }
             ], { duration: 620, easing: EASE })
         if (changing) void animation.finished.then(() => {

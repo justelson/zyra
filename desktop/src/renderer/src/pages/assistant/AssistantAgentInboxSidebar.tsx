@@ -173,7 +173,7 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
     const menuItems = getAgentInboxMenuItems(item, onAction, props)
     return (
         <div className={cn(
-            'pointer-events-none absolute right-0 top-1/2 z-[1] translate-x-1 -translate-y-1/2 opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:translate-x-0 group-hover/agent-inbox-row:opacity-100 focus-within:pointer-events-auto focus-within:translate-x-0 focus-within:opacity-100 motion-reduce:transition-none',
+            'pointer-events-none absolute right-0 top-1/2 z-[1] translate-x-1 -translate-y-1/2 opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-within/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:translate-x-0 group-focus-within/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 group-hover/agent-inbox-row:opacity-100 group-focus-within/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 focus-within:pointer-events-auto focus-within:translate-x-0 focus-within:opacity-100 motion-reduce:transition-none',
             showLabel ? 'w-[4.75rem]' : 'w-[3.25rem]'
         )}>
             <div className="relative flex items-center justify-end gap-0.5">
@@ -217,7 +217,7 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
                         <ProjectMark group={item.project} />
                         <span className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{item.project.label}</span>
                         <div className="relative ml-auto flex h-6 min-w-[5.75rem] shrink-0 items-center justify-end gap-1 pl-1 text-xs">
-                            <span className="shrink-0 transition-opacity duration-150 ease-out group-hover/agent-inbox-row:opacity-0 motion-reduce:transition-none">
+                            <span className="shrink-0 transition-opacity duration-150 ease-out group-hover/agent-inbox-row:opacity-0 group-focus-within/agent-inbox-row:opacity-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-0 motion-reduce:transition-none">
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
                             </span>
                             <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} showLabel />
@@ -251,11 +251,11 @@ function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarIte
                 <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
                 <div className="relative ml-auto flex h-6 min-w-[4.5rem] shrink-0 items-center justify-end gap-1.5">
                     {item.tuiOpen ? (
-                        <span className="inline-flex shrink-0 transition-transform duration-150 ease-out group-hover/agent-inbox-row:-translate-x-9 motion-reduce:transition-none">
+                        <span className="inline-flex shrink-0 transition-transform duration-150 ease-out group-hover/agent-inbox-row:-translate-x-9 group-focus-within/agent-inbox-row:-translate-x-9 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:-translate-x-9 motion-reduce:transition-none">
                             <AssistantTuiPresenceIndicator focusable={false} />
                         </span>
                     ) : null}
-                    <span className="shrink-0 transition-[opacity,transform] duration-150 ease-out group-hover/agent-inbox-row:translate-x-1 group-hover/agent-inbox-row:opacity-0 motion-reduce:transition-none">
+                    <span className="shrink-0 transition-[opacity,transform] duration-150 ease-out group-hover/agent-inbox-row:translate-x-1 group-focus-within/agent-inbox-row:translate-x-1 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-1 group-hover/agent-inbox-row:opacity-0 group-focus-within/agent-inbox-row:opacity-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-0 motion-reduce:transition-none">
                         <span className="whitespace-nowrap text-xs tabular-nums text-sparkle-text-muted/55">{formatAssistantSidebarRelativeTime(item.activityAt)}</span>
                     </span>
                     <InboxRowActions item={item} action={action} onAction={onAction} props={props} />

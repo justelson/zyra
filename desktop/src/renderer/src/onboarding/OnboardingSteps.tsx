@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { ArrowRight, ChevronRight, FolderOpen, Info, Palette } from 'lucide-react'
 import type {
     OnboardingAppearanceSelection,
@@ -84,16 +84,16 @@ export function WelcomeStep({ saving, error, onStart }: {
 }) {
     return (
         <section className="mx-auto flex w-full max-w-[520px] flex-col items-center text-center" aria-labelledby="onboarding-welcome-title">
-            <h1 id="onboarding-welcome-title" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">
-                Welcome to Zyra
+            <h1 id="onboarding-welcome-title" aria-label="Welcome to Zyra" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">
+                <span aria-hidden="true" className="onboarding-welcome-letters">{Array.from('Welcome to Zyra').map((letter, index) => <span key={index} style={{ '--letter-index': index } as CSSProperties}>{letter === ' ' ? '\u00a0' : letter}</span>)}</span>
             </h1>
             <button
                 type="button"
                 disabled={saving}
                 onClick={onStart}
-                className="mt-8 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-full bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                className="onboarding-welcome-button mt-8 inline-flex h-11 min-w-[142px] items-center justify-center gap-2 rounded-full bg-[var(--accent-primary)] px-5 text-[13px] font-semibold text-[var(--accent-on-primary)] shadow-[0_10px_30px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)] transition-[opacity,transform] hover:-translate-y-px hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >
-                Start setup<ArrowRight size={14} />
+                Let’s get you set up<ArrowRight size={14} />
             </button>
             {error ? <p role="alert" className="mt-4 text-[11px] text-[var(--status-danger)]">{error}</p> : null}
         </section>

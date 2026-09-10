@@ -32,46 +32,19 @@ export function OnboardingStage({ step, direction, reducedMotion, children, deco
     }, [])
 
     useLayoutEffect(() => {
-        const body = bodyRef.current
-        if (!body) return
-        if (motionOff) {
-            body.style.opacity = ''
-            body.style.transform = ''
-            if (changing) setDisplayedStep(step)
-            return
-        }
-        let cancelled = false
-        const offset = direction === 'backward' ? -10 : 10
-        const entryOpacity = body.style.opacity || '0'
-        const entryTransform = body.style.transform || `translate3d(${offset}px, 0, 0)`
-        // Cleanup can freeze an interrupted entrance, including StrictMode's first
-        // effect replay. The underlying style must still be visible when it finishes.
-        if (!changing) {
-            body.style.opacity = '1'
-            body.style.transform = 'none'
-        }
-        const animation = changing
-            ? body.animate([
-                { opacity: getComputedStyle(body).opacity, transform: getComputedStyle(body).transform },
-                { opacity: 0, transform: `translate3d(${-offset}px, 0, 0)` }
-            ], { duration: 140, easing: 'ease-in', fill: 'forwards' })
-            : body.animate([
-                { opacity: entryOpacity, transform: entryTransform },
-                { opacity: 1, transform: 'none' }
-            ], { duration: 620, easing: EASE })
-        if (changing) void animation.finished.then(() => {
-            if (!cancelled) setDisplayedStep(step)
-        }).catch(() => {})
-        return () => {
-            cancelled = true
-            const current = getComputedStyle(body)
-            const opacity = current.opacity
-            const transform = current.transform
-            animation.cancel()
-            body.style.opacity = opacity
-            body.style.transform = transform
-        }
-    }, [changing, direction, displayedStep, motionOff, step])
+        // Clear opacity left by older interrupted transitions or a live refresh.
+        bodyRef.current?.style.removeProperty('opacity')
+        bodyRef.current?.style.removeProperty('transform')
+    }, [displayedStep])
+
+    // Animation cancellation must never persist an invisible inline style. A
+    // bounded exit swaps the keyed page even if the browser suspends animations.
+    useEffect(() => {
+        if (!changing) return
+        if (motionOff) { setDisplayedStep(step); return }
+        const timer = window.setTimeout(() => setDisplayedStep(step), 140)
+        return () => window.clearTimeout(timer)
+    }, [changing, motionOff, step])
 
     useLayoutEffect(() => {
         const logo = logoRef.current
@@ -95,7 +68,12 @@ export function OnboardingStage({ step, direction, reducedMotion, children, deco
             logo.style.transform = transform
             logo.style.visibility = 'visible'
             logo.dataset.placed = 'true'
-            if (animate && wasPlaced && !motionOff) animation = logo.animate([{ transform: from }, { transform }], { duration: 680, easing: EASE })
+            if (animate && !motionOff) {
+                const initial = !wasPlaced && displayedStep === 'welcome'
+                    ? `translate3d(${target.left - origin.left}px, -160px, 0) scale(${target.width / logo.offsetWidth}, ${target.height / logo.offsetHeight})`
+                    : from
+                if (wasPlaced || displayedStep === 'welcome') animation = logo.animate([{ transform: initial }, { transform }], { duration: wasPlaced ? 680 : 1000, easing: EASE })
+            }
         }
         place(true)
         const observer = new ResizeObserver(() => place(true))
@@ -117,7 +95,7 @@ export function OnboardingStage({ step, direction, reducedMotion, children, deco
         <div ref={scrollRef} data-step={displayedStep} className="onboarding-step-scroll px-6 sm:px-10">
             <section ref={sectionRef} className="onboarding-step-content mx-auto w-full max-w-[640px]" aria-labelledby={displayedStep === 'welcome' ? 'onboarding-welcome-title' : 'onboarding-step-title'}>
                 <div className="mb-6 flex justify-center" aria-hidden="true"><div ref={slotRef} className={displayedStep === 'welcome' ? 'onboarding-logo-slot onboarding-logo-slot-welcome' : 'onboarding-logo-slot'} /></div>
-                <div key={displayedStep} ref={bodyRef} inert={changing} data-onboarding-step-body={displayedStep}>{previousContent.current}</div>
+                <div key={displayedStep} ref={bodyRef} className="onboarding-page-body" data-leaving={changing} data-direction={direction} data-reduced-motion={motionOff} inert={changing} data-onboarding-step-body={displayedStep}>{previousContent.current}</div>
             </section>
         </div>
         <div ref={layerRef} className="onboarding-stage-logo-layer" aria-hidden="true">

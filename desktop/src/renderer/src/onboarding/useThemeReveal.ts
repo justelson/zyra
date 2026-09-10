@@ -10,12 +10,15 @@ export function themeRevealOrigin(element: HTMLElement): ThemeRevealOrigin {
 /** Reveal the newly rendered theme from the selected control, with an instant fallback. */
 export function useThemeReveal(reducedMotion: boolean) {
     const current = useRef<ViewTransition | null>(null)
+    const deadline = useRef<ReturnType<typeof setTimeout> | null>(null)
     useEffect(() => () => {
         current.current?.skipTransition()
+        if (deadline.current) clearTimeout(deadline.current)
         document.documentElement.classList.remove('onboarding-theme-reveal')
     }, [])
     return useCallback((update: () => void, origin?: ThemeRevealOrigin) => {
         current.current?.skipTransition()
+        if (deadline.current) clearTimeout(deadline.current)
         if (!document.startViewTransition || reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
             update()
             return
@@ -34,6 +37,8 @@ export function useThemeReveal(reducedMotion: boolean) {
             return
         }
         current.current = transition
+        // Release the live page if Chromium suspends a snapshot during rapid changes.
+        deadline.current = setTimeout(() => transition.skipTransition(), 2400)
         void transition.ready.then(() => {
             if (current.current !== transition) return
             root.animate([
@@ -42,7 +47,11 @@ export function useThemeReveal(reducedMotion: boolean) {
             ], { duration: 780, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' })
         }).catch(() => {})
         void transition.finished.finally(() => {
-            if (current.current === transition) { current.current = null; root.classList.remove('onboarding-theme-reveal') }
+            if (current.current === transition) {
+                if (deadline.current) clearTimeout(deadline.current)
+                current.current = null
+                root.classList.remove('onboarding-theme-reveal')
+            }
         }).catch(() => {})
     }, [reducedMotion])
 }

@@ -254,25 +254,6 @@
 .onboarding-theme-choice:has(:checked) .onboarding-theme-choice-name {
     color: var(--color-text);
 }
-.onboarding-theme-catalog {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    transition: grid-template-rows 480ms cubic-bezier(0.22, 1, 0.36, 1), opacity 300ms ease;
-}
-.onboarding-theme-catalog[data-expanded="true"] {
-    grid-template-rows: 1fr;
-    opacity: 1;
-}
-.onboarding-theme-catalog-clip {
-    min-height: 0;
-    overflow: hidden;
-}
-.onboarding-theme-catalog-content {
-    margin-top: 18px;
-    border-top: 1px solid var(--surface-border);
-    padding-top: 12px;
-}
 .onboarding-theme-search {
     display: flex;
     align-items: center;
@@ -291,48 +272,6 @@
 .onboarding-theme-search:focus-within {
     color: var(--accent-primary);
 }
-.onboarding-theme-results {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 2px 8px;
-    max-height: 172px;
-    overflow-y: auto;
-    padding: 3px;
-    scrollbar-gutter: stable;
-}
-.onboarding-theme-result {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    padding: 8px 6px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    transition: background-color 220ms ease;
-}
-.onboarding-theme-result > .onboarding-theme-swatch {
-    flex: none;
-    width: 34px;
-    height: 23px;
-    border-radius: 4px;
-}
-.onboarding-theme-result > span:nth-of-type(2) {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.onboarding-theme-result:hover, .onboarding-theme-result:has(:checked) {
-    color: var(--color-text);
-    background: var(--surface-hover);
-}
-.onboarding-theme-result:has(:focus-visible) {
-    outline: 2px solid var(--accent-primary);
-    outline-offset: -2px;
-}
 .onboarding-theme-empty {
     grid-column: 1 / -1;
     padding: 16px;
@@ -345,9 +284,6 @@
     .onboarding-theme-suggestions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
-}
-    .onboarding-theme-results {
-    grid-template-columns: minmax(0, 1fr);
 }
 }
 
@@ -376,3 +312,35 @@ body.zyra-reduce-motion .onboarding-shared-logo [style] { transition: none !impo
 
 body.zyra-reduce-motion .onboarding-shared-logo,
 body.zyra-reduce-motion .onboarding-action-dock { animation: none !important; }
+
+.onboarding-page-body { opacity: 1; transform: none; animation: onboarding-page-enter 620ms cubic-bezier(0.22, 1, 0.36, 1); }
+.onboarding-page-body[data-direction="backward"] { --page-offset: -10px; }
+.onboarding-page-body[data-leaving="true"] { animation: onboarding-page-leave 140ms ease-in forwards; }
+.onboarding-page-body[data-onboarding-step-body="welcome"]:not([data-leaving="true"]) { animation: none; }
+@keyframes onboarding-page-enter {
+    from { opacity: 0; transform: translateX(var(--page-offset, 10px)); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes onboarding-page-leave {
+    to { opacity: 0; transform: translateX(calc(-1 * var(--page-offset, 10px))); }
+}
+.onboarding-welcome-letters > span {
+    display: inline-block;
+    animation: onboarding-welcome-letter 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(180ms + var(--letter-index) * 32ms);
+}
+.onboarding-welcome-button { animation: onboarding-welcome-button 760ms 640ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+@keyframes onboarding-welcome-letter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes onboarding-welcome-button {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+.onboarding-page-body[data-reduced-motion="true"],
+.onboarding-page-body[data-reduced-motion="true"] .onboarding-welcome-letters > span,
+.onboarding-page-body[data-reduced-motion="true"] .onboarding-welcome-button { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    .onboarding-page-body, .onboarding-welcome-letters > span, .onboarding-welcome-button { animation: none !important; }
+}

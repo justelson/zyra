@@ -88,7 +88,7 @@ assert.doesNotMatch(flowSource, /document\.startViewTransition/, 'step animation
 assert.match(stageSource, /translate3d/, 'step changes must stay on lightweight compositor transforms')
 assert.match(motionSource, /prefers-reduced-motion/)
 assert.match(stepsSource, /Welcome to/)
-assert.match(stepsSource, /Start setup/)
+assert.match(stepsSource, /Let’s get you set up/)
 assert.match(signInSource, /Continue with ChatGPT/)
 assert.match(stageSource, /data-onboarding-shared-logo[\s\S]*<ZyraLogoASCII/, 'one persistent Zyra mark belongs to the shared stage')
 assert.match(signInSource, /Zyra uses OpenAI models to answer questions and carry out tasks/, 'sign-in explains why an account is needed')

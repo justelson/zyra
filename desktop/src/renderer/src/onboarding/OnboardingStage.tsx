@@ -4,11 +4,12 @@ import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 /** Keeps the brand mark alive while the step body leaves, changes, and arrives. */
-export function OnboardingStage({ step, direction, reducedMotion, children }: {
+export function OnboardingStage({ step, direction, reducedMotion, children, decoration }: {
     step: string
     direction: 'forward' | 'backward'
     reducedMotion: boolean
     children: ReactNode
+    decoration?: ReactNode
 }) {
     const [displayedStep, setDisplayedStep] = useState(step)
     const [systemReducedMotion, setSystemReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -112,14 +113,15 @@ export function OnboardingStage({ step, direction, reducedMotion, children }: {
     }, [displayedStep, motionOff])
 
     return <>
-        <div ref={scrollRef} className="onboarding-step-scroll px-6 sm:px-10">
+        <div className="onboarding-stage-decoration" data-active={displayedStep === 'appearance' && !changing} data-reduced-motion={motionOff} aria-hidden="true">{decoration}</div>
+        <div ref={scrollRef} data-step={displayedStep} className="onboarding-step-scroll px-6 sm:px-10">
             <section ref={sectionRef} className="onboarding-step-content mx-auto w-full max-w-[640px]" aria-labelledby={displayedStep === 'welcome' ? 'onboarding-welcome-title' : 'onboarding-step-title'}>
                 <div className="mb-6 flex justify-center" aria-hidden="true"><div ref={slotRef} className={displayedStep === 'welcome' ? 'onboarding-logo-slot onboarding-logo-slot-welcome' : 'onboarding-logo-slot'} /></div>
                 <div key={displayedStep} ref={bodyRef} inert={changing} data-onboarding-step-body={displayedStep}>{previousContent.current}</div>
             </section>
         </div>
         <div ref={layerRef} className="onboarding-stage-logo-layer" aria-hidden="true">
-            <div ref={logoRef} data-onboarding-shared-logo className="onboarding-shared-logo" style={motionOff ? { animation: 'none' } : undefined}><ZyraLogoASCII size="md" variant="loading" /></div>
+            <div ref={logoRef} data-onboarding-shared-logo className="onboarding-shared-logo" style={motionOff ? { animation: 'none' } : undefined}><ZyraLogoASCII size="md" variant="loading" tone="theme" /></div>
         </div>
     </>
 }

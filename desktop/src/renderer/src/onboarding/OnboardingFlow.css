@@ -160,68 +160,6 @@
 .onboarding-appearance-mode:has(:checked) { color: var(--color-text); }
 .onboarding-appearance-mode:has(:focus-visible) { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
-.onboarding-workspace-preview {
-    margin-top: 22px;
-    overflow: hidden;
-    border: 1px solid var(--preview-border);
-    border-radius: 14px;
-    color: var(--preview-text);
-    background: var(--preview-bg);
-    box-shadow: 0 16px 40px rgb(0 0 0 / 0.1);
-    text-align: left;
-}
-
-.onboarding-workspace-preview,
-.onboarding-workspace-preview * {
-    transition: color 460ms ease, background-color 460ms ease, border-color 460ms ease;
-}
-
-.onboarding-preview-canvas {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    align-items: center;
-    gap: 18px;
-    padding: 22px 24px 18px;
-}
-
-.onboarding-preview-title {
-    font-size: clamp(17px, 2.4vw, 21px);
-    font-weight: 500;
-    letter-spacing: -0.035em;
-    text-align: center;
-}
-
-.onboarding-preview-composer {
-    width: 100%;
-    border: 1px solid var(--preview-borderSecondary);
-    border-radius: 12px;
-    padding: 13px 14px 10px;
-    background: var(--preview-card);
-}
-
-.onboarding-preview-placeholder {
-    color: var(--preview-textMuted);
-    font-size: 12px;
-}
-.onboarding-preview-composer-tools {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 14px;
-    color: var(--preview-textSecondary);
-}
-.onboarding-preview-send {
-    display: inline-flex;
-    width: 25px;
-    height: 25px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    color: var(--preview-bg);
-    background: var(--preview-text);
-}
-
 .onboarding-theme-picker {
     margin-top: 18px;
     text-align: left;
@@ -408,9 +346,6 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
 }
-    .onboarding-preview-canvas {
-    padding: 28px 20px 20px;
-}
     .onboarding-theme-results {
     grid-template-columns: minmax(0, 1fr);
 }
@@ -432,15 +367,11 @@
     .onboarding-shared-logo, .onboarding-action-dock { animation: none !important; }
     .onboarding-theme-picker *,
     .onboarding-appearance-selection,
-    .onboarding-workspace-preview,
-    .onboarding-workspace-preview *,
     .onboarding-shared-logo [style] { transition: none !important; }
 }
 
 body.zyra-reduce-motion .onboarding-theme-picker *,
 body.zyra-reduce-motion .onboarding-appearance-selection,
-body.zyra-reduce-motion .onboarding-workspace-preview,
-body.zyra-reduce-motion .onboarding-workspace-preview *,
 body.zyra-reduce-motion .onboarding-shared-logo [style] { transition: none !important; }
 
 body.zyra-reduce-motion .onboarding-shared-logo,

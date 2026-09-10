@@ -131,7 +131,7 @@ export function ZyraLogoASCII({
     className?: string
     shimmer?: boolean
     size?: 'md' | 'lg'
-    tone?: 'accent' | 'neutral'
+    tone?: 'accent' | 'neutral' | 'theme'
     variant?: 'cli' | 'loading'
 }) {
     const { settings } = useSettings()
@@ -142,7 +142,7 @@ export function ZyraLogoASCII({
     const shimmerBackground = tone === 'neutral'
         ? 'linear-gradient(100deg, transparent 0%, var(--loading-shimmer-dim) 34%, var(--loading-shimmer-bright) 45%, var(--color-text) 50%, var(--loading-shimmer-bright) 55%, var(--loading-shimmer-dim) 66%, transparent 100%)'
         : `linear-gradient(90deg, ${themeColors.primary}55, ${themeColors.primary}, ${themeColors.secondary}, ${themeColors.primary}55)`
-    const solidColor = tone === 'neutral' ? 'var(--loading-logo-base)' : themeColors.primary
+    const solidColor = tone === 'neutral' ? 'var(--loading-logo-base)' : tone === 'theme' ? 'var(--accent-primary)' : themeColors.primary
     const logoTextClass = cn(
         'm-0 select-none whitespace-pre font-mono',
         size === 'lg' ? 'text-[18px] leading-[0.94] tracking-[-0.03em]' : 'text-[13px] leading-[1.05] tracking-[-0.03em]'

@@ -1,3 +1,4 @@
+import { themeRevealOrigin, type ThemeRevealOrigin } from './useThemeReveal'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { DARK_THEMES, LIGHT_THEMES, type Theme, type ThemeDefinition } from '@/lib/settings-theme-catalog'
@@ -17,7 +18,7 @@ function Palette({ theme }: { theme: ThemeDefinition }) {
 export function OnboardingThemePicker({ appearance, value, onChange }: {
     appearance: 'light' | 'dark'
     value: Theme
-    onChange: (theme: Theme) => void
+    onChange: (theme: Theme, origin?: ThemeRevealOrigin) => void
 }) {
     const [expanded, setExpanded] = useState(false)
     const [query, setQuery] = useState('')
@@ -45,7 +46,7 @@ export function OnboardingThemePicker({ appearance, value, onChange }: {
             <legend className="sr-only">Suggested {appearance} themes</legend>
             {suggested.map(theme => <label key={theme.id} className="onboarding-theme-choice">
                 <input className="sr-only" type="radio" name={`${id}-suggested`} value={theme.id} checked={theme.id === selected.id}
-                    onChange={() => onChange(theme.id)} />
+                    onChange={event => onChange(theme.id, themeRevealOrigin(event.currentTarget))} />
                 <Palette theme={theme} />
                 <span className="onboarding-theme-choice-name" title={theme.name}>{theme.name}</span>
             </label>)}
@@ -61,7 +62,7 @@ export function OnboardingThemePicker({ appearance, value, onChange }: {
                         <legend className="sr-only">All {appearance} themes</legend>
                         {matches.map(theme => <label key={theme.id} className="onboarding-theme-result">
                             <input className="sr-only" type="radio" name={`${id}-all`} value={theme.id} checked={theme.id === selected.id}
-                                onChange={() => onChange(theme.id)} />
+                                onChange={event => onChange(theme.id, themeRevealOrigin(event.currentTarget))} />
                             <Palette theme={theme} /><span>{theme.name}</span>
                             {theme.id === selected.id && <Check size={13} aria-hidden="true" />}
                         </label>)}

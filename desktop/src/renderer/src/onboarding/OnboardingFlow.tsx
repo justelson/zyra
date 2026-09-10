@@ -5,6 +5,10 @@ import type { AnalyticsStatus } from '@shared/analytics/contracts'
 import { getDesktopAnalyticsStatus, onDesktopAnalyticsStatusChange, setDesktopAnalyticsEnabled } from '@/lib/product-analytics'
 import { useSettings } from '@/lib/settings'
 import { useOnboarding } from '@/lib/onboarding'
+import { getThemeDefinition } from '@/lib/settings-theme-catalog'
+import { onboardingThemeStyle } from './onboarding-theme'
+import { useThemeReveal, type ThemeRevealOrigin } from './useThemeReveal'
+import { OnboardingShowcase } from './OnboardingShowcase'
 import { OnboardingStage } from './OnboardingStage'
 import { OnboardingBackground } from './OnboardingBackground'
 import { OnboardingChrome } from './OnboardingChrome'
@@ -46,6 +50,9 @@ export function OnboardingFlow() {
 
     const [appearance, setAppearance] = useState(() => createAppearanceSelection(settings, record))
     const [projects, setProjects] = useState(() => createProjectsSelection(settings, record))
+    const revealTheme = useThemeReveal(settings.accessibilityReduceMotion)
+    const resolvedMode = appearance.appearanceThemeMode === 'system' ? settings.appearanceResolvedMode : appearance.appearanceThemeMode
+    const selectedTheme = getThemeDefinition(resolvedMode === 'light' ? appearance.appearanceLightTheme : appearance.appearanceDarkTheme)
     const latestAppearance = useRef(appearance)
     const appearanceRevision = useRef(record.revision)
     const appearanceSavesPending = useRef(0)
@@ -168,10 +175,10 @@ export function OnboardingFlow() {
         }
     }
 
-    const changeAppearance = (nextAppearance: typeof appearance) => {
+    const changeAppearance = (nextAppearance: typeof appearance, origin?: ThemeRevealOrigin) => {
         if (actionInFlight.current) return
         latestAppearance.current = nextAppearance
-        setAppearance(nextAppearance)
+        revealTheme(() => setAppearance(nextAppearance), origin)
         setError(null)
         appearanceSavesPending.current += 1
         const save = appearanceSaveQueue.current
@@ -263,12 +270,12 @@ export function OnboardingFlow() {
         : 'Continue'
     const recovery = onboarding.snapshot?.recovery
     return (
-        <div className="relative h-screen overflow-hidden bg-sparkle-bg text-sparkle-text">
-            <OnboardingBackground />
+        <div className="relative h-screen overflow-hidden bg-sparkle-bg text-sparkle-text" style={onboardingThemeStyle(selectedTheme)}>
+            <OnboardingBackground theme={selectedTheme} />
             <OnboardingChrome reviewActive={record.reviewActive} onExitReview={record.reviewActive ? () => void exitReview() : undefined} />
 
             <main className="relative z-10 h-full pt-[34px]">
-                <OnboardingStage step={record.currentStep} direction={transitionDirection.current} reducedMotion={settings.accessibilityReduceMotion}>
+                <OnboardingStage step={record.currentStep} direction={transitionDirection.current} reducedMotion={settings.accessibilityReduceMotion} decoration={<OnboardingShowcase theme={selectedTheme} />}>
                     {record.currentStep === 'welcome' ? (
                         <WelcomeStep saving={saving} error={error} onStart={() => void continueStep()} />
                     ) : <>

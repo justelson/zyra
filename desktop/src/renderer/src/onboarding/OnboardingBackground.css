@@ -25,12 +25,12 @@
         );
 }
 
-.light .onboarding-cloud-field {
+[data-appearance="light"] .onboarding-cloud-field {
     opacity: 0.92;
     filter: saturate(0.95);
 }
 
-.light .onboarding-cloud-wash {
+[data-appearance="light"] .onboarding-cloud-wash {
     background:
         radial-gradient(
             ellipse 78% 68% at 50% 45%,

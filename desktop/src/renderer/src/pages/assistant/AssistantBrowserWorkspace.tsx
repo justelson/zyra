@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AssistantBrowserRecordingControls } from './AssistantBrowserRecordingControls'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
     ArrowLeft,
     ArrowRight,
@@ -79,7 +80,8 @@ import {
 import type { AssistantInspectorDeveloperToastInput } from './AssistantInspectorDeveloperToast'
 import { publishAssistantBrowserAnnotationAttachment } from './assistant-browser-annotation-composer'
 import {
-    readActiveAssistantBrowserRecordingTabId,
+    readAssistantBrowserRecording,
+    subscribeAssistantBrowserRecording,
     startAssistantBrowserRecording,
     stopAssistantBrowserRecording
 } from './assistant-browser-recording'
@@ -258,7 +260,8 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     const [profileNotice, setProfileNotice] = useState<{ tone: 'info' | 'error'; message: string } | null>(null)
     const [annotationTabId, setAnnotationTabId] = useState<string | null>(null)
     const [fullscreenTabId, setFullscreenTabId] = useState<string | null>(null)
-    const [recordingTabId, setRecordingTabId] = useState<string | null>(() => readActiveAssistantBrowserRecordingTabId())
+    const recordingState = useSyncExternalStore(subscribeAssistantBrowserRecording, readAssistantBrowserRecording)
+    const recordingTabId = ['starting', 'recording', 'paused', 'stopping'].includes(recordingState.status) ? recordingState.tabId : null
     const [localServers, setLocalServers] = useState<DevScopeLocalServer[]>([])
     const [browserHistory, setBrowserHistory] = useState<DevScopeBrowserHistoryEntry[]>([])
     const [historySearch, setHistorySearch] = useState<{ query: string; entries: DevScopeBrowserHistoryEntry[] }>({ query: '', entries: [] })
@@ -1029,18 +1032,15 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                 cancelAnnotation()
             }
         }
-        if (transferred && recordingTabId === tabId) setRecordingTabId(null)
         if (!transferred && closingHandle && recordingTabId === tabId) {
             try {
                 const target = closingHandle.getDeveloperTarget()
-                setRecordingTabId(null)
                 void stopAssistantBrowserRecording(target).then((artifact) => {
                     onDeveloperToast({ message: 'Browser recording saved before the tab closed.', artifact })
                 }).catch((error: unknown) => {
                     onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not save the closing Browser recording.' })
                 })
             } catch (error) {
-                setRecordingTabId(readActiveAssistantBrowserRecordingTabId())
                 onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not stop the closing Browser recording.' })
             }
         }
@@ -1585,20 +1585,18 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
 
     const toggleActiveRecording = useCallback(async () => {
         try {
+            setProfileMenuOpen(false)
             const { tabId, target, handle } = getActiveDeveloperTarget()
             if (annotationTabIdRef.current === tabId) cancelAnnotation()
             if (recordingTabId) {
                 if (recordingTabId !== tabId) throw new Error('Another Browser tab is already recording.')
                 const artifact = await stopAssistantBrowserRecording(target)
-                setRecordingTabId(null)
                 onDeveloperToast({ message: 'Browser recording saved.', artifact })
                 return
             }
             await startAssistantBrowserRecording(target, handle.getViewportSize())
-            setRecordingTabId(tabId)
             onDeveloperToast({ message: 'Recording this Browser tab.' })
         } catch (error) {
-            setRecordingTabId(readActiveAssistantBrowserRecordingTabId())
             onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not change Browser recording state.' })
         }
     }, [cancelAnnotation, getActiveDeveloperTarget, onDeveloperToast, recordingTabId])
@@ -2001,7 +1999,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 <button type="button" onClick={() => void updateActiveZoom(1)} className="ml-1 inline-flex size-6 items-center justify-center rounded text-sparkle-text-muted hover:bg-[var(--surface-hover)]" aria-label="Reset zoom"><RotateCcw size={10} /></button>
                             </div>
                             <div className="my-1 h-px bg-[var(--surface-divider)]" />
-                            <button type="button" onClick={() => void toggleActiveRecording()} disabled={!activeTab?.url || Boolean(recordingTabId && recordingTabId !== activeTab?.id)} className={cn(BROWSER_MENU_ROW_CLASS, recordingTabId === activeTab?.id && 'text-red-300')}><Circle size={11} fill={recordingTabId === activeTab?.id ? 'currentColor' : 'none'} /><span>{recordingTabId === activeTab?.id ? 'Stop and save recording' : 'Record Browser tab'}</span></button>
+                            <button type="button" onClick={() => void toggleActiveRecording()} disabled={!activeTab?.url || recordingState.status === 'starting' || recordingState.status === 'stopping' || Boolean(recordingTabId && recordingTabId !== activeTab?.id)} className={cn(BROWSER_MENU_ROW_CLASS, recordingTabId === activeTab?.id && 'text-red-300')}><Circle size={11} fill={recordingTabId === activeTab?.id ? 'currentColor' : 'none'} /><span>{recordingTabId === activeTab?.id ? 'Stop and save recording' : 'Record Browser tab'}</span></button>
                             <button type="button" onClick={() => void openExternal()} disabled={!activeTab?.url || isBrowserLocalFileUrl(activeTab.url)} className={BROWSER_MENU_ROW_CLASS}><ExternalLink size={12} /><span>Open in default browser</span></button>
                             <div className="my-1 h-px bg-[var(--surface-divider)]" />
                             <button type="button" onClick={() => {
@@ -2064,6 +2062,13 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                     onClose={() => updateActiveViewport({ mode: 'fill' })}
                 />
             ) : null}
+
+            <AssistantBrowserRecordingControls
+                tabTitle={workspaceState.tabs.find(tab => tab.id === recordingState.tabId)?.title || undefined}
+                onShowTab={recordingState.tabId && workspaceState.tabs.some(tab => tab.id === recordingState.tabId) ? () => mutateWorkspaceState(current => activateAssistantBrowserTab(current, recordingState.tabId!)) : undefined}
+                onSaved={artifact => onDeveloperToast({ message: 'Browser recording saved.', artifact })}
+                onError={message => onDeveloperToast({ tone: 'error', message })}
+            />
 
             <div className="relative isolate min-h-0 flex-1 overflow-hidden bg-white">
                 {workspaceState.tabs.map((tab) => {

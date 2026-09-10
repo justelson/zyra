@@ -1,3 +1,4 @@
+import { settleActivityAtTurnEnd } from '@shared/assistant/activity-settlement'
 import type { AssistantActivity, AssistantMessage, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import { normalizeAssistantMessageReferenceId } from '@shared/assistant/message-identity'
 import {
@@ -5,6 +6,7 @@ import {
     getContextCompactionStatus,
     isContextCompactionActivity,
     isModelNoticeActivity,
+    isAssistantConnectionRecoveryActivity,
     type TimelineDisplayRow,
     type TimelineRenderRow,
     type TimelineTurnWorkSummaryRow
@@ -33,7 +35,7 @@ function getRowTurnId(row: TimelineRenderRow): string | null {
 function getActionRowActivities(row: TimelineRenderRow): AssistantActivity[] | null {
     const isAction = (activity: AssistantActivity) => {
         const kind = getActivityRenderGroupKind(activity)
-        return kind === 'tool' || kind === 'subagent'
+        return kind === 'tool' || kind === 'subagent' || kind === 'issue' || isAssistantConnectionRecoveryActivity(activity)
     }
     if (row.kind === 'activity') return isAction(row.activity) ? [row.activity] : null
     if (row.kind === 'activity-group' && row.activities.length > 0 && row.activities.every(isAction)) {
@@ -48,7 +50,7 @@ function groupConsecutiveActionRows(rows: TimelineRenderRow[]): TimelineRenderRo
         const activities = getActionRowActivities(row)
         const previous = groupedRows[groupedRows.length - 1]
         const previousActivities = previous ? getActionRowActivities(previous) : null
-        if (!activities || !previous || !previousActivities) {
+        if (!activities || !previous || !previousActivities || (getRowTurnId(previous) && getRowTurnId(row) && getRowTurnId(previous) !== getRowTurnId(row))) {
             groupedRows.push(row)
             continue
         }
@@ -577,5 +579,11 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         }
         displayRows.push(rows[index])
     }
-    return displayRows
+    return displayRows.map(row => {
+        if (row.kind !== 'turn-work-summary' || row.running || !row.completedAt) return row
+        const settle = (activity: AssistantActivity) => settleActivityAtTurnEnd(activity, row.completedAt!, row.outcome || 'interrupted')
+        return { ...row, rows: row.rows.map(nested => nested.kind === 'activity'
+            ? { ...nested, activity: settle(nested.activity) }
+            : 'activities' in nested ? { ...nested, activities: nested.activities.map(settle) } : nested) }
+    })
 }

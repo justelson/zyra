@@ -55,6 +55,7 @@
         "smoke:windows-control-overlay": "node scripts/maint/run-windows-control-overlay-smoke.mjs",
         "smoke:browser-threat-feed": "node scripts/smoke-browser-threat-feed.mjs",
         "smoke:protected-media": "node scripts/maint/ensure-electron.mjs && electron scripts/maint/probe-protected-media.cjs",
+        "test:browser-recording": "bun scripts/test-browser-recording-lifecycle.ts",
         "test:browser-annotation": "bun scripts/test-browser-annotation-composer.ts && node scripts/maint/run-browser-annotation-test.mjs",
         "test:browser-assistant-bridge": "bun scripts/test-browser-assistant-bridge.ts",
         "test:browser-client-host": "bun scripts/test-browser-client-host.ts",

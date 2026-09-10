@@ -85,7 +85,7 @@ async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme
             button{border:0;cursor:pointer} button:disabled{cursor:default;opacity:.4}
             .toolbar{pointer-events:auto;position:fixed;top:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;border:1px solid var(--z-border);border-radius:9px;background:color-mix(in srgb,var(--z-card) 96%,transparent);box-shadow:0 10px 28px rgba(0,0,0,.24);backdrop-filter:blur(16px);color:var(--z-fg)}
             .tool,.icon{height:30px;border-radius:6px;background:transparent;color:var(--z-muted)}
-            .tool{padding:0 10px;font-size:12px;font-weight:550}.icon{width:30px;padding:0;font-size:15px}
+            .tool{padding:0 10px;font-size:12px;font-weight:550}.icon{display:inline-flex;align-items:center;justify-content:center;width:30px;flex:0 0 30px;padding:0;font-size:15px}.icon svg{position:static;display:block;width:16px;height:16px;flex:none;pointer-events:none}
             .tool:hover,.icon:hover{background:color-mix(in srgb,var(--z-fg) 7%,transparent);color:var(--z-fg)}
             .tool[data-active=true]{background:color-mix(in srgb,var(--z-primary) 12%,transparent);color:var(--z-primary)}
             .divider{width:1px;height:18px;margin:0 2px;background:var(--z-border)}
@@ -97,12 +97,13 @@ async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme
             .hover{border-style:dashed;background:color-mix(in srgb,var(--z-primary) 4%,transparent)}
             .marquee{border-style:dashed;background:color-mix(in srgb,var(--z-primary) 6%,transparent)}
             .label{position:fixed;pointer-events:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border-radius:4px;background:var(--z-primary);color:var(--z-primary-fg);font:600 10px/15px ${theme.fontFamily};box-shadow:0 4px 12px rgba(0,0,0,.2)}
-            svg{position:fixed;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+            .drawing-plane{position:fixed;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
         `
         shadow.appendChild(style)
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
         svg.setAttribute(UI_ATTRIBUTE, '')
+        svg.classList.add('drawing-plane')
         svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`)
         shadow.appendChild(svg)
         const hover = document.createElement('div')

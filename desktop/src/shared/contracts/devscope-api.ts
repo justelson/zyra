@@ -304,6 +304,7 @@ export type DevScopeBrowserCaptureArtifact = {
 }
 
 export type DevScopeBrowserRecordingFrame = {
+    ended?: boolean
     tabId: string
     data: string
     width: number

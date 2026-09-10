@@ -1100,7 +1100,7 @@ export function getActivityStatus(activity: AssistantActivity): 'success' | 'run
     const normalizedStatus = rawStatus.toLowerCase().replace(/[-_\s]/g, '')
     if (activity.tone === 'error') return 'failed'
     if (normalizedStatus === 'running' || normalizedStatus === 'inprogress' || normalizedStatus === 'pending' || normalizedStatus === 'started') return 'running'
-    if (normalizedStatus === 'error' || normalizedStatus === 'failed' || normalizedStatus === 'cancelled' || normalizedStatus === 'declined') return 'failed'
+    if (normalizedStatus === 'error' || normalizedStatus === 'failed' || normalizedStatus === 'cancelled' || normalizedStatus === 'interrupted' || normalizedStatus === 'declined') return 'failed'
     return 'success'
 }
 

@@ -1,3 +1,5 @@
+import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
+import { TimelineIssueList } from './AssistantTimelineIssueList'
 import { memo, useMemo } from 'react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
@@ -6,7 +8,9 @@ import {
     areActivityListsEqual,
     countRunningCommandActivities,
     getActivityPaths,
-    getCreatedFilePaths
+    getCreatedFilePaths,
+    isIssueActivity,
+    isAssistantConnectionRecoveryActivity
 } from './assistant-timeline-helpers'
 import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
 import { groupAssistantControlActionRuns } from './assistant-control-action-runs'
@@ -103,6 +107,8 @@ export const TimelineToolCallList = memo(({
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
 
     const renderActivity = (activity: AssistantActivity) => {
+        if (isAssistantConnectionRecoveryActivity(activity)) return <AssistantTimelineNetworkRecovery key={activity.id} activity={activity} />
+        if (isIssueActivity(activity)) return <TimelineIssueList key={activity.id} activities={[activity]} />
         const family = getAssistantActionFamily(activity)
         const common = { activity, projectRootPath }
         return (

@@ -45,6 +45,7 @@ export function AssistantTimelineControlAction(props: {
             expanded={expanded}
             onToggle={() => { setExpanded(value => !value); if (!expanded) void hydrated.hydrate() }}
         >
+            {typeof props.activity.payload?.settlementReason === 'string' ? <p className="mb-2 text-[11px] text-sparkle-text-muted">{props.activity.payload.settlementReason}</p> : null}
             {openUrl ? <button type="button" onClick={openUrl} className="mb-2 text-[11px] text-[var(--accent-primary)] hover:underline">Open page</button> : null}
             {hydrated.loading ? <p className="text-[11px] text-sparkle-text-muted">Loading action details…</p> : hydrated.error ? <p role="alert" className="text-[11px] text-[var(--status-danger)]">{hydrated.error}</p> : output ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-5 text-sparkle-text-secondary">{output}</pre> : <p className="text-[11px] text-sparkle-text-muted">{props.activity.summary || getAssistantActionTitle(props.activity)}</p>}
         </AssistantTimelineActionShell>

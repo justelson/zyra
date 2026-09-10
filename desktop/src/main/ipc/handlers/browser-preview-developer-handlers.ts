@@ -62,6 +62,7 @@ type ActiveRecording = {
     startedAt: string
     started: boolean
     onMessage: (event: Electron.Event, method: string, params: Record<string, unknown>) => void
+    onOwnerDestroyed: () => void
     onDestroyed: () => void
     onDetach: () => void
 }
@@ -335,6 +336,12 @@ function grantRecordingSave(recording: ActiveRecording): void {
 
 function cleanupRecording(recording: ActiveRecording): void {
     grantRecordingSave(recording)
+    if (!recording.guest.isDestroyed() && recording.guest.debugger.isAttached()) void recording.guest.debugger.sendCommand('Page.stopScreencast').catch(() => {})
+    const owner = webContents.fromId(recording.ownerWebContentsId)
+    owner?.removeListener('destroyed', recording.onOwnerDestroyed)
+    if (owner && !owner.isDestroyed()) owner.send(BROWSER_PREVIEW_RECORDING_FRAME_CHANNEL, {
+        tabId: recording.tabId, data: '', width: 0, height: 0, receivedAt: new Date().toISOString(), ended: true
+    } satisfies DevScopeBrowserRecordingFrame)
     recording.guest.debugger.removeListener('message', recording.onMessage)
     recording.guest.removeListener('destroyed', recording.onDestroyed)
     recording.guest.debugger.removeListener('detach', recording.onDetach)
@@ -628,15 +635,18 @@ export async function handleStartBrowserPreviewRecording(event: IpcMainInvokeEve
                 }
                 ownerContents.send(BROWSER_PREVIEW_RECORDING_FRAME_CHANNEL, frame)
             },
+            onOwnerDestroyed: () => cleanupRecording(recording),
             onDestroyed: () => cleanupRecording(recording),
             onDetach: () => cleanupRecording(recording)
         }
+        event.sender.once('destroyed', recording.onOwnerDestroyed)
         guest.debugger.on('message', recording.onMessage)
         guest.once('destroyed', recording.onDestroyed)
         guest.debugger.once('detach', recording.onDetach)
         activeRecording = recording
         try {
             await guest.debugger.sendCommand('Page.enable')
+            if (activeRecording !== recording) throw new Error('The Browser recording was cancelled before it started.')
             await guest.debugger.sendCommand('Page.startScreencast', {
                 format: 'jpeg',
                 quality: 78,
@@ -644,6 +654,7 @@ export async function handleStartBrowserPreviewRecording(event: IpcMainInvokeEve
                 maxHeight: 1200,
                 everyNthFrame: 1
             })
+            if (activeRecording !== recording) throw new Error('The Browser recording ended while starting.')
             recording.started = true
         } catch (error) {
             cleanupRecording(recording)

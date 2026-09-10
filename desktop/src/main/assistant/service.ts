@@ -1,3 +1,4 @@
+import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -3798,6 +3799,13 @@ export function projectCanonicalTimeline(
             || stopReason === 'canceled'
             || stopReason === 'interrupted'
             || stopReason === 'stopped'
+        if (role === 'assistant' && activeTurnId && (interrupted || errorMessage || ['stop', 'length', 'error'].includes(stopReason))) {
+            for (const [id, activity] of activities) {
+                if (activity.turnId !== activeTurnId) continue
+                const settled = settleActivityAtTurnEnd(activity, messageOccurredAt, !interrupted && !errorMessage && stopReason !== 'error' ? 'completed' : 'interrupted')
+                if (settled !== activity) activities.set(id, settled)
+            }
+        }
         if (interrupted || errorMessage || stopReason === 'error') {
             const errorActivityId = `shared-error:${sourceMessageId}`
             const legacyErrorActivityId = `shared-error:${legacyMessageId}`

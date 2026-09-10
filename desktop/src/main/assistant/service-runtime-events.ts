@@ -1,3 +1,4 @@
+import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
 import type {
     AssistantActivity,
     AssistantDomainEvent,
@@ -936,6 +937,11 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 serviceTier: event.payload.serviceTier || null,
                 usage: event.payload.usage || null
             }
+        for (const activity of existingThread.activities) {
+            if (activity.turnId !== latestTurn.id) continue
+            const settled = settleActivityAtTurnEnd(activity, event.createdAt, completedTurnState)
+            if (settled !== activity) deps.appendEvent('thread.activity.appended', event.createdAt, { threadId: eventThreadId, activity: settled }, eventSession.id, eventThreadId)
+        }
         deps.appendEvent('thread.latest-turn.updated', event.createdAt, { threadId: eventThreadId, latestTurn }, eventSession.id, eventThreadId)
         deps.appendEvent('thread.updated', event.createdAt, {
             threadId: eventThreadId,

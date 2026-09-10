@@ -1,3 +1,5 @@
+import { groupTimelineRowsIntoWorkSummaries } from '../src/renderer/src/pages/assistant/assistant-turn-work'
+import { settleActivityAtTurnEnd } from '../src/shared/assistant/activity-settlement'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup as renderMarkup } from 'react-dom/server'
@@ -21,7 +23,7 @@ import {
 import { parseAssistantSkillSnapshot } from '../src/renderer/src/pages/assistant/assistant-skill-snapshot'
 import { groupAssistantControlActionRuns } from '../src/renderer/src/pages/assistant/assistant-control-action-runs'
 import { getTerminalOutputHeightClass } from '../src/renderer/src/pages/assistant/assistant-timeline-layout'
-import { areActivitiesEquivalent, estimateTimelineRowHeight, getTimelineEntries } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
+import { areActivitiesEquivalent, estimateTimelineRowHeight, getTimelineEntries, getActivityStatus } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import { SettingsProvider, loadSettings } from '../src/renderer/src/lib/settings'
 import {
     acknowledgeAssistantInspectorNavigation,
@@ -324,5 +326,34 @@ assert.match(answeredMarkup, /Which surface\?/)
 assert.match(answeredMarkup, /Both/)
 assert.match(answeredMarkup, /Show more \(1 more\)/)
 assert.doesNotMatch(answeredMarkup, /Anything else\?/, 'multiple answers stay compact until the dedicated modal opens')
+
+const recoverySequence = [
+    activity({ id:'sequence:first', kind:'browser', payload:{toolName:'browser_act',status:'completed',actionBatchIntent:'Drawing an illustration'} }),
+    activity({ id:'sequence:error', kind:'error', tone:'error', summary:'Temporary provider failure' }),
+    activity({ id:'sequence:lost', kind:'browser', payload:{toolName:'browser_act',status:'running',actionBatchIntent:'Drawing details'} }),
+    activity({ id:'sequence:reconnect', kind:'connection.recovery', summary:'Reconnecting', payload:{status:'retrying'} }),
+    activity({ id:'sequence:last', kind:'browser', payload:{toolName:'browser_act',status:'completed',actionBatchIntent:'Finishing the illustration'} })
+]
+const userBoundary = {...narration,id:'sequence:user',role:'user' as const,text:'Draw something'}
+const finalBoundary = {...narration,id:'sequence:final',text:'Finished',updatedAt:'2026-09-03T12:01:00.000Z'}
+const recoveredRows = groupTimelineRowsIntoWorkSummaries({
+    rows:[{kind:'message',id:userBoundary.id,createdAt,message:userBoundary}, ...recoverySequence.map(item => ({kind:'activity' as const,id:item.id,createdAt,activity:item})),{kind:'message',id:finalBoundary.id,createdAt,message:finalBoundary}],
+    messages:[userBoundary,finalBoundary], latestAssistantMessageId:finalBoundary.id,latestTurnStartedAt:createdAt,isWorking:false
+})
+const recoveredWork = recoveredRows.find(row => row.kind === 'turn-work-summary')!
+assert.equal(recoveredWork.kind, 'turn-work-summary')
+if (recoveredWork.kind === 'turn-work-summary') {
+    assert.equal(recoveredWork.rows.length, 1, 'errors and reconnects do not split consecutive actions')
+    const batch = recoveredWork.rows[0]!
+    assert.equal(batch.kind, 'activity-group')
+    if (batch.kind === 'activity-group') {
+        assert.deepEqual(batch.activities.map(item => item.id), recoverySequence.map(item => item.id), 'evidence stays in chronological order')
+        assert.equal(getActivityStatus(batch.activities[2]!), 'failed', 'a completed turn cannot retain a running foreground action')
+        assert.equal(batch.activities[2]!.payload?.completionSource, 'turn-boundary', 'missing completion is not presented as successful execution')
+        assert.equal(batch.activities[3]!.payload?.status, 'recovered', 'historical reconnects stop spinning after completion')
+    }
+}
+const backgroundJob = activity({id:'background:1',kind:'command',payload:{status:'running',jobId:'job:1'}})
+assert.equal(settleActivityAtTurnEnd(backgroundJob, createdAt,'completed'),backgroundJob,'independent managed jobs retain their actual status')
 
 console.log('Assistant Work Timeline v2 contract: ok')

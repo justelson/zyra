@@ -129,6 +129,7 @@ export async function createAssistantSessionAction(
         createdAt,
         thread
     })
+    thread.cwd = deps.getSessionRuntimeCwd(session, thread)
     deps.appendEvent('session.created', createdAt, { session }, sessionId, thread.id)
     deps.appendEvent('session.selected', createdAt, { sessionId }, sessionId, thread.id)
     return { success: true as const, sessionId }

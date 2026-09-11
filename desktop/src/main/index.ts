@@ -1094,6 +1094,7 @@ app.whenReady().then(async () => {
         log.warn('[OpenAI] connection prewarm failed', error)
     })
     configureAssistantService({
+        getDefaultProjectsFolder: () => setupServices.preferences.getConfiguredProjectsFolder(),
         getNewChatExecutionDefaults: () => setupServices.preferences.getNewChatWebDefaults(),
         getProjectDiscoveryRoots: () => setupServices.preferences.getProjectDiscoveryRoots(),
         openDesktopWorkspace: (request) => assistantUtilityWindowManager.openFromTui(request),

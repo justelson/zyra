@@ -1,6 +1,6 @@
 import { useAssistantReviewNavigation } from './useAssistantReviewNavigation'
 import { InspectorWorkspaceSurface, useInspectorWorkspaceLoading } from './InspectorWorkspaceSurface'
-import { lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { Bot, FileDiff, Files, Globe2, Library, LoaderCircle, MessageSquareText, PanelRight, ShieldAlert, SquareTerminal, TriangleAlert, Volume2 } from 'lucide-react'
 import type { AssistantChatScopeRoot, FleetSnapshot } from '@shared/assistant/contracts'
 import type { AssistantFilesShellLaunchRequest } from '@shared/assistant/files-shell-launch-route'
@@ -18,7 +18,7 @@ import type {
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
-import { PreviewTreeSkeleton } from '@/components/ui/file-preview/PreviewLoadingSkeleton'
+import { PreviewTreeSkeleton, PreviewContentSkeleton } from '@/components/ui/file-preview/PreviewLoadingSkeleton'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { IncognitoIcon } from '@/components/ui/IncognitoIcon'
 import { preloadPreviewRenderer } from '@/components/ui/file-preview/useFilePreview'
@@ -56,7 +56,6 @@ import {
     useAssistantInspectorDeveloperToast
 } from './AssistantInspectorDeveloperToast'
 import { AssistantReviewLanding } from './AssistantReviewLanding'
-import { AssistantTurnReview } from './AssistantTurnReview'
 import { countAssistantThreadPendingControl } from './assistant-thread-details'
 import { resolveDiffWorkspaceTabContext, resolveFilesWorkspaceTabContext } from './assistant-workspace-tab-context'
 import { useAssistantFleetSnapshot } from './useAssistantFleetSnapshot'
@@ -69,6 +68,9 @@ import {
     toAssistantUtilityDiffSelection
 } from './assistant-utility-state-capsules'
 
+const AssistantTurnReview = lazy(async () => ({
+    default: (await import('./AssistantTurnReview')).AssistantTurnReview
+}))
 const AssistantFilesWorkspace = lazy(async () => ({
     default: (await import('./AssistantFilesWorkspace')).AssistantFilesWorkspace
 }))
@@ -1249,18 +1251,20 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                         )}
                                     </div>
                                 ) : (
-                                    <AssistantTurnReview
-                                        turn={reviewTransitionTurn}
-                                        selectedDiff={reviewTransitionSelectedDiff}
-                                        focusSelectedDiffRequestId={focusedDiffRequestId}
-                                        showBack
-                                        onBack={() => {
-                                            setReviewTurnId(null)
-                                            setFocusedDiffRequestId(null)
-                                        }}
-                                        onSelectDiff={onSelectDiff}
-                                        onLoadingChange={handleReviewLoadingChange}
-                                    />
+                                    <Suspense fallback={<PreviewContentSkeleton label="Opening turn" />}>
+                                        <AssistantTurnReview
+                                            turn={reviewTransitionTurn}
+                                            selectedDiff={reviewTransitionSelectedDiff}
+                                            focusSelectedDiffRequestId={focusedDiffRequestId}
+                                            showBack
+                                            onBack={() => {
+                                                setReviewTurnId(null)
+                                                setFocusedDiffRequestId(null)
+                                            }}
+                                            onSelectDiff={onSelectDiff}
+                                            onLoadingChange={handleReviewLoadingChange}
+                                        />
+                                    </Suspense>
                                 )}
                             </div>
                         ) : null}
@@ -1388,15 +1392,17 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                     </div>
                 ) : activeWorkspaceTab?.kind === 'turn' && visibleTurn ? (
                     <div key={`turn-detail:${visibleTurn.id}`} className="assistant-review-full-turn-enter flex min-h-0 flex-1">
-                        <AssistantTurnReview
-                            turn={visibleTurn}
-                            selectedDiff={visibleSelectedDiff}
-                            focusSelectedDiffRequestId={null}
-                            showBack={false}
-                            onBack={() => undefined}
-                            onSelectDiff={onSelectDiff}
-                            onLoadingChange={handleTurnLoadingChange}
-                        />
+                        <Suspense fallback={<PreviewContentSkeleton label="Opening turn" />}>
+                            <AssistantTurnReview
+                                turn={visibleTurn}
+                                selectedDiff={visibleSelectedDiff}
+                                focusSelectedDiffRequestId={null}
+                                showBack={false}
+                                onBack={() => undefined}
+                                onSelectDiff={onSelectDiff}
+                                onLoadingChange={handleTurnLoadingChange}
+                            />
+                        </Suspense>
                     </div>
                 ) : null}
                 <AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} />

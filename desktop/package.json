@@ -28,6 +28,8 @@
         "typecheck:watch:shared": "tsc --noEmit -p tsconfig.shared.json --watch --preserveWatchOutput",
         "typecheck:browser-runtime": "tsc --noEmit -p tsconfig.browser-runtime.json",
         "test:activity-rail": "bun scripts/test-activity-rail-contract.ts",
+        "test:inspector-startup": "bun scripts/test-assistant-inspector-startup.ts",
+        "test:default-chat-folder": "bun scripts/test-assistant-default-folder.ts",
         "test:runtime-observability": "bun scripts/test-runtime-observability.ts",
         "test:memory-overview": "bun scripts/test-memory-overview-root.ts",
         "test:work-timeline-v2": "bun scripts/test-assistant-work-timeline-v2.tsx",

@@ -1,4 +1,5 @@
 import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
+import { resolveAssistantWorkingDirectory } from '../../shared/assistant/working-directory'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -243,6 +244,7 @@ type PendingCanonicalVoiceStart = {
 }
 
 export type AssistantServiceOptions = {
+    getDefaultProjectsFolder?: () => string | null
     getNewChatExecutionDefaults?: () => Promise<{ webSearch: boolean; webFetch: boolean }>
     getTitleGenerationModel?: () => Promise<string | null>
     getTitleAutomation?: () => Promise<{ enabled: boolean; turnInterval: number }>
@@ -3227,7 +3229,11 @@ export class AssistantService {
         session: AssistantSession,
         thread: AssistantThread
     ): string {
-        return this.resolveCanonicalProjectPath(session.workingRoot, session.projectPath, thread.cwd)
+        return resolveAssistantWorkingDirectory({
+            workingRoot: this.resolveCanonicalProjectPath(session.workingRoot),
+            projectPath: this.resolveCanonicalProjectPath(session.projectPath),
+            cwd: this.resolveCanonicalProjectPath(thread.cwd)
+        }, this.options.getDefaultProjectsFolder?.())
             || this.persistence.getGlobalWorkspaceRoot()
     }
 

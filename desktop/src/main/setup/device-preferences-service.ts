@@ -347,6 +347,12 @@ export class DevicePreferencesService {
         return [...new Set([primary, ...additional].filter(Boolean))]
     }
 
+    /** Setup hydrates preferences before starting the assistant. No disk reads on cwd resolution. */
+    getConfiguredProjectsFolder(): string | null {
+        const value = this.hydrated?.kind === 'ready' ? this.hydrated.record.shared.projectsFolder : null
+        return typeof value === 'string' ? value.trim() || null : null
+    }
+
     async getNewChatWebDefaults(): Promise<{ webSearch: boolean; webFetch: boolean }> {
         const record = await this.requireReadyRecord()
         return {

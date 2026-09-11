@@ -263,6 +263,8 @@ const desktopTasks = [
   { label: "desktop:test:update-controls", bunArgs: ["run", "--cwd", "desktop", "test:update-controls"] },
   { label: "desktop:test:assistant-project-creation", bunArgs: ["run", "--cwd", "desktop", "test:assistant-project-creation"] },
   { label: "desktop:test:assistant-approval-projection", bunArgs: ["desktop/scripts/test-assistant-approval-projection.ts"] },
+  { label: "desktop:test:inspector-startup", bunArgs: ["desktop/scripts/test-assistant-inspector-startup.ts"] },
+  { label: "desktop:test:default-chat-folder", bunArgs: ["desktop/scripts/test-assistant-default-folder.ts"] },
   { label: "desktop:test:assistant-new-chat-surface", bunArgs: ["desktop/scripts/test-assistant-new-chat-surface.ts"] },
   { label: "desktop:test:shell-file-preview", bunArgs: ["run", "--cwd", "desktop", "test:shell-file-preview"] },
   { label: "desktop:test:assistant-model-catalog", bunArgs: ["desktop/scripts/test-assistant-model-catalog.tsx"] },

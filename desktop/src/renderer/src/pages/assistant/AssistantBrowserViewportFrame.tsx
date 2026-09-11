@@ -1,3 +1,4 @@
+import { useBrowserTargetCursor } from './useBrowserTargetCursor'
 import {
     type CSSProperties,
     type KeyboardEvent as ReactKeyboardEvent,
@@ -43,7 +44,8 @@ export function AssistantBrowserViewportFrame({
     zoomFactor,
     visible,
     controlled,
-    cursor,
+    cursor: initialCursor,
+    cursorTargetId,
     children,
     onViewportChange
 }: {
@@ -51,10 +53,12 @@ export function AssistantBrowserViewportFrame({
     zoomFactor: number
     visible: boolean
     controlled: boolean
+    cursorTargetId?: string
     cursor: ControlCursorState | null
     children: ReactNode
     onViewportChange: (viewport: AssistantBrowserViewportSetting) => void
 }) {
+    const cursor = useBrowserTargetCursor(controlled ? cursorTargetId : undefined, visible, initialCursor)
     const rootRef = useRef<HTMLDivElement | null>(null)
     const [container, setContainer] = useState({ width: 1, height: 1 })
     const [draft, setDraft] = useState<ResizeDraft | null>(null)

@@ -1,3 +1,4 @@
+import type { AssistantTextUpdate } from '../stream-text-update'
 export type AssistantRuntimeMode = 'approval-required' | 'auto-review' | 'edits-only' | 'full-access'
 
 export function isAssistantRuntimeMode(value: unknown): value is AssistantRuntimeMode {
@@ -189,8 +190,8 @@ export type AssistantRuntimeEvent =
         type: 'content.delta'
         payload: {
             streamKind: AssistantContentStreamKind
-            delta: string
-            replaceText?: string
+            delta: AssistantTextUpdate['delta']
+            replaceText?: AssistantTextUpdate['replaceText']
         }
     })
     | (AssistantRuntimeEventBase & {

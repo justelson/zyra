@@ -1,3 +1,5 @@
+import type { RuntimeActivationStatus } from '../runtime-activation'
+import type { AgentRoleModels, AgentRoleModelInput } from '../onboarding/contracts'
 import type { ModelProviderInput, ModelProviderConnection } from '../onboarding/contracts'
 import type {
     AssistantApprovalResponseInput,
@@ -548,6 +550,8 @@ export interface DevScopeOnboardingApi {
     getState: () => Promise<DevScopeResult<{ snapshot: OnboardingSnapshot }>>
     connectModelProvider: (input: ModelProviderInput) => Promise<DevScopeResult<{ connection: ModelProviderConnection }>>
     disconnectModelProvider: (provider: string) => Promise<DevScopeResult<{ provider: string }>>
+    getAgentRoleModels: () => Promise<DevScopeResult<{ models: AgentRoleModels }>>
+    setAgentRoleModel: (input: AgentRoleModelInput) => Promise<DevScopeResult<{ models: AgentRoleModels }>>
     listModelProviders: () => Promise<DevScopeResult<{ connections: ModelProviderConnection[] }>>
     getAuthStatus: () => Promise<DevScopeResult<{ status: OnboardingAuthStatus }>>
     getConnectionsStatus: (input?: AccountConnectionStatusInput) => Promise<DevScopeResult<{ status: OpenAIConnectionsStatus }>>
@@ -694,6 +698,7 @@ export interface DevScopeAssistantApi {
 }
 
 export interface DevScopeApi {
+    runtimeActivation: { getState: () => Promise<RuntimeActivationStatus>; onStateChange: (listener: (state: RuntimeActivationStatus) => void) => () => void }
     // Settings + AI
     setStartupSettings: (settings: { openAtLogin: boolean; openAsHidden: boolean }) => Promise<DevScopeResult>
     getStartupSettings: () => Promise<DevScopeResult>

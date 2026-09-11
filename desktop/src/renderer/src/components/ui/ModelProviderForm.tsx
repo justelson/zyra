@@ -1,3 +1,4 @@
+import { providerFeatures } from '@shared/assistant/provider-features'
 import { useState } from 'react'
 import type { ModelProviderInput, ModelProviderConnection } from '@shared/onboarding/contracts'
 import { useSettings } from '@/lib/settings'
@@ -30,7 +31,7 @@ export function ModelProviderForm({ onConnected }: { onConnected?: (connection: 
     return <form className="space-y-3 text-left" onSubmit={event => { event.preventDefault(); void connect() }}>
         <label className="block text-[12px] text-sparkle-text-secondary">Provider
             <select className={`${field} mt-1.5`} value={provider} disabled={busy} onChange={event => { setProvider(event.target.value as ModelProviderInput['provider']); setApiKey(''); setModel(''); setError(''); setSuccess('') }}>
-                <option value="opencode">OpenCode Zen</option><option value="anthropic">Claude API</option><option value="custom">Custom endpoint</option>
+                {(['opencode', 'anthropic', 'custom'] as const).map(id => <option key={id} value={id}>{providerFeatures(id).label}</option>)}
             </select>
         </label>
         {provider === 'custom' ? <>
@@ -41,8 +42,9 @@ export function ModelProviderForm({ onConnected }: { onConnected?: (connection: 
             </select>
         </> : null}
         <input className={field} type="password" aria-label={`${provider === 'anthropic' ? 'Claude' : provider === 'opencode' ? 'Zen' : 'Provider'} API key`} placeholder="API key" autoComplete="off" spellCheck={false} value={apiKey} disabled={busy} onChange={event => setApiKey(event.target.value)} required />
-        <input className={field} aria-label="Model ID" placeholder="Model ID (optional, detected when available)" value={model} disabled={busy} onChange={event => setModel(event.target.value)} />
+        <input className={field} aria-label="Model ID" placeholder={providerFeatures(provider).modelDiscovery === 'endpoint' ? 'Model ID (optional, detected when available)' : 'Model ID'} value={model} disabled={busy} onChange={event => setModel(event.target.value)} />
         <p className="text-[11px] leading-5 text-sparkle-text-secondary">{provider === 'opencode' ? 'Connect with a Zen API key. OpenCode currently restricts its public free tier to its own app.' : provider === 'anthropic' ? 'Uses your Anthropic API credits. Claude subscription sign-in is not supported.' : 'Use a provider that supports one of these API formats.'} A short request verifies model access.</p>
+        {!providerFeatures(provider).voice ? <p className="text-[11px] leading-5 text-sparkle-text-secondary">Voice and subscription usage require a separate ChatGPT connection.</p> : null}
         <button className="h-10 w-full rounded-full bg-[var(--accent-primary)] px-4 text-[12px] font-medium text-[var(--accent-on-primary)] transition-opacity hover:opacity-90 disabled:opacity-50" disabled={busy || !apiKey.trim()}>{busy ? 'Connecting…' : 'Connect and use provider'}</button>
         {error || success ? <p role={error ? 'alert' : 'status'} className={`text-[12px] leading-5 ${error ? 'text-[var(--status-danger)]' : 'text-[var(--status-success)]'}`}>{error || success}</p> : null}
     </form>

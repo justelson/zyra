@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import log from 'electron-log'
-import { getSharedOpenAIAuthWorkerClient } from '../setup/openai-auth-worker-client'
+import { getSharedProviderWorkerClient } from '../setup/provider-worker-client'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type {
@@ -74,7 +74,7 @@ async function loadChatGptRealtimeAccountModule(): Promise<ChatGptRealtimeAccoun
 async function createDirectChatGptCall(input: ChatGptRealtimeCallInput): Promise<ChatGptRealtimeCallResult> {
     return (await loadChatGptRealtimeAccountModule()).createChatGptRealtimeCall(input, {
         // Reuse the same off-main auth boundary as voice transcription.
-        resolveAuth: () => getSharedOpenAIAuthWorkerClient().account.resolveChatGptAccountAuth(),
+        resolveAuth: () => getSharedProviderWorkerClient().account.resolveChatGptAccountAuth(),
         onFailure: diagnostic => log.warn('[Voice signaling] Startup failed', diagnostic)
     })
 }

@@ -1,3 +1,4 @@
+import { RUNTIME_ACTIVATION_VERSION, readRuntimeRevision } from "./runtime-revision.mjs";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { constants as fsConstants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -30,6 +31,8 @@ export class ZyraAgentServerClient extends EventEmitter {
     this.autoStart = options.autoStart !== false;
     this.requiredMethods = options.requiredMethods || AGENT_SERVER_METHODS;
     this.serverMethods = [];
+    this.serverRuntimeRevision = null;
+    this.verifyRuntimeRevision = options.verifyRuntimeRevision ?? this.autoStart;
     this.socket = null;
     this.cleanupReader = null;
     this.pending = new Map();
@@ -74,6 +77,7 @@ export class ZyraAgentServerClient extends EventEmitter {
   }
 
   async connectInternal() {
+    const expectedRevision = this.verifyRuntimeRevision ? await readRuntimeRevision(this.root) : null;
     let descriptor = readDescriptor(this.paths.descriptorFile);
     if (!descriptor && this.autoStart) {
       assertNoLiveIncompatibleAgentServer(this.paths);
@@ -91,14 +95,19 @@ export class ZyraAgentServerClient extends EventEmitter {
       await this.openSocket(descriptor);
     }
     const missing = () => this.requiredMethods.filter((method) => !this.serverMethods.includes(method));
-    if (missing().length === 0) return;
+    const revisionMatches = () => !expectedRevision || this.serverRuntimeRevision === expectedRevision;
+    if (missing().length === 0 && revisionMatches()) {
+      this.emit("runtime-status", { phase: "ready", revision: this.serverRuntimeRevision }); return;
+    }
+    this.emit("runtime-status", { phase: "checking" });
     const upgradeError = () => Object.assign(new Error("Zyra's background service is older than this app. Restart the background service to finish updating, then try again."), { code: "AGENT_SERVER_UPGRADE_REQUIRED", missingMethods: missing() });
-    const upgradeKey = JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort()]);
+    const upgradeKey = JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort(), expectedRevision]);
     try {
       if (!this.autoStart || !this.serverMethods.includes("server.retire") || SERVICE_UPGRADE_ATTEMPTS.has(upgradeKey)) throw upgradeError();
-      const retired = await this.requestConnected("server.retire", {}, { timeoutMs: 5_000 });
+      const retired = await this.requestConnected("server.retire", { activationVersion: RUNTIME_ACTIVATION_VERSION, expectedRevision }, { timeoutMs: 5_000 });
       if (retired.retiring !== true) throw upgradeError();
       SERVICE_UPGRADE_ATTEMPTS.add(upgradeKey);
+      this.emit("runtime-status", { phase: "restarting" });
       this.close();
       const deadline = Date.now() + 10_000;
       while (processAlive(descriptor.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 75));
@@ -107,8 +116,10 @@ export class ZyraAgentServerClient extends EventEmitter {
       descriptor = await waitForDescriptor(this.paths.descriptorFile, DEFAULT_CONNECT_TIMEOUT_MS, descriptor.pid, this.paths);
       await this.openSocket(descriptor);
       // A competing older client can win startup. Never enter an upgrade loop.
-      if (missing().length > 0) throw upgradeError();
+      if (missing().length > 0 || !revisionMatches()) throw upgradeError();
+      this.emit("runtime-status", { phase: "ready", revision: this.serverRuntimeRevision });
     } catch (error) {
+      this.emit("runtime-status", { phase: error.code === "AGENT_SERVER_UPGRADE_BUSY" ? "waiting" : "failed" });
       this.close();
       throw error;
     }
@@ -240,6 +251,7 @@ export class ZyraAgentServerClient extends EventEmitter {
 
   async handleMessage(message) {
     if (message?.type === "hello.ok") {
+      this.serverRuntimeRevision = message.server?.activationVersion === RUNTIME_ACTIVATION_VERSION ? message.server?.runtimeRevision : null;
       this.serverMethods = Array.isArray(message.server?.methods) ? message.server.methods : [];
       this.helloResolve?.(message.server || {});
       this.emit("connect", message.server || {});

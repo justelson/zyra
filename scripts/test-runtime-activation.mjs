@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
+import { readFileSync, writeFileSync } from "node:fs";
+import os from "node:os"; import path from "node:path";
+import { readRuntimeRevision } from "../src/agent-server/runtime-revision.mjs";
+import { ZyraAgentServer } from "../src/agent-server/server.mjs";
+import { ZyraAgentServerClient } from "../src/agent-server/client.mjs";
+const directory = await mkdtemp(path.join(os.tmpdir(), "zyra-activation-"));
+const root = path.join(directory,"runtime"); const clients = [], servers = [];
+try {
+ await mkdir(path.join(root,"src"),{recursive:true}); await writeFile(path.join(root,"package.json"),'{}'); await writeFile(path.join(root,"src","entry.mjs"),'export const version=1;');
+ const first = await readRuntimeRevision(root);
+ const packaged = path.join(directory,"packaged","resources","zyra"); await cp(root,packaged,{recursive:true});
+ assert.equal(await readRuntimeRevision(packaged),first,'installed location does not affect revision');
+ await writeFile(path.join(root,"src","entry.mjs"),'export const version=2;');
+ assert.notEqual(await readRuntimeRevision(root),first,'code updates are detected without changing package version');
+ const options={root,stateDirectory:path.join(directory,"state"),channel:"activation",endpoint:0,desktopAuthorityToken:"fixture-proof"};
+ let server = new ZyraAgentServer(options);servers.push(server);await server.start();server.runtimeRevision=first;
+ const createClient=extra=>{const client=new ZyraAgentServerClient({...options,autoStart:false,verifyRuntimeRevision:true,surface:"desktop",authorities:["desktop-control"],authorityProof:"fixture-proof",...extra});clients.push(client);return client};
+ const old=createClient();await assert.rejects(old.connect(),{code:"AGENT_SERVER_UPGRADE_REQUIRED"});
+ server.sessions.set("busy",{summary:()=>({activeRequests:1}),dispose(){},detach(){}});
+ const busy=createClient({autoStart:true});const phases=[];busy.on("runtime-status",s=>phases.push(s.phase));
+ await assert.rejects(busy.connect(),{code:"AGENT_SERVER_UPGRADE_BUSY"});assert.equal(phases.at(-1),"waiting");assert.equal(server.retiring,false);server.sessions.clear();
+ const descriptor=JSON.parse(readFileSync(server.paths.descriptorFile,"utf8"));writeFileSync(server.paths.descriptorFile,JSON.stringify({...descriptor,pid:2147483646}));
+ let finish;const retired=new Promise(resolve=>finish=resolve);server.once("retire",()=>void server.stop().then(finish));
+ const next=createClient({autoStart:true});next.on("runtime-status",s=>phases.push(s.phase));next.startServer=()=>void retired.then(async()=>{server=new ZyraAgentServer(options);servers.push(server);await server.start()});
+ const state=await next.request("server.status");assert.equal(state.runtimeRevision,await readRuntimeRevision(root));assert.equal(state.activationVersion,1);
+ assert.deepEqual(phases.slice(-3),["checking","restarting","ready"]);
+ assert.ok(!JSON.stringify(phases).includes("fixture-proof"));
+ console.log("Runtime activation: portable release fingerprint, same-version update, idle protection and verified restart passed");
+} finally {for(const client of clients)client.close();for(const server of servers)await server.stop();await rm(directory,{recursive:true,force:true});}

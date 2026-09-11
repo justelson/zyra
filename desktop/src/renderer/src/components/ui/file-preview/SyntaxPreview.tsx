@@ -1,4 +1,5 @@
-import { Suspense, lazy } from 'react'
+import { startEditorMeasurement } from '@shared/performance-samples'
+import { Suspense, lazy, useCallback, useRef } from 'react'
 import { resolveMonacoLanguage } from './monacoLanguage'
 import { CodePreviewPlaceholder } from './CodePreviewPlaceholder'
 
@@ -79,6 +80,12 @@ export default function SyntaxPreview({
     height,
     lineMarkersOverride
 }: SyntaxPreviewProps) {
+    const measurement = useRef<ReturnType<typeof startEditorMeasurement> | null>(null)
+    if (!measurement.current) measurement.current = startEditorMeasurement()
+    const handleEditorMount = useCallback((editor: import('monaco-editor').editor.IStandaloneCodeEditor | null) => {
+        if (editor) measurement.current?.interactive()
+        onEditorMount?.(editor)
+    }, [onEditorMount])
     const safeContent = normalizeSyntaxContent(content)
     const monacoLanguage = resolveMonacoLanguage(language)
     const isLargeFile = safeContent.length > 300_000
@@ -92,7 +99,7 @@ export default function SyntaxPreview({
             data-syntax-preview-model-path={modelPath}
         >
             <Suspense
-                fallback={<CodePreviewPlaceholder content={safeContent} fontSize={fontSize} wordWrap={wordWrap} />}
+                fallback={<CodePreviewPlaceholder onReadable={measurement.current.readable} content={safeContent} fontSize={fontSize} wordWrap={wordWrap} />}
             >
                 <MonacoEditorComponent
                     value={safeContent}
@@ -104,7 +111,8 @@ export default function SyntaxPreview({
                     gitDiffText={gitDiffText}
                     readOnly={readOnly}
                     onChange={onChange}
-                    onEditorMount={onEditorMount}
+                    onEditorMount={handleEditorMount}
+                    onReadable={measurement.current.readable}
                     wordWrap={wordWrap}
                     minimapEnabled={minimapEnabled}
                     fontSize={fontSize}

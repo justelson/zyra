@@ -3,7 +3,7 @@ import type {
     AssistantTranscribeVoiceInput,
     AssistantVoiceTranscriptionState
 } from '../../shared/assistant/contracts'
-import { getSharedOpenAIAuthWorkerClient } from '../setup/openai-auth-worker-client'
+import { getSharedProviderWorkerClient } from '../setup/provider-worker-client'
 
 export const CODEX_VOICE_TRANSCRIPTION_URL = 'https://chatgpt.com/backend-api/transcribe'
 export const CODEX_VOICE_SAMPLE_RATE_HZ = 24_000
@@ -60,7 +60,7 @@ async function readCodexVoiceCredentials(): Promise<CodexVoiceCredentials> {
         // Loading Pi auth and OAuth modules can be expensive on a cold Windows
         // profile. Keep that dependency graph in the shared auth worker so a
         // transcription request cannot block Electron's main event loop.
-        const auth = await getSharedOpenAIAuthWorkerClient().account.resolveChatGptAccountAuth()
+        const auth = await getSharedProviderWorkerClient().account.resolveChatGptAccountAuth()
         const accessToken = readNonEmptyString(auth?.accessToken)
         const accountId = readNonEmptyString(auth?.accountId)
         if (!accessToken || !accountId) {

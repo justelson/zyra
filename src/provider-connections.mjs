@@ -1,4 +1,4 @@
-import { mkdir, writeFile, rename } from "node:fs/promises";
+import { commitProviderConnection, recoverProviderTransaction } from "./provider-transactions.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
@@ -56,7 +56,7 @@ export function connectModelProvider(input, options = {}) {
 async function connect(input, options) {
   const entry = normalizeProviderInput(input);
   const file = options.file || providerConfigPath();
-  const connections = readProviderConnections(file);
+  readProviderConnections(file);
   const fetcher = options.fetch || fetch;
   let catalog = [];
   try {
@@ -79,17 +79,14 @@ async function connect(input, options) {
   });
   const config = { name: entry.label, baseUrl: entry.baseUrl, api: entry.api, authHeader: entry.api !== "anthropic-messages", models };
   runtime.modelRegistry.registerProvider(entry.id, config);
-  await runtime.authStorage.loginApiKey(entry.id, entry.apiKey);
-  connections[entry.id] = { label: entry.label, model: `${entry.id}/${modelId}`, verifiedAt: new Date().toISOString(), config };
-  await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(connections, null, 2), { mode: 0o600 });
-  await rename(temp, file);
+  await commitProviderConnection(file, runtime, { operation: "connect", provider: entry.id, apiKey: entry.apiKey,
+    target: { label: entry.label, model: `${entry.id}/${modelId}`, verifiedAt: new Date().toISOString(), config } }, { readConfig: readProviderConnections });
   return { provider: entry.id, label: entry.label, model: `${entry.id}/${modelId}`, verified: true };
 }
 export async function listModelProviders(options = {}) {
   const { createZyraPiRuntime } = await import("./pi-runtime.mjs");
   const runtime = options.runtime || await createZyraPiRuntime();
+  await recoverProviderTransaction(options.file || providerConfigPath(), runtime, readProviderConnections);
   return Object.entries(readProviderConnections(options.file)).map(([provider, entry]) => ({ provider, label: entry.label, model: entry.model, verified: runtime.authStorage.hasAuth(provider), verifiedAt: entry.verifiedAt }));
 }
 
@@ -100,11 +97,7 @@ export function disconnectModelProvider(provider, options = {}) {
     if (typeof provider !== "string" || !Object.hasOwn(connections, provider)) throw new Error("Saved provider connection not found.");
     const { createZyraPiRuntime } = await import("./pi-runtime.mjs");
     const runtime = options.runtime || await createZyraPiRuntime();
-    await runtime.authStorage.logout(provider);
-    delete connections[provider];
-    const temp = `${file}.${process.pid}.tmp`;
-    await writeFile(temp, JSON.stringify(connections, null, 2), { mode: 0o600 });
-    await rename(temp, file);
+    await commitProviderConnection(file, runtime, { operation: "disconnect", provider }, { readConfig: readProviderConnections });
     return { provider };
   });
   mutations = task;

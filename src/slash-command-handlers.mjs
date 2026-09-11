@@ -34,6 +34,7 @@ import {
 } from "./zyra-sdk.mjs";
 import { normalizeZyraAuthMethod, providerForZyraAuthMethod } from "./auth-methods.mjs";
 import { importClaudeAgentPreviews, previewClaudeAgentImports } from "./agents/claude-importer.mjs";
+import { normalizeModelSelector } from "./agents/model-router.mjs";
 import { formatAgentDoctorReport } from "./agents/definition-validator.mjs";
 import { getSlashCommand, parseSlashInput } from "./slash-commands.mjs";
 import { normalizeWebToolsMode } from "./web-tools-picker.mjs";
@@ -238,14 +239,18 @@ async function runAgents(runtime, ui, arg) {
     ui.block(formatAgentDoctorReport(runtime.fleet.listDefinitions().all).split("\n"));
     return true;
   }
-  if (action === "import claude" || action.startsWith("import claude confirm")) {
+  if (action === "import claude" || action.startsWith("import claude ")) {
+    const modelOption = String(arg).match(/(?:^|\s)--model(?:=|\s+)([^\s]+)/);
+    const selectedModel = modelOption ? normalizeModelSelector(modelOption[1]).prefer : undefined;
+    const importAction = String(arg).replace(/(?:^|\s)--model(?:=|\s+)([^\s]+)/, "").trim().toLowerCase();
     const definitions = runtime.fleet.listDefinitions();
     const preview = await previewClaudeAgentImports({
       project: runtime.project,
+      model: selectedModel,
       existingNames: definitions.active.map((entry) => entry.name),
     });
-    if (action.startsWith("import claude confirm")) {
-      const selections = action.slice("import claude confirm".length).trim().split(/\s+/).filter(Boolean);
+    if (importAction.startsWith("import claude confirm")) {
+      const selections = importAction.slice("import claude confirm".length).trim().split(/\s+/).filter(Boolean);
       const scope = selections.includes("project") ? "project" : "user";
       const names = selections.filter((entry) => !["all", "project", "user"].includes(entry));
       const imported = await importClaudeAgentPreviews(preview, { confirmed: true, project: runtime.project, scope, names });
@@ -255,12 +260,12 @@ async function runAgents(runtime, ui, arg) {
     }
     const lines = ["Claude agent import preview (nothing copied):"];
     for (const item of preview.previews) {
-      lines.push(`${item.valid ? "READY" : "BLOCKED"} ${item.candidate.name}`);
+      lines.push(`${item.valid ? "READY" : "BLOCKED"} ${item.candidate.name} (${item.candidate.model.prefer})`);
       for (const warning of item.warnings) lines.push(`  warning: ${warning}`);
       for (const error of item.errors) lines.push(`  error: ${error}`);
     }
     if (!preview.previews.length) lines.push("No Claude agent definitions found.");
-    else lines.push("Confirm with /agents import claude confirm <name|all> [user|project].");
+    else lines.push(`Confirm with /agents import claude confirm <name|all> [user|project]${selectedModel ? ` --model ${selectedModel}` : ""}. Use --model role-default to follow provider preferences.`);
     ui.block(lines);
     return true;
   }

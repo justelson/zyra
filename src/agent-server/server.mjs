@@ -1,8 +1,10 @@
+import { RUNTIME_ACTIVATION_VERSION, readRuntimeRevision } from "./runtime-revision.mjs";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { EventEmitter } from "node:events";
+import { ServerMemoryQueue, readMemoryJobHistory, writeMemoryJobStatus } from "../memory/server-memory-queue.mjs";
 import { AgentBridgeWorker } from "./bridge-worker.mjs";
 import { ServerPluginAuthority } from "./plugin-authority.mjs";
 import { AgentEventJournal } from "./event-journal.mjs";
@@ -71,12 +73,26 @@ export class ZyraAgentServer extends EventEmitter {
     this.startedAt = null;
     this.retiring = false;
     this.pendingRequests = 0;
+    const memoryStatusFile = path.join(this.paths.stateDirectory, "memory-jobs.json");
+    this.memoryQueue = new ServerMemoryQueue({
+      ...options.memoryQueueOptions,
+      history: readMemoryJobHistory(memoryStatusFile),
+      onStatus: (status) => { try { if (this.server) writeMemoryJobStatus(memoryStatusFile, status); } catch { /* Status storage must not interrupt a chat. */ } },
+      run: async (session, signal) => {
+        const cancel = () => { void session.worker.request("memory.cancel").catch(() => {}); };
+        signal.addEventListener("abort", cancel, { once: true });
+        try { signal.throwIfAborted(); return await session.worker.request("memory.consolidate", {}, { timeoutMs: 125_000 }); }
+        catch (error) { cancel(); throw error; }
+        finally { signal.removeEventListener("abort", cancel); }
+      },
+    });
   }
 
   async start() {
     if (this.server) return this.descriptor();
     mkdirSync(this.paths.stateDirectory, { recursive: true });
     this.assertNoIncompatibleServer();
+    this.runtimeRevision = await readRuntimeRevision(this.root);
     if (!this.desktopAuthorityHash) {
       try {
         this.desktopAuthorityHash = readFileSync(this.paths.desktopAuthorityFile, "utf8").trim() || null;
@@ -98,10 +114,12 @@ export class ZyraAgentServer extends EventEmitter {
       writeFileSync(this.paths.desktopAuthorityFile, this.desktopAuthorityHash, { encoding: "utf8", mode: 0o600 });
     }
     this.writeDescriptor();
+    this.memoryQueue.notify();
     return this.descriptor();
   }
 
   async stop(reason = "Agent server stopped.") {
+    this.memoryQueue.dispose();
     for (const session of new Set(this.sessions.values())) session.dispose(reason);
     this.sessions.clear();
     this.utilityWorker?.dispose(reason);
@@ -155,6 +173,8 @@ export class ZyraAgentServer extends EventEmitter {
   descriptor() {
     return {
       version: AGENT_SERVER_PROTOCOL_VERSION,
+      activationVersion: RUNTIME_ACTIVATION_VERSION,
+      runtimeRevision: this.runtimeRevision,
       pid: process.pid,
       endpoint: this.endpoint,
       token: this.token,
@@ -167,6 +187,8 @@ export class ZyraAgentServer extends EventEmitter {
     const uniqueSessions = [...new Set(this.sessions.values())];
     return {
       version: AGENT_SERVER_PROTOCOL_VERSION,
+      activationVersion: RUNTIME_ACTIVATION_VERSION,
+      runtimeRevision: this.runtimeRevision,
       pid: process.pid,
       startedAt: this.startedAt,
       clients: this.clients.size,
@@ -249,6 +271,8 @@ export class ZyraAgentServer extends EventEmitter {
     this.send(client, {
       type: "hello.ok",
       version: AGENT_SERVER_PROTOCOL_VERSION,
+      activationVersion: RUNTIME_ACTIVATION_VERSION,
+      runtimeRevision: this.runtimeRevision,
       connectionId: client.connectionId,
       server: this.state()
     });
@@ -265,6 +289,10 @@ export class ZyraAgentServer extends EventEmitter {
   async handleRequest(client, method, params) {
     if (method === "server.status") return this.state();
     if (method === "server.retire") {
+      if (params.activationVersion !== undefined && (params.activationVersion !== RUNTIME_ACTIVATION_VERSION
+        || typeof params.expectedRevision !== "string" || !/^[a-f0-9]{64}$/.test(params.expectedRevision))) {
+        throw new AgentServerProtocolError("Unsupported runtime activation handshake.", "AGENT_SERVER_UPGRADE_REQUIRED");
+      }
       if (!client.canControl) throw new AgentServerProtocolError("Only verified Zyra Desktop can restart the background service.", "AGENT_SERVER_AUTH_FAILED");
       const busy = this.pendingRequests > 1 || this.desktopWorkspaceRequests.size > 0
         || [...new Set(this.sessions.values())].some((session) => {
@@ -717,6 +745,7 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   removeSession(session) {
+    this.memoryQueue.remove(session);
     for (const [key, candidate] of this.sessions) if (candidate === session) this.sessions.delete(key);
   }
 
@@ -856,12 +885,14 @@ class ServerOwnedSession {
     if (!this.connectPromise) {
       this.connectionAuthorityKey = canonicalConnectionAuthorityKey(payload);
       this.pluginSkillSources = structuredClone(payload.pluginSkillSources || []);
-      this.connectPromise = this.worker.request("connect", payload, { timeoutMs: BRIDGE_CONNECT_TIMEOUT_MS })
+      this.connectPromise = this.worker.request("connect", { ...payload, memoryQueueOwner: "server" }, { timeoutMs: BRIDGE_CONNECT_TIMEOUT_MS })
         .then((result) => {
           const connected = projectConnectedResult(result);
           const fleet = selectCurrentFleetSnapshot(connected?.fleet, this.latestFleetSnapshot);
           this.latestFleetSnapshot = fleet;
           this.connectedResult = fleet ? { ...connected, fleet } : connected;
+          this.memoryEligible = !payload.noSession && payload.surface !== "memory-worker" && process.env.ZYRA_MEMORY_BACKGROUND !== "0";
+          this.syncMemoryQueue();
           return this.connectedResult;
         })
         .catch((error) => {
@@ -992,6 +1023,7 @@ class ServerOwnedSession {
     clearTimeout(this.idleTimer);
     this.idleTimer = null;
     this.activeRequests += 1;
+    this.syncMemoryQueue();
     if (type === "prompt") {
       this.activeRequestContext = requestContext;
       const startedAt = new Date().toISOString();
@@ -1026,6 +1058,7 @@ class ServerOwnedSession {
       throw error;
     } finally {
       this.activeRequests = Math.max(0, this.activeRequests - 1);
+      this.syncMemoryQueue();
       if (type === "prompt") this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, requestContext.turnId);
       if (type === "prompt" && this.activeRequestContext === requestContext) {
         this.activeRequestContext = null;
@@ -1103,6 +1136,9 @@ class ServerOwnedSession {
     ) {
       this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, presence: true });
     }
+    if (event?.type === "agent_start" || event?.type === "agent_end" || event?.type === "zyra_server_turn_completed"
+      || previousAttention !== (this.pendingApprovalRequestIds.size > 0 || this.pendingUserInputRequestIds.size > 0)
+      || previousBackgroundWork !== this.hasBackgroundWork()) this.syncMemoryQueue();
     this.scheduleIdleStop();
   }
 
@@ -1198,6 +1234,12 @@ class ServerOwnedSession {
       const workflows = Object.values(fleet.workflows || {});
       this.backgroundFleetActive = [...agents, ...workflows].some((run) => ACTIVE_FLEET_STATUSES.has(String(run?.status || "")));
     }
+  }
+
+  syncMemoryQueue() {
+    const busy = this.activeRequests > 0 || this.latestTurn?.state === "running" || this.hasBackgroundWork()
+      || this.pendingApprovalRequestIds.size > 0 || this.pendingUserInputRequestIds.size > 0;
+    this.server.memoryQueue.observe(this, busy, this.memoryEligible === true);
   }
 
   hasBackgroundWork() {

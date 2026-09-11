@@ -5,7 +5,8 @@
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
   "scripts": {
-    "test:provider-connections": "node scripts/test-model-provider-connections.mjs",
+    "test:provider-connections": "node scripts/test-model-provider-connections.mjs && node scripts/test-provider-transactions.mjs",
+    "test:runtime-architecture": "node scripts/test-server-memory-queue.mjs && node scripts/test-agent-role-models.mjs && node scripts/test-runtime-activation.mjs",
     "test:memory-idle": "node scripts/test-idle-memory-scheduler.mjs",
     "zyra": "node bin/zyra.mjs",
     "inspect": "node bin/zyra.mjs inspect",
@@ -99,6 +100,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.3",
     "@earendil-works/pi-tui": "^0.80.6",
+    "proper-lockfile": "4.1.2",
     "quickjs-emscripten": "^0.32.0",
     "typebox": "^1.1.24"
   },

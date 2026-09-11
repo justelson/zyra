@@ -28,6 +28,7 @@
         "typecheck:watch:shared": "tsc --noEmit -p tsconfig.shared.json --watch --preserveWatchOutput",
         "typecheck:browser-runtime": "tsc --noEmit -p tsconfig.browser-runtime.json",
         "test:activity-rail": "bun scripts/test-activity-rail-contract.ts",
+        "test:runtime-observability": "bun scripts/test-runtime-observability.ts",
         "test:memory-overview": "bun scripts/test-memory-overview-root.ts",
         "test:work-timeline-v2": "bun scripts/test-assistant-work-timeline-v2.tsx",
         "test:assistant-action-batch-intent": "bun scripts/test-assistant-action-batch-intent.ts",

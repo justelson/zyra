@@ -108,6 +108,7 @@ interface MonacoPreviewEditorProps {
     gitDiffText?: string
     readOnly?: boolean
     onChange?: (value: string) => void
+    onReadable?: () => void
     onEditorMount?: (editor: MonacoEditor.IStandaloneCodeEditor | null) => void
     wordWrap?: 'on' | 'off'
     minimapEnabled?: boolean
@@ -209,6 +210,7 @@ export default function MonacoPreviewEditor({
     readOnly = true,
     onChange,
     onEditorMount,
+    onReadable,
     wordWrap = 'on',
     minimapEnabled = true,
     fontSize = 13,
@@ -451,7 +453,7 @@ export default function MonacoPreviewEditor({
 
     return (
         <Editor
-            loading={<CodePreviewPlaceholder content={value} fontSize={fontSize} wordWrap={wordWrap} />}
+            loading={<CodePreviewPlaceholder onReadable={onReadable} content={value} fontSize={fontSize} wordWrap={wordWrap} />}
             defaultValue={value}
             language={language}
             path={modelPath}

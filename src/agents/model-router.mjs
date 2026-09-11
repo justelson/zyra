@@ -37,7 +37,11 @@ export class ModelRouter {
     const envelope = normalizeTaskEnvelope(request.envelope ?? request);
     const policy = mergePolicy(this.policy, request.policy);
     const requested = selector.requested;
-    const selectors = candidateSelectors(selector, envelope, request.fallbackModels);
+    const inheritedKey = typeof request.inheritModel === "string" ? request.inheritModel : modelKey(request.inheritModel);
+    const provider = inheritedKey.split("/")[0];
+    const roleChoice = request.roleModels?.[provider]?.[request.role];
+    const routedSelector = requested === "role-default" ? normalizeModelSelector(roleChoice || "inherit") : selector;
+    const selectors = candidateSelectors(routedSelector, envelope, request.fallbackModels);
     const considered = [];
     const candidates = [];
 
@@ -61,7 +65,9 @@ export class ModelRouter {
     }
 
     candidates.sort((left, right) => {
-      if (requested === "inherit" && (left.selector === "inherit" || right.selector === "inherit")) return left.selector === "inherit" ? -1 : 1;
+      if (left.selector === routedSelector.prefer || right.selector === routedSelector.prefer) {
+        if (left.selector !== right.selector) return left.selector === routedSelector.prefer ? -1 : 1;
+      }
       const availability = availabilityRank(left.model.availability) - availabilityRank(right.model.availability);
       if (availability !== 0) return availability;
       return selectors.indexOf(left.selector) - selectors.indexOf(right.selector);
@@ -71,11 +77,12 @@ export class ModelRouter {
       throw new FleetModelRouteError("No authenticated compatible fleet model is available.", { requested, envelope, considered });
     }
 
+    const preferred = routedSelector.requested;
     const firstResolvedKey = considered.find((item) => item.accepted)?.key;
-    const fallback = selected.key !== exactSelectorKey(requested) && selected.key !== firstResolvedKey
-      || requested !== selected.selector && !selectorMatchesKey(requested, selected.key);
+    const fallback = selected.key !== exactSelectorKey(preferred) && selected.key !== firstResolvedKey
+      || preferred !== selected.selector && !selectorMatchesKey(preferred, selected.key);
     const fallbackReason = fallback
-      ? explainFallback(requested, selected, considered)
+      ? explainFallback(preferred, selected, considered)
       : null;
 
     return {
@@ -155,7 +162,7 @@ function resolveSelector(selector, catalog, inheritModel) {
     return catalog.filter((entry) => entry.key === key);
   }
   if (FLEET_MODEL_ALIASES[selector]) {
-    return catalog.filter((entry) => entry.id === FLEET_MODEL_ALIASES[selector]);
+    return catalog.filter((entry) => entry.key === `${FLEET_MODEL_PROVIDER}/${FLEET_MODEL_ALIASES[selector]}`);
   }
   const key = selector.includes("/") ? selector : `${FLEET_MODEL_PROVIDER}/${selector}`;
   return catalog.filter((entry) => entry.key === key);
@@ -180,13 +187,14 @@ function mergePolicy(base = {}, override = {}) {
 }
 
 function normalizeSelectorString(value) {
-  const text = String(value ?? "").trim().toLowerCase();
+  const raw = String(value ?? "").trim();
+  const text = raw.toLowerCase();
   if (text === "tera") throw new FleetModelRouteError("Unknown model alias 'tera'. Did you mean 'terra'?", { requested: text });
   if (["opus", "sonnet", "haiku", "quality", "balanced"].includes(text)) {
     throw new FleetModelRouteError(`Use inherit or a full provider/model ID instead of '${text}'.`, { requested: text });
   }
-  if (["inherit", "sol", "terra", "luna"].includes(text)) return text;
-  if (/^[a-z0-9_-]+\/[^\s]+$/i.test(text)) return text;
+  if (["inherit", "role-default", "sol", "terra", "luna"].includes(text)) return text;
+  if (/^[a-z0-9_-]+\/[^\s]+$/i.test(raw)) return raw.slice(0, raw.indexOf("/")).toLowerCase() + raw.slice(raw.indexOf("/"));
   if (/^gpt-[a-z0-9.-]+$/i.test(text)) return `${FLEET_MODEL_PROVIDER}/${text}`;
   throw new FleetModelRouteError(`Unsupported fleet model selector: ${value}.`, { requested: text });
 }

@@ -1,3 +1,4 @@
+import { publishRuntimeActivation } from './runtime-activation'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -446,6 +447,7 @@ export class DesktopAgentServerConnection {
             this.controlWorkers.get(requestId)?.cancelControlRequest(requestId)
             this.detachedControlAbortControllers.get(requestId)?.abort(new Error('Detached Browser control was cancelled.'))
         })
+        client.on('runtime-status', publishRuntimeActivation)
         client.on('session-event', (message: Record<string, unknown>) => this.handleSessionEvent(message))
         client.on('disconnect', () => this.handleClientDisconnect())
         client.on('catalog-changed', (message: Record<string, unknown>) => {

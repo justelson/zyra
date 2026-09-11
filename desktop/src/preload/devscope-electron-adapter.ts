@@ -1,3 +1,4 @@
+import { createRuntimeActivationAdapter } from './adapters/runtime-activation-adapter'
 /**
  * Zyra - Electron Adapter
  */
@@ -19,6 +20,7 @@ import { createWindowAdapter } from './adapters/window-adapter'
 
 export function createDevScopeElectronAdapter(): DevScopeApi {
     const api: DevScopeApi = {
+        runtimeActivation: createRuntimeActivationAdapter(),
         ...createSettingsAndAiAdapter(),
         ...createSetupAdapter(),
         ...createMemoryAdapter(),

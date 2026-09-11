@@ -1,7 +1,7 @@
 import { resolveZyraDataRoot } from '../../zyra/zyra-data-root'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import type { ZyraMemoryLayer, ZyraMemoryOverview } from '../../../shared/contracts/memory-contracts'
+import type { ZyraMemoryLayer, ZyraMemoryOverview, ZyraMemoryJobStatus } from '../../../shared/contracts/memory-contracts'
 import { resolveZyraRoot } from '../../zyra/zyra-root'
 
 function toTitle(fileName: string): string {
@@ -83,4 +83,20 @@ export async function handleMemoryGetOverview() {
             error: error instanceof Error ? error.message : 'Failed to read Zyra memory.'
         }
     }
+}
+
+export function handleMemoryGetJobStatus(userDataPath: string) {
+    const empty: ZyraMemoryJobStatus = { phase: 'offline', queued: 0, lastSuccessAt: null, lastCheckedAt: null, lastError: null }
+    try {
+        const file = join(userDataPath, 'assistant', 'agent-server', 'memory-jobs.json')
+        if (!existsSync(file)) return { success: true as const, status: empty }
+        const value = JSON.parse(readFileSync(file, 'utf8'))
+        const timestamp = (input: unknown) => typeof input === 'number' && Number.isFinite(input) && input > 0 ? input : null
+        const phase = ['running', 'waiting', 'error', 'idle'].includes(value.phase) ? value.phase : 'offline'
+        let alive = false
+        if (Number.isSafeInteger(value.pid) && value.pid > 0) { try { process.kill(value.pid, 0); alive = true } catch {} }
+        return { success: true as const, status: { phase: alive ? phase : 'offline', queued: alive ? Math.min(1000, Math.max(0, Number(value.queued) || 0)) : 0,
+            lastSuccessAt: timestamp(value.lastSuccessAt), lastCheckedAt: timestamp(value.lastCheckedAt),
+            lastError: value.lastError ? 'Memory could not update. Check the connected model and try again after chatting.' : null } as ZyraMemoryJobStatus }
+    } catch { return { success: false as const, error: 'Memory update status could not be read.' } }
 }

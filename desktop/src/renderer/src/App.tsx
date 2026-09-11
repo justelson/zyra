@@ -1,3 +1,4 @@
+import { RuntimeActivationNotice } from './components/updates/RuntimeActivationNotice'
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { migrateLegacyExplorerShellLaunchRoute } from '@shared/assistant/files-shell-launch-route'
@@ -292,6 +293,7 @@ function NormalDesktopApp() {
                                 <AppContent />
                                 <CommandPalette />
                                 <UpdatePromptCenter />
+            <RuntimeActivationNotice />
                             </ProjectCreationProvider>
                         </AssistantTitleBarProvider>
                     </HashRouter>

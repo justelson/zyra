@@ -1,3 +1,4 @@
+import { recordStreamQueue } from '@shared/performance-samples'
 import type {
     AssistantApprovalResponseInput,
     AssistantApprovePendingPlaygroundLabRequestInput,
@@ -1143,6 +1144,7 @@ export class AssistantStore {
         }
         if (this.pendingAssistantEvents.length === 0) return
 
+        recordStreamQueue(this.pendingAssistantEvents)
         const queuedEvents = collapseAssistantDeltaEvents(this.pendingAssistantEvents)
         this.pendingAssistantEvents = []
         const previousSelectedSessionId = this.state.snapshot.selectedSessionId

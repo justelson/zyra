@@ -188,8 +188,10 @@ async function loadSdk() {
 }
 
 let idleMemoryScheduler;
+let memoryJobController;
 
 function disposeRuntime() {
+  memoryJobController?.abort();
   idleMemoryScheduler?.dispose();
   idleMemoryScheduler = undefined;
   declinePendingPermissions();
@@ -264,7 +266,7 @@ async function handleConnect(payload) {
   await applyChatConfig(sdk, storedChatConfig || normalizeChatConfig(payload), { emit: false });
   const chatConfig = currentChatConfig(sdk);
   activeActionBatchIntent = undefined;
-  if (payload.surface !== "memory-worker" && !payload.noSession && process.env.ZYRA_MEMORY_BACKGROUND !== "0") {
+  if (payload.memoryQueueOwner !== "server" && payload.surface !== "memory-worker" && !payload.noSession && process.env.ZYRA_MEMORY_BACKGROUND !== "0") {
     const ownedRuntime = runtime;
     idleMemoryScheduler = createIdleMemoryScheduler({
       run: async (signal) => {
@@ -277,7 +279,7 @@ async function handleConnect(payload) {
     idleMemoryScheduler.idle();
   }
   unsubscribe = runtime.session.subscribe((event) => {
-    if (event.type === "agent_start") idleMemoryScheduler?.busy();
+    if (event.type === "agent_start") { idleMemoryScheduler?.busy(); memoryJobController?.abort(); }
     if (event.type === "agent_end" && event.willRetry !== true) idleMemoryScheduler?.idle();
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
     if (!normalized) return;
@@ -1029,6 +1031,18 @@ function summarizeFleetEvent(event) {
 let pluginRevocationPromise;
 let pendingConnect;
 
+async function consolidateIdleMemory() {
+  if (!runtime || runtime.session.isStreaming || runtime.session.isCompacting || process.env.ZYRA_MEMORY_BACKGROUND === "0") return { skipped: true };
+  if (memoryJobController) return { skipped: true };
+  const controller = new AbortController(); memoryJobController = controller;
+  try {
+    const sdk = await loadSdk();
+    const result = await sdk.runZyraMemoryConsolidation(runtime, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]), includeCurrent: runtime.session.state?.messages?.some(message => message.role === "assistant") === true, maxStartupClaims: 1, phase2CooldownSeconds: 900 });
+    controller.signal.throwIfAborted();
+    return { updated: result.stage1?.succeeded > 0 || result.phase2?.status === "succeeded", failed: result.stage1?.failed > 0 || result.phase2?.status === "failed" };
+  } finally { if (memoryJobController === controller) memoryJobController = undefined; }
+}
+
 async function handleMessage(message) {
   if (message?.type === "control.response") {
     controlBridgeClient.handleResponse(message);
@@ -1036,6 +1050,8 @@ async function handleMessage(message) {
   }
   const id = message?.id;
   try {
+    if (message?.type === "memory.cancel") { memoryJobController?.abort(); sendResponse(id, true, { cancelled: true }); return; }
+    if (message?.type === "memory.consolidate") { sendResponse(id, true, await consolidateIdleMemory()); return; }
     if (message?.type === 'plugin.revoke') {
       pluginRevocationPromise ??= Promise.resolve().then(async () => {
         await pendingConnect?.catch(() => undefined);

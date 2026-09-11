@@ -1,4 +1,4 @@
-import { getSharedOpenAIAuthWorkerClient } from '../../setup/openai-auth-worker-client'
+import { getSharedProviderWorkerClient } from '../../setup/provider-worker-client'
 import type { ModelProviderInput } from '../../../shared/onboarding/contracts'
 import { BrowserWindow } from 'electron'
 import {
@@ -125,10 +125,12 @@ export function registerSetupIpcHandlers(services: DesktopSetupServices): void {
     ipcMain.handle(ONBOARDING_IPC.getState, () => result(async () => ({
         snapshot: await services.onboarding.getState()
     })))
-    ipcMain.handle(ONBOARDING_IPC.disconnectModelProvider, (_event, provider: string) => result(async () => await getSharedOpenAIAuthWorkerClient().providers.disconnect(provider)))
-    ipcMain.handle(ONBOARDING_IPC.listModelProviders, () => result(async () => ({ connections: await getSharedOpenAIAuthWorkerClient().providers.list() })))
+    ipcMain.handle(ONBOARDING_IPC.disconnectModelProvider, (_event, provider: string) => result(async () => await getSharedProviderWorkerClient().providers.disconnect(provider)))
+    ipcMain.handle(ONBOARDING_IPC.getAgentRoleModels, () => result(async () => ({ models: await getSharedProviderWorkerClient().providers.roleModels() })))
+    ipcMain.handle(ONBOARDING_IPC.setAgentRoleModel, (_event, input) => result(async () => ({ models: await getSharedProviderWorkerClient().providers.saveRoleModel(input) })))
+    ipcMain.handle(ONBOARDING_IPC.listModelProviders, () => result(async () => ({ connections: await getSharedProviderWorkerClient().providers.list() })))
     ipcMain.handle(ONBOARDING_IPC.connectModelProvider, (_event, input: ModelProviderInput) => result(async () => {
-        const connection = await getSharedOpenAIAuthWorkerClient().providers.connect(input)
+        const connection = await getSharedProviderWorkerClient().providers.connect(input)
         await services.preferences.updateSharedFromMain({ assistantDefaultModel: connection.model })
         return { connection }
     }))

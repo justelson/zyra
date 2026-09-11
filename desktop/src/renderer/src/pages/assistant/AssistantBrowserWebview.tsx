@@ -1,3 +1,4 @@
+import { useBrowserTargetCursor } from './useBrowserTargetCursor'
 import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import type { DevScopeBrowserGuestTargetInput, DevScopeBrowserPreviewConfig } from '@shared/contracts/devscope-api'
 import type { ControlCursorState } from '@shared/agent-control/contracts'
@@ -49,6 +50,7 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
     visible: boolean
     placement: 'full' | 'primary' | 'secondary'
     controlled: boolean
+    cursorTargetId?: string
     cursor: ControlCursorState | null
     onStateChange: (tabId: string, patch: BrowserStatePatch, options?: BrowserStateChangeOptions) => void
     onControlTargetChange: (tabId: string, targetId: string | null) => void
@@ -62,12 +64,14 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
     visible,
     placement,
     controlled,
-    cursor,
+    cursor: initialCursor,
+    cursorTargetId,
     onStateChange,
     onControlTargetChange,
     onFullscreenChange,
     onViewportRectChange
 }, forwardedRef) {
+    const cursor = useBrowserTargetCursor(controlled ? cursorTargetId : undefined, active, initialCursor)
     const slotRef = useRef<HTMLDivElement | null>(null)
     const [snapshotDataUrl, setSnapshotDataUrl] = useState<string | null>(null)
     const snapshotDataUrlRef = useRef<string | null>(null)

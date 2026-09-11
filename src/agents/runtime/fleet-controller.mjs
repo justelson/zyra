@@ -1,3 +1,4 @@
+import { readRoleModels } from "../role-model-preferences.mjs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { assertControlCapabilities, assertControlIdentifier, assertControlPrincipal } from "../../agent-control/contracts.mjs";
@@ -20,6 +21,7 @@ export class AgentFleetController {
   constructor(options = {}) {
     this.project = path.resolve(options.project ?? process.cwd());
     this.rootSession = options.rootSession;
+    this.readRoleModels = options.readRoleModels ?? readRoleModels;
     this.rootSessionId = String(options.rootSessionId ?? this.rootSession?.sessionManager?.getSessionId?.() ?? randomUUID());
     this.rootThreadId = String(options.rootThreadId ?? this.rootSessionId);
     this.fleetId = String(options.fleetId ?? randomUUID());
@@ -109,6 +111,7 @@ export class AgentFleetController {
   previewRoute(request = {}) {
     return this.modelRouter.route({
       ...request,
+      roleModels: this.readRoleModels(),
       inheritModel: request.inheritModel ?? this.rootSession?.model,
     });
   }
@@ -161,7 +164,8 @@ export class AgentFleetController {
       throw new Error("Writer agents require an explicit writeScope.");
     }
     const route = this.previewRoute({
-      model: request.model ?? definition.model,
+      model: request.model ?? definition.model ?? "role-default",
+      role: request.role ?? definition.role ?? "specialist",
       fallbackModels: request.fallbackModels ?? definition.model?.fallbacks,
       envelope: { ...request, tools: capability.tools },
       policy: request.modelPolicy,

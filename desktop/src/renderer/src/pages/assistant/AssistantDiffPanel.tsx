@@ -1,4 +1,6 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type TransitionEvent as ReactTransitionEvent, type UIEvent } from 'react'
+import { useAssistantReviewNavigation } from './useAssistantReviewNavigation'
+import { InspectorWorkspaceSurface, useInspectorWorkspaceLoading } from './InspectorWorkspaceSurface'
+import { lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { Bot, FileDiff, Files, Globe2, Library, LoaderCircle, MessageSquareText, PanelRight, ShieldAlert, SquareTerminal, TriangleAlert, Volume2 } from 'lucide-react'
 import type { AssistantChatScopeRoot, FleetSnapshot } from '@shared/assistant/contracts'
 import type { AssistantFilesShellLaunchRequest } from '@shared/assistant/files-shell-launch-route'
@@ -95,7 +97,6 @@ const CONTROL_TAB: WorkspaceTab = { id: 'control', kind: 'control' }
 const RESOURCES_TAB: WorkspaceTab = { id: 'resources', kind: 'resources' }
 const AGENTS_TAB: WorkspaceTab = { id: 'agents', kind: 'agents' }
 const MAIN_BROWSER_MOVE_READY_TIMEOUT_MS = 7_500
-const REVIEW_NAVIGATION_MOTION_MS = 230
 
 type AssistantBrowserNavigationRequest = {
     id: number
@@ -185,12 +186,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     const pendingMainBrowserMoveTimersRef = useRef(new Map<string, number>())
     const pendingMainTerminalMovesRef = useRef(new Set<string>())
     const browserControllerRef = useRef<AssistantBrowserWorkspaceController | null>(null)
-    const loadingTimerRef = useRef(0)
     const capsuleRootRef = useRef<HTMLDivElement | null>(null)
-    const reviewIndexSurfaceRef = useRef<HTMLDivElement | null>(null)
-    const reviewDetailSurfaceRef = useRef<HTMLDivElement | null>(null)
-    const reviewNavigationAnimationsRef = useRef<Animation[]>([])
-    const previousReviewDetailPresentedRef = useRef(false)
     const utilityTabIdByWorkspaceIdRef = useRef(new Map<string, string>())
     const capsuleByUtilityTabIdRef = useRef(new Map<string, AssistantUtilityStateCapsule>())
     const [activeTabId, setActiveTabId] = useState<string>(REVIEW_TAB.id)
@@ -209,12 +205,12 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         enabled: open && fleetWorkspaceRequested
     })
     const [workspaceHydratedKey, setWorkspaceHydratedKey] = useState<string | null>(null)
-    const [reviewTurnId, setReviewTurnId] = useState<string | null>(null)
-    const [reviewTransitionTurnId, setReviewTransitionTurnId] = useState<string | null>(null)
-    const [reviewDetailPresented, setReviewDetailPresented] = useState(false)
+    const { reviewTurnId, setReviewTurnId, reviewTransitionTurnId, setReviewTransitionTurnId,
+        reviewDetailPresented, setReviewDetailPresented, reviewIndexSurfaceRef, reviewDetailSurfaceRef, handleReviewDetailTransitionEnd } = useAssistantReviewNavigation()
     const [focusedDiffRequestId, setFocusedDiffRequestId] = useState<number | null>(null)
-    const [transitionLoadingTabId, setTransitionLoadingTabId] = useState<string | null>(null)
-    const [contentLoadingTabId, setContentLoadingTabId] = useState<string | null>(null)
+    const { transitionLoadingTabId, setTransitionLoadingTabId, contentLoadingTabs, clearContentLoading, beginTabTransition, loadingFor } = useInspectorWorkspaceLoading(browserWorkspaceKey)
+    const handleTurnLoadingChange = loadingFor(activeTabId)
+    const handleReviewLoadingChange = loadingFor(REVIEW_TAB.id, reviewTransitionTurnId || '')
     const [browserTabs, setBrowserTabs] = useState<AssistantBrowserTabState[]>([])
     const [browserActiveTabId, setBrowserActiveTabId] = useState<string | null>(null)
     const [browserNavigationRequest, setBrowserNavigationRequest] = useState<AssistantBrowserNavigationRequest | null>(null)
@@ -264,20 +260,6 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         return hydrated?.workspace === workspace ? hydrated : undefined
     }, [hydrationCapsules])
 
-    const beginTabTransition = useCallback((tabId: string) => {
-        window.clearTimeout(loadingTimerRef.current)
-        setTransitionLoadingTabId(tabId)
-        loadingTimerRef.current = window.setTimeout(() => {
-            setTransitionLoadingTabId((current) => current === tabId ? null : current)
-        }, 480)
-    }, [])
-
-    const handleTurnLoadingChange = useCallback((loading: boolean) => {
-        setContentLoadingTabId((current) => loading ? activeTabId : current === activeTabId ? null : current)
-    }, [activeTabId])
-
-    useEffect(() => () => window.clearTimeout(loadingTimerRef.current), [])
-
     useEffect(() => {
         if (!open || workspaceTabs.find(tab => tab.id === activeTabId)?.kind !== 'explorer') return
         const warmFilesWorkspace = () => {
@@ -301,14 +283,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         const unsubscribe = window.devscope.agentControl.onStateChange((state) => {
             if (!cancelled) setControlState(state)
         })
-        const unsubscribeCursor = window.devscope.agentControl.onCursorChange((cursor) => {
-            if (cancelled) return
-            setControlState((current) => current ? {
-                ...current,
-                cursors: [...current.cursors.filter((entry) => entry.targetId !== cursor.targetId), cursor]
-            } : current)
-        })
-        return () => { cancelled = true; unsubscribe(); unsubscribeCursor() }
+        return () => { cancelled = true; unsubscribe() }
     }, [])
 
     const pendingControlCount = countAssistantThreadPendingControl(controlState, threadId)
@@ -363,8 +338,6 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         setReviewTransitionTurnId(null)
         setReviewDetailPresented(false)
         setFocusedDiffRequestId(null)
-        setTransitionLoadingTabId(null)
-        setContentLoadingTabId(null)
         setBrowserTabs(desktopBrowserAvailable ? persistedBrowser.tabs : [])
         setBrowserActiveTabId(desktopBrowserAvailable ? persistedBrowser.activeTabId : null)
         setBrowserNavigationRequest(null)
@@ -490,7 +463,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 ) : <FileDiff size={12} />,
                 count: turns.length,
                 closable: true,
-                loading: transitionLoadingTabId === tab.id || contentLoadingTabId === tab.id,
+                loading: transitionLoadingTabId === tab.id || contentLoadingTabs.has(tab.id),
                 preview: diffTabContext.preview
             }]
         }
@@ -513,7 +486,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 icon: <SquareTerminal size={12} />,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id,
-                preview: projectPath ? `Terminal Â· ${projectPath}` : 'No project attached'
+                preview: projectPath ? `Terminal · ${projectPath}` : 'No project attached'
             }]
         }
         if (tab.kind === 'browser') {
@@ -544,7 +517,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 attention: pendingForTab > 0,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id || browserTab?.status === 'loading',
-                preview: browserTab?.url || (projectPath ? `Browser Â· ${projectPath}` : 'No project attached'),
+                preview: browserTab?.url || (projectPath ? `Browser · ${projectPath}` : 'No project attached'),
                 previewDisabled: tab.id === activeTabId,
                 loadPreviewImage: tab.id !== activeTabId && Boolean(browserTab?.url)
                     ? () => captureAssistantBrowserTabHoverPreview(tab.id)
@@ -583,7 +556,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                 count: agents.length || undefined,
                 closable: true,
                 loading: transitionLoadingTabId === tab.id || fleetSnapshotLoading,
-                preview: `${Object.keys(effectiveFleetSnapshot?.agents ?? {}).length} child agents Â· ${Object.keys(effectiveFleetSnapshot?.workflows ?? {}).length} workflows`
+                preview: `${Object.keys(effectiveFleetSnapshot?.agents ?? {}).length} child agents · ${Object.keys(effectiveFleetSnapshot?.workflows ?? {}).length} workflows`
             }]
         }
         const turn = turns.find((entry) => entry.id === tab.turnId)
@@ -592,10 +565,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
             label: `Turn ${turn.number}`,
             icon: <MessageSquareText size={11} />,
             closable: true,
-            loading: transitionLoadingTabId === tab.id || contentLoadingTabId === tab.id,
+            loading: transitionLoadingTabId === tab.id || contentLoadingTabs.has(tab.id),
             preview: turn.prompt
         }] : []
-    }), [activeTabId, browserTabs, browserWorkspaceState.tabs, contentLoadingTabId, controlState?.pendingActionApprovals, controlState?.pendingGrants, diffTabContext, effectiveFleetSnapshot, explorerViewCapsule?.activePreview, filesTabContext, fleetSnapshotLoading, pendingControlCount, reviewContextDiff?.filePath, settings.appearanceResolvedMode, transitionLoadingTabId, turns, workspaceTabs])
+    }), [activeTabId, browserTabs, browserWorkspaceState.tabs, contentLoadingTabs, controlState?.pendingActionApprovals, controlState?.pendingGrants, diffTabContext, effectiveFleetSnapshot, explorerViewCapsule?.activePreview, filesTabContext, fleetSnapshotLoading, pendingControlCount, reviewContextDiff?.filePath, settings.appearanceResolvedMode, transitionLoadingTabId, turns, workspaceTabs])
 
     const activeWorkspaceTab = workspaceTabs.find((tab) => tab.id === activeTabId) || workspaceTabs[0] || null
     useEffect(() => {
@@ -620,99 +593,6 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     const filesOpen = workspaceTabs.some((tab) => tab.kind === 'explorer')
     const agentsOpen = workspaceTabs.some((tab) => tab.kind === 'agents')
     const reviewOpen = workspaceTabs.some((tab) => tab.kind === 'review')
-
-    useEffect(() => {
-        let stagingFrameId = 0
-        let presentationFrameId = 0
-        let releaseTimerId = 0
-        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-        if (reviewTurnId) {
-            setReviewTransitionTurnId(reviewTurnId)
-            if (reducedMotion) {
-                setReviewDetailPresented(true)
-            } else {
-                setReviewDetailPresented(false)
-                stagingFrameId = window.requestAnimationFrame(() => {
-                    presentationFrameId = window.requestAnimationFrame(() => setReviewDetailPresented(true))
-                })
-            }
-        } else {
-            setReviewDetailPresented(false)
-            if (reviewTransitionTurnId) {
-                releaseTimerId = window.setTimeout(
-                    () => setReviewTransitionTurnId((current) => current === reviewTransitionTurnId ? null : current),
-                    reducedMotion ? 0 : REVIEW_NAVIGATION_MOTION_MS * 2
-                )
-            }
-        }
-        return () => {
-            window.cancelAnimationFrame(stagingFrameId)
-            window.cancelAnimationFrame(presentationFrameId)
-            window.clearTimeout(releaseTimerId)
-        }
-    }, [reviewTransitionTurnId, reviewTurnId])
-
-    useLayoutEffect(() => {
-        const presentationChanged = previousReviewDetailPresentedRef.current !== reviewDetailPresented
-        previousReviewDetailPresentedRef.current = reviewDetailPresented
-        if (!presentationChanged) return
-
-        for (const animation of reviewNavigationAnimationsRef.current) animation.cancel()
-        reviewNavigationAnimationsRef.current = []
-
-        const indexSurface = reviewIndexSurfaceRef.current
-        const detailSurface = reviewDetailSurfaceRef.current
-        if (!indexSurface || !detailSurface) return
-        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-            || document.body.classList.contains('zyra-reduce-motion')
-        if (reducedMotion || typeof indexSurface.animate !== 'function') return
-
-        const options: KeyframeAnimationOptions = {
-            duration: REVIEW_NAVIGATION_MOTION_MS,
-            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            fill: 'both'
-        }
-        const indexAnimation = indexSurface.animate(
-            reviewDetailPresented
-                ? [
-                    { opacity: 1, transform: 'translate3d(0, 0, 0)' },
-                    { opacity: 0, transform: 'translate3d(-12px, 0, 0)' }
-                ]
-                : [
-                    { opacity: 0, transform: 'translate3d(-12px, 0, 0)' },
-                    { opacity: 1, transform: 'translate3d(0, 0, 0)' }
-                ],
-            options
-        )
-        const detailAnimation = detailSurface.animate(
-            reviewDetailPresented
-                ? [
-                    { opacity: 0, transform: 'translate3d(16px, 0, 0)' },
-                    { opacity: 1, transform: 'translate3d(0, 0, 0)' }
-                ]
-                : [
-                    { opacity: 1, transform: 'translate3d(0, 0, 0)' },
-                    { opacity: 0, transform: 'translate3d(16px, 0, 0)' }
-                ],
-            options
-        )
-        reviewNavigationAnimationsRef.current = [indexAnimation, detailAnimation]
-    }, [reviewDetailPresented])
-
-    useEffect(() => () => {
-        for (const animation of reviewNavigationAnimationsRef.current) animation.cancel()
-        reviewNavigationAnimationsRef.current = []
-    }, [])
-
-    const handleReviewDetailTransitionEnd = useCallback((event: ReactTransitionEvent<HTMLDivElement>) => {
-        if (
-            event.target !== event.currentTarget
-            || event.propertyName !== 'transform'
-            || reviewDetailPresented
-            || reviewTurnId
-        ) return
-        setReviewTransitionTurnId((current) => current === reviewTransitionTurnId ? null : current)
-    }, [reviewDetailPresented, reviewTransitionTurnId, reviewTurnId])
 
     useEffect(() => {
         if (!activeWorkspaceTab) return
@@ -973,7 +853,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
         workspaceTabsRef.current = next
         setWorkspaceTabs(next)
         setTransitionLoadingTabId((current) => current === tabId ? null : current)
-        setContentLoadingTabId((current) => current === tabId ? null : current)
+        clearContentLoading(tabId)
         if (closingTab.kind === 'review') {
             setReviewTurnId(null)
             setFocusedDiffRequestId(null)
@@ -1364,7 +1244,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                         ) : (
                                             <div>
                                                 <LoaderCircle size={18} className="mx-auto animate-spin text-[var(--accent-primary)]/75" />
-                                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turnâ€™s messages and diffsâ€¦</p>
+                                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turn’s messages and diffs…</p>
                                             </div>
                                         )}
                                     </div>
@@ -1379,7 +1259,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                             setFocusedDiffRequestId(null)
                                         }}
                                         onSelectDiff={onSelectDiff}
-                                        onLoadingChange={handleTurnLoadingChange}
+                                        onLoadingChange={handleReviewLoadingChange}
                                     />
                                 )}
                             </div>
@@ -1387,14 +1267,8 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                     </div>
                 ) : null}
 
-                {terminalOpen ? (
-                    <div className={activeWorkspaceTab?.kind === 'terminal' ? 'flex min-h-0 flex-1' : 'hidden'}>
-                        <Suspense fallback={(
-                            <div className="flex min-h-0 flex-1 items-center justify-center">
-                                <LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" />
-                            </div>
-                        )}>
-                            <AssistantTerminalWorkspace
+                <InspectorWorkspaceSurface kind="terminal" mounted={terminalOpen} open={open} active={activeWorkspaceTab?.kind === 'terminal'}>
+                    <AssistantTerminalWorkspace
                                 key={`${terminalRuntimeId}:${terminalMountRevision}`}
                                 workspaceKey={terminalRuntimeId}
                                 projectPath={projectPath}
@@ -1402,23 +1276,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                 terminalOwner={{ kind: 'main-workspace', runtimeId: terminalRuntimeId }}
                                 onReady={handleTerminalReady}
                             />
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
-                {browserOpen ? (
-                    <div
-                        aria-hidden={activeWorkspaceTab?.kind !== 'browser'}
-                        className={activeWorkspaceTab?.kind === 'browser'
-                            ? 'flex min-h-0 flex-1'
-                            : 'pointer-events-none invisible absolute inset-0 flex'}
-                    >
-                        <Suspense fallback={(
-                            <div className="flex min-h-0 flex-1 items-center justify-center">
-                                <LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" />
-                            </div>
-                        )}>
-                            <AssistantBrowserWorkspace
+                <InspectorWorkspaceSurface kind="browser" mounted={browserOpen} open={open} active={activeWorkspaceTab?.kind === 'browser'}>
+                    <AssistantBrowserWorkspace
                                 key={browserWorkspaceKey}
                                 workspaceKey={browserWorkspaceKey}
                                 threadId={threadId || 'thread:detached'}
@@ -1437,14 +1298,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                 onDeveloperToast={showDeveloperToast}
                                 onOpenPreview={onOpenPreview}
                             />
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
-                {filesOpen ? (
-                    <div className={activeWorkspaceTab?.kind === 'explorer' ? 'flex min-h-0 flex-1' : 'hidden'}>
-                        <Suspense fallback={<PreviewTreeSkeleton />}>
-                            <AssistantFilesWorkspace
+                <InspectorWorkspaceSurface kind="explorer" mounted={filesOpen} open={open} active={activeWorkspaceTab?.kind === 'explorer'} fallback={<PreviewTreeSkeleton />}>
+                    <AssistantFilesWorkspace
                                 projectPath={filesProjectPath}
                                 projectRoots={projectRoots}
                                 active={open && activeWorkspaceTab?.kind === 'explorer'}
@@ -1452,14 +1309,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                 stateCapsule={explorerHydrationCapsule?.workspace === 'explorer' ? explorerHydrationCapsule : undefined}
                                 onStateCapsuleChange={handleMainExplorerCapsule}
                             />
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
-                {agentsOpen ? (
-                    <div className={activeWorkspaceTab?.kind === 'agents' ? 'flex min-h-0 flex-1' : 'hidden'}>
-                        <Suspense fallback={(<div className="flex min-h-0 flex-1 items-center justify-center"><LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" /></div>)}>
-                            <AssistantFleetWorkspace
+                <InspectorWorkspaceSurface kind="agents" mounted={agentsOpen} open={open} active={activeWorkspaceTab?.kind === 'agents'}>
+                    <AssistantFleetWorkspace
                                 threadId={threadId}
                                 snapshot={effectiveFleetSnapshot}
                                 selectedAgentRunId={selectedAgentRunId}
@@ -1471,18 +1324,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                 stateCapsule={agentsHydrationCapsule?.workspace === 'agents' ? agentsHydrationCapsule : undefined}
                                 onStateCapsuleChange={handleMainAgentsCapsule}
                             />
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
-                {threadDetailsOpen ? (
-                    <div className={activeWorkspaceTab?.kind === 'control' ? 'flex min-h-0 flex-1' : 'hidden'}>
-                        <Suspense fallback={(
-                            <div className="flex min-h-0 flex-1 items-center justify-center">
-                                <LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" />
-                            </div>
-                        )}>
-                            <AssistantThreadDetailsWorkspace
+                <InspectorWorkspaceSurface kind="control" mounted={threadDetailsOpen} open={open} active={activeWorkspaceTab?.kind === 'control'}>
+                    <AssistantThreadDetailsWorkspace
                                 active={open && activeWorkspaceTab?.kind === 'control'}
                                 sessionId={sessionId}
                                 threadId={threadId}
@@ -1490,18 +1335,10 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                 fleetSnapshot={effectiveFleetSnapshot}
                                 controlState={controlState}
                             />
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
-                {resourcesOpen ? (
-                    <div className={activeWorkspaceTab?.kind === 'resources' ? 'flex min-h-0 flex-1' : 'hidden'}>
-                        <Suspense fallback={(
-                            <div className="flex min-h-0 flex-1 items-center justify-center">
-                                <LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" />
-                            </div>
-                        )}>
-                            {resourceDrillDownTurn ? (
+                <InspectorWorkspaceSurface kind="resources" mounted={resourcesOpen} open={open} active={activeWorkspaceTab?.kind === 'resources'}>
+                    {resourceDrillDownTurn ? (
                                 <AssistantTurnReview
                                     turn={resourceDrillDownTurn}
                                     selectedDiff={resourceDrillDownDiff || resourceDrillDownTurn.files[0]?.target || null}
@@ -1532,9 +1369,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                                     onStateCapsuleChange={handleMainResourcesCapsule}
                                 />
                             )}
-                        </Suspense>
-                    </div>
-                ) : null}
+                </InspectorWorkspaceSurface>
 
                 {activeWorkspaceTab?.kind === 'turn' && visibleTurn?.detailLoaded === false ? (
                     <div key={`turn-loading:${visibleTurn.id}`} className="assistant-review-full-turn-enter flex min-h-0 flex-1 items-center justify-center px-6 text-center">
@@ -1547,7 +1382,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
                         ) : (
                             <div>
                                 <LoaderCircle size={18} className="mx-auto animate-spin text-[var(--accent-primary)]/75" />
-                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turnâ€™s messages and diffsâ€¦</p>
+                                <p className="mt-3 text-[11px] text-sparkle-text-muted/70">Loading this turn’s messages and diffs…</p>
                             </div>
                         )}
                     </div>

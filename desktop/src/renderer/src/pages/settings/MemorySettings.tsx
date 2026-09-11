@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, RefreshCw } from 'lucide-react'
-import type { ZyraMemoryOverview } from '@shared/contracts/memory-contracts'
+import type { ZyraMemoryOverview, ZyraMemoryJobStatus } from '@shared/contracts/memory-contracts'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
 import {
     SettingsButton,
@@ -83,6 +83,23 @@ export default function MemorySettings() {
         }
     }, [])
 
+    const [job, setJob] = useState<ZyraMemoryJobStatus | null>(null)
+    useEffect(() => {
+        let mounted = true
+        let pending = false
+        const read = async () => {
+            if (pending || document.hidden) return
+            pending = true
+            try { const result = await window.devscope.memory.getJobStatus(); if (mounted && result.success) setJob(result.status) } catch {} finally { pending = false }
+        }
+        void read()
+        const timer = window.setInterval(() => void read(), 5000)
+        document.addEventListener('visibilitychange', read)
+        return () => { mounted = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', read) }
+    }, [])
+    const jobLabel = job?.phase === 'running' ? 'Updating memory' : job?.phase === 'waiting' ? 'Waiting for chats to be idle' : job?.phase === 'error' ? 'Update needs attention' : job?.phase === 'offline' ? 'Background service is idle' : 'Ready for the next conversation'
+    const jobDescription = job?.lastError || (job?.lastSuccessAt ? `Last saved ${new Date(job.lastSuccessAt).toLocaleString()}` : job?.lastCheckedAt ? `Last checked ${new Date(job.lastCheckedAt).toLocaleString()}. No new memory was needed.` : 'Useful context is saved after a conversation becomes idle.')
+
     const overview = state.overview
     const selectedLayer = useMemo(() => overview?.memoryLayers.find((layer) => layer.id === selectedId) || overview?.memoryLayers[0] || null, [overview, selectedId])
 
@@ -116,7 +133,7 @@ export default function MemorySettings() {
         <SettingsPageContainer title="Memory" backTo="/settings/data" backLabel="Data & privacy">
             <SettingsSection title="Memory" headerAction={<SettingsButton variant="ghost" onClick={() => void load(true)} disabled={state.status === 'loading'}><RefreshCw size={12} className={state.status === 'loading' ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 {state.status === 'error' ? <SettingsNotice tone="error">{state.error}</SettingsNotice> : null}
-                <SettingsNotice>Useful context is saved locally after conversations become idle. Memory can be reviewed here and updated from chat.</SettingsNotice>
+                <SettingsRow title="Automatic updates" description={jobDescription} status={jobLabel} />
             </SettingsSection>
 
             <SettingsSection title="Layers">

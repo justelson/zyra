@@ -3,7 +3,7 @@ version: 1
 name: code-reviewer
 description: Review a bounded change for correctness and regressions
 role: reviewer
-model: terra
+model: role-default
 effort: high
 tools: ["read", "grep", "find", "ls"]
 disallowedTools: ["edit", "write", "bash"]

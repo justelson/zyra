@@ -3,7 +3,7 @@ version: 1
 name: bug-analyzer
 description: Trace a bounded failure from evidence to the smallest likely cause
 role: debugger
-model: terra
+model: role-default
 effort: high
 tools: ["read", "grep", "find", "ls"]
 permissionMode: read-only

@@ -1,3 +1,5 @@
+import { readRuntimeActivation, subscribeRuntimeActivation } from '../assistant/runtime-activation'
+import { RUNTIME_ACTIVATION_GET, RUNTIME_ACTIVATION_CHANGED } from '../../shared/runtime-activation'
 /**
  * Zyra - IPC Handler Registry
  */
@@ -22,7 +24,7 @@ import {
     handleTestGeminiConnection,
     handleTestGroqConnection
 } from './handlers/settings-ai-handlers'
-import { handleMemoryGetOverview } from './handlers/memory-handlers'
+import { handleMemoryGetOverview, handleMemoryGetJobStatus } from './handlers/memory-handlers'
 import {
     handleAssistantApprovePendingPlaygroundLabRequest,
     handleAssistantArchiveSession,
@@ -370,6 +372,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle('devscope:getAiDebugLogs', handleGetAiDebugLogs)
     ipcMain.handle('devscope:clearAiDebugLogs', handleClearAiDebugLogs)
     ipcMain.handle('zyra:memory:getOverview', handleMemoryGetOverview)
+    ipcMain.handle(RUNTIME_ACTIVATION_GET, () => readRuntimeActivation())
+    subscribeRuntimeActivation(state => {
+        for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(RUNTIME_ACTIVATION_CHANGED, state)
+    })
+    ipcMain.handle('zyra:memory:getJobStatus', () => handleMemoryGetJobStatus(app.getPath('userData')))
     ipcMain.handle(ASSISTANT_IPC.subscribe, requireCompletedSetup(handleAssistantSubscribe))
     ipcMain.handle(ASSISTANT_IPC.unsubscribe, requireCompletedSetup(handleAssistantUnsubscribe))
     ipcMain.handle(ASSISTANT_IPC.bootstrap, requireCompletedSetup(handleAssistantBootstrap))

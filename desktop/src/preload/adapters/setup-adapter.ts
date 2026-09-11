@@ -1,4 +1,4 @@
-import type { ModelProviderInput } from '../../shared/onboarding/contracts'
+import type { ModelProviderInput, AgentRoleModelInput } from '../../shared/onboarding/contracts'
 import { ipcRenderer } from 'electron'
 import {
     ONBOARDING_IPC,
@@ -43,6 +43,8 @@ export function createSetupAdapter() {
         onboarding: {
             connectModelProvider: (input: ModelProviderInput) => ipcRenderer.invoke(ONBOARDING_IPC.connectModelProvider, input),
             disconnectModelProvider: (provider: string) => ipcRenderer.invoke(ONBOARDING_IPC.disconnectModelProvider, provider),
+            getAgentRoleModels: () => ipcRenderer.invoke(ONBOARDING_IPC.getAgentRoleModels),
+            setAgentRoleModel: (input: AgentRoleModelInput) => ipcRenderer.invoke(ONBOARDING_IPC.setAgentRoleModel, input),
             listModelProviders: () => ipcRenderer.invoke(ONBOARDING_IPC.listModelProviders),
             getState: () => ipcRenderer.invoke(ONBOARDING_IPC.getState),
             getAuthStatus: () => ipcRenderer.invoke(ONBOARDING_IPC.getAuthStatus),

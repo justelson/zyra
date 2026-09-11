@@ -2096,6 +2096,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                             visible={visible}
                             controlled={Boolean(grant)}
                             cursor={cursor}
+                            cursorTargetId={targetId}
                             onViewportChange={(viewport) => {
                                 mutateWorkspaceState((current) => updateAssistantBrowserTab(current, tab.id, { viewport }))
                             }}
@@ -2110,6 +2111,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 placement="full"
                                 controlled={Boolean(grant)}
                                 cursor={cursor}
+                            cursorTargetId={targetId}
                                 onStateChange={handleWebviewStateChange}
                                 onControlTargetChange={handleControlTargetChange}
                                 onFullscreenChange={handleFullscreenChange}

@@ -1,3 +1,4 @@
+import { appendAssistantText } from '../../shared/assistant/stream-text-update'
 import { randomUUID } from 'node:crypto'
 import type { AssistantRuntimeEvent, NormalizedFileChange } from '../../shared/assistant/contracts'
 import {
@@ -668,7 +669,7 @@ function handleNotification(
             type: 'content.delta',
             payload: {
                 streamKind: method === 'item/commandExecution/outputDelta' ? 'command_output' : 'file_change_output',
-                delta
+                ...appendAssistantText(delta)
             }
         })
         return
@@ -686,7 +687,7 @@ function handleNotification(
                     ? 'reasoning_summary_text'
                     : 'plan_text'
 
-        deps.emitRuntime({ ...eventBase, type: 'content.delta', payload: { streamKind, delta } })
+        deps.emitRuntime({ ...eventBase, type: 'content.delta', payload: { streamKind, ...appendAssistantText(delta) } })
         return
     }
 

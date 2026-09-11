@@ -49,12 +49,12 @@ try {
 } finally { await client.dispose() }
 const serviceSource = readFileSync(new URL('../src/main/assistant/zyra-account-service.ts', import.meta.url), 'utf8')
 const loaderSource = serviceSource.split('async function loadChatGptAccountModule()')[1]!.split('export class ZyraAccountService')[0]!
-assert.match(loaderSource, /const \{ account \} = getSharedOpenAIAuthWorkerClient\(\)/)
+assert.match(loaderSource, /const \{ account \} = getSharedProviderWorkerClient\(\)/)
 assert.match(loaderSource, /buildChatGptAccountStatus: account\.buildChatGptAccountStatus/)
 assert.match(loaderSource, /fetchCodexResetCredits: account\.fetchCodexResetCredits/)
 assert.match(loaderSource, /redeemCodexResetCredit: redeemResetOnMain/, 'mutation remains on its existing main-owned path')
 assert.doesNotMatch(loaderSource, /import\(|chatgpt-account\.mjs/, 'merely opening Account cannot import the model/auth runtime in main')
-const workerSource = readFileSync(new URL('../../src/desktop-openai-auth-worker.mjs', import.meta.url), 'utf8')
+const workerSource = readFileSync(new URL('../../src/desktop-provider-worker.mjs', import.meta.url), 'utf8')
 assert.match(workerSource, /case "fetchCodexResetCredits":\s*return fetchCodexResetCredits\(/)
 assert.doesNotMatch(workerSource, /redeemCodexResetCredit/, 'a worker exit cannot lose the result of a reset POST')
 console.log('Account worker transport: shared read worker, unchanged mutation owner, confirmation/fresh availability and single consumption: ok')

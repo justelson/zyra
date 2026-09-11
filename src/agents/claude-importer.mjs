@@ -74,8 +74,9 @@ export async function previewClaudeAgentFile(file, options = {}) {
   if (unsupportedTools.length) warnings.push(`unsupported tools: ${unsupportedTools.join(", ")}`);
 
   const sourceModel = String(metadata.model ?? "inherit").toLowerCase();
-  const mappedModel = CLAUDE_MODEL_MAP[sourceModel];
-  if (!mappedModel) warnings.push(`unsupported model '${sourceModel}'; choose a Codex selector before import`);
+  const mappedModel = options.model ? { prefer: options.model, fallbacks: [] } : CLAUDE_MODEL_MAP[sourceModel];
+  if (!mappedModel) warnings.push(`unsupported model '${sourceModel}'; choose inherit, role-default, or a provider/model ID before import`);
+  else if (options.model) warnings.push(`Import will use ${options.model}; existing definitions are unchanged`);
   else if (sourceModel !== "inherit") warnings.push(`${sourceModel} maps semantically to Codex ${mappedModel.prefer}; this is not model equivalence`);
 
   const name = String(metadata.name ?? path.basename(file, ".md")).toLowerCase().replace(/[^a-z0-9-]+/g, "-");

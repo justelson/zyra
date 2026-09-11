@@ -19,6 +19,15 @@ export type ZyraMemoryOverview = {
     recommendedPrompts: string[]
 }
 
+export type ZyraMemoryJobStatus = {
+    phase: 'offline' | 'running' | 'waiting' | 'error' | 'idle'
+    queued: number
+    lastSuccessAt: number | null
+    lastCheckedAt: number | null
+    lastError: string | null
+}
+
 export interface ZyraMemoryApi {
+    getJobStatus: () => Promise<{ success: true; status: ZyraMemoryJobStatus } | { success: false; error: string }>
     getOverview: () => Promise<{ success: true; overview: ZyraMemoryOverview } | { success: false; error: string }>
 }

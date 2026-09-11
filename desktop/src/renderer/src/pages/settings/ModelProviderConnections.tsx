@@ -1,3 +1,4 @@
+import { AgentRoleModels } from './AgentRoleModels'
 import { useCallback, useEffect, useState } from 'react'
 import type { ModelProviderConnection } from '@shared/onboarding/contracts'
 import { ModelProviderForm } from '@/components/ui/ModelProviderForm'
@@ -45,6 +46,7 @@ export function ModelProviderConnections() {
             <summary className="cursor-pointer text-[12px] text-sparkle-text-secondary">Add or replace a provider</summary>
             <div className="mt-4 max-w-md"><ModelProviderForm onConnected={refresh} /></div>
         </details>
+        <AgentRoleModels />
         <ConfirmModal isOpen={Boolean(removing)} title={`Disconnect ${removing?.label || 'provider'}?`} message="Remove this saved connection and API key. Chats using it will need another connected model." confirmLabel={busy ? 'Disconnecting…' : 'Disconnect'} variant="warning" onCancel={() => { if (!busy) setRemoving(null) }} onConfirm={() => void disconnect()} />
     </>
 }

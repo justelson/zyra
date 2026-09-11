@@ -1,3 +1,4 @@
+import { providerForAppFeature } from '../../shared/assistant/provider-features'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type {
@@ -9,10 +10,10 @@ import type {
     AssistantRateLimitWindow,
     AssistantRedeemAccountResetInput
 } from '../../shared/assistant/contracts'
-import { getSharedOpenAIAuthWorkerClient } from '../setup/openai-auth-worker-client'
+import { getSharedProviderWorkerClient } from '../setup/provider-worker-client'
 import { resolveZyraRoot } from '../zyra/zyra-root'
 
-const CHATGPT_ACCOUNT_PROVIDER = 'openai-codex'
+const CHATGPT_ACCOUNT_PROVIDER = providerForAppFeature('subscriptionUsage')
 const MAX_RESET_CREDIT_ID_LENGTH = 512
 
 type JsonRecord = Record<string, unknown>
@@ -56,7 +57,7 @@ async function redeemResetOnMain(creditId: string): Promise<unknown> {
 
 async function loadChatGptAccountModule(): Promise<ChatGptAccountModule> {
     // Opening/polling Account must not import or create Pi runtimes in main.
-    const { account } = getSharedOpenAIAuthWorkerClient()
+    const { account } = getSharedProviderWorkerClient()
     return {
         buildChatGptAccountStatus: account.buildChatGptAccountStatus,
         fetchCodexResetCredits: account.fetchCodexResetCredits,

@@ -115,10 +115,12 @@ async function loadPromptResources(projectPath?: string | null): Promise<Assista
 export function AssistantComposerView({
     controller,
     realtimeVoiceDisabled = true,
+    onPrepareRealtimeVoice,
     onStartRealtimeVoice
 }: {
     controller: AssistantComposerController
     realtimeVoiceDisabled?: boolean
+    onPrepareRealtimeVoice?: () => void
     onStartRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
 }) {
     const navigate = useNavigate()
@@ -961,7 +963,7 @@ export function AssistantComposerView({
                                         />
                                     </>
                                 ) : showRealtimeVoicePrimaryAction ? (
-                                    <ComposerRealtimeVoiceButton onStart={() => onStartRealtimeVoice?.(
+                                    <ComposerRealtimeVoiceButton onPrepare={onPrepareRealtimeVoice} onStart={() => onStartRealtimeVoice?.(
                                         buildAssistantVoiceExecutionConfiguration({
                                             model: controller.selectedModel,
                                             runtimeMode: controller.selectedRuntimeMode,

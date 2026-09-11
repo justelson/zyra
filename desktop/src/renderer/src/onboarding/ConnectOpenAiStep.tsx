@@ -69,7 +69,7 @@ export function ConnectOpenAiStep({ status, loading, activity, error, onRefresh,
             </div>
 
             <button type="button" className="mt-4 text-[12px] text-sparkle-text-secondary hover:text-sparkle-text" disabled={loading} onClick={() => setOtherProvidersOpen(true)}>Other providers</button>
-            <SettingsDialog open={otherProvidersOpen} title="Connect a provider" description="OpenCode Zen, Claude API or your own endpoint." onClose={() => setOtherProvidersOpen(false)}>
+            <SettingsDialog open={otherProvidersOpen} title="Connect a provider" description="OpenCode Zen, Claude API or your own endpoint." className="border-[var(--settings-border)]" contentClassName="px-5 py-5" onClose={() => setOtherProvidersOpen(false)}>
                 <ModelProviderForm onConnected={async () => { await onRefresh(); setOtherProvidersOpen(false) }} />
             </SettingsDialog>
             <div className="mt-4 flex min-h-6 items-center justify-center gap-2 text-[11px] leading-5" role={error ? 'alert' : 'status'} aria-live="polite">

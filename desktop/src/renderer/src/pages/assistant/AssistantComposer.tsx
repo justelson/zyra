@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react'
+import { memo, useCallback } from 'react'
 import { AssistantComposerView } from './AssistantComposerView'
 import { buildAssistantVoiceExecutionConfiguration } from './assistant-voice-execution-configuration'
 import { useAssistantComposerController } from './useAssistantComposerController'
@@ -8,7 +8,9 @@ export type { AssistantComposerProps, AssistantComposerSendOptions, ComposerCont
 
 function AssistantComposerImpl(props: AssistantComposerProps) {
     const controller = useAssistantComposerController(props)
-    useEffect(() => {
+    // Navigation mounts the composer too. Only prepare Voice after user intent,
+    // so moving between setup, Settings and Chats does not spawn idle workers.
+    const prepareRealtimeVoice = useCallback(() => {
         if (!props.onPrepareRealtimeVoice
             || props.realtimeVoiceDisabled
             || !props.sessionId
@@ -39,6 +41,7 @@ function AssistantComposerImpl(props: AssistantComposerProps) {
         <AssistantComposerView
             controller={controller}
             realtimeVoiceDisabled={props.realtimeVoiceDisabled}
+            onPrepareRealtimeVoice={prepareRealtimeVoice}
             onStartRealtimeVoice={props.onStartRealtimeVoice}
         />
     )

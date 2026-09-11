@@ -262,10 +262,12 @@ export const ComposerMentionMenu = memo(({
 
 export { ComposerSendButton } from './ComposerSendButton'
 
-export const ComposerRealtimeVoiceButton = memo(({ onStart }: { onStart: () => void }) => (
+export const ComposerRealtimeVoiceButton = memo(({ onStart, onPrepare }: { onStart: () => void; onPrepare?: () => void }) => (
     <button
         type="button"
         onClick={onStart}
+        onPointerEnter={onPrepare}
+        onFocus={onPrepare}
         className="relative inline-flex h-[36px] w-[36px] items-center justify-center overflow-hidden rounded-full border border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-contrast)] transition-all duration-150 hover:scale-[1.03] hover:bg-[color-mix(in_srgb,var(--accent-primary)_88%,var(--color-text))]"
         title="Start Voice in this chat"
         aria-label="Start Voice in this chat"

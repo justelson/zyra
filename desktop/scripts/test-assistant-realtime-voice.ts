@@ -1045,7 +1045,7 @@ const codexRealtimeVoiceSource = readFileSync(
     new URL('../src/main/assistant/codex-realtime-voice.ts', import.meta.url),
     'utf8'
 )
-assert.match(codexRealtimeVoiceSource, /resolveAuth: \(\) => getSharedOpenAIAuthWorkerClient\(\)\.account\.resolveChatGptAccountAuth\(\)/, 'Voice signaling resolves auth off the Electron main thread')
+assert.match(codexRealtimeVoiceSource, /resolveAuth: \(\) => getSharedProviderWorkerClient\(\)\.account\.resolveChatGptAccountAuth\(\)/, 'Voice signaling resolves auth off the Electron main thread')
 assert.match(codexRealtimeVoiceSource, /onFailure: diagnostic => log\.warn\('\[Voice signaling\] Startup failed', diagnostic\)/, 'actual app failures record only the safe signaling-stage report')
 
 const realtimeForegroundAdapterSource = readFileSync(

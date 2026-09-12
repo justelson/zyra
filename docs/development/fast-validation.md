@@ -11,6 +11,7 @@ Run these from the repository root unless the command says otherwise.
 | Work | Command | What it proves |
 | --- | --- | --- |
 | Single-file JavaScript syntax | `node --check src/permission-command-policy.mjs` | Parse just the changed module; substitute the actual changed file |
+| Chat stuck loading or switching history | `npm --prefix desktop run test:timeline-presentation` | Real React and LegendList in isolated Electron: cold chat reveal, chat switching, hydration, initial paging and failed or abandoned pages |
 | Command classification | `npm run test:permissions:command-policy` | Pure policy cases, including PowerShell formatters and real destructive commands; no SDK, filesystem or provider startup |
 | Approval lifecycle and projection | `npm run test:permissions:lifecycle` and `npm --prefix desktop run test:assistant-approval-projection` | Tool correlation, waiting state, concurrent/late events, denial and compatible storage hydration |
 | Windows profile recovery | `npm --prefix desktop run test:windows-profile-recovery` and `npm run test:computer-window-feedback` | Exact-name selection, existing-browser reuse, scoped candidate details and bounded same-window recovery |

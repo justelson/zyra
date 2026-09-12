@@ -234,7 +234,11 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         }
         const plan = resolveAssistantInitialHistoryBackfill(initialHistory)
         if (!plan.shouldRequest || !props.onLoadOlder) {
-            if (startupSettled && (!props.onLoadOlder || shouldRevealAssistantInitialHistory(initialHistory))) setColdHistoryReadyKey(targetWindowKey)
+            // A queued frame may predate the render that marks startup settled.
+            // Read the current window's completion instead of that frame's closure.
+            if (settledWindowKeyRef.current === targetWindowKey && (!props.onLoadOlder || shouldRevealAssistantInitialHistory(initialHistory))) {
+                setColdHistoryReadyKey(targetWindowKey)
+            }
             return
         }
 
@@ -269,18 +273,20 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         props.loadingOlder,
         props.onLoadOlder,
         props.scrollContainerRef,
-        props.selectionHydrating,
-        startupSettled
+        props.selectionHydrating
     ])
+    const requestInitialHistoryBackfillRef = useRef(requestInitialHistoryBackfill)
+    requestInitialHistoryBackfillRef.current = requestInitialHistoryBackfill
 
     const scheduleInitialHistoryBackfillCheck = useCallback(() => {
         if (initialHistoryBackfillFrameRef.current !== null) return
         const targetWindowKey = props.windowKey
         initialHistoryBackfillFrameRef.current = window.requestAnimationFrame(() => {
             initialHistoryBackfillFrameRef.current = null
-            requestInitialHistoryBackfill(targetWindowKey)
+            // Hydration can finish while this frame is queued. Use its latest state.
+            requestInitialHistoryBackfillRef.current(targetWindowKey)
         })
-    }, [props.windowKey, requestInitialHistoryBackfill])
+    }, [props.windowKey])
 
     const scheduleInitialPresentation = useCallback(() => {
         cancelStartupAlignment()
@@ -481,7 +487,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         props.loadingOlder,
         props.rows.length,
         props.windowKey,
-        scheduleInitialHistoryBackfillCheck
+        requestInitialHistoryBackfill,
+        scheduleInitialHistoryBackfillCheck,
+        startupSettled
     ])
 
     useEffect(() => {
@@ -674,7 +682,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             previousRowsRef.current = props.rows
             clearCompletionEndFollow()
             cancelEndAlignment()
-            cancelStartupAlignment()
+            // The startup layout effect already scheduled this window's presentation.
             userNavigationAwayRef.current = false
             updateScrollMode('following-end')
             return

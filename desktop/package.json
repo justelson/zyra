@@ -29,6 +29,7 @@
         "typecheck:browser-runtime": "tsc --noEmit -p tsconfig.browser-runtime.json",
         "test:activity-rail": "bun scripts/test-activity-rail-contract.ts",
         "test:inspector-startup": "bun scripts/test-assistant-inspector-startup.ts",
+        "test:timeline-presentation": "node scripts/test-assistant-timeline-presentation.mjs",
         "test:default-chat-folder": "bun scripts/test-assistant-default-folder.ts",
         "test:runtime-observability": "bun scripts/test-runtime-observability.ts",
         "test:memory-overview": "bun scripts/test-memory-overview-root.ts",

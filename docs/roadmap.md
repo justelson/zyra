@@ -61,6 +61,12 @@ These changes are implemented locally on `dev`, with the commit recorded in Git 
 | FIX-018 | Local contracts verified; not released | Desktop idle sessions schedule bounded, cancellable memory consolidation. Settings reads the server data root. Five speaking styles replace built-in learner/builder personas; `/start` is removed. | Idle scheduling, memory extraction/privacy, data-root, preference and TUI tests pass. Existing memory is preserved; live personal memory extraction was not inspected. |
 | FIX-019 | Local integration verified; not released | Setup and Settings support Zen keys, Claude API keys and custom endpoints, with ChatGPT recommended. Saved connections flow through model selection, title fallback and fleet inheritance. | Synthetic verification and real Pi runtime persistence, existing-session refresh and credential removal pass. Public OpenCode free access rejected the Zyra client; no-key access is not advertised. Live user API accounts and packaged setup remain unverified. |
 
+### FIX-020: chats stuck at the loading presentation
+
+Fixed locally; not released. Queued timeline frames now read current hydration and startup state, and chat switching preserves the new window's startup callback. This prevents an already-loaded short chat from remaining hidden. Initial viewport backfill and virtual-list reuse are preserved.
+
+The isolated Electron `test:timeline-presentation` target verifies cold chat reveal, reused-list navigation, delayed hydration, initial paging and failed or abandoned requests. Existing history-streaming, pagination and scroll contracts pass. The affected chat was also verified in the running dev app after switching away and back.
+
 ## v0.6.3: safer update handling
 
 These are proposed changes to the existing update architecture. Review their release-version impact before implementation.

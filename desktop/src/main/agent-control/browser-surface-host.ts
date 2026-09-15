@@ -35,6 +35,7 @@ export class BrowserSurfaceHost {
     constructor(private readonly options: {
         send: (request: BrowserSurfaceOpenRequest) => void
         cancel?: (requestId: string) => void
+        settled?: (requestId: string) => void
         resolveTarget: (targetId: string) => ControlTarget
         makeId?: () => string
         timeoutMs?: number
@@ -273,7 +274,7 @@ export class BrowserSurfaceHost {
             taken?.reject(new AgentControlError('CONTROL_TARGET_NOT_FOUND', 'The Browser tab did not resolve to its trusted control target.'))
             return Boolean(taken)
         }
-        if (target.kind !== 'zyra-browser' || target.tabId !== pending.request.tabId) {
+        if (target.kind !== 'zyra-browser' || target.tabId !== pending.request.tabId || target.ownerThreadId !== pending.request.threadId) {
             const taken = this.takePending(requestId)
             taken?.reject(new AgentControlError('CONTROL_SCOPE_DENIED', 'The Browser response resolved to a different control target.'))
             return Boolean(taken)
@@ -328,7 +329,7 @@ export class BrowserSurfaceHost {
             pending.reject(new AgentControlError(
                 'CONTROL_TIMEOUT',
                 phase === 'sent'
-                    ? 'The selected thread did not acknowledge its Browser surface request in time.'
+                    ? 'The requesting chat did not acknowledge its Browser request. Open that chat in Zyra Desktop and retry; if it is already open, reload the Desktop window.'
                     : mode === 'open'
                         ? 'The Browser tab was accepted but did not register as a trusted control target in time.'
                         : mode === 'close'
@@ -349,6 +350,7 @@ export class BrowserSurfaceHost {
         pending.signal?.removeEventListener('abort', pending.abort!)
         this.pending.delete(requestId)
         this.markSettled(requestId)
+        this.options.settled?.(requestId)
         return pending
     }
 

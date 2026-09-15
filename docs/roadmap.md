@@ -75,6 +75,13 @@ Follow-up: Record Browser opens compact setup with explicit Start and remembered
 
 Focused Electron checks cover moving video with generated tab audio, narrow menus, native layering, transfers and recovery. A live recording saved successfully; its frames exclude the controls, and microphone names, pause/resume, save, panel switching and inspector reopening were verified. Physical microphone and system-loopback recording remain separate device checks. See [browser recording and presentation](development/browser-recording.md).
 
+### GitHub issue verification, 2026-09-16
+
+- [#7](https://github.com/justelson/zyra/issues/7), [#9](https://github.com/justelson/zyra/issues/9), [#10](https://github.com/justelson/zyra/issues/10): existing development fixes rechecked with scoped computer-tool projection, grant/observation, sidecar acquisition, target cancellation, profile matching and replacement-window recovery tests. No new packaged release or personal-profile replay is claimed.
+- [#11](https://github.com/justelson/zyra/issues/11): repair recognizes supported Windows shell path spellings and explains scope denials. Thread Details now shows effective folder access and lets the user review/apply the current Project revision to the same idle Chat. Read-only ceilings and explicit scope updates remain required.
+- [#12](https://github.com/justelson/zyra/issues/12): repair uses the actual current main window rather than selecting arbitrary auxiliary windows, buffers preload delivery across UI mount gaps, rejects expired acknowledgements, and settles abandoned requests. Tests cover ownership, cancellation, timeout, remount and closed-inspector reveal; a live Excalidraw mouse-drawing replay is still a separate acceptance check.
+- [#1](https://github.com/justelson/zyra/issues/1): macOS/Linux verification is blocked. The latest native CI matrix was rejected before any job steps ran. Restore GitHub runner eligibility and rerun on the candidate commit; local Windows results cannot substitute for these platforms.
+
 ## v0.6.3: safer update handling
 
 These are proposed changes to the existing update architecture. Review their release-version impact before implementation.

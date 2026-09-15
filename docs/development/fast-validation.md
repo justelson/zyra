@@ -27,6 +27,7 @@ Run these from the repository root unless the command says otherwise.
 | Permission gate behavior | `npm run test:permissions:gate` | Modes, scope/read-only boundaries, approvals and the installed-app lookup regression |
 | Approval prompt rendering | `npm --prefix desktop run test:assistant-tool-approval` | Isolated React rendering; no Electron, dev server or model session |
 | Browser inspector entrance/geometry | `npm --prefix desktop run test:browser-slot-geometry` | Isolated Electron reproduces fixed-size ancestor motion, interrupted entrance and settled/cleanup behavior without idle polling |
+| Browser request routing and folder access recovery | `npm --prefix desktop run test:browser-surface-recovery` | Main-window routing, preload delivery across remounts, late acknowledgement rejection, cancellation/timeout ownership, and real React folder-review/apply states in isolated Electron |
 | Native app overlays | `npm --prefix desktop run test:native-overlay` | Adopted same-origin native surfaces, trusted owner/frame checks, page continuity, layer order, resize and lifetime |
 | Native React portal lifecycle | `npm --prefix desktop run test:native-overlay-renderer` | Shared React state, delayed/cancelled startup, nested leases, document/theme synchronization, focus and recovery |
 | Native overlay callers | `npm --prefix desktop run test:native-overlay-callers` | Actual menus, nested options, rapid toggles, keyboard input and scope changes across portal documents |

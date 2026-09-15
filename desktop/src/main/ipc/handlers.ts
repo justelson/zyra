@@ -303,7 +303,7 @@ const ipcMain = createOnboardingGatedIpcMain(trustedIpcMain, {
     blockedResult: onboardingRequiredError
 })
 
-export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: DesktopSetupServices): void {
+export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: DesktopSetupServices, getMainWindow: () => BrowserWindow | null = () => mainWindow): void {
     log.info('Registering IPC handlers...')
 
     isOnboardingAccessAllowed = () => setupServices.onboarding.isAccessAllowed()
@@ -331,7 +331,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
             ? handler(...args)
             : onboardingRequiredError()
     )
-    const controlHandlers = createAgentControlHandlers(mainWindow)
+    const controlHandlers = createAgentControlHandlers(mainWindow, getMainWindow)
     ipcMain.handle(AGENT_CONTROL_IPC.getState, controlHandlers.getState)
     ipcMain.handle(AGENT_CONTROL_IPC.bindBrowserTab, controlHandlers.bindBrowserTab)
     ipcMain.handle(AGENT_CONTROL_IPC.acknowledgeBrowserSurfaceRequest, controlHandlers.acknowledgeBrowserSurfaceRequest)

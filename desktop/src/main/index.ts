@@ -608,7 +608,7 @@ function extractShellLaunchTargetFromArgv(argv: string[]): ShellLaunchTarget | n
 
 function ensureIpcHandlersRegistered(targetWindow: BrowserWindow): void {
     if (hasRegisteredIpcHandlers) return
-    registerIpcHandlers(targetWindow, setupServices)
+    registerIpcHandlers(targetWindow, setupServices, () => mainWindow)
     hasRegisteredIpcHandlers = true
 }
 

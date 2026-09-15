@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, type ReactNode } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, ListTodo, Loader2, PlugZap, Trash2 } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
@@ -7,6 +7,7 @@ import { IssueLogRow, copyTextToClipboard, getUsageMetricDotClass, getUsageMetri
 
 export const AssistantThreadDetailsPanel = memo(function AssistantThreadDetailsPanel(props: {
     open: boolean
+    folderAccess?: ReactNode
     compact?: boolean
     selectedChatTypeLabel: string
     selectedProjectPath: string
@@ -137,6 +138,8 @@ export const AssistantThreadDetailsPanel = memo(function AssistantThreadDetailsP
                             </div>
                         </div>
                     </div>
+
+                    {props.folderAccess}
 
                     {(pendingApprovalsCount > 0 || pendingUserInputsCount > 0) && <div className="space-y-2 border-t border-white/5 pt-3">
                         <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-sparkle-text-muted">Status</span>

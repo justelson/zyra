@@ -1,3 +1,4 @@
+import { isAssistantSessionProjectLocked } from '../../shared/assistant/session-project'
 import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
 import { resolveAssistantWorkingDirectory } from '../../shared/assistant/working-directory'
 import { createHash, randomUUID } from 'node:crypto'
@@ -1309,6 +1310,10 @@ export class AssistantService {
         chatScope: import('../../shared/assistant/contracts').AssistantChatScope | null
     ) {
         const session = this.state.snapshot.sessions.find((entry) => entry.id === sessionId) || null
+        const scopeChanged = JSON.stringify(session?.chatScope || null) !== JSON.stringify(chatScope || null)
+        if (scopeChanged && isAssistantSessionProjectLocked(session)) {
+            throw new Error('Finish or stop the active chat work before applying folder changes.')
+        }
         const pendingVoiceBelongsToSession = Boolean(
             this.pendingCanonicalVoiceStart
             && session?.threads.some((thread) => thread.id === this.pendingCanonicalVoiceStart?.conversationId)
@@ -1319,7 +1324,6 @@ export class AssistantService {
             this.invalidateVoicePrimaryWorkerPreparation()
         }
         const projectPath = chatScope?.workingRoot || null
-        const scopeChanged = JSON.stringify(session?.chatScope || null) !== JSON.stringify(chatScope || null)
         try {
             const result = await setAssistantSessionProjectPathAction(this.actionDeps, sessionId, projectPath)
             if (scopeChanged && projectPath === session?.projectPath) {

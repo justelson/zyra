@@ -121,6 +121,8 @@ export function collectCommandPathHints(command, platform = process.platform) {
       || /^\\\\[^\\]/.test(token)
       || /^~[\\/]/.test(token)
       || (platform !== "win32" && token.startsWith("/"))
+      || (platform === "win32" && (/^\/(?:mnt\/|cygdrive\/)?[a-z]\//i.test(token)
+        || (/^\/(?:mnt\/|cygdrive\/)?[a-z]$/i.test(token) && /^(?:ls|cat|head|tail|find|grep|rg|stat|du|df)\s/i.test(command.trim()))))
     ) values.push(token);
   }
   return [...new Set(values)];
@@ -230,7 +232,7 @@ export function createZyraPermissionGateExtension(options = {}) {
     if (request.scopeViolation) {
       return {
         block: true,
-        reason: `${request.toolName || "This tool"} requested a path outside this chat's filesystem scope.`,
+        reason: `${request.toolName || "This tool"} requested a path outside this chat's filesystem scope. Full access controls approvals; it does not add folders. In Settings > Projects, associate the needed folder with this Project, then open Thread Details > Folder access and apply folder changes to this chat. Allowed folders: ${scopedRoots?.map((root) => `${root.path} (${root.access})`).join("; ") || "project folder only"}.`,
       };
     }
     if (request.readOnlyViolation) {

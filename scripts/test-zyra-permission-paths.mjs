@@ -18,6 +18,10 @@ for (const platform of ['linux', 'darwin', 'win32']) {
   assert.deepEqual(hints('ls /'), platform === 'win32' ? [] : ['/'], `${platform}: filesystem root must reach scope checking`);
   if (platform === 'win32') assert.deepEqual(hints('cmd /c echo ready'), [], 'Windows slash switches are not POSIX paths');
 }
+assert.deepEqual(collectCommandPathHints("ls '/c/Users/demo/Downloads'", 'win32'), ['/c/Users/demo/Downloads']);
+assert.deepEqual(collectCommandPathHints("cat '/D/docs/rules.md'", 'win32'), ['/D/docs/rules.md']);
+assert.deepEqual(collectCommandPathHints('ls /c /mnt/d/docs /cygdrive/e/docs', 'win32'), ['/c', '/mnt/d/docs', '/cygdrive/e/docs']);
+assert.deepEqual(collectCommandPathHints('dir /s /b', 'win32'), []);
 const fixture = await mkdtemp(path.join(os.tmpdir(), 'zyra-permission-paths-'));
 const savedEnv = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 const failures = [];
@@ -66,6 +70,14 @@ try {
     directCases.push(['backslash tilde', '~\\note.txt', path.join(home, 'note.txt'), 'outside']);
     const native = path.join(outside, 'note.txt');
     directCases.push(['MSYS drive', `/${native[0].toLowerCase()}/${native.slice(3).replaceAll('\\', '/')}`, native, 'outside']);
+  }
+  if (process.platform === 'win32') {
+    const shellPath = '/' + outside[0].toLowerCase() + '/' + outside.slice(3).replaceAll('\\', '/');
+    await check('Git Bash external directory agrees with read', async () => {
+      const denied = await gate({ toolName: 'bash', input: { command: `ls '${shellPath}'` } });
+      assert.equal(denied?.block, true);
+      assert.match(denied.reason, /Thread Details > Folder access/);
+    });
   }
   for (const [name, inputPath, destination, boundary] of directCases) {
     // Execute unguarded native tools ONLY against fixture data, proving the destination.

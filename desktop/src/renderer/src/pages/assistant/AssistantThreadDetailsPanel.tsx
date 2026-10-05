@@ -8,6 +8,7 @@ import { IssueLogRow, copyTextToClipboard, getUsageMetricDotClass, getUsageMetri
 export const AssistantThreadDetailsPanel = memo(function AssistantThreadDetailsPanel(props: {
     open: boolean
     folderAccess?: ReactNode
+    backgroundProcesses?: ReactNode
     compact?: boolean
     selectedChatTypeLabel: string
     selectedProjectPath: string
@@ -140,6 +141,7 @@ export const AssistantThreadDetailsPanel = memo(function AssistantThreadDetailsP
                     </div>
 
                     {props.folderAccess}
+                    {open && props.backgroundProcesses}
 
                     {(pendingApprovalsCount > 0 || pendingUserInputsCount > 0) && <div className="space-y-2 border-t border-white/5 pt-3">
                         <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-sparkle-text-muted">Status</span>

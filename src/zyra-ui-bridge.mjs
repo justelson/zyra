@@ -1,4 +1,5 @@
 import { normalizePromptImages } from './prompt-images.mjs';
+import { abortManagedBashForegroundJobs, assertManagedBashCleanup, listManagedBashJobs, stopManagedBashJobs } from './managed-bash-tool.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
 import { normalizeCanonicalMessageSourceId } from './message-identity.mjs';
 import { ensureSessionDurable } from './agent-server/session-durability.mjs';
@@ -211,7 +212,7 @@ async function loadSdk() {
 let idleMemoryScheduler;
 let memoryJobController;
 
-function disposeRuntime() {
+async function disposeRuntime() {
   memoryJobController?.abort();
   idleMemoryScheduler?.dispose();
   idleMemoryScheduler = undefined;
@@ -234,15 +235,20 @@ function disposeRuntime() {
   unsubscribeFleet = undefined;
   unsubscribeChildSessions?.();
   unsubscribeChildSessions = undefined;
-  runtime?.managedBash?.abortAll?.("Zyra bridge disposed");
-  void runtime?.fleet?.cancelAll?.("Zyra bridge disposed");
-  runtime?.session?.dispose?.();
-  const harnessDisposal = runtime?.harnessHooks?.conversation?.dispose();
+  const disposedRuntime = runtime;
+  disposedRuntime?.managedBash?.abortAll?.("Zyra bridge disposed");
+  const fleetDisposal = disposedRuntime?.fleet?.cancelAll?.("Zyra bridge disposed");
+  disposedRuntime?.session?.dispose?.();
+  const harnessDisposal = disposedRuntime?.harnessHooks?.conversation?.dispose();
   runtime = undefined;
   liveContextBaselineTokens = undefined;
   lastLiveContextPublishedAt = 0;
-  return harnessDisposal;
   activeActionBatchIntent = undefined;
+  const results = await Promise.allSettled([
+    fleetDisposal, harnessDisposal,
+    ...[...(disposedRuntime?.managedBash?.jobs?.values?.() ?? [])].map(job => job.done),
+  ]);
+  assertManagedBashCleanup(results, disposedRuntime?.managedBash?.jobs?.values?.() ?? []);
 }
 
 function isMissingLocalChatError(error) {
@@ -932,21 +938,18 @@ async function handleWarmup(payload) {
 
 async function handleAbort() {
   const currentRuntime = runtime;
+  send({ type: 'event', event: { type: 'zyra_agent_interruption', interruption: { kind: 'stopped', source: 'user' } } });
   declinePendingPermissions("Root turn stopped.");
   abandonPendingUserInputs();
   controlBridgeClient.cancelPending("Root turn stopped.");
-  currentRuntime?.managedBash?.abortAll?.("Root turn stopped");
-  runtime?.session?.abortCompaction?.();
+  const foregroundJobs = abortManagedBashForegroundJobs(currentRuntime?.managedBash, "Root turn stopped");
+  currentRuntime?.session?.abortCompaction?.();
   const results = await Promise.allSettled([
     currentRuntime?.fleet?.cancelAll?.("root turn aborted"),
     currentRuntime?.session?.abort?.(),
-    ...[...(currentRuntime?.managedBash?.jobs?.values?.() || [])].map(job => job.done),
+    ...foregroundJobs.map(job => job.done),
   ]);
-  const failures = results.filter(result => result.status === "rejected").map(result => result.reason);
-  for (const job of currentRuntime?.managedBash?.jobs?.values?.() || []) {
-    if (job.error?.code === "SHELL_CLEANUP_FAILED") failures.push(job.error);
-  }
-  if (failures.length) throw new AggregateError(failures, failures.map(error => error?.message || String(error)).join("; "));
+  assertManagedBashCleanup(results, foregroundJobs);
   return {};
 }
 
@@ -1137,8 +1140,12 @@ async function handleMessage(message) {
         abandonPendingUserInputs();
         stopTemporaryBrowserRelay();
         permissionReviewer?.dispose?.();
-        await revokePluginRuntime(runtime);
+        const revokedRuntime = runtime;
+        revokedRuntime?.managedBash?.abortAll?.('Chat Plugin authority revoked');
+        await revokePluginRuntime(revokedRuntime);
+        const cleanup = await Promise.allSettled([...(revokedRuntime?.managedBash?.jobs?.values?.() ?? [])].map(job => job.done));
         controlBridgeClient.dispose();
+        assertManagedBashCleanup(cleanup, revokedRuntime?.managedBash?.jobs?.values?.() ?? []);
       });
       await pluginRevocationPromise;
       sendResponse(id, true, { result: { revoked: true } });
@@ -1194,6 +1201,16 @@ async function handleMessage(message) {
     }
     if (message?.type === "abort") {
       sendResponse(id, true, { result: await handleAbort() });
+      return;
+    }
+    if (message?.type === "managed_bash.list") {
+      if (!runtime?.managedBash) throw new Error("Managed command runtime is not connected.");
+      sendResponse(id, true, { result: listManagedBashJobs(runtime.managedBash, message.payload ?? {}) });
+      return;
+    }
+    if (message?.type === "managed_bash.stop") {
+      if (!runtime?.managedBash) throw new Error("Managed command runtime is not connected.");
+      sendResponse(id, true, { result: await stopManagedBashJobs(runtime.managedBash, message.payload ?? {}) });
       return;
     }
     if (message?.type === "approval.respond") {
@@ -1260,18 +1277,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
 });
 
-process.on("SIGTERM", () => {
+function disposeAndExit() {
   threadBridgeClient.dispose();
   harnessTransportBroker.dispose();
   controlBridgeClient.dispose();
-  disposeRuntime();
-  process.exit(0);
-});
+  void disposeRuntime().then(() => process.exit(0), error => {
+    process.stderr.write(`Bridge cleanup failed: ${error?.message || String(error)}\n`);
+    process.exit(1);
+  });
+}
 
-process.on("SIGINT", () => {
-  threadBridgeClient.dispose();
-  harnessTransportBroker.dispose();
-  controlBridgeClient.dispose();
-  disposeRuntime();
-  process.exit(0);
-});
+process.on("SIGTERM", disposeAndExit);
+process.on("SIGINT", disposeAndExit);

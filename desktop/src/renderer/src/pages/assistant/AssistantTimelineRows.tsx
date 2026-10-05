@@ -663,7 +663,7 @@ export const TimelineMessage = memo(({
     ])
 
     if (isAssistant) {
-        const presentationActive = !usesProviderNativeStreaming && assistantTextPresentation.presenting
+        const presentationActive = usesProviderNativeStreaming ? Boolean(message.streaming) : assistantTextPresentation.presenting
         const assistantText = usesProviderNativeStreaming ? (message.text || ' ') : (assistantTextPresentation.text || ' ')
         const renderedAssistantText = stripProposedPlanBlocks(assistantText) || (presentationActive ? ' ' : '')
         const assistantCopyValue = renderedAssistantText.trim() ? renderedAssistantText : copyValue

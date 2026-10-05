@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { DEFAULT_MANAGED_BASH_AUTO_POLL_MS } from "./tool-contracts.mjs";
+import { DEFAULT_MANAGED_BASH_AUTO_POLL_MS, MANAGED_BASH_BACKGROUND_DESCRIPTION } from "./tool-contracts.mjs";
 import { createZyraLocalBashOperations } from "./zyra-shell-operations.mjs";
 
 const DEFAULT_INITIAL_WAIT_MS = 8000;
@@ -17,6 +17,7 @@ const MAX_RETAINED_TERMINAL_JOBS = 64;
 const bashSchema = Type.Object({
   command: Type.Optional(Type.String({ description: "Bash command to execute. Required for action=run." })),
   timeout: Type.Optional(Type.Number({ description: "Timeout in seconds for the command process." })),
+  background: Type.Optional(Type.Boolean({ description: MANAGED_BASH_BACKGROUND_DESCRIPTION })),
   action: Type.Optional(Type.Union([
     Type.Literal("run"),
     Type.Literal("status"),
@@ -36,6 +37,15 @@ export function createManagedBashState() {
         if (!job.completedAt) stopJob(job, reason);
       }
     },
+    abortForeground(reason = "Command aborted") {
+      return abortManagedBashForegroundJobs(state, reason);
+    },
+    list(input) {
+      return listManagedBashJobs(state, input);
+    },
+    stop(input) {
+      return stopManagedBashJobs(state, input);
+    },
     hasAutoPollJobs() {
       return hasManagedBashAutoPollJobs(state);
     },
@@ -50,21 +60,22 @@ export function createManagedBashState() {
 
 export function createManagedBashTool(options = {}) {
   const state = options.state ?? createManagedBashState();
-  const operations = createZyraLocalBashOperations({ shellPath: options.shellPath });
+  const operations = options.operations ?? createZyraLocalBashOperations({ shellPath: options.shellPath });
   const commandPrefix = String(options.commandPrefix ?? "");
   const cwd = options.cwd ?? process.cwd();
+  const ownerAgentRunId = options.ownerAgentRunId;
 
   return {
     name: "bash",
     label: "bash",
-    description: "Execute a bash command. Long-running commands may return before completion with a job id; call action=status with that job id to inspect output, or action=stop to stop it.",
-    promptSnippet: "Execute bash commands. If a command returns `still running` with a job id, call bash action=status to inspect output before deciding what to do next.",
+    description: "Execute a bash command. Use background=true for persistent servers/watchers to return promptly without automatic polling. Any command that yields is adopted as a background job and survives Stop turn. Use action=status to inspect output or action=stop to stop a job.",
+    promptSnippet: "Use background=true for intentional persistent servers/watchers. Yielded commands survive Stop turn; inspect job output with action=status and explicitly stop unneeded jobs with action=stop.",
     parameters: bashSchema,
     async execute(toolCallId, input = {}, signal, onUpdate) {
       const action = normalizeAction(input);
-      if (action === "status") return statusAction(state, input, signal);
-      if (action === "stop") return stopAction(state, input);
-      return runAction({ state, operations, commandPrefix, cwd, toolCallId, input, signal, onUpdate });
+      if (action === "status") return statusAction(state, input, signal, ownerAgentRunId);
+      if (action === "stop") return stopAction(state, input, ownerAgentRunId);
+      return runAction({ state, operations, commandPrefix, cwd, toolCallId, input, signal, onUpdate, ownerAgentRunId });
     },
   };
 }
@@ -75,20 +86,33 @@ function normalizeAction(input = {}) {
   return input.jobId && !input.command ? "status" : "run";
 }
 
-async function runAction({ state, operations, commandPrefix, cwd, toolCallId, input, signal, onUpdate }) {
+async function runAction({ state, operations, commandPrefix, cwd, toolCallId, input, signal, onUpdate, ownerAgentRunId }) {
   const command = String(input.command ?? "").trim();
   if (!command) throw new Error("bash command is required");
+  if (signal?.aborted) throw new Error("Command aborted before start");
 
   pruneRetainedTerminalJobs(state);
   const executionCommand = prepareManagedBashCommand(command);
-  const job = startJob({ state, operations, commandPrefix, cwd, command, executionCommand, toolCallId, timeout: input.timeout, onUpdate });
+  const job = startJob({ state, operations, commandPrefix, cwd, command, executionCommand, toolCallId, timeout: input.timeout, onUpdate, background: input.background === true, ownerAgentRunId });
   const waitMs = secondsToMs(input.wait, DEFAULT_INITIAL_WAIT_MS);
-  const abortResult = linkAbort(signal, job);
+  const abortResult = job.background ? { unlink() {} } : linkAbort(signal, job);
 
   try {
+    if (job.persistent) {
+      job.onUpdate = undefined;
+      return runningJobResult(job, { initial: true });
+    }
     const completed = await waitForJob(job, waitMs, signal);
+    // A cancelled foreground invocation must wait for verified cleanup, not adopt
+    // a process merely because its abort signal won the initial wait race.
+    if (signal?.aborted || job.abortController.signal.aborted) {
+      await job.done;
+      return finalJobResult(state, job);
+    }
     if (completed) return finalJobResult(state, job);
-    flushLiveUpdate(job);
+    abortResult.unlink();
+    job.background = true;
+    flushLiveUpdate(job, { force: true });
     job.onUpdate = undefined;
     return runningJobResult(job, { initial: true });
   } finally {
@@ -96,24 +120,24 @@ async function runAction({ state, operations, commandPrefix, cwd, toolCallId, in
   }
 }
 
-async function statusAction(state, input = {}, signal) {
-  const job = getJob(state, input.jobId);
+async function statusAction(state, input = {}, signal, ownerAgentRunId) {
+  const job = getJob(state, input.jobId, ownerAgentRunId);
   const waitMs = secondsToMs(input.wait, job.completedAt ? 0 : DEFAULT_STATUS_WAIT_MS);
   if (!job.completedAt && waitMs > 0) await waitForJob(job, waitMs, signal);
   if (job.completedAt) return finalJobResult(state, job);
   return runningJobResult(job);
 }
 
-async function stopAction(state, input = {}) {
-  const job = getJob(state, input.jobId);
+async function stopAction(state, input = {}, ownerAgentRunId) {
+  const job = getJob(state, input.jobId, ownerAgentRunId);
   stopJob(job, "Command stopped");
   await job.done.catch(() => {});
   if (job.error?.code === "SHELL_CLEANUP_FAILED") throw job.error;
   job.autoPollDone = true;
-  return toolResult(formatStoppedJob(job), { jobId: job.id, status: "stopped", outputLineCount: countOutputLines(job.output) });
+  return toolResult(formatStoppedJob(job), { jobId: job.id, status: managedBashJobStatus(job), background: job.background === true, outputLineCount: countOutputLines(job.output) });
 }
 
-function startJob({ state, operations, commandPrefix, cwd, command, executionCommand, toolCallId, timeout, onUpdate }) {
+function startJob({ state, operations, commandPrefix, cwd, command, executionCommand, toolCallId, timeout, onUpdate, background = false, ownerAgentRunId }) {
   const id = `cmd-${state.nextId++}`;
   const abortController = new AbortController();
   const startedAt = Date.now();
@@ -121,6 +145,7 @@ function startJob({ state, operations, commandPrefix, cwd, command, executionCom
   const job = {
     id,
     toolCallId,
+    ownerAgentRunId,
     command,
     startedAt,
     lastOutputAt: undefined,
@@ -130,8 +155,10 @@ function startJob({ state, operations, commandPrefix, cwd, command, executionCom
     output: "",
     abortController,
     stoppedReason: undefined,
+    background,
+    persistent: background,
     autoPolls: 0,
-    autoPollDone: false,
+    autoPollDone: background,
     onUpdate,
     lastLiveUpdateAt: 0,
     liveUpdateTimer: undefined,
@@ -140,7 +167,7 @@ function startJob({ state, operations, commandPrefix, cwd, command, executionCom
   };
   state.jobs.set(id, job);
 
-  job.done = operations.exec(resolvedCommand, cwd, {
+  job.done = executeManagedOperation(operations, resolvedCommand, cwd, {
     timeout,
     signal: abortController.signal,
     onData(data) {
@@ -164,7 +191,16 @@ function startJob({ state, operations, commandPrefix, cwd, command, executionCom
     return job;
   });
 
+  flushLiveUpdate(job, { force: true });
   return job;
+}
+
+function executeManagedOperation(operations, command, cwd, execution) {
+  try {
+    return Promise.resolve(operations.exec(command, cwd, execution));
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 function appendOutput(job, data) {
@@ -191,13 +227,14 @@ function scheduleLiveUpdate(job) {
   }, Math.max(0, LIVE_UPDATE_INTERVAL_MS - elapsed));
 }
 
-function flushLiveUpdate(job) {
-  if (job.completedAt || !job.output) return;
+function flushLiveUpdate(job, options = {}) {
+  if (job.completedAt || (!job.output && !options.force)) return;
   if (!job.onUpdate && job.state.listeners.size === 0) return;
   job.lastLiveUpdateAt = Date.now();
   const update = toolResult(outputSnapshot(job.output, STATUS_OUTPUT_CHARS), {
       jobId: job.id,
       status: "running",
+      background: job.background === true,
       live: true,
       outputLineCount: countOutputLines(job.output),
       startedAt: new Date(job.startedAt).toISOString(),
@@ -214,26 +251,31 @@ function flushLiveUpdate(job) {
 }
 
 function emitManagedBashJobUpdate(job) {
-  const status = job.stoppedReason
-    ? "stopped"
-    : job.error || (job.exitCode !== 0 && job.exitCode !== null && job.exitCode !== undefined)
-      ? "failed"
-      : "completed";
-  notifyManagedBashListeners(job.state, createManagedBashJobSnapshot(job, status, outputSnapshot(job.output, FINAL_OUTPUT_CHARS)));
+  notifyManagedBashListeners(job.state, createManagedBashJobSnapshot(job));
 }
 
-function createManagedBashJobSnapshot(job, status, output) {
+function managedBashJobStatus(job) {
+  if (job.error?.code === "SHELL_CLEANUP_FAILED") return "failed";
+  if (!job.completedAt) return "running";
+  if (job.stoppedReason) return "stopped";
+  return job.error || (job.exitCode !== 0 && job.exitCode !== null && job.exitCode !== undefined) ? "failed" : "completed";
+}
+
+export function createManagedBashJobSnapshot(job, status = managedBashJobStatus(job), output = outputSnapshot(job.output, FINAL_OUTPUT_CHARS)) {
   return {
     jobId: job.id,
     toolCallId: job.toolCallId,
+    ownerAgentRunId: job.ownerAgentRunId,
     command: job.command,
     status,
+    background: job.background === true,
+    cleanupFailed: job.error?.code === "SHELL_CLEANUP_FAILED",
     output,
     startedAt: new Date(job.startedAt).toISOString(),
     lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : undefined,
     completedAt: job.completedAt ? new Date(job.completedAt).toISOString() : undefined,
     exitCode: job.exitCode,
-    errorMessage: job.stoppedReason ? undefined : job.error?.message,
+    errorMessage: status === "stopped" ? undefined : job.error?.message,
   };
 }
 
@@ -270,20 +312,90 @@ function stopJob(job, reason) {
   job.abortController.abort();
 }
 
-function getJob(state, jobId) {
+// These helpers operate on the owned runtime Map, never inferred command names
+// or a client-side event cache. Stop turn selects foreground jobs once; disposal
+// continues to use abortAll and retains authority over every process.
+export function listManagedBashJobs(state, input = {}) {
+  return { jobs: [...state.jobs.values()]
+    .filter(job => input.ownerAgentRunId === undefined || job.ownerAgentRunId === input.ownerAgentRunId)
+    .map(job => {
+      // Controls need lifecycle metadata, not output tails on every poll.
+      // Bash status and lifecycle events retain the full output projection.
+      const snapshot = createManagedBashJobSnapshot(job, undefined, "");
+      delete snapshot.output;
+      return snapshot;
+    }) };
+}
+
+export function assertManagedBashCleanup(results, jobs = []) {
+  const failures = results.filter(result => result.status === "rejected").map(result => result.reason);
+  for (const job of jobs) {
+    if (job.error?.code === "SHELL_CLEANUP_FAILED") failures.push(job.error);
+  }
+  if (failures.length) throw new AggregateError(failures, failures.map(error => error?.message || String(error)).join("; "));
+}
+
+export function abortManagedBashForegroundJobs(state, reason = "Command aborted") {
+  const jobs = [...(state?.jobs?.values?.() ?? [])].filter(job => !job.completedAt && !job.background);
+  for (const job of jobs) stopJob(job, reason);
+  return jobs;
+}
+
+export async function stopManagedBashJobs(state, input = {}) {
+  const hasId = typeof input.jobId === "string" && input.jobId.trim().length > 0;
+  if ((input.all === true && input.jobId !== undefined) || (!hasId && input.all !== true) || (hasId && input.all !== undefined)) {
+    throw new Error("Provide either jobId or all:true to stop managed commands");
+  }
+  const jobs = input.all === true
+    ? [...state.jobs.values()].filter(job => job.background
+      && (input.ownerAgentRunId === undefined || job.ownerAgentRunId === input.ownerAgentRunId)
+      && (!job.completedAt || job.error?.code === "SHELL_CLEANUP_FAILED"))
+    : [getJob(state, input.jobId, input.ownerAgentRunId)];
+  for (const job of jobs) stopJob(job, "Command stopped");
+  await Promise.all(jobs.map(async job => {
+    try { await job.done; }
+    catch (error) {
+      // Retain an unconfirmed cleanup failure instead of claiming a stop.
+      job.error = error instanceof Error ? error : new Error(String(error));
+      job.error.code = "SHELL_CLEANUP_FAILED";
+      job.stoppedReason = undefined;
+      job.completedAt = Date.now();
+      emitManagedBashJobUpdate(job);
+    }
+    job.autoPollDone = true;
+  }));
+  // Stop responses are the same authoritative list as a subsequent list call,
+  // so replacing a client's projection cannot hide surviving jobs.
+  return listManagedBashJobs(state, input);
+}
+
+function getJob(state, jobId, ownerAgentRunId) {
   const id = String(jobId ?? "").trim();
   if (!id) throw new Error("jobId is required");
   const job = state.jobs.get(id);
-  if (!job) throw new Error(`No managed command found for jobId ${id}`);
+  if (!job || (ownerAgentRunId !== undefined && job.ownerAgentRunId !== ownerAgentRunId)) {
+    throw new Error(`No managed command found for jobId ${id}`);
+  }
   return job;
 }
 
 async function waitForJob(job, waitMs, signal) {
   if (job.completedAt) return true;
-  const timeout = sleep(waitMs);
-  const abort = abortPromise(signal);
-  await Promise.race([job.done, timeout, abort]);
-  return Boolean(job.completedAt);
+  let timer;
+  let onAbort;
+  const timeout = new Promise(resolve => { timer = setTimeout(resolve, Math.max(0, waitMs)); });
+  const abort = new Promise(resolve => {
+    onAbort = resolve;
+    if (signal?.aborted) resolve();
+    else signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([job.done, timeout, abort]);
+    return Boolean(job.completedAt);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.("abort", onAbort);
+  }
 }
 
 function linkAbort(signal, job) {
@@ -308,18 +420,19 @@ function finalJobResult(_state, job) {
   job.autoPollDone = true;
   const text = formatFinalJob(job);
   if (job.stoppedReason) {
-    return toolResult(text, { jobId: job.id, status: "stopped", exitCode: job.exitCode, outputLineCount: countOutputLines(job.output) });
+    return toolResult(text, { jobId: job.id, status: "stopped", background: job.background === true, exitCode: job.exitCode, outputLineCount: countOutputLines(job.output) });
   }
   if (job.error || (job.exitCode !== 0 && job.exitCode !== null && job.exitCode !== undefined)) {
     throw new Error(text);
   }
-  return toolResult(text, { jobId: job.id, status: "completed", exitCode: job.exitCode, outputLineCount: countOutputLines(job.output) });
+  return toolResult(text, { jobId: job.id, status: "completed", background: job.background === true, exitCode: job.exitCode, outputLineCount: countOutputLines(job.output) });
 }
 
 function runningJobResult(job, options = {}) {
   return toolResult(formatRunningJob(job, options), {
     jobId: job.id,
     status: "running",
+    background: job.background === true,
     outputLineCount: countOutputLines(job.output),
     startedAt: new Date(job.startedAt).toISOString(),
     lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : undefined,
@@ -378,6 +491,7 @@ function formatRunningJob(job, options = {}) {
   const output = formatOutputTail(job.output, { maxLines: STATUS_OUTPUT_LINES, maxChars: STATUS_OUTPUT_CHARS });
   return [
     heading,
+    `Background: ${job.background === true}${job.persistent ? " (persistent; automatic polling disabled)" : ""}`,
     `Last output: ${lastOutput}`,
     `Command: ${job.command}`,
     "",
@@ -456,7 +570,7 @@ export function prepareManagedBashCommand(commandValue, platform = process.platf
 
 function pruneRetainedTerminalJobs(state) {
   const terminalJobs = [...state.jobs.values()]
-    .filter((job) => job.completedAt)
+    .filter((job) => job.completedAt && job.error?.code !== "SHELL_CLEANUP_FAILED")
     .sort((left, right) => Number(left.completedAt) - Number(right.completedAt));
   const overflow = terminalJobs.length - MAX_RETAINED_TERMINAL_JOBS + 1;
   for (let index = 0; index < overflow; index += 1) state.jobs.delete(terminalJobs[index].id);

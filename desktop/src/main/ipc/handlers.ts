@@ -70,6 +70,8 @@ import {
     handleAssistantGetSnapshot,
     handleAssistantGetStatus,
     handleAssistantInterruptTurn,
+    handleAssistantListBackgroundProcesses,
+    handleAssistantStopBackgroundProcesses,
     handleAssistantIngestRealtimeVoiceEvent,
     handleAssistantStartPluginDownload,
     handleAssistantGetPluginDownload,
@@ -492,6 +494,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.newThread, requireCompletedSetup(handleAssistantNewThread))
     ipcMain.handle(ASSISTANT_IPC.sendPrompt, requireCompletedSetup(handleAssistantSendPrompt))
     ipcMain.handle(ASSISTANT_IPC.interruptTurn, requireCompletedSetup(handleAssistantInterruptTurn))
+    ipcMain.handle(ASSISTANT_IPC.listBackgroundProcesses, requireCompletedSetup(handleAssistantListBackgroundProcesses))
+    ipcMain.handle(ASSISTANT_IPC.stopBackgroundProcesses, requireCompletedSetup(handleAssistantStopBackgroundProcesses))
     ipcMain.handle(ASSISTANT_IPC.respondApproval, requireCompletedSetup(handleAssistantRespondApproval))
     ipcMain.handle(ASSISTANT_IPC.respondUserInput, requireCompletedSetup(handleAssistantRespondUserInput))
     ipcMain.handle(ASSISTANT_IPC.subscribeRealtimeVoice, requireCompletedSetup(handleAssistantSubscribeRealtimeVoice))

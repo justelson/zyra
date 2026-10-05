@@ -571,6 +571,8 @@ export class BrowserAssistantBridge {
             case 'newThread': return service.newThread(args[0] as string | undefined)
             case 'sendPrompt': return service.sendPrompt(args[0] as string, args[1] as any)
             case 'interruptTurn': return service.interruptTurn(args[0] as string | undefined, args[1] as string | undefined)
+            case 'listBackgroundProcesses': return service.listBackgroundProcesses(args[0] as import('../../shared/assistant/contracts').AssistantBackgroundProcessesInput)
+            case 'stopBackgroundProcesses': return service.stopBackgroundProcesses(args[0] as import('../../shared/assistant/contracts').AssistantStopBackgroundProcessesInput)
             case 'respondApproval': return service.respondApproval(args[0] as any)
             case 'respondUserInput': return service.respondUserInput(args[0] as any)
             case 'startRealtimeVoice': {

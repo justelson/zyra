@@ -1,6 +1,7 @@
 import type { AssistantActivity, AssistantMessage, AssistantProposedPlan, AssistantSnapshot, AssistantThread } from '@shared/assistant/contracts'
 import { compareAssistantTimelineOrderKeys, getAssistantTimelineOrderKey, type AssistantTimelineRecordKind } from '@shared/assistant/timeline-order'
 import { getAssistantThreadHydrationRevision } from './assistant-thread-hydration-revision'
+import { hasUsableAssistantTimelineHistory } from './assistant-history-readiness'
 
 const HYDRATED_THREAD_CACHE_LIMIT = 12
 // This is the synchronous chat-switch preview, not the history retention limit.
@@ -296,5 +297,6 @@ export function hasCachedSessionSelection(
         && cached.sessionId === sessionId
         && cached.threadId === targetThreadId
         && cached.revision === getAssistantThreadHydrationRevision(thread)
+        && hasUsableAssistantTimelineHistory(cached, thread)
     )
 }

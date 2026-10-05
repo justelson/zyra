@@ -45,6 +45,10 @@ export function resolveCanonicalPresenceThreadState(input: {
 }): AssistantThreadState {
     const { currentState, previousPresence, presence, localThread } = input
     if (!presence) return currentState
+    if (presence.state === 'running' && localThread?.latestTurn && localThread.latestTurn.state !== 'running'
+        && presence.activeTurnId === localThread.latestTurn.id) {
+        return localThread.latestTurn.state === 'interrupted' ? 'interrupted' : localThread.latestTurn.state === 'error' ? 'error' : 'ready'
+    }
     if (presence.state === 'running') return 'running'
     if (presence.state === 'background') return 'waiting'
     if (presence.state === 'ready' && localThread) {

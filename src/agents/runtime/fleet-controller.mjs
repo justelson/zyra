@@ -68,6 +68,7 @@ export class AgentFleetController {
     const transcriptDirectory = path.join(this.project, ".zyra", "agent-runs", this.rootSessionId, "child-sessions");
     this.sessionFactory = options.sessionFactory ?? new ChildSessionFactory({
       project: this.project,
+      managedBash: options.managedBash,
       transcriptDirectory,
       modelRuntime: options.modelRuntime ?? this.rootSession?.modelRuntime,
       authStorage: options.authStorage ?? this.rootSession?.modelRegistry?.authStorage,

@@ -29,7 +29,7 @@ export function hasAssistantWarmSelection(input: AssistantWarmSelectionInput): b
     // Revision freshness says the data is valid, not that this page reaches the
     // latest turn. Reopening a chat always asks for its newest page.
     if (retainedHistory?.pageInfo.hasNewer) return false
-    return isAssistantRetainedHistoryFresh(retainedHistory, thread)
+    return (isAssistantRetainedHistoryFresh(retainedHistory, thread) && hasRenderableAssistantRetainedHistory(retainedHistory, thread))
         || hasCachedSessionSelection(
             input.snapshot,
             input.sessionId,

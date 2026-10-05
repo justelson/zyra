@@ -27,7 +27,8 @@ export class CanonicalVoiceTranscriptCommitter {
     private readonly unsubscribe: () => void
     private readonly listeners = new Set<(receipt: CanonicalMessageCommitReceipt, event: TranscriptCompletionEvent) => void>()
     private readonly errorListeners = new Set<(error: Error, event: RealtimeDomainEvent) => void>()
-    private readonly firstCompletionAt = new Map<string, string>()
+    private readonly firstCompletionAt = new Map<string, { startedAt: string; completedAt: string }>()
+    private readonly firstTranscriptAt = new Map<string, string>()
     private pendingUserCompletion: UserTranscriptCompletionEvent | null = null
     private pendingUserTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -37,6 +38,15 @@ export class CanonicalVoiceTranscriptCommitter {
         private readonly gateway: ConversationGateway
     ) {
         this.unsubscribe = sessionController.subscribe((event) => {
+            if (event.type === 'realtime.user.transcript.delta' || event.type === 'realtime.assistant.transcript.delta') {
+                if (!event.delta.trim()) return
+                const key = transcriptStartKey(event)
+                if (!this.firstTranscriptAt.has(key)) this.firstTranscriptAt.set(key, event.occurredAt)
+                while (this.firstTranscriptAt.size > 512) {
+                    this.firstTranscriptAt.delete(this.firstTranscriptAt.keys().next().value!)
+                }
+                return
+            }
             if (isUserTranscriptCompletionEvent(event)) {
                 this.stageUserCompletion(event)
                 return
@@ -73,6 +83,7 @@ export class CanonicalVoiceTranscriptCommitter {
         this.listeners.clear()
         this.errorListeners.clear()
         this.firstCompletionAt.clear()
+        this.firstTranscriptAt.clear()
     }
 
     private stageUserCompletion(event: UserTranscriptCompletionEvent): void {
@@ -129,8 +140,11 @@ export class CanonicalVoiceTranscriptCommitter {
         const role = event.type === 'realtime.user.transcript.completed' ? 'user' : 'assistant'
         const messageId = deterministicTranscriptMessageId(event.conversationId, route.foreground_route_id, role, event.providerItemId)
         const completionKey = `${route.foreground_route_id}:${role}:${event.providerItemId}`
-        const providerCompletedAt = this.firstCompletionAt.get(completionKey) || event.occurredAt
-        this.firstCompletionAt.set(completionKey, providerCompletedAt)
+        const timing = this.firstCompletionAt.get(completionKey) || {
+            startedAt: this.firstTranscriptAt.get(transcriptStartKey(event)) || event.occurredAt,
+            completedAt: event.occurredAt
+        }
+        this.firstCompletionAt.set(completionKey, timing)
         const receipt = await this.gateway.commitMessage({
             conversationId: event.conversationId,
             messageId,
@@ -141,11 +155,17 @@ export class CanonicalVoiceTranscriptCommitter {
             attachmentIds: [],
             routeClaim: foregroundRouteClaim(route),
             providerItemId: event.providerItemId,
-            providerCompletedAt,
+            providerCompletedAt: timing.completedAt,
+            providerStartedAt: timing.startedAt,
             idempotencyKey: `voice-transcript:${event.conversationId}:${route.foreground_route_id}:${role}:${event.providerItemId}`
         })
         for (const listener of this.listeners) listener(receipt, event)
     }
+}
+
+function transcriptStartKey(event: { realtimeSessionId: string; realtimeSessionGeneration: number; type: string; providerItemId: string }): string {
+    const role = event.type.includes('.user.') ? 'user' : 'assistant'
+    return `${event.realtimeSessionId}:${event.realtimeSessionGeneration}:${role}:${event.providerItemId}`
 }
 
 export function deterministicTranscriptMessageId(

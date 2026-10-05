@@ -565,7 +565,7 @@ try {
     assert.match(serviceSource, /async getThreadDetailBootstrap[\s\S]{0,500}await this\.ensureCanonicalHistoryLoaded[\s\S]{0,300}readThreadDetail/, 'detail bootstrap refreshes canonical history before reading persisted rows')
     assert.equal(agentInboxSource.includes('props.commandPending && !isThreadBusy'), false, 'Agent Inbox selection pending cannot masquerade as active work')
     assert.equal(agentInboxSource.includes('if (item.active || item.status !== \'ready\') return false'), false, 'opening a settled chat cannot remove it from Settled without new activity')
-    assert.equal(agentInboxSource.includes("label: settle ? 'Settle chat' : 'Un-settle chat'"), true, 'Agent Inbox menus expose the local settlement action')
+    assert.equal(agentInboxSource.includes("settle ? 'Settle chat' : 'Un-settle chat'"), true, 'Agent Inbox menus expose the local settlement action, including the pinned-chat guard')
     assert.equal(agentInboxSource.includes('...props.getSessionMenuItems(item.session)'), true, 'Agent Inbox menus retain the shared pin, rename, archive, and delete actions')
     assert.equal(agentInboxSource.includes('<FileActionsMenu'), true, 'Agent Inbox rows expose their complete action set from a visible dropdown')
     assert.equal(legacyRailSource.includes('getSessionMenuItems(session, !agentInboxEnabled)'), false, 'Agent Inbox no longer strips pinning from the shared action menu')
@@ -930,6 +930,27 @@ try {
         await (emptyRetainedStore as any).requestSessionHydration(emptyRetainedSession.id, emptyRetainedThread.id)
         assert.equal(emptyRetainedBootstrapCalls, 1, 'an empty retained entry cannot suppress hydration when shell counters prove that the Chat has history')
         assert.equal((emptyRetainedStore as any).state.snapshot.sessions[0]!.threads[0]!.messages[0]?.text, 'content-empty-retained')
+
+        // A tool event can arrive while rapid navigation has only a shell.
+        // Its nonempty activity list is not evidence that conversation loaded.
+        const workOnlyActivity = { id: 'work-without-conversation', kind: 'command', tone: 'tool' as const, summary: 'Inspecting chat ordering', turnId: 'running-turn', createdAt: emptyRetainedThread.createdAt, payload: { status: 'running' } }
+        const workOnlyThread = { ...emptyRetainedShellThread, state: 'running' as const, activityCount: 1, activities: [workOnlyActivity] }
+        const workOnlyHistory = { ...(emptyRetainedStore as any).state.historyByThreadId[emptyRetainedThread.id], messages: [], activities: [workOnlyActivity], shellRevision: getAssistantThreadHydrationRevision(workOnlyThread) }
+        const workOnlyStore = new AssistantStore()
+        ;(workOnlyStore as any).state = { ...state, snapshot: { ...state.snapshot, selectedSessionId: emptyRetainedSession.id, sessions: [{ ...emptyRetainedSession, threads: [workOnlyThread] }] }, historyByThreadId: { [workOnlyThread.id]: workOnlyHistory }, selectionTransitionKey: null, selectionHydrationKey: null }
+        await (workOnlyStore as any).requestSessionHydration(emptyRetainedSession.id, workOnlyThread.id)
+        assert.equal(emptyRetainedBootstrapCalls, 2, 'a fresh work-only cache must load its missing conversation rather than leave only Working and an Action header')
+        assert.equal(workOnlyStore.getState().snapshot.sessions[0]!.threads[0]!.messages[0]?.text, 'content-empty-retained')
+        const workOnlyCache = new Map<string, CachedHydratedThreadState>([[workOnlyThread.id, { ...workOnlyThread, sessionId: emptyRetainedSession.id, threadId: workOnlyThread.id, revision: getAssistantThreadHydrationRevision(workOnlyThread) } as CachedHydratedThreadState]])
+        const workOnlySelection = { snapshot: { ...state.snapshot, sessions: [{ ...emptyRetainedSession, threads: [workOnlyThread] }] } as any, sessionId: emptyRetainedSession.id, threadId: workOnlyThread.id, hydratedThreadCache: workOnlyCache, historyByThreadId: { [workOnlyThread.id]: workOnlyHistory } }
+        assert.equal(hasAssistantWarmSelection(workOnlySelection), false, 'neither retained history nor a synchronous preview can call a missing conversation warm')
+        assert.equal(hasAssistantWarmSelection({ ...workOnlySelection, hydratedThreadCache: new Map() }), false, 'retained activity alone cannot suppress bootstrap')
+        assert.equal(hasAssistantWarmSelection({ ...workOnlySelection, historyByThreadId: {} }), false, 'a preview cache with no conversation cannot suppress bootstrap')
+        const toolOnlySession = { ...emptyRetainedSession, threads: [{ ...workOnlyThread, messageCount: 0 }] }
+        const toolOnlySnapshot = { ...workOnlySelection.snapshot, sessions: [toolOnlySession] }
+        const toolOnlyCache = new Map(workOnlyCache)
+        toolOnlyCache.set(workOnlyThread.id, { ...workOnlyCache.get(workOnlyThread.id)!, revision: getAssistantThreadHydrationRevision(toolOnlySession.threads[0]!) })
+        assert.equal(hasCachedSessionSelection(toolOnlySnapshot, toolOnlySession.id, workOnlyThread.id, toolOnlyCache), true, 'genuine tool-only history remains reusable when no saved messages are missing')
     } finally {
         ;(globalThis as any).window.devscope.assistant.getThreadDetailBootstrap = originalGetThreadDetailBootstrap
     }

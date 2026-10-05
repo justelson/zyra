@@ -18,6 +18,7 @@ import { basename, join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
 import { PluginMcpConnections } from './plugin-mcp-connections'
 import log from 'electron-log'
+import { requestAssistantBackgroundProcesses } from './service-background-processes'
 import type {
     AssistantApprovePendingPlaygroundLabRequestInput,
     AssistantAssociateProjectFolderInput,
@@ -1685,6 +1686,14 @@ export class AssistantService {
         }
     }
 
+    async listBackgroundProcesses(input: import('../../shared/assistant/contracts').AssistantBackgroundProcessesInput) {
+        return requestAssistantBackgroundProcesses(this.actionDeps, 'list', input)
+    }
+
+    async stopBackgroundProcesses(input: import('../../shared/assistant/contracts').AssistantStopBackgroundProcessesInput) {
+        return requestAssistantBackgroundProcesses(this.actionDeps, 'stop', input)
+    }
+
     async interruptTurn(turnId?: string, sessionId?: string) {
         try {
             const result = await interruptAssistantTurnAction(this.actionDeps, turnId, sessionId)
@@ -2679,14 +2688,14 @@ export class AssistantService {
             streaming: false,
             providerItemId: input.providerItemId,
             modality: input.modality,
-            createdAt: input.providerCompletedAt,
+            createdAt: input.providerStartedAt || input.providerCompletedAt,
             updatedAt: receipt.observedAt
         }
         if (input.role === 'user') {
             const persistedFirstUserMessage = await this.persistence.readFirstUserMessageText(record.session.id)
             const shouldGenerateTitle = shouldGenerateSessionTitleForPrompt(record.session, persistedFirstUserMessage)
             let titleSeed = record.session.title
-            this.appendEvent('thread.message.user', input.providerCompletedAt, {
+            this.appendEvent('thread.message.user', message.createdAt, {
                 threadId: record.thread.id,
                 message
             }, record.session.id, record.thread.id)
@@ -2723,7 +2732,7 @@ export class AssistantService {
                 })
             }
         } else {
-            this.appendEvent('thread.message.assistant.delta', input.providerCompletedAt, {
+            this.appendEvent('thread.message.assistant.delta', message.createdAt, {
                 threadId: record.thread.id,
                 messageId: input.messageId,
                 delta: input.text,

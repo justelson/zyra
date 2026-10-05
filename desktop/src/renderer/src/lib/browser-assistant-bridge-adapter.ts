@@ -387,6 +387,8 @@ export function createBrowserAssistantBridgeAdapter(): DevScopeApi['assistant'] 
         newThread: remoteAssistantMethod('newThread'),
         sendPrompt: remoteAssistantMethod('sendPrompt'),
         interruptTurn: remoteAssistantMethod('interruptTurn'),
+        listBackgroundProcesses: remoteAssistantMethod('listBackgroundProcesses'),
+        stopBackgroundProcesses: remoteAssistantMethod('stopBackgroundProcesses'),
         respondApproval: remoteAssistantMethod('respondApproval'),
         respondUserInput: remoteAssistantMethod('respondUserInput'),
         startRealtimeVoice,

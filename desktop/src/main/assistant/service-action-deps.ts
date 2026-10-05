@@ -65,6 +65,7 @@ export interface AssistantRuntimeBridge {
         }
     ): Promise<{ turnId: string; providerThreadId: string | null }>
     interruptTurn(threadId: string, turnId?: string): Promise<void>
+    requestBackgroundProcessOperation?(threadId: string, action: 'list' | 'stop', payload?: { jobId?: string; all?: boolean }): Promise<import('../../shared/assistant/contracts').AssistantBackgroundProcess[]>
     rollbackThread(threadId: string, numTurns: number): Promise<void>
     respondApproval(threadId: string, requestId: string, decision: AssistantApprovalDecision): Promise<void>
     respondUserInput(

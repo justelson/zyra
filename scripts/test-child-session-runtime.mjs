@@ -8,6 +8,9 @@ import { envApiKeyAuth } from '../src/runtime/providers/src/auth/helpers.js';
 import { AgentFleetController } from '../src/agents/runtime/fleet-controller.mjs';
 import { ChildSessionFactory } from '../src/agents/runtime/child-session-factory.mjs';
 import { ChildSessionHost } from '../src/agents/runtime/child-session-host.mjs';
+import { createManagedBashState, listManagedBashJobs, stopManagedBashJobs } from '../src/managed-bash-tool.mjs';
+import { ChildThreadWorker } from '../src/agent-server/child-thread-worker.mjs';
+import { EventEmitter } from 'node:events';
 
 // Real fleet -> factory -> owned AgentSession -> auth -> tool loop. No network,
 // user credentials, or worktree edits: auth exists only on the parent runtime.
@@ -56,6 +59,38 @@ try {
   assert.equal(requests, 2);
   host.dispose();
   host = null;
+
+  // The real child factory overrides native Bash with app-owned managed Bash.
+  const processes = createManagedBashState();
+  const processFactory = new ChildSessionFactory({ project: directory, agentDir: directory,
+    transcriptDirectory: path.join(directory, 'process-children'), modelRuntime, managedBash: processes,
+    settings: { compaction: { enabled: false }, retry: { enabled: false } } });
+  const childProcessSession = await processFactory.create({ model, tools: ['bash'], noSession: true, agentRunId: 'process-child' });
+  try {
+    const bash = childProcessSession.session.getToolDefinition('bash');
+    assert.ok(bash.parameters.properties.background, 'delegated Bash supports explicit managed background handoff');
+    const invocation = new AbortController();
+    const background = await bash.execute('process-child:server', { command: 'sleep 30', background: true }, invocation.signal);
+    invocation.abort();
+    await childProcessSession.session.abort();
+    childProcessSession.session.dispose();
+    const job = listManagedBashJobs(processes).jobs.find(entry => entry.jobId === background.details.jobId);
+    assert.equal(job.ownerAgentRunId, 'process-child');
+    assert.equal(job.background, true);
+    assert.equal(job.status, 'running', 'agent stop/disposal cannot terminate a handed-off server');
+    const stopped = await stopManagedBashJobs(processes, { jobId: job.jobId, ownerAgentRunId: 'process-child' });
+    assert.equal(stopped.jobs[0].status, 'stopped', 'explicit app control confirms process termination');
+    const ownerWorker = Object.assign(new EventEmitter(), { isAlive: () => true, request: async (type, payload) => ({ type, payload }) });
+    const childView = new ChildThreadWorker({ worker: ownerWorker, disposed: false, scheduleIdleStop() {} }, 'process-child');
+    const scoped = await childView.request('managed_bash.stop', { all: true, ownerAgentRunId: 'foreign-child' });
+    assert.equal(scoped.payload.ownerAgentRunId, 'process-child', 'child-view controls force server-assigned ownership');
+    childView.dispose();
+    console.log('PASS delegated managed Bash survives agent Stop and uses exact-owner app termination');
+  } finally {
+    childProcessSession.session.dispose();
+    processes.abortAll('test cleanup');
+    await Promise.all([...processes.jobs.values()].map(job => job.done));
+  }
 
   fleet = new AgentFleetController({ project: directory, rootSessionId: 'fixture-root', rootSession: { model, modelRuntime, modelRegistry },
     modelCatalog: [{ key: 'fixture/child-fixture', provider: model.provider, id: model.id, model, eligible: true, authenticated: true, availability: 'available', rejectionReasons: [], reasoning: true, toolUse: true, contextWindow: 8192 }] });

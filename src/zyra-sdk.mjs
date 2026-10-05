@@ -1164,6 +1164,7 @@ export async function createZyraSession(options = {}) {
   if (fleetEnabled) {
     fleet = await new AgentFleetController({
       project,
+      managedBash,
       rootSession: result.session,
       rootSessionId: sessionManager.getSessionId?.(),
       rootThreadId: options.rootThreadId ?? sessionManager.getSessionId?.(),

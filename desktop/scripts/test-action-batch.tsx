@@ -43,4 +43,11 @@ assert.doesNotMatch(render([edit('failed', 12, 4, 'failed')]).split('data-assist
 assert.doesNotMatch(render([edit('zero', 0, 0)]), /data-assistant-action-diff-stats/, 'zero line changes do not add empty counters')
 assert.doesNotMatch(render([{ ...edit('read', 50, 50), kind: 'file-read' }]), /data-assistant-action-diff-stats/, 'only file changes contribute')
 assert.doesNotMatch(render([{ ...edit('unknown', 0, 0), payload: { status: 'completed' } }]), /data-assistant-action-diff-stats/, 'unknown counts are not invented')
+const managedServer: AssistantActivity = {
+    ...edit('server', 0, 0, 'running'), kind: 'command',
+    payload: { status: 'running', jobId: 'cmd-server', background: true, toolLifecyclePhase: 'end', command: 'npm run dev', actionBatchIntent: 'Starting the preview' }
+}
+assert.doesNotMatch(render([managedServer]), /assistant-title-shimmer|motion-safe:animate-spin/, 'a background server cannot keep the finished action batch Working')
+assert.match(render([managedServer]), /data-settled-action-intent="Starting the preview"/)
+assert.match(render([{ ...managedServer, kind: 'command.checkpoint', payload: { ...managedServer.payload, background: false, toolLifecyclePhase: 'start' } }]), /assistant-title-shimmer/, 'a real foreground status check still shows progress')
 console.log('Action batch: successful edit totals, semantic colors, bounded keyboard-scrollable full list and preserved failures: ok')

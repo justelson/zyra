@@ -713,6 +713,8 @@ export interface DevScopeAssistantApi {
     sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) =>
         Promise<DevScopeResult<{ sessionId: string; threadId: string; turnId: string }>>
     interruptTurn: (turnId?: string, sessionId?: string) => Promise<DevScopeResult>
+    listBackgroundProcesses: (input: import('../assistant/contracts').AssistantBackgroundProcessesInput) => Promise<DevScopeResult<import('../assistant/contracts').AssistantBackgroundProcessesPayload>>
+    stopBackgroundProcesses: (input: import('../assistant/contracts').AssistantStopBackgroundProcessesInput) => Promise<DevScopeResult<import('../assistant/contracts').AssistantBackgroundProcessesPayload>>
     respondApproval: (input: AssistantApprovalResponseInput) => Promise<DevScopeResult>
     respondUserInput: (input: AssistantUserInputResponseInput) => Promise<DevScopeResult>
     startRealtimeVoice: (input: AssistantStartRealtimeVoiceInput) => Promise<DevScopeResult<{

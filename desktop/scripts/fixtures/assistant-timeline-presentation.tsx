@@ -12,6 +12,10 @@ import { useAssistantQueuedComposer } from '../../src/renderer/src/pages/assista
 import { TimelineWorkingIndicator } from '../../src/renderer/src/pages/assistant/AssistantTimelineWorkingIndicator'
 import { hasActiveAssistantCompaction } from '../../src/shared/assistant/compaction-state'
 import { useNonPassiveWheel } from '../../src/renderer/src/lib/useNonPassiveWheel'
+import { TimelineMessage } from '../../src/renderer/src/pages/assistant/AssistantTimelineRows'
+import { projectVoiceLiveTimelineMessages } from '../../src/renderer/src/pages/assistant/assistant-voice-live-timeline'
+import { TimelineVoiceTaskStatus } from '../../src/renderer/src/pages/assistant/AssistantTimelineVoiceTask'
+import { getTimelineEntries, buildTimelineRows } from '../../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 
 const container = document.getElementById('root')!
 const root = createRoot(container)
@@ -78,6 +82,32 @@ async function run() {
     render('second')
     await expectVisible('second', 'Switching the reused timeline completes the new presentation')
     check(originalList === listRef.current, 'Chat switching must preserve the virtual list instance')
+
+    const rapidLongRows = Array.from({ length: 80 }, (_, index) => rows(`rapid-long-${index}`)).flat()
+    const rapidShortRows: TimelineDisplayRow[] = [...rows('rapid-short'), {
+        kind: 'turn-work-summary', id: 'rapid-short-work', createdAt: '2026-01-01T00:00:01.000Z', turnId: 'rapid-short',
+        startedAt: '2026-01-01T00:00:00.000Z', completedAt: null, running: true, terminalResponseVisible: false, outcome: null, rows: [], liveNarrationRow: null
+    }]
+    const rapidRenderer = (row: TimelineDisplayRow) => row.kind === 'turn-work-summary'
+        ? <TimelineTurnWorkSummary startedAt={row.startedAt} completedAt={null} running hasWork renderChildren={() => <p>Current short-chat action</p>} />
+        : <div style={{ height: 100 }}>{row.kind === 'message' ? row.message.text : ''}</div>
+    for (let index = 0; index < 12; index++) {
+        render('rapid-long', { rows: rapidLongRows, renderRow: rapidRenderer, coldStart: false })
+        await new Promise(resolve => setTimeout(resolve, index % 3))
+        render('rapid-short', { rows: rapidShortRows, renderRow: rapidRenderer, coldStart: false, isWorking: true })
+        await new Promise(resolve => setTimeout(resolve, index % 2))
+    }
+    await waitFor(() => {
+        const user = container.querySelector<HTMLElement>('[data-assistant-timeline-row-id="rapid-short-user"]')
+        const assistant = container.querySelector<HTMLElement>('[data-assistant-timeline-row-id="rapid-short-assistant"]')
+        const viewport = scrollContainerRef.current
+        return Boolean(user && assistant && viewport && getComputedStyle(user).visibility === 'visible'
+            && user.getBoundingClientRect().bottom > viewport.getBoundingClientRect().top
+            && assistant.getBoundingClientRect().bottom > viewport.getBoundingClientRect().top
+            && viewport.scrollHeight <= viewport.clientHeight + 2 && !loading())
+    }, 'Rapid long/working-short switches retain the conversation and discard old virtual-list space')
+    check(listRef.current === originalList, 'Rapid switching continues reusing the list without a remount workaround')
+    results.push('Repeated rapid switches preserve messages, live work, and current-chat list geometry')
 
     render('hydrating', { rows: [], selectionHydrating: true })
     await pause()
@@ -215,6 +245,21 @@ async function run() {
     check(presentation!.text === 'The work so far.' && presentation!.presenting, 'New live updates still animate')
     await waitFor(() => presentation!.text === 'The work so far. New live update.', 'New live updates drain normally')
     results.push('Completed history is immediate, reopened live text catches up, and new deltas keep streaming')
+
+    const voiceStartedAt = '2026-10-04T10:00:00.000Z'
+    const firstSpeech = projectVoiceLiveTimelineMessages({ transcript: [{ id: 'voice-intro', role: 'assistant', text: 'I will check', final: false }], canonicalMessages: [], voiceStartedAt, nowMs: Date.parse(voiceStartedAt) + 1000 })
+    const task = { id: 'primary-task', kind: 'voice.strong-task', tone: 'tool' as const, summary: 'Primary agent working', turnId: 'primary-task', createdAt: '2026-10-04T10:00:02.000Z', payload: { status: 'running' } }
+    const showVoice = (speech: typeof firstSpeech) => render('voice-stream', {
+        rows: buildTimelineRows(getTimelineEntries(speech.messages, [task]), false, null),
+        renderRow: row => row.kind === 'message' ? <TimelineMessage message={row.message} /> : row.kind === 'activity' ? <TimelineVoiceTaskStatus activity={row.activity} /> : null
+    })
+    showVoice(firstSpeech)
+    await waitFor(() => Boolean(container.querySelector('[data-assistant-streaming-markdown]')) && container.textContent!.includes('I will check'), 'Assistant speech renders before completion in the real chat rail')
+    const continuedSpeech = projectVoiceLiveTimelineMessages({ transcript: [{ id: 'voice-intro', role: 'assistant', text: 'I will check the available plugins.', final: false }], canonicalMessages: [], activities: [task], voiceStartedAt, previousAnchors: firstSpeech.anchors, nowMs: Date.parse(voiceStartedAt) + 3000 })
+    showVoice(continuedSpeech)
+    await waitFor(() => container.textContent!.includes('I will check the available plugins.'), 'Assistant speech grows live as more words arrive')
+    check(container.textContent!.indexOf('I will check') < container.textContent!.indexOf('Primary agent working'), 'The primary task stays below its spoken introduction')
+    results.push('Real Voice message rows stream unfinished assistant words above primary-agent activity')
 
     const sent: string[] = []
     let interrupted = 0

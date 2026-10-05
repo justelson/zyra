@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, FilePenLine, FileText, MessageSquareQuote, Puzzle, Search, SquareTerminal, Wrench } from 'lucide-react'
 import { bundledPluginLogo } from '../plugins/bundled-plugin-logos'
+import { isAssistantBackgroundProcessActivity } from '@shared/assistant/activity-settlement'
 import { parseAssistantHistoryBodyRef, type AssistantActivity, type AssistantHistoryBody, type AssistantUserInputQuestion, type FileChangeKind } from '@shared/assistant/contracts'
 import {
     analyzeAssistantReadResult,
@@ -726,7 +727,9 @@ export const TimelineToolCallCard = memo(({
                                     ? 'text-[color-mix(in_srgb,var(--status-warning)_48%,var(--color-text-muted))]'
                                     : 'text-sparkle-text-muted group-hover:text-sparkle-text-secondary'
                             )}>
-                                {showStats ? `${formatAssistantActionTime(activityStartedAt)}${elapsed ? ` · ${elapsed}` : ''}` : ''}
+                                {status === 'running' && isAssistantBackgroundProcessActivity(activity)
+                                    ? `Background process${showStats && elapsed ? ` · ${elapsed}` : ''}`
+                                    : showStats ? `${formatAssistantActionTime(activityStartedAt)}${elapsed ? ` · ${elapsed}` : ''}` : ''}
                             </span>
                         ) : activity.kind === 'file-change' ? (
                             <span className="shrink-0 font-mono text-[9px] tabular-nums text-sparkle-text-muted transition-colors group-hover:text-sparkle-text-secondary">

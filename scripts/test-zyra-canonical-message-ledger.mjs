@@ -69,6 +69,14 @@ assert.equal(assistant.canonicalSequence, 2);
 assert.equal(manager.entries[1].message.role, "assistant");
 assert.equal(manager.entries[1].message.stopReason, "stop");
 
+const narrationManager = new FakeSessionManager();
+const narration = { ...base, providerStartedAt: "2026-08-09T04:00:00.000Z" };
+appendCanonicalMessage(narrationManager, narration);
+assert.equal(narrationManager.entries[0].message.timestamp, Date.parse(narration.providerStartedAt), "durable history orders speech by its beginning, not its completion");
+assert.equal(narrationManager.entries[0].message.zyraCanonicalMessage.providerCompletedAt, base.providerCompletedAt);
+assert.throws(() => appendCanonicalMessage(new FakeSessionManager(), { ...base, providerStartedAt: "invalid" }), /timestamp is invalid/);
+assert.throws(() => appendCanonicalMessage(new FakeSessionManager(), { ...base, providerStartedAt: "2026-08-09T04:00:02.000Z" }), /start.*completion/);
+
 const reopened = new FakeSessionManager(structuredClone(manager.entries));
 assert.deepEqual(findCanonicalMessageReceipt(reopened, base.operationId), first);
 assert.throws(() => appendCanonicalMessage(reopened, { ...base, payloadSha256: "c".repeat(64) }), /different message payload/);
@@ -91,6 +99,7 @@ try {
     idempotencyKey: "voice:new:user",
     conversationId: "voice-ledger-new-thread",
     messageId: "voice_user_new_thread",
+    providerStartedAt: narration.providerStartedAt,
     payloadSha256: "e".repeat(64)
   });
   assert.equal(existsSync(sessionFile), true, "the first completed spoken user turn must be durable immediately");
@@ -108,7 +117,10 @@ try {
     payloadSha256: "f".repeat(64)
   });
   const reopenedPi = SessionManager.open(sessionFile, temporaryDirectory);
-  assert.equal(reopenedPi.getEntries().filter((entry) => entry.type === "message").length, 2);
+  const savedMessages = reopenedPi.getEntries().filter((entry) => entry.type === "message");
+  assert.equal(savedMessages.length, 2);
+  assert.equal(savedMessages[0].message.timestamp, Date.parse(narration.providerStartedAt), "reopening preserves speech's original position before later work");
+  assert.equal(savedMessages[0].message.zyraCanonicalMessage.providerCompletedAt, base.providerCompletedAt);
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
 }

@@ -218,6 +218,9 @@ await assert.rejects(
     (error: unknown) => error instanceof ForegroundRouteConflictError && error.code === 'route_conflict'
 )
 
+for (const providerStartedAt of ['invalid', '2026-08-08T00:00:00.000Z', '2026-08-10T00:00:00.000Z']) {
+    await assert.rejects(gateway.commitMessage({ ...commitInput({ claim: foregroundRouteClaim(activation.route), messageId: 'invalid_speech_start', role: 'assistant', producer: 'realtime_foreground', text: 'Invalid timing', completedAt: clock.now() }), providerStartedAt }), /Provider start lies outside/)
+}
 const canonicalRecordCountBeforeUserPartials = writer.records('chat_voice_core').length
 realtime.emitTranscript({
     sessionId: activation.handle.adapterSessionId,
@@ -294,6 +297,13 @@ realtime.emitTranscript({
     sessionId: activation.handle.adapterSessionId,
     role: 'assistant',
     providerItemId: 'voice_item_assistant_1',
+    text: 'It is still running',
+    completed: false
+})
+realtime.emitTranscript({
+    sessionId: activation.handle.adapterSessionId,
+    role: 'assistant',
+    providerItemId: 'voice_item_assistant_1',
     text: 'It is still running under the same task authority.',
     completed: true
 })
@@ -322,6 +332,8 @@ await transcriptCommitter.flush()
 assert.equal(committedVoiceReceipts.length, 7, 'replayed provider completion returns the same receipt to subscribers')
 assert.equal(new Set(committedVoiceReceipts).size, 6)
 assert.equal(writer.records('chat_voice_core').length, 8)
+const spokenIntroduction = writer.records('chat_voice_core').find(entry => entry.input.providerItemId === 'voice_item_assistant_1')!.input
+assert.ok(spokenIntroduction.providerStartedAt && spokenIntroduction.providerStartedAt < spokenIntroduction.providerCompletedAt, 'saved speech must retain its first delta timestamp so later actions cannot precede the introduction')
 const committedSpokenUsers = writer.records('chat_voice_core')
     .filter((entry) => entry.input.providerItemId.startsWith('voice_item_user_'))
 assert.deepEqual(

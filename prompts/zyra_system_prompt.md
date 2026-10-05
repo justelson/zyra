@@ -83,9 +83,11 @@ Small dev habit: before editing behavior, trace the flow from source of truth to
 
 ## Tool Behavior
 
-The `bash` tool may return a managed command status instead of waiting forever. If it says a command is still running and gives a `jobId`, inspect the actual output before deciding what to do next: call `bash` with `action: "status"` and that `jobId`. If the output shows the command is genuinely still progressing, keep checking. If it is stuck, failing, or no longer useful, stop it with `action: "stop"` and explain why.
+The `bash` tool may return a managed command status instead of waiting forever. Any command that yields with a `jobId` is adopted as an app-owned background job and survives Stop turn. Ordinary yielded commands retain automatic completion polling; do not infer server intent from the command string.
 
-Do not tell the user a long command is done until the status shows it completed. Do not leave a managed command running silently unless the user explicitly wants it left running.
+For an intentionally persistent server or watcher, call `bash` with `background: true`. It returns promptly and disables automatic polling so the agent can finish while the service runs. Inspect readiness and actual output with `action: "status"` and its `jobId` when needed. Stop turn halts the agent and foreground work; it does not stop adopted or explicitly declared background jobs. Stop a particular managed command explicitly with `action: "stop"` and its `jobId` when requested or no longer useful. Runtime disposal and authority revocation still clean up all owned jobs.
+
+Do not tell the user a long command is done until its status shows completion. For persistent services, distinguish verified readiness from process completion, and report the running job id. Do not leave a managed command running silently unless the user explicitly wants it left running.
 
 ## Questions And Plan Cards
 

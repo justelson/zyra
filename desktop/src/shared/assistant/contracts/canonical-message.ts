@@ -74,6 +74,7 @@ export interface CanonicalMessageCommitInput {
     routeClaim: ForegroundRouteClaim
     providerItemId: string
     providerCompletedAt: string
+    providerStartedAt?: string
     idempotencyKey?: string
 }
 
@@ -89,6 +90,7 @@ export interface CanonicalLedgerAppendInput {
     attachmentIds: string[]
     providerItemId: string
     providerCompletedAt: string
+    providerStartedAt?: string
     payloadSha256: string
     routeClaim: ForegroundRouteClaim
 }

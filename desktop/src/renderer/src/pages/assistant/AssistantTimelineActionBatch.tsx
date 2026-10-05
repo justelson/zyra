@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, ListTree, Loader2, Monitor, MousePointer2, Wifi } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { readAssistantActionBatchIntent } from '@shared/assistant/action-batch-intent'
+import { isAssistantBackgroundProcessActivity } from '@shared/assistant/activity-settlement'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
 import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
@@ -26,6 +27,7 @@ export function AssistantTimelineActionBatch(props: {
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const [nowIso, setNowIso] = useState(() => new Date().toISOString())
     const isRunning = (activity: AssistantActivity) => getActivityStatus(activity) === 'running'
+        && !isAssistantBackgroundProcessActivity(activity)
         && (!isAssistantConnectionRecoveryActivity(activity) || activity === props.activities.at(-1))
     const currentActivity = [...props.activities].reverse().find(isRunning)
         || [...props.activities].reverse().find(activity => !isAssistantConnectionRecoveryActivity(activity))

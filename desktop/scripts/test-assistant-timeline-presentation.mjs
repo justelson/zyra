@@ -10,11 +10,25 @@ const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const directory = await mkdtemp(join(tmpdir(), 'zyra-timeline-presentation-'))
 try {
     await writeFile(join(directory, 'settings.ts'), 'export function useSettings(){ return { settings: { assistantAllowCollapseWhileWorking:false, assistantShowActionStats:false } } }');
+    // Exercise real message/stream wrappers without loading unrelated Markdown,
+    // file preview and tool-evidence engines into this timing-focused fixture.
+    await writeFile(join(directory, 'markdown.tsx'), 'export default function Markdown({content}){return <div>{content}</div>} export function prepareMarkdownRender(){} export function prewarmMarkdownRenders(){}');
+    await writeFile(join(directory, 'attachment.tsx'), 'export default function Attachment(){return null}');
+    await writeFile(join(directory, 'tools.tsx'), 'export function TimelineToolCallList(){return null}');
     const bundle = await build({
         entryPoints: [join(desktop, 'scripts/fixtures/assistant-timeline-presentation.tsx')],
         bundle: true, write: false, format: 'iife', jsx: 'automatic', platform: 'browser',
         define: { 'import.meta.env.DEV': 'true' },
-        alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, logLevel: 'silent'
+        nodePaths: [join(desktop, 'node_modules')],
+        alias: {
+            '@/lib/settings': join(directory, 'settings.ts'),
+            '@/components/ui/MarkdownRenderer': join(directory, 'markdown.tsx'),
+            '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared')
+        },
+        plugins: [{ name: 'presentation-only-message-children', setup(build) {
+            build.onResolve({ filter: /^\.\/AssistantAttachmentPreviewModal$/ }, () => ({ path: join(directory, 'attachment.tsx') }));
+            build.onResolve({ filter: /^\.\/AssistantTimelineToolCalls$/ }, () => ({ path: join(directory, 'tools.tsx') }));
+        } }], logLevel: 'silent'
     })
     const html = join(directory, 'index.html')
     await writeFile(html, `<!doctype html><html><head><meta charset="utf-8"><style>

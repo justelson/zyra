@@ -1282,7 +1282,7 @@ export class AssistantStore {
         const currentThread = requestedSession?.threads.find((thread) => thread.id === threadId) || null
         if (!currentThread) return
         if (!force && isAssistantRetainedHistoryFresh(retainedHistory, currentThread)) {
-            if (hasRenderableAssistantRetainedHistory(retainedHistory)) {
+            if (hasRenderableAssistantRetainedHistory(retainedHistory, currentThread)) {
                 const freshHistory = retainedHistory!
                 if (
                     currentThread.messages === freshHistory.messages

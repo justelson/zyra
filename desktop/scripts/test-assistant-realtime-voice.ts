@@ -642,7 +642,7 @@ assert.equal(projectVoiceLiveTimelineMessages({
     transcript: [{ id: 'assistant-partial', role: 'assistant', text: 'ZYRA', final: false }],
     canonicalMessages: [],
     voiceStartedAt: '2026-08-24T12:00:00.000Z'
-}).messages.length, 0, 'provisional assistant chunks stay in the Voice stage instead of looking canonical in Chat')
+}).messages.length, 1, 'assistant transcript deltas appear live in Chat just like user deltas')
 assert.equal(projectVoiceLiveTimelineMessages({
     transcript: [{ id: 'composer-response-typed-turn', role: 'assistant', text: 'ZYRA_VOICE_SINGLE_830', final: true }],
     canonicalMessages: [],

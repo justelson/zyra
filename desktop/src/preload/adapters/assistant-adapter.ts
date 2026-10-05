@@ -161,6 +161,8 @@ export function createAssistantAdapter() {
             newThread: (sessionId?: string) => ipcRenderer.invoke(ASSISTANT_IPC.newThread, sessionId),
             sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) => ipcRenderer.invoke(ASSISTANT_IPC.sendPrompt, prompt, options),
             interruptTurn: (turnId?: string, sessionId?: string) => ipcRenderer.invoke(ASSISTANT_IPC.interruptTurn, turnId, sessionId),
+            listBackgroundProcesses: (input: import('../../shared/assistant/contracts').AssistantBackgroundProcessesInput) => ipcRenderer.invoke(ASSISTANT_IPC.listBackgroundProcesses, input),
+            stopBackgroundProcesses: (input: import('../../shared/assistant/contracts').AssistantStopBackgroundProcessesInput) => ipcRenderer.invoke(ASSISTANT_IPC.stopBackgroundProcesses, input),
             respondApproval: (input: AssistantApprovalResponseInput) =>
                 ipcRenderer.invoke(ASSISTANT_IPC.respondApproval, input),
             respondUserInput: (input: AssistantUserInputResponseInput) =>

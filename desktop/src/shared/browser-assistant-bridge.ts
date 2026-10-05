@@ -91,6 +91,8 @@ export const BROWSER_ASSISTANT_BRIDGE_METHODS = [
     'newThread',
     'sendPrompt',
     'interruptTurn',
+    'listBackgroundProcesses',
+    'stopBackgroundProcesses',
     'respondApproval',
     'respondUserInput',
     'startRealtimeVoice',

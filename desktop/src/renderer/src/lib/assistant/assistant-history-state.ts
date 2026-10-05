@@ -11,6 +11,7 @@ import type {
 } from '@shared/assistant/contracts'
 import { encodeAssistantHistoryCursor } from '@shared/assistant/history-cursor'
 import { getAssistantThreadHydrationRevision } from './assistant-thread-hydration-revision'
+import { hasUsableAssistantTimelineHistory } from './assistant-history-readiness'
 import { estimateAssistantTimelineCollectionsCharacters } from './session-hydration-cache'
 import { compareAssistantTimelineOrderKeys, getAssistantTimelineOrderKey, type AssistantTimelineOrderKey, type AssistantTimelineRecordKind } from '@shared/assistant/timeline-order'
 
@@ -35,12 +36,8 @@ export function isAssistantRetainedHistoryFresh(
     )
 }
 
-export function hasRenderableAssistantRetainedHistory(history: AssistantRetainedHistory | undefined): boolean {
-    return Boolean(history && (
-        history.messages.length
-        || history.activities.length
-        || history.proposedPlans.length
-    ))
+export function hasRenderableAssistantRetainedHistory(history: AssistantRetainedHistory | undefined, thread?: AssistantThread | null): boolean {
+    return hasUsableAssistantTimelineHistory(history, thread)
 }
 
 export function shouldHideAssistantRowsForSelection(input: {

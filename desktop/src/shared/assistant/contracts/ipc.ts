@@ -103,6 +103,8 @@ export const ASSISTANT_IPC = {
     newThread: 'devscope:assistant:newThread',
     sendPrompt: 'devscope:assistant:sendPrompt',
     interruptTurn: 'devscope:assistant:interruptTurn',
+    listBackgroundProcesses: 'devscope:assistant:listBackgroundProcesses',
+    stopBackgroundProcesses: 'devscope:assistant:stopBackgroundProcesses',
     respondApproval: 'devscope:assistant:respondApproval',
     respondUserInput: 'devscope:assistant:respondUserInput',
     subscribeRealtimeVoice: 'devscope:assistant:realtimeVoice:subscribe',

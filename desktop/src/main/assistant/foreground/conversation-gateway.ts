@@ -42,6 +42,7 @@ export class ConversationGateway {
             attachmentIds: input.attachmentIds,
             providerItemId: input.providerItemId,
             providerCompletedAt: input.providerCompletedAt,
+            ...(input.providerStartedAt ? { providerStartedAt: input.providerStartedAt } : {}),
             routeClaim: input.routeClaim
         }))
         const idempotencyKey = input.idempotencyKey
@@ -210,6 +211,12 @@ function assertCommitInput(input: CanonicalMessageCommitInput, route: Foreground
     if (!Number.isFinite(completedMs) || completedMs < Date.parse(route.created_at) || completedMs > observedMs) {
         throw new ForegroundRouteConflictError('Provider completion lies outside the active route ownership interval.', 'route_conflict')
     }
+    if (input.providerStartedAt !== undefined) {
+        const startedMs = Date.parse(input.providerStartedAt)
+        if (!Number.isFinite(startedMs) || startedMs < Date.parse(route.created_at) || startedMs > completedMs) {
+            throw new ForegroundRouteConflictError('Provider start lies outside the active route ownership interval.', 'route_conflict')
+        }
+    }
 }
 
 function buildLedgerAppendInput(
@@ -229,6 +236,7 @@ function buildLedgerAppendInput(
         attachmentIds: [...input.attachmentIds],
         providerItemId: input.providerItemId,
         providerCompletedAt: input.providerCompletedAt,
+        ...(input.providerStartedAt ? { providerStartedAt: input.providerStartedAt } : {}),
         payloadSha256,
         routeClaim: input.routeClaim
     }

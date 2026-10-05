@@ -120,6 +120,14 @@ export function getAssistantThreadPhase(thread: AssistantThread | null): {
     }
 
     const canonicalPresence = thread.canonicalPresence
+    const terminalTurn = thread.latestTurn && thread.latestTurn.state !== 'running' ? thread.latestTurn : null
+    const distinctActiveTurn = canonicalPresence?.state === 'running' && canonicalPresence.activeTurnId
+        && canonicalPresence.activeTurnId !== terminalTurn?.id
+    if (terminalTurn && !distinctActiveTurn && canonicalPresence?.state !== 'background'
+        && (thread.state === 'running' || thread.state === 'waiting' || canonicalPresence?.state === 'running')) {
+        return terminalTurn.state === 'interrupted' ? { key: 'stopped', label: 'Stopped' }
+            : terminalTurn.state === 'error' ? { key: 'error', label: 'Error' } : { key: 'ready', label: 'Idle' }
+    }
     if (canonicalPresence?.state === 'running') {
         return { key: 'running', label: 'Running' }
     }
@@ -173,6 +181,12 @@ export function isAssistantThreadActivelyWorking(thread: AssistantThread | null)
     // Connection, tool, and approval states can change while the same turn keeps
     // running. Only the turn ledger's terminal state can stop that active turn.
     if (thread?.latestTurn?.state === 'running') return true
+    if (thread?.latestTurn) {
+        // Background agents/processes do not reopen their parent's terminal turn.
+        return thread.canonicalPresence?.state === 'running'
+            && Boolean(thread.canonicalPresence.activeTurnId)
+            && thread.canonicalPresence.activeTurnId !== thread.latestTurn.id
+    }
 
     const phase = getAssistantThreadPhase(thread)
     if (phase.key === 'background') return true

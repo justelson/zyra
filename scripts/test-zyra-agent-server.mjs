@@ -461,6 +461,7 @@ try {
   }), { code: "AGENT_SERVER_SESSION_BUSY" }, "an unfinished turn still rejects competing prompts");
   desktop.close();
   assert.equal(server.state().sessions[0].activeRequests, 1, "closing Desktop must not stop active work");
+  workers[0].emit("event", { type: "managed_bash_job_update", jobId: "cmd:server", status: "running", background: true });
   workers[0].emit("event", { type: "agent_end", willRetry: false });
   await waitUntil(() => server.state().sessions[0].latestTurn?.state === "completed");
   const agentEndCatalog = await tui.request("catalog.list", {});
@@ -478,6 +479,9 @@ try {
   assert.equal(completedCatalog.chats[0].presence.state, "ready", "catalog presence must return to ready after canonical work completes");
   assert.equal(completedCatalog.chats[0].presence.latestTurn?.id, "turn:test", "catalog presence must retain the completed turn identity");
   assert.equal(completedCatalog.chats[0].presence.latestTurn?.state, "completed", "catalog presence must expose completion without opening the thread");
+  assert.equal(completedCatalog.chats[0].presence.backgroundWorkActive, true, "a background process keeps its runtime alive without resurrecting the completed agent turn");
+  assert.equal(workers[0].disposed, false, "turn completion must not dispose an app-owned server");
+  workers[0].emit("event", { type: "managed_bash_job_update", jobId: "cmd:server", status: "stopped", background: true });
 
   const spoofedAuthority = client("tui:spoofed-authority", "tui", ["desktop-control"]);
   await spoofedAuthority.connect();
@@ -490,9 +494,10 @@ try {
   const reconnect = client("desktop:reconnect", "desktop", ["desktop-control"]);
   await reconnect.connect();
   const replay = await reconnect.attach({ project, cwd: project, session: "chat:test", localThreadId: "assistant-thread:reconnect", lastSequence: 0 });
-  assert.equal(replay.replay.length, 12, "replay includes accepted prompt and two post-turn maintenance events");
+  assert.equal(replay.replay.length, 14, "replay includes accepted prompt, process ownership and post-turn maintenance events");
+  assert.equal(replay.replay.filter(entry => entry.event.type === 'managed_bash_job_update').length, 2);
   assert.equal(replay.replay.filter((entry) => entry.event.type === "zyra_server_prompt_accepted").length, 1);
-  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end"].includes(entry.event.type));
+  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update"].includes(entry.event.type));
   assert.equal(providerReplay.length, 9, "reconnect must replay metadata, fleet, provider events, approvals, user input, retry state, and the authoritative agent completion");
   assert.equal(providerReplay[0].event.type, "agent.created");
   assert.equal(Object.keys(providerReplay[0].event.fleet.agents).length, 1);
@@ -702,6 +707,29 @@ try {
   workers[0].emit("control", { type: "control.request", requestId: "control:1", operation: { action: "observe" } });
   await waitUntil(() => workers[0].controlResponses.length === 2);
   assert.deepEqual(workers[0].controlResponses[1].result, { accepted: true });
+
+  const stoppedPrompt = reconnect.request('session.request', {
+    sessionKey: 'chat:test', type: 'prompt', payload: { prompt: 'turn to stop while a server stays up' },
+    requestContext: { turnId: 'turn:stop-with-server', localThreadId: 'assistant-thread:reconnect' }
+  });
+  await waitUntil(() => workers[0].activePrompt !== null);
+  workers[0].emit('event', { type: 'managed_bash_job_update', jobId: 'cmd:retained-server', status: 'running', background: true });
+  const abortCount = workers[0].requests.filter(entry => entry.type === 'abort').length;
+  await reconnect.request('session.request', { sessionKey: 'chat:test', type: 'abort', payload: { turnId: 'turn:old-stop' } });
+  assert.equal(workers[0].requests.filter(entry => entry.type === 'abort').length, abortCount, 'an outdated Stop cannot interrupt a newer turn');
+  await reconnect.request('session.request', { sessionKey: 'chat:test', type: 'abort', payload: { turnId: 'turn:stop-with-server' } });
+  assert.equal(server.state().sessions[0].latestTurn.state, 'interrupted', 'confirmed Stop must settle the turn even without provider agent_end');
+  const stoppedAt = server.state().sessions[0].latestTurn.completedAt;
+  assert.equal((await reconnect.request('catalog.list', {})).chats[0].presence.state, 'ready', 'a retained server cannot keep the stopped turn Working');
+  workers[0].emit('event', { type: 'agent_end', willRetry: false });
+  assert.equal(server.state().sessions[0].latestTurn.state, 'interrupted', 'a late provider end cannot overwrite a confirmed Stop');
+  assert.equal(server.state().sessions[0].latestTurn.completedAt, stoppedAt, 'terminal turn time remains immutable');
+  workers[0].emit('event', { type: 'auto_retry_end', success: false, finalError: 'late retry failure' });
+  assert.equal(server.state().sessions[0].latestTurn.state, 'interrupted', 'late retry cleanup cannot rewrite a confirmed Stop as a failure');
+  workers[0].finishPrompt({});
+  await stoppedPrompt;
+  assert.equal(workers[0].disposed, false, 'Stop turn must retain the worker owning a server');
+  workers[0].emit('event', { type: 'managed_bash_job_update', jobId: 'cmd:retained-server', status: 'stopped', background: true });
 
   const utilityText = await reconnect.request("runtime.generateText", {
     prompt: "Generate bounded Git text.",

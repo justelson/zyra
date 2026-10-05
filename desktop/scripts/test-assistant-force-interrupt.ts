@@ -51,7 +51,8 @@ let connected = false
 internals.ensureConnected = async () => { connected = true }
 let failAbort = true
 let advanceTurn = false
-Object.assign(context, { worker: { request: async (type: string) => {
+Object.assign(context, { worker: { request: async (type: string, payload: unknown) => {
+    assert.deepEqual(payload, { turnId: 'turn-1' }, 'Stop is bound to its actual active turn')
     assert.ok(connected, 'interrupt waits for the attachment handshake')
     assert.equal(type, 'abort')
     if (failAbort) throw new Error('Abort connection failed')
@@ -71,4 +72,5 @@ context.activeTurnId = 'turn-1'
 await runtime.interruptTurn(thread.providerThreadId, 'turn-1')
 assert.equal(context.activeTurnId, null)
 assert.equal(events[0].turnId, 'turn-1')
+assert.deepEqual(events[0].payload.interruption, { kind: 'stopped', source: 'user' })
 console.log('Force interrupt runtime: reattachment, connection failure and turn ownership passed')

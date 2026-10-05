@@ -51,7 +51,7 @@ export function appendCanonicalMessage(sessionManager, inputValue) {
     return ["user", "assistant", "system"].includes(entry.message?.role) ? count + 1 : count;
   }, 0) + 1;
   const observedAt = new Date().toISOString();
-  const timestamp = Date.parse(input.providerCompletedAt);
+  const timestamp = Date.parse(input.providerStartedAt || input.providerCompletedAt);
   const metadata = Object.freeze({
     schemaVersion: 1,
     operationId: input.operationId,
@@ -65,6 +65,7 @@ export function appendCanonicalMessage(sessionManager, inputValue) {
     modality: input.modality,
     providerItemId: input.providerItemId,
     providerCompletedAt: input.providerCompletedAt,
+    ...(input.providerStartedAt ? { providerStartedAt: input.providerStartedAt } : {}),
     attachmentIds: [...input.attachmentIds],
     contentSha256: input.payloadSha256,
     canonicalSequence,
@@ -125,9 +126,13 @@ function validateCanonicalAppendInput(value) {
       : [],
     providerItemId: assertBoundedString(value.providerItemId, "provider item id", 512),
     providerCompletedAt: assertTimestamp(value.providerCompletedAt, "provider completion"),
+    ...(value.providerStartedAt !== undefined ? { providerStartedAt: assertTimestamp(value.providerStartedAt, "provider start") } : {}),
     payloadSha256: String(value.payloadSha256 || ""),
     routeClaim: validateRouteClaim(value.routeClaim)
   };
+  if (input.providerStartedAt && Date.parse(input.providerStartedAt) > Date.parse(input.providerCompletedAt)) {
+    throw new TypeError("Provider start must not follow completion.");
+  }
   if (!input.role) throw new TypeError("Canonical message role must be user or assistant.");
   if (!input.text.trim() && input.attachmentIds.length === 0) throw new TypeError("Canonical message content is empty.");
   if (input.text.length > MAX_MESSAGE_CHARACTERS) throw new TypeError("Canonical message content is too large.");

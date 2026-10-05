@@ -475,6 +475,14 @@ export function handleAssistantSendPrompt(_event: Electron.IpcMainInvokeEvent, p
     return withAssistantResult(() => getAssistantService().sendPrompt(prompt, options))
 }
 
+export function handleAssistantListBackgroundProcesses(_event: Electron.IpcMainInvokeEvent, input: import('../../../shared/assistant/contracts').AssistantBackgroundProcessesInput) {
+    return withAssistantResult(() => getAssistantService().listBackgroundProcesses(input))
+}
+
+export function handleAssistantStopBackgroundProcesses(_event: Electron.IpcMainInvokeEvent, input: import('../../../shared/assistant/contracts').AssistantStopBackgroundProcessesInput) {
+    return withAssistantResult(() => getAssistantService().stopBackgroundProcesses(input))
+}
+
 export function handleAssistantInterruptTurn(_event: Electron.IpcMainInvokeEvent, turnId?: string, sessionId?: string) {
     log.info('IPC: assistant:interruptTurn', { turnId, sessionId })
     return withAssistantResult(() => getAssistantService().interruptTurn(turnId, sessionId))

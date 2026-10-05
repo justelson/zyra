@@ -309,6 +309,10 @@ const backgroundWorkThread: AssistantThread = {
     state: 'waiting',
     canonicalPresence: { state: 'background', activeTurnId: null, clients: [], backgroundWorkActive: true }
 }
+assert.equal(isAssistantThreadActivelyWorking(backgroundWorkThread), false, 'background ownership cannot reopen the completed parent turn')
+assert.equal(isAssistantThreadActivelyWorking({ ...completedNavigationThread, state: 'running', canonicalPresence: { ...backgroundWorkThread.canonicalPresence!, state: 'running', activeTurnId: completedNavigationThread.latestTurn!.id } }), false, 'stale presence cannot resurrect the same terminal turn')
+assert.equal(getAssistantThreadPhase({ ...completedNavigationThread, state: 'running', canonicalPresence: { ...backgroundWorkThread.canonicalPresence!, state: 'running', activeTurnId: completedNavigationThread.latestTurn!.id } }).key, 'ready')
+assert.equal(isAssistantThreadActivelyWorking({ ...completedNavigationThread, canonicalPresence: { ...backgroundWorkThread.canonicalPresence!, state: 'running', activeTurnId: 'new-remote-turn' } }), true, 'a genuinely newer canonical turn can still start')
 assert.equal(shouldKeepAssistantThreadAttachedDuringNavigation(backgroundWorkThread), true)
 assert.equal(resolveAssistantThreadStatusPill(backgroundWorkThread, false)?.label, 'Background')
 assert.equal(isAssistantSessionBackgroundActive({ ...snapshot.sessions[0]!, threads: [backgroundWorkThread] }, 'stale-empty-session'), true, 'background agent work stays active after the root turn completes')

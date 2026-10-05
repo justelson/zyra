@@ -1,11 +1,19 @@
 import type { AssistantActivity } from './contracts'
 
+/** Process lifetime is independent once Bash hands a managed job back to the app. */
+export function isAssistantBackgroundProcessActivity(activity: AssistantActivity): boolean {
+    if (activity.kind !== 'command') return false
+    const payload = activity.payload || {}
+    if (payload.background === true || payload.detached === true) return true
+    return Boolean(payload.jobId) && payload.toolLifecyclePhase !== 'start' && payload.toolLifecyclePhase !== 'update'
+}
+
 /** A finished foreground turn cannot keep a lost tool call animated indefinitely. */
 export function settleActivityAtTurnEnd(activity: AssistantActivity, completedAt: string, outcome: string): AssistantActivity {
     const payload = activity.payload || {}
     const surface = payload.surface && typeof payload.surface === 'object' ? payload.surface as Record<string, unknown> : null
     const raw = String(payload.status || payload.state || payload.phase || surface?.lifecycle || '').toLowerCase().replace(/[-_\s]/g, '')
-    if (payload.background === true || payload.detached === true || payload.jobId || activity.kind.startsWith('subagent.')) return activity
+    if (isAssistantBackgroundProcessActivity(activity) || payload.background === true || payload.detached === true || activity.kind.startsWith('subagent.')) return activity
     const recovery = activity.kind === 'connection.recovery' || activity.kind === 'provider.recovery' || payload.category === 'connection-recovery'
     if (recovery && raw === 'retrying') return {
         ...activity,

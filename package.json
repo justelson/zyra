@@ -43,6 +43,7 @@
     "test:agent-fleet:cancellation": "node scripts/test-agent-fleet-cancellation.mjs",
     "test:work-timeline-v2": "bun run --cwd desktop test:work-timeline-v2",
     "test:child-session-runtime": "node scripts/test-child-session-runtime.mjs",
+    "test:managed-processes": "node scripts/test-managed-bash.mjs && node scripts/test-zyra-root-stop.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-child-session-runtime.mjs",
     "test:subagents-workflows": "node scripts/test-zyra-subagents.mjs && node scripts/test-child-session-runtime.mjs && node scripts/test-thread-collaboration.mjs && npm run test:agent-fleet:cancellation && node scripts/test-zyra-workflows.mjs && node scripts/test-zyra-fleet-ui.mjs && bun run --cwd desktop test:assistant-fleet && bun run --cwd desktop test:assistant-thread-collaboration",
     "test:control-bridge-deadline": "node scripts/test-control-bridge-deadline.mjs",
     "test:computer-tool-errors": "node scripts/test-computer-tool-errors.mjs",

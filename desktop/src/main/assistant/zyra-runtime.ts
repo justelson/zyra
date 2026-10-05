@@ -1,6 +1,7 @@
 import { canonicalImageAttachmentSection } from './canonical-media-cache'
 import { projectThreadMessage } from '../../shared/assistant/thread-message'
 import { readAssistantInterruption } from '../../shared/assistant/interruption'
+import { readAssistantBackgroundProcessList } from '../../shared/assistant/background-processes'
 import { replaceSerializedAssistantImageAttachments } from '../../shared/assistant/message-attachments'
 import { assistantTextUpdate } from '../../shared/assistant/stream-text-update'
 import { normalizeCanonicalMessageSourceId } from '../../shared/assistant/message-identity'
@@ -2301,16 +2302,22 @@ export class ZyraRuntime extends EventEmitter {
         return context.worker.request(`${namespace}.${action}`, payload)
     }
 
+    async requestBackgroundProcessOperation(threadId: string, action: 'list' | 'stop', payload: { jobId?: string; all?: boolean } = {}) {
+        const context = this.requireSession(threadId)
+        await this.ensureConnected(context)
+        const result = await context.worker.request(`managed_bash.${action}`, payload)
+        return readAssistantBackgroundProcessList(result['jobs'])
+    }
+
     async interruptTurn(threadId: string, turnId?: string): Promise<void> {
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
         if (turnId && context.activeTurnId && turnId !== context.activeTurnId) return
         const interruptedTurnId = context.activeTurnId
-        if (interruptedTurnId) {
-            getAgentControlBroker().revokePrincipal({ type: 'root', threadId: context.localThreadId, turnId: interruptedTurnId })
-        }
-        await context.worker.request('abort')
-        if (!interruptedTurnId || context.activeTurnId !== interruptedTurnId) return
+        if (!interruptedTurnId) return
+        getAgentControlBroker().revokePrincipal({ type: 'root', threadId: context.localThreadId, turnId: interruptedTurnId })
+        const result = await context.worker.request('abort', { turnId: interruptedTurnId })
+        if (result['aborted'] === false || context.activeTurnId !== interruptedTurnId) return
         markTurnCompleted(context, interruptedTurnId)
         this.emitRuntime({
             eventId: randomUUID(),
@@ -2319,7 +2326,7 @@ export class ZyraRuntime extends EventEmitter {
             threadId: context.localThreadId,
             providerThreadId: context.providerThreadId,
             turnId: interruptedTurnId,
-            payload: { outcome: 'interrupted' }
+            payload: { outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } }
         })
         context.activeTurnId = null
     }
@@ -3598,6 +3605,7 @@ export class ZyraRuntime extends EventEmitter {
                     status,
                     toolName: 'bash',
                     jobId,
+                    background: typeof event['background'] === 'boolean' ? event['background'] : undefined,
                     command: asString(event['command']) || undefined,
                     output,
                     replaceOutput: true,
@@ -3606,7 +3614,8 @@ export class ZyraRuntime extends EventEmitter {
                     completedAt,
                     durationMs,
                     exitCode: event['exitCode'],
-                    errorMessage: asString(event['errorMessage']) || undefined
+                    errorMessage: asString(event['errorMessage']) || undefined,
+                    cleanupFailed: event['cleanupFailed'] === true
                 }
             }
         })

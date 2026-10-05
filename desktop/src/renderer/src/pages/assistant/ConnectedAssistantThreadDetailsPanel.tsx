@@ -1,4 +1,5 @@
 import { AssistantChatFolderAccess } from './AssistantChatFolderAccess'
+import { AssistantThreadBackgroundProcesses } from './AssistantThreadBackgroundProcesses'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type {
     AssistantActivity,
@@ -429,6 +430,9 @@ export function ConnectedAssistantThreadDetailsPanel(props: {
             <AssistantThreadDetailsPanel
                 open={props.open}
                 folderAccess={props.open && selection.selectedSessionId ? <AssistantChatFolderAccess key={selection.selectedSessionId} sessionId={selection.selectedSessionId} /> : null}
+                backgroundProcesses={props.open && !selection.selectionHydrating && selection.selectedSessionId && selection.activeThreadId
+                    ? <AssistantThreadBackgroundProcesses sessionId={selection.selectedSessionId} threadId={selection.activeThreadId} />
+                    : null}
                 compact={props.compact}
                 selectedChatTypeLabel={selectedChatTypeLabel}
                 selectedProjectPath={selectedProjectPath}

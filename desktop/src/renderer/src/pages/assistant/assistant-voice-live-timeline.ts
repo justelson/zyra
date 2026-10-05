@@ -50,7 +50,7 @@ export function projectVoiceLiveTimelineMessages(input: {
             || entry.id.startsWith('local-composer-')
             || entry.id.startsWith('composer-response-')
             || committedProviderItems.has(entry.id)) return false
-        if (!entry.final) return entry.role === 'user'
+        if (!entry.final) return entry.role === 'user' || entry.role === 'assistant'
         const role = entry.role === 'user' ? 'user' : 'assistant'
         const signature = transcriptSignature(role, entry.text)
         const remaining = missingIdentityCommitBudget.get(signature) || 0
@@ -75,14 +75,16 @@ export function projectVoiceLiveTimelineMessages(input: {
     )
     const nowMs = Number.isFinite(input.nowMs) ? Number(input.nowMs) : Date.now()
     const anchors = new Map<string, number>()
-    let previousAnchor = latestCanonicalMs
+    let previousAnchor = 0
 
     const messages = projectableTranscript.map((entry, index): AssistantMessage => {
         const role = entry.role === 'user' ? 'user' : 'assistant'
         const anchorKey = `${role}:${entry.id}`
         const previous = input.previousAnchors?.get(anchorKey)
-        const anchor = Math.max(
-            Number.isFinite(previous) ? Number(previous) : nowMs + index,
+        // Arrival fixes a message's place. Later tool events must not push
+        // speech that introduced the work below the work itself.
+        const anchor = Number.isFinite(previous) ? Number(previous) : Math.max(
+            nowMs + index,
             latestCanonicalMs + index + 1,
             previousAnchor + 1
         )

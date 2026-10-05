@@ -1,4 +1,5 @@
 export * from './agent-surface'
+export * from './background-process'
 export * from './canonical-message'
 export * from './file-change'
 export * from './foreground-route'

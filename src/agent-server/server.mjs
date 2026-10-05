@@ -41,7 +41,7 @@ const DESKTOP_WORKSPACE_TIMEOUT_MS = 15_000;
 const DESKTOP_WORKSPACE_KINDS = new Set(["browser", "details", "explorer", "resources", "agents", "diff", "terminal"]);
 const DESKTOP_WORKSPACE_OPERATIONS = new Set(["open", "list", "show"]);
 const ACTIVE_FLEET_STATUSES = new Set(["queued", "starting", "running", "waiting", "blocked", "paused", "recovering"]);
-const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.global\.configure|auth\.refresh|abort|steer|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
+const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.global\.configure|auth\.refresh|abort|steer|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|managed_bash\.(?:list|stop)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
 
 function hashAuthorityProof(value) {
   return createHash("sha256").update(String(value || "")).digest("base64url");
@@ -633,7 +633,7 @@ export class ZyraAgentServer extends EventEmitter {
     const activeTurnId = session.activeRequestContext?.turnId || null;
     const turnRunning = Boolean(activeTurnId && session.latestTurn?.id === activeTurnId && session.latestTurn.state === "running");
     return {
-      state: turnRunning ? "running" : session.hasBackgroundWork() ? "background" : "ready",
+      state: turnRunning ? "running" : session.hasBackgroundAgentWork() ? "background" : "ready",
       activeTurnId: turnRunning ? activeTurnId : null,
       clients: [...session.clients].map((client) => ({ clientId: client.clientId, surface: client.surface, ...(client.displayName ? { displayName: client.displayName } : {}) })),
       backgroundWorkActive: session.hasBackgroundWork(),
@@ -1165,6 +1165,10 @@ class ServerOwnedSession {
       this.server.pluginAuthority.assertAllowed(this.sessionKey, this.pluginSkillSources);
     }
     const requestContext = normalizeRequestContext(requestContextValue);
+    const stoppingTurnId = type === 'abort' ? this.activeRequestContext?.turnId || null : null;
+    if (type === 'abort' && payload?.turnId && String(payload.turnId) !== stoppingTurnId) {
+      return { aborted: false, reason: 'The requested turn is no longer active.' };
+    }
     const approvalResponsePromise = type === "approval.respond" ? this.approvalResponses.respond(client.clientId, payload, () => this.worker.request(type, payload)) : null;
     const continuationEpoch = this.userInputContinuationEpoch;
     const userInputResponsePromise = type === "user_input.respond"
@@ -1222,6 +1226,13 @@ class ServerOwnedSession {
     }
     try {
       const result = await (approvalResponsePromise || userInputResponsePromise || this.worker.request(type, payload));
+      if (type === 'abort' && result?.aborted !== false && stoppingTurnId
+        && this.activeRequestContext?.turnId === stoppingTurnId
+        && this.latestTurn?.id === stoppingTurnId && this.latestTurn.state === 'running') {
+        // An acknowledged Stop is itself a completion boundary. Providers may
+        // omit or deliver agent_end later; neither can keep this turn running.
+        this.publish({ type: 'zyra_server_turn_completed', turnId: stoppingTurnId, outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } });
+      }
       if (ownsTurn && !this.isTurnTerminal(requestContext.turnId)) {
         this.publish({ type: "zyra_server_turn_completed", outcome: "completed" });
       }
@@ -1446,6 +1457,7 @@ class ServerOwnedSession {
       this.latestTurn = { ...this.latestTurn, assistantMessageId: String(event.message.id) };
     }
     if (event?.type === "auto_retry_end" && event.success === false && this.latestTurn) {
+      if (this.isTurnTerminal(this.latestTurn.id)) return;
       this.latestTurn = {
         ...this.latestTurn,
         state: isNetworkRecoveryError(event.finalError) ? "interrupted" : "error",
@@ -1456,7 +1468,7 @@ class ServerOwnedSession {
     if (event?.type === "agent_end" && event.willRetry === true) return;
     if (event?.type !== "zyra_server_turn_completed" && event?.type !== "agent_end") return;
     const completedTurnId = turnId || this.latestTurn?.id;
-    if (!completedTurnId) return;
+    if (!completedTurnId || this.isTurnTerminal(completedTurnId)) return;
     const base = this.latestTurn?.id === completedTurnId
       ? this.latestTurn
       : {
@@ -1476,7 +1488,7 @@ class ServerOwnedSession {
   updateBackgroundWork(event) {
     if (!event || typeof event !== "object") return;
     if (event.type === "managed_bash_job_update" && event.jobId) {
-      if (event.status === "running") this.managedJobIds.add(String(event.jobId));
+      if (event.status === "running" || event.cleanupFailed === true) this.managedJobIds.add(String(event.jobId));
       else this.managedJobIds.delete(String(event.jobId));
     }
     const fleet = event.fleet || event.fleetSnapshot;
@@ -1493,10 +1505,15 @@ class ServerOwnedSession {
     this.server.memoryQueue.observe(this, busy, this.memoryEligible === true);
   }
 
-  hasBackgroundWork() {
-    return this.backgroundFleetActive || this.managedJobIds.size > 0 || !this.parentOwner && [...this.server.sessions.values()].some(view => view.parentOwner === this && !view.disposed && (
+  hasBackgroundAgentWork() {
+    return this.backgroundFleetActive || !this.parentOwner && [...this.server.sessions.values()].some(view => view.parentOwner === this && !view.disposed && (
       view.latestTurn?.state === 'running' || view.pendingApprovalRequestIds.size > 0 || view.pendingUserInputRequestIds.size > 0
     ));
+  }
+
+  hasBackgroundWork() {
+    // Process ownership retains the worker, but does not mean an agent turn is running.
+    return this.managedJobIds.size > 0 || this.hasBackgroundAgentWork();
   }
 
   replay(afterSequence) {

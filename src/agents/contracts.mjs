@@ -72,6 +72,12 @@ export function validateFleetEvent(event) {
   return event;
 }
 
+/** Legacy independent threads have the coordinator's stable hashed operation ID. */
+export function getAgentConversationKind(run = {}) {
+  if (run.conversationKind === 'thread' || run.conversationKind === 'subagent') return run.conversationKind;
+  return /^thread-[a-f0-9]{64}$/.test(String(run.agentRunId || '')) ? 'thread' : 'subagent';
+}
+
 export function normalizeAgentRun(input = {}) {
   const status = normalizeAgentRunState(input.status === 'failed' && input.error?.code === 'CHILD_MAX_TURNS' ? 'cancelled' : input.status ?? "queued");
   const now = input.createdAt ?? new Date().toISOString();
@@ -83,6 +89,7 @@ export function normalizeAgentRun(input = {}) {
     definitionName: optionalString(input.definitionName) ?? null,
     parentAgentRunId: optionalString(input.parentAgentRunId) ?? null,
     contextFork: Boolean(input.contextFork),
+    conversationKind: getAgentConversationKind(input),
     workflowRunId: optionalString(input.workflowRunId) ?? null,
     phaseId: optionalString(input.phaseId) ?? null,
     label: optionalString(input.label) ?? input.definitionName ?? "agent",

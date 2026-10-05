@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ThreadMailbox } from './thread-mailbox.mjs';
+import { getAgentConversationKind } from '../agents/contracts.mjs';
 import { resolveThreadStartSettings, threadStartOptions } from '../threads/start-settings.mjs';
 
 const sameProject = (a, b) => { const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value); return Boolean(a && b && normalize(a) === normalize(b)); };
@@ -55,7 +56,7 @@ export class AgentThreadCoordinator {
       const operation = source.worker.request('agents.spawn', {
         agentRunId, goal: String(input.prompt), label: String(input.label || 'Agent thread').slice(0, 120),
         ...settings,
-        background: true, returnHandle: true,
+        conversationKind: 'thread', background: true, returnHandle: true,
       }).then(result => { const handle = result.result || result; return { ...handle, threadId: `agent-run:${handle.agentRunId}`, configuration: { model: handle.model || settings.model, effort: handle.effort ?? settings.effort, permissionMode: handle.permissionMode || settings.permissionMode } }; });
       this.starting.set(agentRunId, { operation, configuration: startFingerprint(input) });
       try { return await operation; } finally { this.starting.delete(agentRunId); }
@@ -107,10 +108,15 @@ export class AgentThreadCoordinator {
       const project = owner.connectedResult?.project || owner.connectedResult?.cwd;
       if (!project) continue;
       try {
-        this.server.catalog.index?.registerAgentThread?.(agent.sessionFile, project);
         this.server.ensureAgentView(owner, agent);
+        const conversationKind = getAgentConversationKind(agent);
+        // Workers stay addressable through their fleet without becoming chats.
+        if (conversationKind === 'thread') this.server.catalog.index?.registerAgentThread?.(agent.sessionFile, project);
         this.registered.add(agent.providerSessionId);
-        void this.server.catalog.updateChat(agent.providerSessionId, { title: agent.label, agentCreatedBy: owner.sessionKey, agentLabel: agent.label }).then(() => this.server.broadcastCatalogChanged({ canonicalChatId: agent.providerSessionId, agentThread: true })).catch(() => {});
+        if (conversationKind === 'thread' || this.server.catalog.index?.get?.(agent.providerSessionId)) {
+          void this.server.catalog.updateChat(agent.providerSessionId, { title: agent.label, agentCreatedBy: owner.sessionKey, agentLabel: agent.label,
+            agentRunId: agent.agentRunId, agentConversationKind: conversationKind }).then(() => this.server.broadcastCatalogChanged({ canonicalChatId: agent.providerSessionId, agentThread: conversationKind === 'thread' })).catch(() => {});
+        }
       } catch { /* In-memory/transient child sessions have no canonical sidebar entry. */ }
     }
   }

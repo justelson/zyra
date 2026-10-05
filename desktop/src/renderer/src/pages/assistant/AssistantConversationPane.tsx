@@ -256,7 +256,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         || (visiblePendingProjectSelection?.projectId === displayProjectId ? visiblePendingProjectSelection.project : null)
     const displayProjectName = selectedProjectRecord?.name || null
     const selectedSessionTitle = controller.selectedSession ? getSessionDisplayTitle(controller.selectedSession) : 'Assistant'
-    const activeThreadIsSubagent = controller.activeThread?.source === 'subagent'
+    const activeThreadHasAgentOrigin = controller.activeThread?.source === 'subagent' || Boolean(controller.activeThread?.agentNickname)
     const activeThreadLabel = controller.activeThread ? getAssistantThreadDisplayTitle(controller.activeThread) : null
     const selectedProjectTooltip = displayProjectPath || (
         'Select a project when this chat needs files.'
@@ -1137,7 +1137,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     }, [props.onToggleRightSidebar])
 
     const canonicalVoiceDisabled = !canonicalVoiceBinding
-        || activeThreadIsSubagent
+        || activeThreadHasAgentOrigin
         || isThreadWorking
         || controller.commandPending
     const handlePrepareCanonicalVoice = useCallback((executionConfiguration: AssistantVoiceExecutionConfiguration) => {
@@ -1167,7 +1167,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             mobileVoice={controller.activeThread?.mobileVoice}
             showPresenceBadge={settings.assistantShowStatusDetails}
             showDiagnostics={settings.assistantShowDiagnostics}
-            activeThreadIsSubagent={activeThreadIsSubagent}
+            activeThreadIsSubagent={activeThreadHasAgentOrigin}
             activeThreadLabel={activeThreadLabel}
             selectedProjectTooltip={selectedProjectTooltip}
             selectedProjectPath={displayProjectPath || null}
@@ -1183,7 +1183,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             onShowToast={props.onShowToast}
         />
     ) : null, [
-        activeThreadIsSubagent,
+        activeThreadHasAgentOrigin,
         activeThreadLabel,
         composerIsCentered,
         controller.activeThread?.canonicalPresence,

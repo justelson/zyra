@@ -125,6 +125,10 @@ try {
   const configured = JSON.parse((await tool.execute('configured-start', { action: 'start', prompt: 'Configured independent task', label: 'Configured', model: `${model.provider}/${model.id}`, effort: 'high', permissionMode: 'read-only' })).content[0].text);
   await fleet.wait(configured.agentRunId);
   assert.equal(fleet.status(configured.agentRunId).effort, 'high');
+  assert.equal(fleet.status(configured.agentRunId).conversationKind, 'thread', 'thread:start preserves explicit conversation intent in the real fleet');
+  const configuredChat = await server.catalog.find(fleet.status(configured.agentRunId).providerSessionId, { project });
+  assert.equal(configuredChat.agentConversationKind, 'thread', 'The actual child transcript is indexed only as an independent conversation');
+  assert.equal(configuredChat.agentCreatedBy, owner.sessionKey, 'Conversation visibility retains owned-child provenance');
   assert.equal(fleet.status(configured.agentRunId).selectedModel, `${model.provider}/${model.id}`);
   assert.equal(configured.configuration.permissionMode, 'read-only');
   const beforeRejected = Object.keys(fleet.snapshot().agents).length;

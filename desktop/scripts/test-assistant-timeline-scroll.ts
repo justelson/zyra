@@ -336,7 +336,7 @@ assert.doesNotMatch(pageScrollSource, /element\.scrollTo\(/, 'LegendList remains
 assert.match(timelineSource, /resolveAssistantTimelineFocusAfterFollow/, 'the rendered timeline suppresses stale focus before its reveal effects run')
 assert.equal(virtualTimelineSource.includes('completionFollowTimerRef'), true, 'completion retains one bounded post-layout correction')
 assert.equal(virtualTimelineSource.includes('if (endAlignmentFrameRef.current !== null) return'), true, 'end corrections coalesce to one animation frame')
-assert.match(virtualTimelineSource, /scrollHeight - element\.scrollTop - element\.clientHeight\) > 1\) return/, 'completion cannot snap the viewport after a visible layout shift')
+assert.match(virtualTimelineSource, /activeWindowKeyRef\.current !== targetWindowKey \|\| scrollModeRef\.current !== 'following-end'/, 'alignment rejects stale windows and deliberate history reading instead of treating late geometry as user intent')
 assert.match(workSummarySource, /resolveAssistantTimelineCompletionAnchor\(triggerRef\.current\)/, 'automatic Working minimization preserves the final-answer row rather than its own disappearing content')
 assert.equal(virtualTimelineSource.includes('onStartReached='), false, 'LegendList geometry alone cannot start pagination during bootstrap or measurement')
 assert.equal(virtualTimelineSource.includes('resolveAssistantHistoryStreamPlan'), true, 'pagination uses the velocity-aware lookahead policy')

@@ -42,11 +42,15 @@ try {
         app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
         window.webContents.on('console-message',(event,level,message)=>{if(level>=2)console.error(message)});
         await window.loadFile(${JSON.stringify(html)},${JSON.stringify(process.argv.includes('--settlement-navigation') ? { query: { settlementNavigation: '1' } } : process.argv.includes('--thread-messages') ? { query: { threadMessages: '1' } } : process.argv.includes('--unread-completion') ? { query: { unreadCompletion: '1' } } : process.argv.includes('--agent-colors') ? { query: { agentColors: '1' } } : process.argv.includes('--row-hover-actions') ? { query: { rowHoverActions: '1' } } : process.argv.includes('--voice-recorder-input') ? { query: { voiceRecorderInput: '1' } } : process.argv.includes('--conversation-markers') ? { query: { conversationMarkers: '1' } } : {})});
+        let debuggerDocument=null;
         let pumping=true;const pointerPump=(async()=>{while(pumping){
             const request=await window.webContents.executeJavaScript('window.sidebarPointerRequest && !window.sidebarPointerRequest.done ? {x:window.sidebarPointerRequest.x,y:window.sidebarPointerRequest.y,click:window.sidebarPointerRequest.click,focusSelector:window.sidebarPointerRequest.focusSelector,pseudoClass:window.sidebarPointerRequest.pseudoClass,enabled:window.sidebarPointerRequest.enabled} : null');
             if(request){
                 if(request.focusSelector){if(!window.webContents.debugger.isAttached()){window.webContents.debugger.attach('1.3');await window.webContents.debugger.sendCommand('DOM.enable');await window.webContents.debugger.sendCommand('CSS.enable')}
-                    const doc=await window.webContents.debugger.sendCommand('DOM.getDocument');const node=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:doc.root.nodeId,selector:request.focusSelector});
+                    // Reuse frontend node IDs so clearing an emulated keyboard
+                    // state releases the same node that was forced earlier.
+                    debuggerDocument ||= await window.webContents.debugger.sendCommand('DOM.getDocument');
+                    const node=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:debuggerDocument.root.nodeId,selector:request.focusSelector});
                     await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId:node.nodeId,forcedPseudoClasses:request.enabled?[request.pseudoClass||'focus-visible']:[]})}
                 else {const point={x:Math.round(request.x),y:Math.round(request.y)};window.webContents.sendInputEvent({type:'mouseMove',...point});
                     if(request.click){window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});window.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point})}}

@@ -5,7 +5,7 @@ export function createFleetTools(holder) {
   const agentTool = defineZyraTool({
     name: "agent",
     label: "Agent fleet",
-    description: "Manage bounded child agents. Before choosing a delegated model or effort, use action=models to read current delegation preferences and a small authenticated model/API-cost shortlist; choose suitable model and effort from that result. Respect explicit agent-model requirements and existing budgets/scopes. Children never receive this tool.",
+    description: "Manage supporting child agents without creating user-facing sidebar conversations. Use these for reviews, research and bounded implementation that the parent coordinates and integrates. Use thread:start only for a distinct ongoing conversation the user is likely to revisit or interact with directly; parallelism alone is not a reason. Before choosing a delegated model or effort, use action=models to read current delegation preferences and a small authenticated model/API-cost shortlist; choose suitable model and effort from that result. Respect explicit agent-model requirements and existing budgets/scopes. Children never receive this tool.",
     parameters: Type.Object({
       action: Type.Union(["models", "spawn", "send", "wait", "status", "stop", "retry", "resume"].map((value) => Type.Literal(value))),
       agentRunId: Type.Optional(Type.String()),

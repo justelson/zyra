@@ -7,6 +7,7 @@ import { ChevronDown, Copy, Folder, MoreHorizontal, PanelLeftOpen, Pin, Plug, Pl
 import { useNavigate } from 'react-router-dom'
 import type { AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import { useCommandPalette } from '@/lib/commandPalette'
+import { isAssistantUserFacingSession } from '@/lib/assistant/selectors'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import { useLoadingScreenActive } from '@/components/ui/LoadingState'
@@ -268,7 +269,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
 
     const activeSessions = useMemo(() => (
         sessions
-            .filter((session) => !session.archived && !isAssistantDraftSession(session))
+            .filter((session) => isAssistantUserFacingSession(session) && !session.archived && !isAssistantDraftSession(session))
             .sort(compareSessionsByCreatedAtDescending)
     ), [sessions])
 

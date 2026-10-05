@@ -1,4 +1,4 @@
-import { createRef, type ComponentProps } from 'react'
+import { createRef, useEffect, useState, type ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import type { LegendListRef } from '@legendapp/list/react'
@@ -71,6 +71,16 @@ async function expectVisible(key: string, label: string) {
         return Boolean(message && getComputedStyle(message).visibility === 'visible' && !loading())
     }, label)
     results.push(label)
+}
+
+function DelayedLiveWork() {
+    const [measured, setMeasured] = useState(false)
+    useEffect(() => {
+        const timer = window.setTimeout(() => setMeasured(true), 80)
+        return () => window.clearTimeout(timer)
+    }, [])
+    return <TimelineTurnWorkSummary startedAt="2026-01-01T00:00:00Z" completedAt={null} running hasWork
+        renderChildren={() => <div data-delayed-work-ready={measured} style={{ height: measured ? 6_000 : 120 }}>Late live work measurement</div>} />
 }
 
 async function run() {
@@ -192,6 +202,16 @@ async function run() {
     render('send-regression', { rows: [...responseRows, ...rows('second-send'), rows('after-latest')[1]!], renderRow: renderTallRow, coldStart: false, isWorking: true, followLatestRequestKey: 'send:two' })
     await waitFor(() => distanceFromEnd() < 2, 'Updates keep following after clicking the latest button')
     results.push('The latest button restores ongoing follow rather than behaving like a history jump')
+
+    render('focused-history', { rows: historyRows, renderRow: renderTallRow, coldStart: false, focusMessageId: 'send-history-20-user' })
+    await listRef.current?.scrollToIndex({ index: 40, viewPosition: 0.5, animated: false })
+    await new Promise(resolve => setTimeout(resolve, 150))
+    check(distanceFromEnd() > 500, 'Opening an explicit search result cannot be overridden by startup end alignment')
+    const focused = container.querySelector<HTMLElement>('[data-assistant-timeline-row-id="send-history-20-user"]')!
+    check(focused && focused.getBoundingClientRect().bottom > scrollContainerRef.current!.getBoundingClientRect().top
+        && focused.getBoundingClientRect().top < scrollContainerRef.current!.getBoundingClientRect().bottom, 'The requested older message remains in view')
+    results.push('Explicit message-search navigation keeps ownership instead of snapping to the live end')
+
     viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }))
     viewport.scrollTop = 1_000
     await pause()
@@ -211,6 +231,25 @@ async function run() {
     await new Promise(resolve => setTimeout(resolve, 500))
     check(distanceFromEnd() < 2, 'Opening actual live work does not replay its disclosure or leave the viewport at the prompt')
     results.push('Reopening real expanded work lands at its latest end after layout settles')
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+        scrollContainerRef.current!.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }))
+        scrollContainerRef.current!.scrollTop = 1_000
+        await pause()
+        render('other-chat', { coldStart: false })
+        await expectVisible('other-chat', 'The intervening chat is readable')
+        render('reopened-delayed-work', { rows: liveRows, isWorking: true, coldStart: false,
+            renderRow: row => row.id === 'live-working-assistant' ? <DelayedLiveWork /> : liveRenderer(row) })
+        await waitFor(() => Boolean(container.querySelector('[data-delayed-work-ready="true"]')), 'Delayed work content has mounted')
+        await waitFor(() => {
+            const work = container.querySelector<HTMLElement>('[data-assistant-timeline-row-id="live-working-assistant"]')
+            return Boolean(work && work.getBoundingClientRect().height >= 6_000 && distanceFromEnd() < 2)
+        }, 'Repeated reopening follows the actual end after late work measurements settle')
+        await new Promise(resolve => setTimeout(resolve, 100))
+        check(distanceFromEnd() < 2, 'Settled late work cannot reclaim the old prompt position')
+        check(listRef.current === originalList, 'Working-chat reopening preserves the list instance')
+    }
+    results.push('Eight working-chat reopens abandon old reading positions and follow delayed 6000px work layouts')
 
     for (const working of [false, true]) {
         const key = `late-history-${working}`

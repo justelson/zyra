@@ -185,6 +185,7 @@ import {
     buildStreamingToolActivity,
     handleAssistantRuntimeEvent
 } from './service-runtime-events'
+import { projectCanonicalAgentOrigin } from './service-canonical-agent-origin'
 import { hasCanonicalUserInputAttention, mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from './service-canonical-presence'
 import { leaveAssistantThreadForNavigation, shouldKeepAssistantThreadAttachedDuringNavigation } from './service-navigation-runtime'
 import { CanonicalHistoryRefreshTracker, shouldRefreshCanonicalHistory } from './canonical-history-refresh-policy'
@@ -2919,6 +2920,7 @@ export class AssistantService {
         }
         for (const chat of chats) {
             if (!chat.canonicalChatId) continue
+            const agentOrigin = projectCanonicalAgentOrigin(chat)
             const existing = this.state.snapshot.sessions
                 .flatMap((session) => session.threads.map((thread) => ({ session, thread })))
                 .find(({ thread }) => thread.providerThreadId === chat.canonicalChatId)
@@ -2984,6 +2986,7 @@ export class AssistantService {
                     || latestTurnChanged
                     || presenceChanged
                     || Boolean(chat.agentLabel && existing.thread.agentNickname !== chat.agentLabel)
+                    || Boolean(agentOrigin && existing.thread.source !== agentOrigin.source)
                 ) {
                     this.appendEvent('thread.updated', updatedAt, {
                         threadId: existing.thread.id,
@@ -2997,7 +3000,7 @@ export class AssistantService {
                             hasPendingApprovals: nextHasPendingApprovals,
                             hasPendingUserInputs: nextHasPendingUserInputs,
                             state: nextThreadState,
-                            ...(chat.agentCreatedBy ? { source: 'subagent', providerParentThreadId: chat.agentCreatedBy, agentNickname: chat.agentLabel || 'Agent' } : {}),
+                            ...agentOrigin,
                             updatedAt
                         }
                     }, existing.session.id, existing.thread.id)
@@ -3019,11 +3022,7 @@ export class AssistantService {
             const thread = createAssistantThread(createdAt, null, canonicalRuntimeCwd)
             thread.id = threadId
             thread.providerThreadId = chat.canonicalChatId
-            if (chat.agentCreatedBy) {
-                thread.source = 'subagent'
-                thread.providerParentThreadId = chat.agentCreatedBy
-                thread.agentNickname = chat.agentLabel || 'Agent'
-            }
+            if (agentOrigin) Object.assign(thread, agentOrigin)
             thread.messageCount = messageCount
             thread.activityCount = activityCount
             thread.canonicalPresence = chat.presence

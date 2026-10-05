@@ -71,6 +71,7 @@ export type CanonicalAgentChatPresence = {
 }
 
 export type CanonicalAgentChat = {
+    agentConversationKind?: 'thread' | 'subagent' | null
     agentCreatedBy?: string | null
     agentLabel?: string | null
     canonicalChatId: string

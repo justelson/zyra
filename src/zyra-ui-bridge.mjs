@@ -1046,7 +1046,7 @@ function projectFleetSnapshot(snapshot) {
     version: run.version, rootSessionId: snapshot.rootSessionId,
     agentRunId: run.agentRunId, agentId: run.agentId, definitionName: run.definitionName, label: run.label,
     parentAgentRunId: run.parentAgentRunId, workflowRunId: run.workflowRunId, workflowPhaseId: run.phaseId, workflowCallId: null,
-    goal: String(run.goal ?? "").slice(0, 1000), status: run.status, depth: run.depth, contextFork: run.contextFork,
+    goal: String(run.goal ?? "").slice(0, 1000), status: run.status, depth: run.depth, contextFork: run.contextFork, conversationKind: run.conversationKind,
     attempt: run.attempt, maxAttempts: 1, requestedModel: run.requestedModel, selectedModel: run.selectedModel, modelRoute: run.modelRoute,
     effort: run.effort, requestedTools: run.tools, grantedTools: run.tools, deniedTools: [], deniedCapabilities: [],
     controlLease: run.controlLease ?? null,

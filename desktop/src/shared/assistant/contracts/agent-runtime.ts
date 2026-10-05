@@ -35,6 +35,7 @@ export interface AgentRunState {
     status: AgentRunStatus
     depth: number
     contextFork: boolean
+    conversationKind?: 'thread' | 'subagent'
     attempt: number
     maxAttempts: number
     requestedModel: string

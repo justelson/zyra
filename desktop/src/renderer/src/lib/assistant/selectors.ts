@@ -18,8 +18,13 @@ export function getActiveAssistantThread(session: AssistantSession | null): Assi
     return session.threads.find((thread) => thread.id === session.activeThreadId) || null
 }
 
+/** Standalone supporting transcripts remain addressable, not user-facing chats. */
+export function isAssistantUserFacingSession(session: AssistantSession): boolean {
+    return session.threads.length === 0 || session.threads.some(thread => thread.source !== 'subagent')
+}
+
 export function getVisibleAssistantSessions(snapshot: AssistantSnapshot, includeArchived = false): AssistantSession[] {
-    return snapshot.sessions.filter((session) => includeArchived || !session.archived)
+    return snapshot.sessions.filter((session) => isAssistantUserFacingSession(session) && (includeArchived || !session.archived))
 }
 
 export function getAssistantSessionsByMode(
@@ -27,7 +32,7 @@ export function getAssistantSessionsByMode(
     mode: AssistantSession['mode'],
     includeArchived = false
 ): AssistantSession[] {
-    return snapshot.sessions.filter((session) => session.mode === mode && (includeArchived || !session.archived))
+    return snapshot.sessions.filter((session) => isAssistantUserFacingSession(session) && session.mode === mode && (includeArchived || !session.archived))
 }
 
 export function getAssistantPendingApprovals(thread: AssistantThread | null): AssistantPendingApproval[] {

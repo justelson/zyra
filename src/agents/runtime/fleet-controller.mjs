@@ -276,6 +276,7 @@ export class AgentFleetController {
       definitionName: definition.name,
       parentAgentRunId: request.parentAgentRunId,
       contextFork: request.contextFork,
+      conversationKind: request.conversationKind,
       workflowRunId: request.workflowRunId,
       phaseId: request.phaseId,
       label: request.label ?? definition.name ?? request.role ?? "agent",

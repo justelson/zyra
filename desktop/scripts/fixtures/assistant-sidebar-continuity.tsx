@@ -44,7 +44,8 @@ function header(displayMode: 'minimal' | 'detailed', isAgent = true) {
     </div>
 }
 function session(id: string, working = false): AssistantSession {
-    const thread = { id: `${id}-thread`, source: id === 'child' ? 'subagent' : 'root', providerThreadId: id,
+    const thread = { id: `${id}-thread`, source: 'root', providerThreadId: id,
+        agentNickname: id === 'child' ? 'Xara' : null, providerParentThreadId: id === 'child' ? 'parent-canonical' : null,
         model: 'openai/gpt-test', messages: [{ id: `${id}-answer`, role: 'assistant', text: 'Saved answer', createdAt: now, updatedAt: now }],
         activities: [], pendingApprovals: [], pendingUserInputs: [], state: 'ready', messageCount: 1, activityCount: 0,
         createdAt: now, updatedAt: now, canonicalPresence: { state: working ? 'running' : 'ready', clients: id === 'child' ? [
@@ -68,6 +69,11 @@ function render() {
     </div>))
 }
 function row(id: string) { return document.querySelector<HTMLElement>(`[data-agent-inbox-layout-id="${id}"]`)! }
+function section(id: string) {
+    let sibling = row(id)?.previousElementSibling
+    while (sibling?.hasAttribute('data-agent-inbox-layout-id')) sibling = sibling.previousElementSibling
+    return sibling?.textContent?.trim()
+}
 function titleReadable(id: string) {
     const element = row(id).querySelector<HTMLElement>('span[aria-label]:not([aria-label="Agent-created chat"])')!
     const inner = element.firstElementChild as HTMLElement
@@ -109,7 +115,7 @@ async function checkUnreadCompletion() {
     sessions = [session('drawing'), session('child', true)]
     render(); await sleep(250)
     const cardHeight = row('child').getBoundingClientRect().height
-    check(cardHeight > 60, 'Background working chat starts as a large current card')
+    check(cardHeight > 60 && section('child') === 'Priority', 'Background working chat starts as a full-size Priority card')
     let sequence = 0
     const project = (type: string, payload: Record<string, unknown>) => {
         sessions = applyAssistantDomainEvents({ ...createDefaultAssistantSnapshot(), sessions, selectedSessionId: selected }, [{
@@ -121,15 +127,15 @@ async function checkUnreadCompletion() {
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: completedTurn })
     project('thread.updated', { threadId: 'child-thread', patch: { state: 'ready', canonicalPresence: { state: 'ready', clients: [] } } })
     render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight, 'Unread completed chat retains its large current card')
+    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Unread completed chat keeps a full-size Recent card, not Priority')
     check(row('child').textContent?.includes('Done'), 'Retained completion card says Done')
     selected = 'child'; render(); await sleep(250)
     project('thread.updated', { threadId: 'child-thread', patch: { lastSeenCompletedTurnId: completedTurn.id } })
     selected = 'drawing'; render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === 36, 'Opened/read completion moves to Recent and remains there after navigating away')
+    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Read completion keeps the full-size Recent card')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...completedTurn, id: 'child-new-turn' } })
     render(); await sleep(250)
-    await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight, 'A newly completed unread turn returns the chat to its large card')
+    await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight && Boolean(row('child').textContent?.includes('Done')), 'A new unread completion remains a readable Done card in Recent')
     const stoppedTurn = { ...completedTurn, id: 'child-stopped-turn', state: 'interrupted' }
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: stoppedTurn })
     project('thread.updated', { threadId: 'child-thread', patch: { state: 'interrupted' } })
@@ -138,23 +144,23 @@ async function checkUnreadCompletion() {
     selected = 'child'; render(); await sleep(250)
     project('thread.updated', { threadId: 'child-thread', patch: { lastSeenCompletedTurnId: stoppedTurn.id } })
     selected = 'drawing'; render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === 36, 'Opening stopped work demotes it to Recent')
+    check(row('child').getBoundingClientRect().height === cardHeight, 'Opening stopped work keeps its full-size Recent card')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...stoppedTurn } })
     render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === 36, 'Repeated stop event cannot promote an already seen turn')
+    check(row('child').getBoundingClientRect().height === cardHeight, 'Repeated stop preserves the same full-size Recent card')
     sessions = structuredClone(sessions); render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === 36, 'Rehydrated read state survives remount/reload snapshots')
+    check(row('child').getBoundingClientRect().height === cardHeight, 'Rehydrated read state preserves the Recent card')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...stoppedTurn, id: 'child-new-stopped-turn' } })
     render(); await sleep(250)
     await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight, 'Only a newly stopped unread turn restores its current card')
-    return ['working -> unread Done -> seen Recent; unread Stopped -> seen Recent remains read across duplicate stop and refreshed snapshots']
+    return ['working Priority -> full-size unread/read Done and Stopped Recent; duplicate events preserve read state and card geometry']
 }
 
 async function checkRowHoverActions() {
     render(); await sleep(250)
     for (const id of ['child', 'other']) {
         const target = row(id).querySelector<HTMLElement>('[role="button"]')!
-        const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!
+        const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat stays in Priority"]')!
         const actions = settle.parentElement!.parentElement!
         const rect = target.getBoundingClientRect()
         await movePointer(rect.left + 45, rect.top + rect.height / 2, true)
@@ -167,7 +173,7 @@ async function checkRowHoverActions() {
         check(getComputedStyle(actions).opacity === '0', `${id}: clicking then leaving hides hover actions`)
         check(actions.getBoundingClientRect().width < .5, `${id}: leaving releases the action slot`)
         check(getComputedStyle(target).backgroundColor === selectedBackground, 'Selected highlight remains after pointer leaves')
-        if (id === 'child') check(row(id).querySelector<HTMLElement>('[class*="max-w-20"]')!.getBoundingClientRect().width > 0, 'Recency returns after leaving the selected row')
+        if (id === 'child') check(row(id).querySelector<HTMLElement>('span.whitespace-nowrap.tabular-nums')!.getBoundingClientRect().width > 0, 'Recency remains readable after leaving the selected card')
         // Offscreen windows cannot acquire OS keyboard focus. Test the actual
         // stylesheet's keyboard state through Chromium's pseudo-state API.
         target.focus()
@@ -203,7 +209,7 @@ async function run() {
     check(!agent.querySelector('img'), 'Agent origin does not use an inspector avatar')
     check(getComputedStyle(agent).color !== getComputedStyle(presence.querySelector('[data-tui-presence]')!).color, 'Agent has its own category color')
     const title = row('child').querySelector<HTMLElement>('span[aria-label]')!
-    check(title.getBoundingClientRect().right <= presence.getBoundingClientRect().left, 'Agent indicator belongs after the title with surface icons')
+    check(title.getBoundingClientRect().right <= presence.getBoundingClientRect().left || title.getBoundingClientRect().bottom <= presence.getBoundingClientRect().top, 'Agent indicator does not overlap the title on the full-size card')
     check(getComputedStyle(row('drawing').querySelector('[role="button"]')!).boxShadow === 'none', 'Selected row has no added stripe')
     results.push('selection stripe removed; existing robot icon grouped with terminal/mobile indicators in its own color')
     for (const fontSize of [12, 14, 16, 20]) {
@@ -211,6 +217,7 @@ async function run() {
         await sleep(200)
         const child = row('child')
         child.querySelector<HTMLElement>('[role="button"]')!.focus()
+        await keyboardFocusStyle('child', true)
         await sleep(180)
         const settle = child.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!
         const actions = settle.parentElement!.parentElement!
@@ -218,6 +225,8 @@ async function run() {
         check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, `Menu button fits its reveal slot at ${fontSize}px: ${JSON.stringify({slot: actions.getBoundingClientRect().width, content: actions.firstElementChild!.getBoundingClientRect().width, focused: document.activeElement?.outerHTML.slice(0, 250), focusWithin: child.matches(':focus-within'), opacity: getComputedStyle(actions).opacity, columns: getComputedStyle(actions).gridTemplateColumns})}`)
         check(menu.getBoundingClientRect().right <= child.querySelector('[role="button"]')!.getBoundingClientRect().right - 2, 'Menu button retains right-edge clearance')
         ;(document.activeElement as HTMLElement).blur()
+        await keyboardFocusStyle('child', false)
+        await movePointer(900, 750, true)
         await sleep(180)
         check(actions.getBoundingClientRect().width < .5, 'Hidden controls release all of their layout width')
     }
@@ -236,7 +245,8 @@ async function run() {
                 const a = actions.getBoundingClientRect()
                 const b = settle.getBoundingClientRect()
                 check(b.left >= a.left - .5, `Settle control cannot extend left of its allocated slot: ${JSON.stringify({width, frame, action: a.toJSON(), button: b.toJSON()})}`)
-                check(a.left >= group.getBoundingClientRect().right - .5, 'Animated actions cannot cover surface indicators')
+                const surfaces = group.getBoundingClientRect()
+                check(a.left >= surfaces.right - .5 || a.bottom <= surfaces.top || a.top >= surfaces.bottom, 'Animated actions cannot cover surface indicators on either card row')
                 const robot = group.querySelector<HTMLElement>('[data-agent-presence]')!.getBoundingClientRect()
                 check(!document.elementFromPoint(robot.left + robot.width / 2, robot.top + robot.height / 2)?.closest('[aria-label="Settle chat"]'), 'Robot is never a settle-button hit target')
             }
@@ -248,9 +258,12 @@ async function run() {
         await inspectAnimation()
         check(getComputedStyle(actions).opacity === '0', 'Unhovered settle control stays hidden')
         child.querySelector<HTMLElement>('[role="button"]')!.focus()
+        await keyboardFocusStyle('child', true)
         await inspectAnimation()
         check(getComputedStyle(actions).opacity === '1', 'Keyboard focus reveals actions')
         ;(document.activeElement as HTMLElement).blur()
+        await keyboardFocusStyle('child', false)
+        await movePointer(900, 750, true)
         await sleep(180)
         const menu = child.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         menu.click(); await sleep(180)
@@ -263,7 +276,7 @@ async function run() {
     const drawingTop = row('drawing').getBoundingClientRect().top
     for (const id of ['child', 'drawing', 'child', 'drawing']) {
         selected = id; render(); titleReadable('drawing'); titleReadable('child')
-        check(row('drawing').getBoundingClientRect().height === 36, 'Completed chats keep the same row height across selection')
+        check(row('child').getBoundingClientRect().height === row('drawing').getBoundingClientRect().height && row('child').getBoundingClientRect().height > 60, 'Completed chats keep matching full-size card geometry across selection')
         check(row('drawing').getBoundingClientRect().top === drawingTop, 'Selecting a completed chat does not reshuffle Recent')
     }
     results.push('rapid completed-chat switching keeps titles painted and row geometry stable')
@@ -273,7 +286,7 @@ async function run() {
     sessions = sessions.map(item => item.id === 'child' ? session('child', true) : item)
     render(); await sleep(300)
     check(row('child').getBoundingClientRect().top === targetTop, 'Background status changes cannot move a hovered navigation target')
-    check(row('child').textContent?.includes('working') || row('child').querySelector('[title="working"]'), 'A held row still updates its live status')
+    check(row('child').textContent?.includes('Working'), 'A held card still updates its live status')
     scroll.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); await sleep(300)
     check(row('child').textContent?.includes('Working'), 'Releasing navigation updates Active work membership')
     results.push('pointer-held targets remain stable while live work status continues updating')
@@ -285,10 +298,11 @@ async function run() {
     for (const width of [240, 300, 420]) {
         document.getElementById('rail')!.style.width = `${width}px`
         row('child').querySelector<HTMLElement>('[role="button"]')!.focus()
+        await keyboardFocusStyle('child', true)
         await sleep(180)
         titleReadable('child')
         const status = Array.from(row('child').querySelectorAll('span')).find(element => element.classList.contains('assistant-agent-inbox-working-text'))!
-        const settle = row('child').querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!
+        const settle = row('child').querySelector<HTMLButtonElement>('[aria-label="Working chat stays in Priority"]')!
         const actions = settle.parentElement!.parentElement!
         const menu = row('child').querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, 'Active card menu fits its reveal slot')

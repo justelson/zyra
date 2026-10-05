@@ -58,7 +58,7 @@ export type AssistantSessionsRailProps = {
 }
 
 export function isAssistantDraftThread(thread: AssistantThread): boolean {
-    if (thread.source === 'subagent') return false
+    if (thread.source === 'subagent' || thread.agentNickname) return false
     const userVisibleMessages = (thread.messages || []).filter((message) => message.role !== 'system')
     return userVisibleMessages.length === 0
         && !thread.latestTurn

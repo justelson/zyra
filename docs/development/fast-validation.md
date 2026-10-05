@@ -4,7 +4,7 @@
 
 Preserve the release gates. A focused unit test proves its own behavior; add the relevant integration check when a change crosses a real boundary, and report any unverified path.
 
-Maintainer-local release-cycle details: `docs.local/README.md`, `docs.local/runbooks/manual-publishing-workflow.md`, and version handoffs under `docs.local/releases/` (repository-relative, ignored; available in the maintainer's checkout).
+[Shipping](shipping.md) separates quick checks, explicitly requested personal previews and stable publication. Private release evidence stays under ignored `docs.local/`.
 
 ## Command map
 
@@ -12,6 +12,7 @@ Run these from the repository root unless the command says otherwise.
 
 | Work | Command | What it proves |
 | --- | --- | --- |
+| Personal preview isolation and packaging policy | `npm --prefix desktop run test:preview-infra` | Stable/dev identities preserved; preview profiles/namespaces separated; terminal/update/installer guards; exact-source checkout, four lockstep versions and request-only Windows workflow. Does not build or install an app. |
 | Chat reopening, stream presentation and compaction sends | `npm --prefix desktop run test:timeline-presentation` and `npm --prefix desktop run test:assistant-switching` | Hidden React/LegendList reopening, delayed hydration, end follow, immediate saved responses, retained older-page rejection, and compaction-safe queued sends with attachments; provider dispatch is stubbed |
 | Unread completed chat cards | `npm --prefix desktop run test:assistant-unread-completion` | Actual sidebar and application CSS preserve full-size Done/Stopped cards in Recent, read state across duplicate events, and Priority membership only while working or pinned |
 | Settled chat navigation | `npm --prefix desktop run test:assistant-settlement` | Saved settlement survives summary/history transitions, reopening, settings changes and sidebar remounts; new turns/messages revive chats; legacy saved choices are retained; pure policy plus hidden isolated Electron |

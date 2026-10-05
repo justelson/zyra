@@ -226,6 +226,7 @@
         "runtime:stage": "node scripts/release/stage-zyra-runtime.mjs",
         "runtime:validate": "node scripts/release/validate-zyra-runtime.mjs",
         "test:packaged-runtime": "bun scripts/test-packaged-runtime-contract.ts",
+        "test:preview-infra": "bun scripts/test-preview-identity.ts && bun scripts/test-preview-terminal-isolation.ts && node scripts/test-preview-build.mjs",
         "test:updater-release-feed": "bun scripts/test-desktop-updater-release-feed.ts",
         "test:update-controls": "bun scripts/test-app-update-controls.ts",
         "release:prepare": "node scripts/release/prepare-release-resources.mjs",

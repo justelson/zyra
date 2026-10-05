@@ -4,10 +4,12 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { browserAssistantBridgeProxyPlugin } from './scripts/maint/browser-assistant-bridge-proxy'
+import { createDesktopBuildMetadata } from './src/shared/distribution-identity'
 
 const projectRoot = resolve(__dirname)
 const rendererRoot = resolve(__dirname, 'src/renderer')
 const desktopVersion = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version
+const buildMetadataDefine = { __ZYRA_BUILD_METADATA__: JSON.stringify(createDesktopBuildMetadata(process.env)) }
 // Fast builds bundle main/preload after a cached renderer typecheck. Transforming
 // the renderer's complete Monaco/Shiki graph is reserved for the production gate.
 const fastBuild = process.env.ZYRA_FAST_BUILD === '1'
@@ -27,6 +29,7 @@ const nodeFirstMainEntriesPlugin = {
 
 export default defineConfig({
     main: {
+        define: buildMetadataDefine,
         plugins: [
             externalizeDepsPlugin({
                 include: ['node-pty']
@@ -47,6 +50,7 @@ export default defineConfig({
         }
     },
     preload: {
+        define: buildMetadataDefine,
         plugins: [externalizeDepsPlugin()],
         build: {
             ...(fastBuild ? { minify: false, reportCompressedSize: false } : {}),
@@ -64,7 +68,8 @@ export default defineConfig({
     renderer: fastBuild ? undefined : {
         root: rendererRoot,
         define: {
-            __ZYRA_DESKTOP_VERSION__: JSON.stringify(desktopVersion)
+            __ZYRA_DESKTOP_VERSION__: JSON.stringify(desktopVersion),
+            ...buildMetadataDefine
         },
         optimizeDeps: {
             include: ['@pierre/diffs', '@pierre/diffs/react', '@pierre/diffs/worker/worker.js'],

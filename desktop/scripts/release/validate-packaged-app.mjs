@@ -50,7 +50,7 @@ async function requireOne(files, label) {
 async function findPackagedExecutable(resources, platform) {
     const applicationRoot = path.dirname(resources)
     const candidates = platform === 'windows'
-        ? [path.join(applicationRoot, 'Zyra.exe')]
+        ? [path.join(applicationRoot, `${arg('executable-name', 'Zyra')}.exe`)]
         : platform === 'macos'
             ? [path.join(applicationRoot, 'MacOS', 'Zyra')]
             : [
@@ -129,6 +129,11 @@ async function runPackagedLaunchSmoke(resources, platform, version) {
         const result = JSON.parse(await readFile(marker, 'utf8'))
         if (result.version !== version || result.platform !== (platform === 'windows' ? 'win32' : platform === 'macos' ? 'darwin' : 'linux')) {
             throw new Error(`Packaged launch identity is invalid: ${JSON.stringify(result)}`)
+        }
+        if (arg('expected-distribution') === 'preview') {
+            if (result.distribution !== 'preview' || result.sourceSha !== arg('expected-source-sha')
+                || result.appName !== 'Zyra Preview' || path.basename(result.userDataPath) !== 'Zyra Preview'
+                || !result.namespaceId) throw new Error('Packaged preview identity or provenance is invalid')
         }
         if (path.resolve(result.resourcesPath) !== path.resolve(resources)
             || path.resolve(result.runtimeRoot) !== path.resolve(resources, 'zyra-runtime')) {

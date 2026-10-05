@@ -2,7 +2,7 @@
 
 Zyra is pre-1.0. Release versions still describe meaningful product and compatibility boundaries.
 
-Maintainer checkout: local release-cycle details are indexed in `docs.local/README.md`, with the operating workflow at `docs.local/runbooks/manual-publishing-workflow.md` and version handoffs under `docs.local/releases/`. These ignored local documents are available only in the maintainer's checkout.
+[Checks, personal previews and releases](docs/development/shipping.md) is the contributor workflow. Installer previews are explicitly requested, helper-built test artifacts, not stable releases. Private execution evidence remains under ignored `docs.local/`; historical manual handoffs are not the current development workflow.
 
 ## Lockstep version policy
 
@@ -11,7 +11,7 @@ The CLI/runtime and Desktop ship as one Zyra product version. These four values 
 - `package.json` and the root entry in `package-lock.json`;
 - `desktop/package.json` and the root entry in `desktop/package-lock.json`.
 
-For the current v0.7.0 candidate they are all `0.7.0`. See [candidate scope and remaining gates](docs/releases/0.7.0.md). The internal Desktop package is `zyra-desktop`; the visible product remains **Zyra** and the stable application identifier remains `app.zyra.desktop`. Desktop and the local Browser surface both report the Desktop package version injected by the two Vite builds.
+The published v0.7.0 source uses `0.7.0`. See [release scope and recorded gates](docs/releases/0.7.0.md). The internal Desktop package is `zyra-desktop`; the visible product remains **Zyra** and the stable application identifier remains `app.zyra.desktop`. Desktop and the local Browser surface both report the Desktop package version injected by the two Vite builds.
 
 Do not independently bump the CLI/runtime or Desktop. Run the release contract after every version change:
 

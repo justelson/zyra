@@ -23,6 +23,7 @@ import {
     shouldBroadcastDownloadProgress
 } from './update-state'
 import { resolveGitHubReleaseFeed } from './github-release-feed'
+import { previewAutoUpdateDisabledReason } from '../../shared/distribution-identity'
 import { classifyAnalyticsErrorCode as updateAnalyticsErrorCode } from '../../shared/analytics/error-code'
 
 export const UPDATE_STATE_CHANNEL = 'devscope:updates:state'
@@ -78,7 +79,7 @@ export function configureUpdateAnalytics(capture: typeof captureUpdateAnalytics)
 }
 
 function currentAutoUpdateDisabledReason(): string | null {
-    return getAutoUpdateDisabledReason({
+    return previewAutoUpdateDisabledReason() || getAutoUpdateDisabledReason({
         isPackaged: app.isPackaged,
         disabledByEnv: process.env.ZYRA_DISABLE_AUTO_UPDATE === '1' || process.env.DEVSCOPE_DISABLE_AUTO_UPDATE === '1',
         platform: process.platform,

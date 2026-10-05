@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import { app } from 'electron'
 import { writeBytesAtomically } from './setup/atomic-json'
 import { resolveDesktopAgentServerNamespace } from './assistant/agent-server-namespace'
+import { canManageGlobalTerminalCommand, isPreviewDistribution } from '../shared/distribution-identity'
 
 const execFileAsync = promisify(execFile)
 const MARKER = 'zyra-desktop-managed-launcher:v1'
@@ -27,12 +28,12 @@ export async function getTerminalCommandStatus(): Promise<TerminalCommandStatus>
         installed: Boolean(contents),
         managed: contents.includes(MARKER) || contents.includes('zyra-managed-launcher:v1'),
         pathConfigured: pathEntries().includes(path.dirname(target).toLowerCase()),
-        canManage: app.isPackaged
+        canManage: canManageGlobalTerminalCommand(app.isPackaged)
     }
 }
 
 export async function installTerminalCommand(): Promise<TerminalCommandStatus> {
-    if (!app.isPackaged) throw new Error('Manage the global zyra command from the installed app, not a development instance.')
+    if (!canManageGlobalTerminalCommand(app.isPackaged)) throw new Error(isPreviewDistribution() ? 'Preview builds cannot replace the stable zyra command.' : 'Manage the global zyra command from the installed app, not a development instance.')
     const current = await getTerminalCommandStatus()
     if (current.installed && !current.managed) throw new Error(`Refusing to replace an unmanaged command at ${current.path}.`)
     const executable = process.platform === 'linux' && process.env.APPIMAGE ? process.env.APPIMAGE : app.getPath('exe')
@@ -47,7 +48,7 @@ export async function installTerminalCommand(): Promise<TerminalCommandStatus> {
 }
 
 export async function removeTerminalCommand(): Promise<TerminalCommandStatus> {
-    if (!app.isPackaged) throw new Error('Manage the global zyra command from the installed app, not a development instance.')
+    if (!canManageGlobalTerminalCommand(app.isPackaged)) throw new Error(isPreviewDistribution() ? 'Preview builds cannot remove the stable zyra command.' : 'Manage the global zyra command from the installed app, not a development instance.')
     const current = await getTerminalCommandStatus()
     if (current.installed && !current.managed) throw new Error(`Refusing to remove an unmanaged command at ${current.path}.`)
     await rm(current.path, { force: true })

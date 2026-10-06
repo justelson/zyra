@@ -237,3 +237,5 @@ When adding tests:
 When adding a new desktop source surface, add or update its scoped `tsconfig.*.json` and verify both the scope and the full graph.
 
 Requested Dev previews run `npm --prefix desktop run test:dev-preview-behavior` before packaging. It covers initial selection, Agent Inbox defaults, Dev labels, bounded title recovery, real-service completion wiring and canonical commit ordering, provider phase projection/batching and Work disclosure, optional projectless workspace setup, stale snapshot/send acknowledgement recovery and streaming Markdown structure. Live Markdown geometry and 80ms parse coalescing run in both motion modes. Electron fixtures use isolated temporary profiles; they do not prove live-provider behavior.
+
+The phase-history regression includes a fresh process reconstructed from real SQLite rows: running-response phase is recovered from bounded canonical metadata before hydration, with concurrent reads shared and live metadata taking precedence. Rename fault checks wait for every canonical save before surfacing failure, keeping later queued names ordered and failed local titles unchanged.

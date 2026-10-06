@@ -125,6 +125,15 @@ const recoverySource = serviceSource.slice(serviceSource.indexOf('private async 
 assert.match(recoverySource, /getTitleGenerationModel/, 'startup title recovery must read the same title-model preference')
 assert.match(recoverySource, /preferredModel,\s*generateText/, 'startup title recovery must pass the configured utility model')
 assert.doesNotMatch(recoverySource, /preferredModel: thread\.model/, 'startup recovery cannot silently inherit the conversation model')
+for (const [start, end] of [
+    ['async regenerateSessionTitle(', 'async archiveSession('],
+    ['private async maybeAutoRegenerateSessionTitle(', 'private recoverSidebarSessionTitles('],
+    ['private async recoverSessionTitle(', 'private async ensureReady(']
+]) {
+    const titleCallbackSource = serviceSource.slice(serviceSource.indexOf(start), serviceSource.indexOf(end))
+    assert.match(titleCallbackSource, /await awaitCanonicalSessionTitleSaves\(/, 'each multi-chat title callback must settle its complete save cohort before releasing the commit queue')
+    assert.doesNotMatch(titleCallbackSource, /await Promise\.all\(/, 'multi-chat title callbacks cannot reject while prior canonical writes remain in flight')
+}
 assert.match(promptTurnSource, /skipTitleGeneration: true/, 'Desktop-owned prompts must disable the bridge worker\'s second hardcoded title request')
 
 console.log('Assistant title-generation model boundary: ok')

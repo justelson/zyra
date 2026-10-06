@@ -43,7 +43,7 @@ import {
     requireSession
 } from './service-state'
 import { buildSessionHistoryMutationResult } from './session-mutation-utils'
-import { commitAssistantSessionTitle } from './session-title-updates'
+import { awaitCanonicalSessionTitleSaves, commitAssistantSessionTitle } from './session-title-updates'
 import { getAssistantCanonicalThreadId, matchesAssistantThreadId } from './thread-identity'
 import {
     queueGeneratedSessionTitle,
@@ -198,6 +198,10 @@ export async function renameAssistantSessionAction(deps: AssistantServiceActionD
     return commitAssistantSessionTitle(sessionId, async () => {
         const session = requireSession(deps.getSnapshot(), sessionId)
         const nextTitle = title.trim() || session.title
+        await awaitCanonicalSessionTitleSaves(session.threads
+            .map((thread) => thread.providerThreadId)
+            .filter((threadId): threadId is string => Boolean(threadId))
+            .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle })))
         const occurredAt = nowIso()
         deps.appendEvent('session.updated', occurredAt, {
             sessionId,
@@ -206,10 +210,6 @@ export async function renameAssistantSessionAction(deps: AssistantServiceActionD
                 updatedAt: occurredAt
             }
         }, sessionId)
-        await Promise.all(session.threads
-            .map((thread) => thread.providerThreadId)
-            .filter((threadId): threadId is string => Boolean(threadId))
-            .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle })))
         return { success: true as const }
     })
 }

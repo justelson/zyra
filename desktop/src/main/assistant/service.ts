@@ -95,8 +95,9 @@ import type { AnalyticsEventInput, AnalyticsEventName } from '../../shared/analy
 import { inspectProjectAnalyticsCapabilities } from '../analytics/project-capabilities'
 import { classifyAnalyticsErrorCode as classifyAnalyticsError } from '../../shared/analytics/error-code'
 import { findAssistantMessageReplayDuplicateIds, preserveCanonicalUserReplayBoundaries } from '../../shared/assistant/message-reconciliation'
-import { normalizeCanonicalMessageSourceId } from '../../shared/assistant/message-identity'
+import { canonicalDesktopMessageId, canonicalPiMessageSourceId } from './canonical-message-identity'
 import { preserveAssistantMessagePhases } from '../../shared/assistant/message-phase'
+import { CanonicalMessagePhaseRecovery } from './canonical-message-phase-recovery'
 import { extractAssistantEventMessagePhase } from './assistant-message-content'
 import { replaceSerializedAssistantImageAttachments } from '../../shared/assistant/message-attachments'
 import { reconcileAssistantUserInputResponseMessageIds } from '../../shared/assistant/user-input-continuation'
@@ -157,6 +158,7 @@ import { FleetProjection, shouldApplyAssistantFleetSnapshot } from './fleet-proj
 import { recoverSessionTitleFromHistory, queueGeneratedSessionTitle, regenerateSessionTitle as generateReplacementSessionTitle, regenerateSessionTitleFromPrompt, shouldAutoRegenerateSessionTitle, shouldGenerateSessionTitleForPrompt } from './session-title-generation'
 import { recoverAssistantSidebarTitles } from './sidebar-title-recovery'
 import { findSessionTitleThread, resolveSessionTitleTarget } from './session-title-target'
+import { awaitCanonicalSessionTitleSaves } from './session-title-updates'
 import { applyDomainEvent, createDefaultSnapshot } from './projector'
 import { approvePendingPlaygroundLabRequestAction, attachSessionToPlaygroundLabAction, createPlaygroundLabAction, declinePendingPlaygroundLabRequestAction, deletePlaygroundLabAction, setPlaygroundRootAction } from './service-playground-actions'
 import {
@@ -449,6 +451,7 @@ export class AssistantService {
     private canonicalHistoryBodyCacheBytes = 0
     private readonly canonicalHistoryLoadPromises = new Map<string, Promise<void>>()
     private readonly canonicalHistoryRefresh = new CanonicalHistoryRefreshTracker()
+    private readonly canonicalMessagePhaseRecovery = new CanonicalMessagePhaseRecovery()
     private readonly canonicalHistoryState = new Map<string, {
         before: string | null
         hasOlder: boolean
@@ -1311,6 +1314,35 @@ export class AssistantService {
         const refreshedRecord = findThreadRecord(this.state.snapshot, threadId) || record
         const detail = await this.persistence.readThreadDetail(refreshedRecord.thread.id)
         detail.history.messages = preserveAssistantMessagePhases(refreshedRecord.thread.messages, detail.history.messages)
+        if (refreshedRecord.thread.providerThreadId) {
+            detail.history.messages = await this.canonicalMessagePhaseRecovery.recover(refreshedRecord.thread, detail.history.messages, async () => {
+                try {
+                    const history = await this.runtime.readCanonicalChatHistory(refreshedRecord.thread.providerThreadId!, this.getSessionRuntimeCwd(refreshedRecord.session, refreshedRecord.thread), {
+                        limit: CANONICAL_CHAT_HISTORY_PAGE_LIMIT,
+                        toolResultBodies: 'lazy-v1'
+                    })
+                    return history?.entries || null
+                } catch (error) {
+                    log.warn('[Assistant] Failed to recover canonical message phase', error)
+                    return null
+                }
+            })
+            // A live event may have advanced the message while the read was in
+            // flight. Copy only missing phase onto current resident records.
+            const current = findThreadRecord(this.state.snapshot, threadId)
+            if (current) {
+                const livePhases = new Map(current.thread.messages.filter(message => message.role === 'assistant' && message.phase)
+                    .map(message => [message.id, message.phase] as const))
+                detail.history.messages = detail.history.messages.map(message => {
+                    const phase = message.role === 'assistant' ? livePhases.get(message.id) : undefined
+                    return phase && phase !== message.phase ? { ...message, phase } : message
+                })
+                const resident = preserveAssistantMessagePhases(detail.history.messages, current.thread.messages)
+                if (resident !== current.thread.messages) this.appendEvent('thread.updated', nowIso(), {
+                    threadId, patch: { messages: resident.filter((message, index) => message !== current.thread.messages[index]) }
+                }, current.session.id, threadId)
+            }
+        }
         return { success: true as const, detail }
     }
 
@@ -1495,7 +1527,7 @@ export class AssistantService {
                 this.appendEvent(type, occurredAt, payload, eventSessionId, eventThreadId)
             },
             onApplied: async (nextTitle) => {
-                await Promise.all(canonicalIds
+                await awaitCanonicalSessionTitleSaves(canonicalIds
                     .map((providerThreadId) => this.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle })))
             }
         }
@@ -3463,7 +3495,7 @@ export class AssistantService {
                 this.appendEvent(type, occurredAt, payload, eventSessionId, eventThreadId)
             },
             onApplied: async (nextTitle) => {
-                await Promise.all(session.threads
+                await awaitCanonicalSessionTitleSaves(session.threads
                     .map((entry) => entry.providerThreadId)
                     .filter((providerThreadId): providerThreadId is string => Boolean(providerThreadId))
                     .map((providerThreadId) => this.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle })))
@@ -3517,7 +3549,7 @@ export class AssistantService {
             },
             onApplied: async title => {
                 const { canonicalIds } = resolveSessionTitleTarget(session)
-                await Promise.all(canonicalIds.map(id => this.runtime.updateCanonicalChat(id, { title })))
+                await awaitCanonicalSessionTitleSaves(canonicalIds.map(id => this.runtime.updateCanonicalChat(id, { title })))
             }
         })
         return true
@@ -4232,26 +4264,8 @@ function countMergedCanonicalRecords<T extends { id: string }>(existing: T[], in
     return ids.size
 }
 
-function canonicalPiMessageSourceId(message: Record<string, unknown>, fallback: string): string {
-    const zyraCanonical = asCanonicalRecord(message['zyraCanonicalMessage'])
-    const canonicalMessageId = String(zyraCanonical?.['canonicalMessageId'] || '').trim()
-    if (canonicalMessageId) return normalizeCanonicalMessageSourceId(canonicalMessageId)
-    const timestamp = Number(message['timestamp'])
-    const role = String(message['role'] || 'unknown')
-    return Number.isFinite(timestamp) && timestamp > 0
-        ? `zyra-message:${role}:${Math.trunc(timestamp)}`
-        : fallback
-}
-
 function canonicalMessageModality(value: unknown): AssistantMessage['modality'] {
     return value === 'voice' || value === 'image' || value === 'multimodal' ? value : 'text'
-}
-
-function canonicalDesktopMessageId(role: string, sourceMessageId: string): string {
-    if (sourceMessageId.startsWith('voice_')) return sourceMessageId
-    if (role === 'assistant') return `assistant-message-${sourceMessageId}`
-    if (role === 'user') return `assistant-message-user-${sourceMessageId}`
-    return sourceMessageId
 }
 
 function canonicalMessageSignature(message: Pick<AssistantMessage, 'role' | 'text'>): string {

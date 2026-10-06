@@ -14,7 +14,7 @@ try {
     await mkdir(evidence, { recursive: true })
     await writeFile(join(directory, 'settings.ts'), 'export function useSettings(){ return { settings: { assistantAllowCollapseWhileWorking:false, assistantShowActionStats:false } } }')
     await build({ entryPoints: [join(desktop, 'scripts/fixtures/assistant-final-response-collapse.tsx')], outfile: join(directory, 'fixture.js'),
-        bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic',
+        bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.woff2': 'dataurl' },
         alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') },
         define: { 'process.env.NODE_ENV': '"test"', 'import.meta.hot': 'undefined' } })
     await writeFile(join(directory, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self';script-src 'self';style-src 'self' 'unsafe-inline'"><style>

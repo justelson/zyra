@@ -105,18 +105,25 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const contentUnmountTimerRef = useRef<number | null>(null)
     const pendingExpansionAnchorRef = useRef<HTMLElement | null>(null)
     const minimal = displayMode === 'minimal'
-    const statusText = statusLabel || formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount)
+    const working = running && !collapseForTerminalResponse
+    const statusText = statusLabel || (running && collapseForTerminalResponse
+        ? visibleActionCount > 0 ? `Work · ${visibleActionCount} ${visibleActionCount === 1 ? 'action' : 'actions'}` : 'Work'
+        : formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount))
     useEffect(() => {
         const updateStatusText = () => {
             if (statusTextRef.current) {
-                statusTextRef.current.textContent = statusLabel || formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount)
+                if (working && !statusLabel) {
+                    statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, true, visibleActionCount)
+                } else {
+                    statusTextRef.current.textContent = statusText
+                }
             }
         }
         updateStatusText()
-        if (!running || statusLabel) return
+        if (!working || statusLabel) return
         const intervalId = window.setInterval(updateStatusText, 1000)
         return () => window.clearInterval(intervalId)
-    }, [visibleActionCount, completedAt, displayMode, running, startedAt, statusLabel])
+    }, [visibleActionCount, completedAt, working, startedAt, statusLabel, statusText])
     const outcomeLabel = outcome === 'failed'
         ? 'Failed'
         : outcome === 'no-response'
@@ -228,6 +235,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     if (interruptionMarker && !hasWork) {
         return <div className="max-w-4xl py-0.5">{interruptionMarker}</div>
     }
+    if (running && collapseForTerminalResponse && !hasWork) return null
 
     return (
         <div
@@ -252,7 +260,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                     )}
                     title={activeCollapseLocked ? 'Ongoing work stays visible' : expanded ? 'Hide work' : 'Show work'}
                 >
-                    {running ? (
+                    {working ? (
                         <span data-assistant-working-dots="true" className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
                             <span className="h-1 w-1 rounded-full bg-white/25 motion-safe:animate-pulse" />
                             <span className="h-1 w-1 rounded-full bg-white/25 motion-safe:animate-pulse [animation-delay:200ms]" />

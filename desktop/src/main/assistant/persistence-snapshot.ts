@@ -121,7 +121,8 @@ export function hydrateSnapshotThreads(
             if (!details) continue
             thread.activePlan = details.activePlan
             thread.messages = preserveAssistantMessagePhases(thread.messages, details.messages)
-            thread.messageCount = details.messages.length
+            // Catalog counts include canonical records represented as work rather
+            // than message rows. Loading those rows must not change metadata.
             thread.proposedPlans = details.proposedPlans
             thread.activities = details.activities
             thread.pendingApprovals = details.pendingApprovals

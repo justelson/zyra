@@ -1,5 +1,8 @@
 import type { DevScopeManagedFont } from '@shared/contracts/font-contracts'
 import { addAppearanceManagedFontFaces, removeAppearanceManagedFontFaces } from './appearance-font-faces'
+import { appearanceFontBytes, serializeAppearanceFont } from './appearance-font-data'
+import bricolageUrl from '../../../../../extensions/zyra-browser-control/assets/font.woff2'
+import hankenUrl from '../../../../../extensions/zyra-browser-control/assets/hanken-grotesk.woff2'
 import {
     getAppearanceManagedFontAlias,
     getAppearanceManagedFontId,
@@ -9,13 +12,21 @@ import {
 
 const loadedFonts = new Map<string, Promise<FontFace[]>>()
 
-function toUint8Array(value: unknown): Uint8Array {
-    if (value instanceof Uint8Array) return value
-    if (value instanceof ArrayBuffer) return new Uint8Array(value)
-    if (value && typeof value === 'object' && Array.isArray((value as { data?: unknown }).data)) {
-        return Uint8Array.from((value as { data: number[] }).data)
+const builtInFonts = {
+    bricolage: { family: 'Bricolage Grotesque', url: bricolageUrl, weight: '200 800' },
+    hanken: { family: 'Hanken Grotesk', url: hankenUrl, weight: '100 900' }
+} as const
+
+async function readBuiltInFont(url: string): Promise<Uint8Array> {
+    // Isolated fixtures inline the existing app asset; production bundles an
+    // app-local URL. Neither source is chosen by visualization HTML.
+    if (url.startsWith('data:')) {
+        const binary = atob(url.slice(url.indexOf(',') + 1))
+        return Uint8Array.from(binary, character => character.charCodeAt(0))
     }
-    throw new Error('Zyra received invalid managed font data.')
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('Failed to load the bundled appearance font.')
+    return new Uint8Array(await response.arrayBuffer())
 }
 
 export async function listAppearanceManagedFonts(): Promise<DevScopeManagedFont[]> {
@@ -26,19 +37,23 @@ export async function listAppearanceManagedFonts(): Promise<DevScopeManagedFont[
 
 export async function ensureAppearanceFontLoaded(font: AppearanceUiFont | AppearanceCodeFont): Promise<void> {
     const fontId = getAppearanceManagedFontId(font)
-    if (!fontId || typeof FontFace === 'undefined') return
-    const existing = loadedFonts.get(fontId)
+    const builtIn = font === 'bricolage' || font === 'hanken' ? builtInFonts[font] : null
+    if ((!fontId && !builtIn) || typeof FontFace === 'undefined') return
+    const key = fontId ? `managed:${fontId}` : `builtin:${font}`
+    const existing = loadedFonts.get(key)
     if (existing) {
         await existing
         return
     }
 
     const loading = (async () => {
-        const result = await window.devscope.fonts.readManaged(fontId)
+        const result = builtIn ? { success: true as const, faces: [{ data: await readBuiltInFont(builtIn.url), weight: builtIn.weight,
+            style: 'normal' as const, format: 'woff2' as const, unicodeRange: undefined }] } : await window.devscope.fonts.readManaged(fontId!)
         if (!result.success) throw new Error(result.error)
-        const family = getAppearanceManagedFontAlias(fontId)
+        const family = builtIn?.family ?? getAppearanceManagedFontAlias(fontId!)
+        const resource = serializeAppearanceFont(family, result.faces)
         const faces = await Promise.all(result.faces.map(async (face) => {
-            const bytes = toUint8Array(face.data)
+            const bytes = appearanceFontBytes(face.data)
             const source = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
             const fontFace = new FontFace(family, source, {
                 style: face.style,
@@ -48,20 +63,20 @@ export async function ensureAppearanceFontLoaded(font: AppearanceUiFont | Appear
             await fontFace.load()
             return fontFace
         }))
-        addAppearanceManagedFontFaces(document, faces)
+        addAppearanceManagedFontFaces(document, faces, resource)
         return faces
     })().catch((error) => {
-        loadedFonts.delete(fontId)
+        loadedFonts.delete(key)
         throw error
     })
 
-    loadedFonts.set(fontId, loading)
+    loadedFonts.set(key, loading)
     await loading
 }
 
 export function forgetAppearanceManagedFont(fontId: string): void {
-    const loaded = loadedFonts.get(fontId)
-    loadedFonts.delete(fontId)
+    const loaded = loadedFonts.get(`managed:${fontId}`)
+    loadedFonts.delete(`managed:${fontId}`)
     if (!loaded) return
     void loaded.then((faces) => {
         removeAppearanceManagedFontFaces(document, faces)

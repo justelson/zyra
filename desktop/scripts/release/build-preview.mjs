@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, readdir, stat, copyFile } from 'node:fs/pro
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { assertHostedInstallLocation } from './preview-install-environment.mjs'
 
 export function previewVersion(version, runNumber) {
     const core = String(version).match(/^(\d+\.\d+\.\d+)(?:-(?:alpha|beta|dev)\.\d+)?$/)?.[1]
@@ -12,8 +13,14 @@ export function previewVersion(version, runNumber) {
 }
 
 export function previewBuilderConfig(build, output) {
+    const baseExclusions = (Array.isArray(build.files) ? build.files : [build.files])
+        .filter(pattern => typeof pattern === 'string' && pattern.startsWith('!'))
     return {
         ...build,
+        // The builder collects production dependencies separately from these
+        // app files. Keep their JS/native/assets; omit compiled diagnostic maps.
+        files: ['out/**/*', 'resources/**/*', 'package.json', ...baseExclusions,
+            '!src/**/*', '!scripts/**/*', '!**/*.{js,cjs,mjs,css}.map'],
         appId: 'app.zyra.desktop.preview',
         productName: 'Zyra Preview',
         executableName: 'Zyra Preview',
@@ -71,7 +78,7 @@ function run(command, args, cwd, env) {
 }
 
 async function build(root, env) {
-    if (process.platform !== 'win32' || env.GITHUB_ACTIONS !== 'true') throw new Error('Personal previews are built only on hosted Windows CI')
+    assertHostedInstallLocation(process.platform, env)
     const desktop = path.join(root, 'desktop')
     const version = JSON.parse(await readFile(path.join(desktop, 'package.json'), 'utf8')).version
     const request = JSON.parse(await readFile(path.join(root, '.release', 'preview-request.json'), 'utf8'))
@@ -91,6 +98,8 @@ async function build(root, env) {
     const installers = (await readdir(raw)).filter(name => /^Zyra-Preview-.*-Windows-x64\.exe$/.test(name))
     if (installers.length !== 1) throw new Error('Preview build did not produce exactly one installer')
     const installer = installers[0]
+    console.log(`Preview Desktop archive: ${(await stat(path.join(raw, 'win-unpacked', 'resources', 'app.asar'))).size} bytes`)
+    await run(process.execPath, ['scripts/release/validate-preview-install.mjs', `--installer=${path.join(raw, installer)}`, `--version=${version}`, `--source-sha=${env.ZYRA_BUILD_SOURCE_SHA}`], desktop, buildEnv)
     const hash = createHash('sha256')
     for await (const chunk of createReadStream(path.join(raw, installer))) hash.update(chunk)
     const sha256 = hash.digest('hex')

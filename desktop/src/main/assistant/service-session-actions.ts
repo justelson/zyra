@@ -577,6 +577,9 @@ export async function sendAssistantPromptAction(
 
     const runtimeCwd = deps.getSessionRuntimeCwd(session, thread)
     const runtimeThreadId = getAssistantCanonicalThreadId(thread)
+    // First Send can precede draft warmup. Resolve the saved default before
+    // attachment so an empty new thread cannot select the engine fallback.
+    const model = options?.model || thread.model || await deps.getNewChatPreparationModel?.() || ''
     let hasLiveRuntimeSession = deps.runtime.hasSession(runtimeThreadId)
     const previousRuntimeCwd = sanitizeOptionalPath(thread.cwd)
     if (
@@ -588,7 +591,7 @@ export async function sendAssistantPromptAction(
         hasLiveRuntimeSession = false
     }
     const updatedThreadPatch: Partial<AssistantThread> & Pick<AssistantThread, 'model' | 'runtimeMode' | 'interactionMode' | 'cwd' | 'state' | 'lastError' | 'activePlan' | 'updatedAt'> = {
-        model: options?.model || thread.model,
+        model,
         runtimeMode: options?.runtimeMode || thread.runtimeMode,
         interactionMode: 'default',
         cwd: runtimeCwd,
@@ -654,7 +657,7 @@ export async function sendAssistantPromptAction(
         }
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
-            model: options?.model,
+            model: model || undefined,
             runtimeMode: options?.runtimeMode,
             interactionMode: 'default',
             effort: options?.effort,

@@ -38,6 +38,10 @@ The deterministic branding generator reuses the approved mark with a black backg
 
 A preview can still edit projects you deliberately open and invoke tools you approve. Isolation is not a sandbox for arbitrary project changes. It starts with its own app state; it does not automatically migrate stable history or credentials. Shared external provider accounts remain external accounts.
 
+Dev packaging includes the compiled Desktop application, runtime resources and production dependencies. Raw Desktop source/build scripts and JavaScript/CSS source maps are omitted; the separate agent runtime source and its dependencies remain intact. This reduces installation payload without removing features or changing stable packaging. Previews retain the compact 7z package format; ZIP's larger download did not demonstrate a consistent speed improvement in the measured small-file sample.
+
+On the hosted Windows runner, the job also silently installs the exact generated Preview installer, validates the installed runtime and launch, then reinstalls it through the update path. A Preview profile sentinel must survive both operations, and a stale installed file must disappear. Installation timings and Desktop archive size are reported in the build log. This exercises the generated installer on a clean runner; it does not establish older-version migration or installation speed on a user's PC. The install probe refuses local/self-hosted execution or a pre-existing Preview installation. No stable installer is executed.
+
 The job validates the actual packaged launch and embedded runtime before uploading:
 
 - one personal Windows installer;

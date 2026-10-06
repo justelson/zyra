@@ -17,7 +17,7 @@ try {
     const fixture = startupReadiness ? 'assistant-launch-readiness.tsx' : process.argv.includes('--settlement-navigation') ? 'sidebar-settlement-navigation.tsx' : 'assistant-sidebar-continuity.tsx'
     const bundle = await build({ entryPoints: [join(desktop, 'scripts/fixtures', fixture)],
         bundle: true, write: false, format: 'iife', jsx: 'automatic', platform: 'browser', define: { 'import.meta.env.DEV': 'false', '__ZYRA_BUILD_METADATA__': JSON.stringify({ distribution: startupReadiness ? 'preview' : 'stable', sourceSha: null, sourceRepository: null, runId: null }), 'import.meta.url': JSON.stringify(pathToFileURL(join(directory, 'fixture.js')).href) },
-        alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.css': 'empty', '.ttf': 'dataurl' },
+        alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.css': 'empty', '.ttf': 'dataurl', '.woff2': 'dataurl' },
         plugins: [{ name: 'unused-attachment-preview', setup(builder) {
             // This fixture opens no attachment editors. Keep Vite-only Monaco
             // workers out while exercising the actual message/footer renderer.

@@ -326,7 +326,9 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         ? activeFinalRowIndex
         : -1
     const activeFinalMessage = activeFinalMessageId ? messageById.get(activeFinalMessageId) : null
-    let terminalResponseVisible = activeFinalMessage?.phase === 'final_answer'
+    const finalAnswerStarted = activeFinalMessage?.phase === 'final_answer'
+    let terminalResponseVisible = finalAnswerStarted
+    let postResponseCompactionRunning = false
     if (settledFinalIndex >= 0) {
         for (let index = settledFinalIndex + 1; index < rows.length; index += 1) {
             const row = rows[index]
@@ -337,6 +339,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
                 && (!row.activity.turnId || row.activity.turnId === activeTurnId)
             ) {
                 terminalResponseVisible = true
+                postResponseCompactionRunning = true
                 break
             }
         }
@@ -610,7 +613,8 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         }
         displayRows.push(rows[index])
     }
-    return displayRows.filter(row => !(row.kind === 'message' && row.workBoundaryOnly)).map(row => {
+    return displayRows.filter(row => !(row.kind === 'message' && row.workBoundaryOnly)
+        && !(row.kind === 'working' && finalAnswerStarted && !postResponseCompactionRunning)).map(row => {
         if (row.kind === 'turn-work-summary' && row.outcome === 'interrupted') {
             const terminal = sourceRows.flatMap(getRowActivities).find(activity => activity.turnId === row.turnId && activity.payload?.interruption)
             return { ...row, interruptionLabel: getAssistantInterruptionLabel(terminal?.payload?.interruption) }

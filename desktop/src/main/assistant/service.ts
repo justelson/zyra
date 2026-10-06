@@ -153,7 +153,7 @@ import {
     listAssistantPromptResources,
     updateAssistantSkillSourceSettings
 } from './prompt-resources'
-import { toAssistantShellSnapshot } from './persistence-snapshot'
+import { shouldKeepHydratedThread, toAssistantShellSnapshot } from './persistence-snapshot'
 import { FleetProjection, shouldApplyAssistantFleetSnapshot } from './fleet-projection'
 import { recoverSessionTitleFromHistory, queueGeneratedSessionTitle, regenerateSessionTitle as generateReplacementSessionTitle, regenerateSessionTitleFromPrompt, shouldAutoRegenerateSessionTitle, shouldGenerateSessionTitleForPrompt } from './session-title-generation'
 import { recoverAssistantSidebarTitles } from './sidebar-title-recovery'
@@ -194,7 +194,7 @@ import {
     handleAssistantRuntimeEvent
 } from './service-runtime-events'
 import { projectCanonicalAgentOrigin } from './service-canonical-agent-origin'
-import { hasCanonicalUserInputAttention, mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from './service-canonical-presence'
+import { hasCanonicalUserInputAttention, isCanonicalPresenceActive, mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from './service-canonical-presence'
 import { leaveAssistantThreadForNavigation, shouldKeepAssistantThreadAttachedDuringNavigation } from './service-navigation-runtime'
 import { CanonicalHistoryRefreshTracker, shouldRefreshCanonicalHistory } from './canonical-history-refresh-policy'
 import { TrailingAsyncReconciler } from './trailing-async-reconciler'
@@ -2981,7 +2981,7 @@ export class AssistantService {
                 || canonicalProjectPath
                 || this.options.getDefaultProjectsFolder?.()
                 || this.persistence.getGlobalWorkspaceRoot()
-            const messageCount = Math.max(0, Number(chat.displayMessageCount ?? chat.messageCount) || 0)
+            const messageCount = canonicalCatalogMessageCount(chat)
             const activityCount = Math.max(0, Number(chat.toolCallCount || 0) + Number(chat.errorCount || 0))
             if (existing) {
                 if (shouldRefreshCanonicalHistory({
@@ -3004,7 +3004,7 @@ export class AssistantService {
                     }, existing.session.id, existing.thread.id)
                 }
                 const nextCwd = this.resolveCanonicalProjectPath(existing.session.workingRoot) || canonicalRuntimeCwd
-                const canonicalTurnActive = chat.presence?.state === 'running' || chat.presence?.state === 'background'
+                const canonicalTurnActive = isCanonicalPresenceActive(chat.presence)
                 const nextMessageCount = canonicalTurnActive ? Math.max(existing.thread.messageCount, messageCount) : messageCount
                 const nextActivityCount = Math.max(existing.thread.activityCount, activityCount)
                 const nextCanonicalPresence = chat.presence
@@ -3274,6 +3274,12 @@ export class AssistantService {
                         projection.legacyActivityIds
                     )
                 ])]
+                // Local events can advance while the history response or SQLite
+                // read is pending. Re-read the current thread before counting.
+                const currentThread = findThreadRecord(this.state.snapshot, input.threadId)?.thread || record.thread
+                const canonicalMessageCount = canonicalCatalogMessageCount(history.chat)
+                const canonicalTurnActive = currentThread.latestTurn?.state === 'running'
+                    || shouldKeepHydratedThread(currentThread) || isCanonicalPresenceActive(history.chat.presence)
                 this.appendEvent('thread.updated', normalizeCatalogDate(history.chat.modifiedAt, record.thread.updatedAt), {
                     threadId: input.threadId,
                     patch: {
@@ -3281,7 +3287,7 @@ export class AssistantService {
                         canonicalHistoryEntryCount,
                         messages: canonicalMessages,
                         activities: canonicalActivities,
-                        messageCount: countMergedCanonicalRecords(persistedTimeline.messages, canonicalMessages, removedMessageIds),
+                        messageCount: canonicalTurnActive ? Math.max(currentThread.messageCount, canonicalMessageCount) : canonicalMessageCount,
                         activityCount: countMergedCanonicalRecords(persistedTimeline.activities, canonicalActivities, removedActivityIds)
                     },
                     removedMessageIds,
@@ -3921,6 +3927,10 @@ function normalizeClientVoiceMessageId(value: unknown): string {
     const normalized = typeof value === 'string' ? value.trim() : ''
     if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(normalized)) return normalized
     throw new Error('The Voice composer message identity is missing or invalid.')
+}
+
+function canonicalCatalogMessageCount(chat: { displayMessageCount?: number; messageCount: number }): number {
+    return Math.max(0, Number(chat.displayMessageCount ?? chat.messageCount) || 0)
 }
 
 function normalizeCatalogDate(value: unknown, fallback = nowIso()): string {

@@ -17,7 +17,7 @@ const screenshots = process.argv.includes('--screenshots') ? path.resolve(proces
 let fixtureError
 try {
     if (screenshots) await mkdir(screenshots, { recursive: true })
-    await build({ absWorkingDir: desktop, entryPoints: ['scripts/fixtures/chat-display.tsx'], outfile: path.join(directory, 'fixture.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', alias: { '@': path.join(desktop, 'src/renderer/src'), '@shared': path.join(desktop, 'src/shared') }, define: { 'process.env.NODE_ENV': '"test"', 'import.meta.hot': 'undefined', 'import.meta.env': '{}', '__ZYRA_DESKTOP_VERSION__': '"0.0.0-test"' }, logLevel: 'silent' })
+    await build({ absWorkingDir: desktop, entryPoints: ['scripts/fixtures/chat-display.tsx'], outfile: path.join(directory, 'fixture.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.woff2': 'dataurl' }, alias: { '@': path.join(desktop, 'src/renderer/src'), '@shared': path.join(desktop, 'src/shared') }, define: { 'process.env.NODE_ENV': '"test"', 'import.meta.hot': 'undefined', 'import.meta.env': '{}', '__ZYRA_DESKTOP_VERSION__': '"0.0.0-test"' }, logLevel: 'silent' })
     const stylesheet = postcss.parse(await readFile(path.join(desktop, 'src/renderer/src/index.css'), 'utf8'))
     stylesheet.walkAtRules('import', rule => rule.remove())
     const source = stylesheet.toString()

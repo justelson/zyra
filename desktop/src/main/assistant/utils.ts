@@ -14,6 +14,7 @@ import {
 const DEFAULT_SESSION_TITLE = 'New Session'
 const LEGACY_DEFAULT_SESSION_TITLES = new Set([
     DEFAULT_SESSION_TITLE.toLowerCase(),
+    'new chat',
     'new playground chat'
 ])
 const PLAN_BLOCK_REGEX = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i

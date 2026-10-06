@@ -7,12 +7,23 @@ import { flushSync } from 'react-dom'
 import { VisualizationMessage } from '../../src/renderer/src/components/ui/visualization/VisualizationMessage'
 import { buildVisualizationDocument, DEFAULT_VISUALIZATION_THEME, getVisualizationDocumentCacheStats } from '../../src/renderer/src/components/ui/visualization/visualization-document'
 import { ZYRA_THEME_CHANGED_EVENT } from '../../src/renderer/src/lib/theme-events'
+import { parseVisualizationBlocks } from '../../src/shared/visualization'
+import { installVisualizationFontChecks } from './visualization-fonts'
 
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message) }
 const root = createRoot(document.querySelector('#root')!)
 const wait = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms))
 const until = async (predicate: () => unknown) => { for (let i = 0; i < 100; i++) { if (predicate()) return; await wait() } throw new Error('Visualization did not settle') }
 const render = (content: string, streaming: boolean) => flushSync(() => root.render(<VisualizationMessage content={content} streaming={streaming} renderMarkdown={text => <p>{text}</p>} />))
+const loadedSources = new WeakMap<HTMLIFrameElement, string>()
+document.addEventListener('load', event => {
+    if (event.target instanceof HTMLIFrameElement) loadedSources.set(event.target, event.target.srcdoc)
+}, true)
+const waitForFrame = async (frame: HTMLIFrameElement) => {
+    frame.loading = 'eager'
+    await until(() => loadedSources.get(frame) === frame.srcdoc)
+}
+installVisualizationFontChecks(render, until, waitForFrame)
 const body = `<style>.plot { border:1px solid var(--viz-border); background-image:url(https://visualization-test.invalid/style.png) }</style>
 <div class="plot">Network probe</div>
 <svg viewBox="0 0 240 100" role="img" aria-label="Illustrative chart"><rect width="120" height="80" fill="var(--viz-accent)"/><rect x="130" width="100" height="40" fill="#e76f51"/><text x="8" y="96">Two series</text></svg>
@@ -142,12 +153,63 @@ function InitialHeightProbe() {
     return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed fixed-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
 })()
 
-;(window as any).visualizationShowcase = async (mode: 'dark' | 'light') => {
+const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as const
+const heatRows = [
+    ['Kitchen', [15, 40, 85, 30, 65, 95, 20]],
+    ['Lab', [70, 25, 45, 95, 35, 60, 80]],
+    ['Orbit', [30, 65, 20, 50, 90, 40, 75]]
+] as const
+const showcaseHtml = `<style>
+.snacks,.heatmap{width:100%;font-variant-numeric:tabular-nums}
+.snacks h3,.heatmap h3{font-size:15px;font-weight:600;margin:0 0 14px}
+.snack{display:grid;grid-template-columns:88px minmax(0,1fr) 24px;align-items:center;gap:10px;margin-bottom:12px}
+.snack-label,.snack-value{font-size:14px}.snack-track{height:20px;background:var(--viz-track)}.snack-fill{height:100%}
+.snack-axis{display:flex;justify-content:space-between;margin:0 34px 24px 98px;color:var(--viz-muted);font-size:13px}
+.heat-grid{display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr));gap:5px;align-items:center}
+.heat-day{color:var(--viz-muted);text-align:center;font-size:13px}.heat-label{font-size:14px}
+.heat-cell{height:34px;display:flex;align-items:center;justify-content:center;color:var(--viz-text);font-size:14px;font-weight:600;background:color-mix(in srgb,var(--viz-heat-high) var(--level),var(--viz-heat-low))}
+.heat-legend{display:flex;align-items:center;gap:8px;margin:12px 0 0 64px;font-size:13px;color:var(--viz-muted)}
+.heat-scale{width:100px;height:8px;background:linear-gradient(to right,var(--viz-heat-low),var(--viz-heat-high))}
+@media(max-width:360px){.snack{gap:6px;grid-template-columns:78px minmax(0,1fr) 24px}.snack-axis{margin-left:84px;margin-right:30px}.heat-grid{grid-template-columns:54px repeat(7,minmax(0,1fr));gap:3px}.heat-legend{margin-left:54px}}
+</style>
+<section class="snacks" aria-label="Robot snack demand, fictional units">
+<h3>Robot snack demand · fictional units</h3>
+${snacks.map(([name, value], index) => `<div class="snack"><span class="snack-label">${name}</span><div class="snack-track"><div id="snack-${index}" class="snack-fill" style="width:${value}%;background:var(--viz-series-${index + 1})" aria-label="${name}: ${value} fictional units"></div></div><span class="snack-value">${value}</span></div>`).join('')}
+<div class="snack-axis"><span>0</span><span>50</span><span>100 units</span></div>
+</section>
+<section class="heatmap" aria-label="Chaos intensity, fictional scores, 0–100">
+<h3>Chaos intensity · fictional scores, 0–100</h3>
+<div class="heat-grid"><span></span>${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => `<span class="heat-day">${day}</span>`).join('')}
+${heatRows.map(([name, values], row) => `<span class="heat-label">${name}</span>${values.map((value, col) => `<span id="heat-${row}-${col}" class="heat-cell" style="--level:${value}%" aria-label="${name}, ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][col]}: ${value}">${value}</span>`).join('')}`).join('')}</div>
+<div class="heat-legend"><span>0</span><span class="heat-scale" aria-hidden="true"></span><span>100 · same scale for every row</span></div>
+</section>`
+
+;(window as any).visualizationShowcase = async (mode: 'dark' | 'light', width?: number) => {
     document.body.classList.toggle('light', mode === 'light')
+    const container = document.querySelector<HTMLElement>('#root')!
+    container.style.width = width ? `${width}px` : ''
     const colors = mode === 'light' ? ['#f6f7f9', '#ffffff', '#20242b', '#626974', '#386fdb', '#e4e6eb', '#edf0f4'] : ['#101318', '#181c22', '#eef1f6', '#a8b0bd', '#568cff', '#343b46', '#2b323d']
     ;['--color-bg', '--color-card', '--color-text', '--color-text-muted', '--accent-primary', '--surface-divider', '--surface-hover'].forEach((name, index) => document.documentElement.style.setProperty(name, colors[index]))
-    render('Here is how the stages compare.\n<visualization title="Time by stage" summary="Illustrative values: research 3 hours, build 5 hours, verify 2 hours." height="230">\n<svg viewBox="0 0 600 210" width="600" role="img" aria-label="Illustrative hours by stage"><g fill="var(--viz-text)" font-size="14"><text x="0" y="36">Research</text><text x="0" y="96">Build</text><text x="0" y="156">Verify</text></g><g fill="var(--viz-accent)"><rect x="100" y="15" width="240" height="30" rx="3"/><rect x="100" y="75" width="400" height="30" rx="3"/><rect x="100" y="135" width="160" height="30" rx="3"/></g><g fill="var(--viz-text)" font-size="14"><text x="350" y="36">3 h</text><text x="510" y="96">5 h</text><text x="270" y="156">2 h</text></g></svg>\n</visualization>\nBuild takes the longest in this example.', false)
-    await until(() => document.querySelector('iframe')?.srcdoc.includes('Illustrative hours') && document.querySelector('iframe')?.srcdoc.includes('--viz-bg:' + colors[0]))
-    document.querySelector('iframe')!.loading = 'eager'
-    await wait(250)
+    const cacheBefore = getVisualizationDocumentCacheStats()
+    const content = `<visualization title="Fictional robot data" summary="Illustrative snack demand and chaos scores; these are fictional values." height="430">\n${showcaseHtml}\n</visualization>`
+    const block = parseVisualizationBlocks(content).find(part => part.kind === 'visualization')
+    if (!block || block.kind !== 'visualization' || block.state !== 'complete') throw new Error('Showcase must contain a complete visualization block')
+    flushSync(() => {
+        window.dispatchEvent(new Event(ZYRA_THEME_CHANGED_EVENT))
+        render(content, false)
+    })
+    await until(() => document.querySelector('iframe')?.srcdoc.includes('Robot snack demand') && document.querySelector('iframe')?.srcdoc.includes('--viz-bg:' + colors[0]))
+    await waitForFrame(document.querySelector('iframe')!)
+    const theme = { ...DEFAULT_VISUALIZATION_THEME, background: colors[0], text: colors[2], muted: colors[3], accent: colors[4], border: colors[5], scheme: mode }
+    // Production Copy/Download receive block.html too, including its closing
+    // newline. Export the identical parser output so it shares the preview key.
+    const exported = buildVisualizationDocument(block.html, block.title, theme)
+    const inline = document.querySelector('iframe')!.srcdoc
+    for (const token of ['series-1', 'series-2', 'series-3', 'series-4', 'series-5', 'series-6', 'track', 'heat-low', 'heat-high', 'on-series']) {
+        const declaration = inline.match(new RegExp(`--viz-${token}:([^;}]+)`))?.[0]
+        assert(declaration && exported.includes(declaration), `${token}: export preserves the inline palette`)
+    }
+    const cacheAfter = getVisualizationDocumentCacheStats()
+    assert(cacheAfter.misses <= cacheBefore.misses + 1, 'palette, width and export changes do not repeatedly sanitize the same chart')
+    return { snacks: snacks.map(([, value]) => value), heatRows: heatRows.map(([, values]) => values), mode, width, cache: cacheAfter }
 }

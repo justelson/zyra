@@ -1,6 +1,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { TimelineTurnWorkSummary } from '../../src/renderer/src/pages/assistant/AssistantTimelineWorkSummary'
+import { TimelineWorkingIndicator } from '../../src/renderer/src/pages/assistant/AssistantTimelineWorkingIndicator'
 import { groupTimelineRowsIntoWorkSummaries } from '../../src/renderer/src/pages/assistant/assistant-turn-work'
 import { buildTimelineRows, getTimelineEntries } from '../../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import type { AssistantMessage, AssistantActivity } from '../../src/shared/assistant/contracts'
@@ -43,7 +44,7 @@ async function run() {
         await render(mode, 'final_answer')
         assert(!button().disabled && button().getAttribute('aria-expanded') === 'false', 'final phase immediately collapses Work before text exists')
         assert(panel().getAttribute('data-state') === 'closed' && panel().getAttribute('aria-hidden') === 'true', 'real disclosure switches to its collapsed state')
-        assert(document.querySelector('[data-assistant-working-dots]'), 'live turn indicator persists while the final response streams')
+        assert(!document.querySelector('[data-assistant-working-dots]') && button().textContent === 'Work', 'final-response Work header stops saying Working or animating while the owning turn remains live')
         await act(async () => { await wait(350) })
         assert(panel().getBoundingClientRect().height < 1, 'closed Work has zero rendered height after its animation')
         assert(!document.querySelector('[data-action-evidence]'), 'collapsed action content unmounts after the existing animation')
@@ -55,6 +56,20 @@ async function run() {
         assert(button().getAttribute('aria-expanded') === 'true', 'later final deltas preserve a manual reopen')
         await render(mode, 'final_answer', 'Startup is ready and titles now persist. Checks passed.', false)
         assert(!document.querySelector('[data-assistant-working-dots]'), 'only actual completion clears the turn activity indicator')
+    }
+    for (const text of ['', 'Here is the direct answer.']) {
+        const messages = [user, { ...response, phase: 'final_answer' as const, text }]
+        const rows = groupTimelineRowsIntoWorkSummaries({ rows: buildTimelineRows(getTimelineEntries(messages, []), true, at), messages,
+            latestAssistantMessageId: response.id, latestTurnStartedAt: at, isWorking: true })
+        await act(async () => {
+            root.render(<>{rows.map(row => row.kind === 'message' ? <article key={row.id}>{row.message.text}</article>
+                : row.kind === 'working' ? <TimelineWorkingIndicator key={row.id} startedAt={at} />
+                    : row.kind === 'turn-work-summary' ? <TimelineTurnWorkSummary key={row.id} startedAt={at} completedAt={null}
+                        running={row.running} collapseForTerminalResponse={row.terminalResponseVisible} hasWork={row.rows.length > 0} renderChildren={() => null} /> : null)}</>)
+            await wait()
+        })
+        assert(!document.querySelector('[data-assistant-working-indicator], [data-assistant-work-summary-shell], [data-assistant-working-dots]'), 'final-only replies render without waiting chrome or an empty Work disclosure')
+        if (text) assert(container.textContent?.includes(text), 'the direct answer is visible while its owning turn is still running')
     }
     await act(async () => { await wait(350) })
     console.log('Final response disclosure: final phase collapse before text, animated zero height, reopen, both modes and live turn preserved: ok')

@@ -60,24 +60,23 @@ function InitialHeightProbe() {
     assert(frame.srcdoc.includes('padding:0;background:transparent'), 'inline document has no padded background panel')
     assert(frame.srcdoc.includes(';--viz-border:#343b46}*{'), 'theme rule closes before document layout rules')
     assert(!document.body.textContent?.includes('Illustrative values'), 'description stays hidden until requested')
-    const info = document.querySelector('[aria-label="About Chart"]') as HTMLButtonElement
-    assert(info, 'information trigger sits beside the title')
-    info.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    await until(() => document.querySelector('[role="dialog"][aria-label="About Chart"]'))
-    assert(document.body.textContent?.includes('Illustrative values'), 'hover reveals the description')
-    const viewHtml = Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'View HTML')!
-    assert(viewHtml, 'View HTML lives in the information popup')
-    viewHtml.click()
-    await until(() => document.querySelector('dialog[open]'))
-    const sourceDialog = document.querySelector('dialog')!
-    assert(!figure.contains(sourceDialog), 'source opens outside the message flow')
-    assert(sourceDialog.querySelector('pre')?.textContent === body + '\n', 'source dialog shows escaped original HTML')
-    assert(!sourceDialog.querySelector('script, iframe, img'), 'viewing source never executes it')
-    ;(sourceDialog.querySelector('[aria-label="Close HTML"]') as HTMLButtonElement).click()
-    await until(() => !document.querySelector('dialog'))
-    await until(() => document.activeElement === info)
+    const info = document.querySelector('[aria-label="Options for Chart"]') as HTMLButtonElement
+    assert(info, 'small options trigger sits beside the title')
     info.click()
-    await until(() => document.querySelector('[aria-label="Expand visualization"]'))
+    await until(() => document.querySelector('[role="menu"]'))
+    const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    assert(items.length === 2 && items[0].textContent === 'Copy HTML' && items[1].textContent === 'Download HTML', 'the menu contains exactly the two requested actions')
+    assert(!document.body.textContent?.includes('Expand') && !document.body.textContent?.includes('Collapse') && !document.querySelector('dialog'), 'no expansion controls or source dialog remain')
+    let copied = ''
+    const originalBridge = window.devscope?.copyToClipboard
+    ;(window as any).devscope = { ...window.devscope, copyToClipboard: async (text: string) => { copied = text; return { success: true } } }
+    items[0].click()
+    await until(() => Boolean(copied))
+    assert(copied.includes('<!doctype html>') && copied.includes('Two series') && !copied.includes('<script>'), 'Copy HTML exports the sanitized self-contained document')
+    ;(window as any).devscope.copyToClipboard = originalBridge
+    await until(() => !document.querySelector('[role="menu"]'))
+    assert(document.activeElement === info, 'copy returns focus to the trigger')
+    assert(frame.style.height === '240px', 'the authored preview height stays fixed')
     frame.loading = 'eager'
     await wait(120)
     assert(frame.getAttribute('sandbox') === '', 'opaque scriptless sandbox')
@@ -88,19 +87,23 @@ function InitialHeightProbe() {
     assert(frame.srcdoc.includes('.plot') && frame.srcdoc.includes('viewBox') && frame.srcdoc.includes('Two series'), 'styles and SVG survive sanitization')
     assert(document.body.textContent?.includes('Before') && document.body.textContent?.includes('After'), 'text around the visualization stays in order')
     assert(!document.body.dataset.compromised, 'authored HTML cannot change the host')
-    ;(document.querySelector('[aria-label="Expand visualization"]') as HTMLButtonElement).click()
-    await until(() => document.querySelector('[aria-label="Collapse visualization"]'))
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    await until(() => !document.querySelector('[role="dialog"][aria-label="About Chart"]'))
     info.focus()
-    info.click()
-    await until(() => document.querySelector('[role="dialog"][aria-label="About Chart"]'))
-    info.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
-    assert(document.activeElement?.textContent === 'View HTML', 'keyboard navigation reaches popup actions')
+    info.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    await until(() => document.activeElement?.textContent === 'Copy HTML')
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    assert(document.activeElement?.textContent === 'Download HTML', 'arrow navigation reaches the second action')
+    let downloaded: Blob | null = null
+    const originalCreateURL = URL.createObjectURL, originalAnchorClick = HTMLAnchorElement.prototype.click
+    URL.createObjectURL = blob => { downloaded = blob as Blob; return 'blob:fixture-download' }
+    HTMLAnchorElement.prototype.click = function () { assert(this.download === 'Chart.html', 'download uses the chart title') }
     ;(document.activeElement as HTMLButtonElement).click()
-    await until(() => document.querySelector('dialog[open]'))
-    document.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))
-    await until(() => !document.querySelector('dialog'))
+    assert(downloaded && (await (downloaded as Blob).text()).includes('Two series'), 'Download HTML exports a real standalone document')
+    URL.createObjectURL = originalCreateURL; HTMLAnchorElement.prototype.click = originalAnchorClick
+    info.click()
+    await until(() => document.querySelector('[role="menu"]'))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await until(() => !document.querySelector('[role="menu"]'))
+    assert(document.activeElement === info, 'Escape restores trigger focus')
     const oldSource = frame.srcdoc
     document.body.classList.add('light')
     document.documentElement.style.setProperty('--color-bg', '#ffffff')
@@ -136,7 +139,7 @@ function InitialHeightProbe() {
     await wait(120)
     assert(unexpectedWindows === 0, 'browser menus and source dialogs never open native companion windows')
     window.open = originalOpen
-    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed layout, hover details and separate escaped HTML dialog', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'expand and safe export document', 'fenced examples and historical messages']
+    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed fixed-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
 })()
 
 ;(window as any).visualizationShowcase = async (mode: 'dark' | 'light') => {

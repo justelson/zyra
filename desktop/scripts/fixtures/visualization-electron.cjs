@@ -46,12 +46,9 @@ app.whenReady().then(async () => {
             assert.deepEqual(pixel(point.x, point.y), pixel(2, 2), `${mode}: the iframe canvas must blend into the page`)
             await writeFile(path.join(screenshots, `${mode}.png`), image.toPNG())
         }
-        await window.webContents.executeJavaScript(`document.querySelector('[aria-label="About Time by stage"]').click()`)
+        await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Options for Time by stage"]').click()`)
         await new Promise(resolve => setTimeout(resolve, 180))
-        await writeFile(path.join(screenshots, 'info.png'), (await capture()).toPNG())
-        await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'View HTML').click()`)
-        await new Promise(resolve => setTimeout(resolve, 180))
-        await writeFile(path.join(screenshots, 'source.png'), (await capture()).toPNG())
+        await writeFile(path.join(screenshots, 'menu.png'), (await capture()).toPNG())
     }
     clearTimeout(timer)
     window.destroy()

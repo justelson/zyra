@@ -390,7 +390,7 @@ while (visible !== target && frames < 20) {
 assert.equal(visible, target)
 assert.ok(frames <= 5, 'completion should drain its remaining text quickly')
 assert.equal(revealAssistantStreamText('', '🙂 done', 'stream', false), '🙂', 'a frame must not split a surrogate pair')
-assert.ok(revealAssistantStreamText('', 'one complete phrase, then more', 'chunks', false).length >= 4)
+assert.equal(revealAssistantStreamText('', 'one complete phrase, then more', 'chunks', false), '', 'chunk mode waits for a complete paragraph/line or completion')
 
 assistantStreamPresentation.clear()
 console.log('Assistant streaming contracts passed.')

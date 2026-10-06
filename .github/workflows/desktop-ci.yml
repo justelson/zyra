@@ -1,38 +1,26 @@
 name: Desktop CI
+run-name: Full checks ${{ inputs.source_sha }}
 
+# Full native verification is explicitly requested. The relay routes normal PR
+# changes to helper-checks.yml, which never builds an installer.
 on:
-  pull_request:
-    paths:
-      - "desktop/**"
-      - "src/**"
-      - "prompts/**"
-      - "agents/**"
-      - "workflows/**"
-      - "package.json"
-      - "package-lock.json"
-      - "LICENSE"
-      - "RELEASE.md"
-      - ".github/workflows/desktop-*.yml"
-  push:
-    branches:
-      - master
-    paths:
-      - "desktop/**"
-      - "src/**"
-      - "prompts/**"
-      - "agents/**"
-      - "workflows/**"
-      - "package.json"
-      - "package-lock.json"
-      - "LICENSE"
-      - "RELEASE.md"
-      - ".github/workflows/desktop-*.yml"
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: Public source repository
+        required: true
+        default: justelson/zyra
+        type: string
+      source_sha:
+        description: Exact source commit for the full native checks
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-ci-${{ github.ref }}
+  group: desktop-ci-${{ inputs.source_sha }}
   cancel-in-progress: true
 
 jobs:
@@ -51,8 +39,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
+      - name: Validate source request
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          ALLOWED_SOURCE: ${{ vars.ZYRA_SOURCE_REPOSITORY || 'justelson/zyra' }}
+        run: |
+          test "$SOURCE_REPOSITORY" = "$ALLOWED_SOURCE"
+          test "$GITHUB_REPOSITORY" != "$ALLOWED_SOURCE"
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+
       - name: Check out exact commit
         uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Verify checkout identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - name: Set up Node 22
         uses: actions/setup-node@v4

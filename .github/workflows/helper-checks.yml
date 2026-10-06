@@ -1,0 +1,78 @@
+name: Helper quick checks
+run-name: Quick checks ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: Public source repository
+        required: true
+        default: justelson/zyra
+        type: string
+      source_sha:
+        description: Exact source commit
+        required: true
+        type: string
+      source_pr:
+        description: Original PR number for superseded quick-check cancellation
+        type: string
+      desktop_checks:
+        description: Include Desktop dependencies, typecheck and leaf contracts
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: quick-${{ inputs.source_repository }}-${{ inputs.source_pr || 'manual' }}
+  cancel-in-progress: true
+jobs:
+  quick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate source request
+        env:
+          ALLOWED_SOURCE: ${{ vars.ZYRA_SOURCE_REPOSITORY || 'justelson/zyra' }}
+        run: |
+          test "$SOURCE_REPOSITORY" = "$ALLOWED_SOURCE"
+          test "$GITHUB_REPOSITORY" != "$ALLOWED_SOURCE"
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+      - name: Check out exact source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - name: Install core test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Desktop test dependencies
+        if: inputs.desktop_checks
+        run: npm --prefix desktop ci --no-audit --no-fund
+      - name: Quick core regression checks
+        run: npm run check:quick
+      - name: Desktop type contracts
+        if: inputs.desktop_checks
+        run: npm --prefix desktop run typecheck
+      - name: Available Desktop leaf contracts
+        if: inputs.desktop_checks
+        run: |
+          for target in test-preview-identity.ts test-assistant-agent-conversations.ts test-assistant-live-end-alignment.ts; do
+            if test -f "desktop/scripts/$target"; then bun "desktop/scripts/$target"; else echo "Source revision has no $target target"; fi
+          done
+      - name: Privacy and patch checks
+        run: npm run privacy-check && git diff --check
+      - name: Explain check scope
+        run: |
+          echo '## Quick source checks' >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: \`$SOURCE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Syntax, fast core regressions, privacy and selected Desktop contracts. No installer, native matrix or full Desktop acceptance. Request full checks for broader verification.' >> "$GITHUB_STEP_SUMMARY"

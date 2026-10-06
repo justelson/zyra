@@ -42,9 +42,11 @@ Personal previews may be unsigned only with explicit maintainer approval. They m
 
 ## Relay rollout
 
+[Helper CI relay setup](ci-relay.md) owns the GitHub App/Cloudflare configuration, request labels and live acceptance checklist. `helper-checks.yml` is the dispatch-only quick lane; `desktop-ci.yml` retains the native matrix as a separate explicit full-check request. Neither builds an installer. The source workflow trigger change takes effect only after its infrastructure PR is integrated; updating helper automation is not a source merge.
+
 The manual preview workflow is usable before the webhook relay. The relay belongs outside the billing-blocked source account's Actions execution path. It must authenticate GitHub webhook signatures, allowlist repositories and maintainer requests, and report checks against the exact requested source commit.
 
-An explicit preview label request may dispatch a preview. Keeping that label on a PR must not make later pushes rebuild installers. Ordinary comments do nothing. Duplicate webhook deliveries and completed builds must not dispatch repeats.
+An explicit preview label request may dispatch a preview. Keeping that label on a PR must not make later pushes rebuild installers. Ordinary comments do nothing. Duplicate webhook deliveries and retained mode/source-SHA requests must not dispatch repeats. Reporting retries are not permission to retry installer dispatch.
 
 Keep App keys in Cloudflare secret bindings. Do not put them in source, logs, chat or build jobs. Candidate-code jobs have no signing secrets or original-repository write credentials. A successful helper workflow is not a check on the helper's app revision when it checked out a different source SHA.
 

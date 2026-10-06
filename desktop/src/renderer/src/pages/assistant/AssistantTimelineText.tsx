@@ -27,6 +27,7 @@ type StreamingAssistantMarkdownProps = AssistantMarkdownInteractionProps & {
     filePath?: string
     className?: string
     cacheKey: string
+    fadeStreamingText?: boolean
 }
 
 type CompletedAssistantMarkdownProps = AssistantMarkdownInteractionProps & {
@@ -99,6 +100,7 @@ const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock(props: {
     className?: string
     cacheKey: string
     transient?: boolean
+    fadeStreamingText?: boolean
     onInternalLinkClick?: AssistantMarkdownInteractionProps['onInternalLinkClick']
     onLinkNotice?: AssistantMarkdownInteractionProps['onLinkNotice']
     mediaMode?: MarkdownMediaMode
@@ -111,6 +113,7 @@ const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock(props: {
             cacheKey={props.cacheKey}
             lightweight={props.transient}
             transient={props.transient}
+            fadeStreamingText={props.fadeStreamingText}
             onInternalLinkClick={props.onInternalLinkClick}
             onLinkNotice={props.onLinkNotice}
             mediaMode={props.mediaMode}
@@ -129,7 +132,8 @@ const StreamingAssistantMarkdownText = memo(function StreamingAssistantMarkdownT
     cacheKey,
     onInternalLinkClick,
     onLinkNotice,
-    mediaMode
+    mediaMode,
+    fadeStreamingText = false
 }: StreamingAssistantMarkdownProps) {
     const blocks = useMemo(() => splitStreamingMarkdownBlocks(content), [content])
     if (!content.trim()) return <StreamingAssistantText content=" " className={className} />
@@ -155,6 +159,7 @@ const StreamingAssistantMarkdownText = memo(function StreamingAssistantMarkdownT
                     className={className}
                     cacheKey={`${cacheKey}:tail`}
                     transient
+                    fadeStreamingText={fadeStreamingText}
                     onInternalLinkClick={onInternalLinkClick}
                     onLinkNotice={onLinkNotice}
                     mediaMode={mediaMode}

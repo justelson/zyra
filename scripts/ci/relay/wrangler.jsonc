@@ -1,0 +1,14 @@
+{
+  "name": "zyra-ci-relay",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "RelayCoordinator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayCoordinator"] }],
+  "vars": {
+    "SOURCE_REPOSITORY": "justelson/zyra",
+    "HELPER_REPOSITORY": "elsondev2/zyra",
+    "AUTOMATION_REF": "ci/github-relay",
+    "MAINTAINER_IDS": "200225092,207705772"
+  }
+}

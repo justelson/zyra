@@ -2,6 +2,8 @@ import type { Root } from 'hast'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import { normalizeMathDelimiters, remarkMathFallback, rehypeSafeMath } from './math'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
@@ -41,7 +43,7 @@ const MARKDOWN_SANITIZE_SCHEMA = {
             ...(defaultSchema.attributes?.['*'] || []).filter((attribute) => attribute !== 'title'),
             'align'
         ],
-        code: [...(defaultSchema.attributes?.code || []), 'dataCodeMeta'],
+        code: [...(defaultSchema.attributes?.code || []).filter(attribute => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', /^language-./, 'math-inline', 'math-display'], 'dataCodeMeta'],
         details: [...(defaultSchema.attributes?.details || []), 'open'],
         div: [...(defaultSchema.attributes?.div || []), 'dataCacheRaw'],
         source: [...(defaultSchema.attributes?.source || []), 'src', 'srcSet', 'type', 'media']
@@ -59,10 +61,12 @@ function createMarkdownProcessor(hasRawHtml: boolean) {
     const processor = unified()
         .use(remarkParse)
         .use(remarkGfm)
+        .use(remarkMath)
+        .use(remarkMathFallback)
         .use(remarkPreserveCodeMeta)
         .use(remarkRehype, { allowDangerousHtml: hasRawHtml })
     if (hasRawHtml) processor.use(rehypeRaw)
-    return processor.use(rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA).freeze()
+    return processor.use(rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA).use(rehypeSafeMath).freeze()
 }
 
 const standardMarkdownProcessor = createMarkdownProcessor(false)
@@ -73,9 +77,10 @@ export function markdownContainsRawHtml(content: string): boolean {
 }
 
 export function parseMarkdownToHast(content: string, allowRawHtml = true): Root {
-    const hasRawHtml = allowRawHtml && markdownContainsRawHtml(content)
+    const normalized = normalizeMathDelimiters(content)
+    const hasRawHtml = allowRawHtml && markdownContainsRawHtml(normalized)
     const processor = hasRawHtml ? rawHtmlMarkdownProcessor : standardMarkdownProcessor
-    return processor.runSync(processor.parse(content)) as Root
+    return processor.runSync(processor.parse(normalized), { value: normalized }) as Root
 }
 
 export function stripMarkdownTreePositions(tree: Root): Root {

@@ -21,6 +21,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const syntaxTargets = [
+  "scripts/ci/relay/worker.mjs",
+  "scripts/test-ci-relay.mjs",
   "src/openai-model-catalog.mjs",
   "scripts/test-openai-model-catalog.mjs",
   "scripts/test-openai-model-runtime.mjs",
@@ -189,6 +191,7 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "scripts/test-ci-relay.mjs",
   "scripts/test-chat-catalog-file-locks.mjs",
  "scripts/test-agent-bridge-pipe-errors.mjs",
  "scripts/test-dev-command.mjs",
@@ -284,6 +287,7 @@ const coreTests = [
 // Quick mode stays deterministic and side-effect-light. Larger state, UI, and
 // orchestration suites remain in core/full so quick is useful during iteration.
 const quickCoreTests = [
+  "scripts/test-ci-relay.mjs",
   "scripts/test-zyra-task-ownership-prompt.mjs",
   "scripts/test-control-bridge-deadline.mjs",
   "scripts/test-permission-command-policy.mjs",

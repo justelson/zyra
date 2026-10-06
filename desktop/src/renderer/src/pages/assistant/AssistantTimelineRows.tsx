@@ -717,6 +717,7 @@ export const TimelineMessage = memo(({
                         <StreamingAssistantMarkdown
                             content={renderedAssistantText || ' '}
                             cacheKey={`${message.id}:inline-work-stream`}
+                            fadeStreamingText={assistantTextStreamingMode === 'stream'}
                             filePath={filePath || undefined}
                             onInternalLinkClick={onInternalLinkClick}
                             onLinkNotice={onLinkNotice}
@@ -742,6 +743,7 @@ export const TimelineMessage = memo(({
                                 <StreamingAssistantMarkdown
                                     content={compactLiveNarrationText(renderedAssistantText) || ' '}
                                     cacheKey={`${message.id}:compact-stream`}
+                                    fadeStreamingText={assistantTextStreamingMode === 'stream'}
                                     className={ASSISTANT_MARKDOWN_CLASS_NAME}
                                     mediaMode="none"
                                 />
@@ -782,6 +784,7 @@ export const TimelineMessage = memo(({
                     <StreamingAssistantMarkdown
                         content={renderedAssistantText || ' '}
                         cacheKey={`${message.id}:stream`}
+                        fadeStreamingText={assistantTextStreamingMode === 'stream'}
                         timestamp={timestamp}
                         renderFooter={renderMessageFooter}
                         filePath={filePath || undefined}

@@ -6,6 +6,7 @@ import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { hasColorToken, renderColorAwareText } from './colorTokens'
 import { isMarkdownScrollBusy } from './markdownScrollActivity'
+import { copyTextToClipboard as copyCodeBlockText } from '@/lib/copy-text'
 
 const MermaidDiagram = lazy(async () => ({
     default: (await import('./MermaidDiagram')).MermaidDiagram
@@ -213,32 +214,7 @@ function looksLikeFolderStructure(text: string): boolean {
     return TREE_GLYPH_REGEX.test(text)
 }
 
-export async function copyCodeBlockText(value: string): Promise<void> {
-    const bridge = typeof window !== 'undefined' ? window.devscope?.copyToClipboard : undefined
-    if (bridge) {
-        const result = await bridge(value)
-        if (result.success === false) throw new Error(result.error || 'Failed to copy code')
-        return
-    }
-
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value)
-        return
-    }
-
-    if (typeof document === 'undefined') throw new Error('Clipboard is unavailable')
-    const textarea = document.createElement('textarea')
-    textarea.value = value
-    textarea.setAttribute('readonly', 'true')
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    textarea.style.pointerEvents = 'none'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const copied = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    if (!copied) throw new Error('Failed to copy code')
-}
+export { copyTextToClipboard as copyCodeBlockText } from '@/lib/copy-text'
 
 export function prewarmCodeBlockHighlight(language: string | undefined, source: string, maxLines?: number): void {
     if (language === 'mermaid' || looksLikeFolderStructure(source) || hasColorToken(source)) return

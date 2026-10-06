@@ -11,9 +11,8 @@ import {
 
 const STREAM_FRAME_INTERVAL_MS = 32
 const CHUNKED_FRAME_INTERVAL_MS = 72
-const STREAM_TARGET_DRAIN_FRAMES = 10
-const CHUNKED_TARGET_DRAIN_FRAMES = 5
-const COMPLETION_TARGET_DRAIN_FRAMES = 5
+import { getAssistantInitialVisibleText, getAssistantStreamRevealCount, revealAssistantStreamText } from './assistant-text-reveal'
+export { getAssistantInitialVisibleText, getAssistantStreamRevealCount, revealAssistantStreamText } from './assistant-text-reveal'
 
 export type AssistantVisibleTextPresentation = {
     text: string
@@ -39,62 +38,6 @@ function shouldAvoidAnimatedStreaming(): boolean {
     return typeof window !== 'undefined'
         && typeof window.matchMedia === 'function'
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-export function getAssistantStreamRevealCount(
-    backlogCharacters: number,
-    mode: AssistantTextStreamingMode,
-    completing: boolean
-): number {
-    if (backlogCharacters <= 0) return 0
-    const targetFrames = completing
-        ? COMPLETION_TARGET_DRAIN_FRAMES
-        : mode === 'chunks'
-            ? CHUNKED_TARGET_DRAIN_FRAMES
-            : STREAM_TARGET_DRAIN_FRAMES
-    const minimum = mode === 'chunks' ? 4 : 1
-    return Math.min(backlogCharacters, Math.max(minimum, Math.ceil(backlogCharacters / targetFrames)))
-}
-
-function avoidSplittingSurrogatePair(text: string, end: number): number {
-    if (end <= 0 || end >= text.length) return end
-    const previous = text.charCodeAt(end - 1)
-    const next = text.charCodeAt(end)
-    return previous >= 0xD800 && previous <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF
-        ? end + 1
-        : end
-}
-
-export function getAssistantInitialVisibleText(text: string, _streaming: boolean): string {
-    // Mounting a response is navigation, not a new stream delta.
-    return text
-}
-
-export function revealAssistantStreamText(
-    currentText: string,
-    targetText: string,
-    mode: AssistantTextStreamingMode,
-    completing: boolean,
-    minimumRevealCount = 0
-): string {
-    if (currentText === targetText) return currentText
-    if (!targetText.startsWith(currentText)) return targetText
-
-    const backlog = targetText.length - currentText.length
-    const revealCount = Math.max(
-        minimumRevealCount,
-        getAssistantStreamRevealCount(backlog, mode, completing)
-    )
-    let end = Math.min(targetText.length, currentText.length + revealCount)
-
-    if (mode === 'chunks' && end < targetText.length) {
-        const searchEnd = Math.min(targetText.length, end + 28)
-        while (end < searchEnd && !/[\s.,!?;:)}\]]/.test(targetText[end] || '')) end += 1
-        if (end < targetText.length) end += 1
-    }
-
-    end = avoidSplittingSurrogatePair(targetText, end)
-    return targetText.slice(0, end)
 }
 
 function resolvePresentationTarget(
@@ -134,7 +77,7 @@ export function useAssistantVisibleText({
         [streamSnapshot.revision, streamSnapshot.text, streaming, text]
     )
     const sourceStreaming = streaming && (streamSnapshot.revision === 0 || streamSnapshot.streaming)
-    const initialVisibleText = getAssistantInitialVisibleText(targetText, sourceStreaming)
+    const initialVisibleText = getAssistantInitialVisibleText(targetText, sourceStreaming, mode)
     const [visibleText, setVisibleText] = useState(initialVisibleText)
     const [selectionPaused, setSelectionPaused] = useState(false)
     const visibleTextRef = useRef(initialVisibleText)
@@ -153,11 +96,11 @@ export function useAssistantVisibleText({
             return
         }
         activeStreamKeyRef.current = { key: nextStreamKey, hasPresentedLiveStream: sourceStreaming }
-        const nextVisibleText = getAssistantInitialVisibleText(targetText, sourceStreaming)
+        const nextVisibleText = getAssistantInitialVisibleText(targetText, sourceStreaming, mode)
         visibleTextRef.current = nextVisibleText
         lastRevealAtRef.current = 0
         setVisibleText(nextVisibleText)
-    }, [channel, sourceStreaming, streamId, targetText])
+    }, [channel, mode, sourceStreaming, streamId, targetText])
 
     useLayoutEffect(() => {
         const shouldSnap = shouldSnapRendererPresentation(
@@ -175,11 +118,14 @@ export function useAssistantVisibleText({
             streaming
         )
         lastRevealAtRef.current = 0
-        if (visibleTextRef.current === latestTargetText) return
-        visibleTextRef.current = latestTargetText
-        setVisibleText(latestTargetText)
+        const snapText = getAssistantInitialVisibleText(latestTargetText, sourceStreaming, mode)
+        if (visibleTextRef.current === snapText) return
+        visibleTextRef.current = snapText
+        setVisibleText(snapText)
     }, [
         channel,
+        mode,
+        sourceStreaming,
         streamId,
         streamSnapshot.revision,
         streaming,
@@ -207,21 +153,16 @@ export function useAssistantVisibleText({
         )
         const presentationSourceStreaming = streaming && (latestSnapshot.revision === 0 || latestSnapshot.streaming)
 
-        if (!visibilitySnapshot.visible || shouldAvoidAnimatedStreaming()) {
-            if (visibleTextRef.current !== presentationTargetText) {
-                visibleTextRef.current = presentationTargetText
-                setVisibleText(presentationTargetText)
+        if (selectionPaused) return
+        if (!visibilitySnapshot.visible || shouldAvoidAnimatedStreaming() || !presentationTargetText.startsWith(visibleTextRef.current)) {
+            const snapText = getAssistantInitialVisibleText(presentationTargetText, presentationSourceStreaming, mode)
+            if (visibleTextRef.current !== snapText) {
+                visibleTextRef.current = snapText
+                setVisibleText(snapText)
             }
             return
         }
-        if (selectionPaused) return
         if (visibleTextRef.current === presentationTargetText) return
-        if (!presentationTargetText.startsWith(visibleTextRef.current)) {
-            visibleTextRef.current = presentationTargetText
-            setVisibleText(presentationTargetText)
-            return
-        }
-
         let cancelled = false
         let frameId = 0
         const frameInterval = mode === 'chunks' ? CHUNKED_FRAME_INTERVAL_MS : STREAM_FRAME_INTERVAL_MS
@@ -239,6 +180,7 @@ export function useAssistantVisibleText({
             }
 
             lastRevealAtRef.current = timestamp
+            const previousText = visibleTextRef.current
             const nextText = revealAssistantStreamText(
                 visibleTextRef.current,
                 presentationTargetText,
@@ -250,7 +192,8 @@ export function useAssistantVisibleText({
                 visibleTextRef.current = nextText
                 setVisibleText(nextText)
             }
-            if (nextText !== presentationTargetText) frameId = window.requestAnimationFrame(pump)
+            // An unfinished chunk waits for a source update, not an idle rAF loop.
+            if (nextText !== presentationTargetText && nextText !== previousText) frameId = window.requestAnimationFrame(pump)
         }
         frameId = window.requestAnimationFrame(pump)
         return () => {

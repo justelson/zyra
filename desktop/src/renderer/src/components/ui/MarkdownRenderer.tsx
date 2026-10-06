@@ -4,7 +4,7 @@
  * their parsed React tree instead of running unified/remark again while scrolling.
  */
 
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import type { Element, Root } from 'hast'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
@@ -25,6 +25,7 @@ import { createMarkdownClipboardPayload } from './markdown/markdownClipboard'
 import { useMarkdownVisualTheme } from './markdown/markdownTheme'
 import { parseMarkdownToHast } from './markdown/markdownPipeline'
 import { createMarkdownHeadingSlug } from './markdown/markdownHeadingIds'
+import { StreamingMarkdownSpan, wrapStreamingText } from './markdown/StreamingText'
 
 export type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
 
@@ -43,6 +44,10 @@ export interface MarkdownRendererProps {
     prewarmCodeBlocks?: boolean
     /** Compile this changing fragment without retaining every intermediate version. */
     transient?: boolean
+    /** Fade only newly arriving prose, never a history/navigation mount. */
+    fadeStreamingText?: boolean
+    /** Derived by the mounted renderer, not stored in the compiled cache. */
+    animateInitialText?: boolean
     linkSearchRoot?: string
     onInternalLinkClick?: MarkdownInternalLinkHandler
     onLinkNotice?: MarkdownLinkNoticeHandler
@@ -162,7 +167,7 @@ function splitAutoPathText(value: string): Array<{ type: 'text'; value: string }
 }
 
 function enhancePlainPathReferences(node: Root | Element, blocked = false): void {
-    const nextBlocked = blocked || (node.type === 'element' && AUTO_PATH_BLOCKED_TAGS.has(node.tagName))
+    const nextBlocked = blocked || (node.type === 'element' && (AUTO_PATH_BLOCKED_TAGS.has(node.tagName) || node.properties.dataMathSource !== undefined))
     const nextChildren: Root['children'] = []
     for (const child of node.children) {
         if (child.type === 'text' && !nextBlocked) {
@@ -235,9 +240,12 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
 
 function compileMarkdown(props: MarkdownRendererProps): ReactNode {
     markdownCompilationCount += 1
-    const tree = props.preparedTree || parseMarkdownToHast(props.content, !props.lightweight)
+    const preparedTree = props.fadeStreamingText && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
+    const tree = preparedTree || parseMarkdownToHast(props.content, !props.lightweight)
     prepareMarkdownTree(tree)
-    const components = getMarkdownComponents(props)
+    const baseComponents = getMarkdownComponents(props)
+    if (props.fadeStreamingText) wrapStreamingText(tree, Boolean(props.animateInitialText))
+    const components = props.fadeStreamingText ? { ...baseComponents, span: StreamingMarkdownSpan } : baseComponents
 
     return toJsxRuntime(tree, {
         Fragment,
@@ -259,7 +267,7 @@ export function getMarkdownRenderCacheStats(): { entries: number; compilations: 
 }
 
 export function prepareMarkdownRender(props: MarkdownRendererProps): ReactNode {
-    if (props.transient) return compileMarkdown(props)
+    if (props.transient || props.fadeStreamingText) return compileMarkdown(props)
     const key = resolveCompiledKey(props)
     const cached = compiledMarkdown.get(key)
     if (cached?.content === props.content) return touchCompiledEntry(key, cached)
@@ -316,13 +324,16 @@ export function prewarmMarkdownRenders(items: MarkdownRendererProps[]): () => vo
 }
 
 export function MarkdownContentRenderer(props: MarkdownRendererProps) {
-    const { content, className, filePath, codeBlockMaxLines, lightweight = false, plainCodeBlocks = false, deferCodeHighlighting = false, preparedTree, interactionLayerEnabled = true, cacheKey, transient = false, linkSearchRoot, onInternalLinkClick, onLinkNotice, mediaMode = 'images' } = props
+    const { content, className, filePath, codeBlockMaxLines, lightweight = false, plainCodeBlocks = false, deferCodeHighlighting = false, preparedTree, interactionLayerEnabled = true, cacheKey, transient = false, fadeStreamingText = false, linkSearchRoot, onInternalLinkClick, onLinkNotice, mediaMode = 'images' } = props
     const activeVisualTheme = useMarkdownVisualTheme()
     const documentRef = useRef<HTMLDivElement | null>(null)
     const visualTheme = props.visualTheme || activeVisualTheme
+    const committed = useRef<{ content: string; cacheKey?: string } | null>(null)
+    const animateInitialText = Boolean(fadeStreamingText && committed.current && committed.current.cacheKey === cacheKey && committed.current.content !== content)
+    useLayoutEffect(() => { committed.current = { content, cacheKey } }, [content, cacheKey])
     const markdownProps = useMemo(
-        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, visualTheme, mediaMode }),
-        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme]
+        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, fadeStreamingText, animateInitialText, visualTheme, mediaMode }),
+        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, fadeStreamingText, animateInitialText, visualTheme]
     )
     const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme])
     const shouldDeferCompilation = !transient && content.length >= DEFERRED_MARKDOWN_LENGTH
@@ -404,6 +415,7 @@ export default memo(
         previous.interactionLayerEnabled === next.interactionLayerEnabled &&
         previous.cacheKey === next.cacheKey &&
         previous.transient === next.transient &&
+        previous.fadeStreamingText === next.fadeStreamingText &&
         previous.linkSearchRoot === next.linkSearchRoot &&
         previous.onInternalLinkClick === next.onInternalLinkClick &&
         previous.onLinkNotice === next.onLinkNotice &&

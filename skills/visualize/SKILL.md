@@ -27,7 +27,7 @@ small { color: var(--viz-muted); }
 ```
 
 - Always include a concise title and a meaningful plain-text summary. Quote attribute values; escape double quotes as `&quot;` and ampersands as `&amp;`.
-- Optional height is a quoted pixel number between 160 and 640, default 320. The user can expand and save the result.
+- Optional height is a quoted pixel number between 160 and 640, default 320. The preview keeps this height. Its menu contains only Copy HTML and Download HTML.
 - Use self-contained HTML, CSS, and SVG only. No JavaScript, event handlers, external images, libraries, imports, fonts, iframes, forms, file access, or network requests. Native `<details>` can reveal supporting explanations.
 - Do not wrap a complete document in the tag. Supply body content and optional `<style>` rules.
 - Keep HTML under 64 KiB and responses under eight visualization blocks. Prefer one focused visual.
@@ -43,19 +43,19 @@ Defaults follow the current chat surface, including later theme changes:
 - `--viz-accent`: accent
 - `--viz-border`: dividers
 
-The default font also follows the app. Inline previews have no surrounding card or background. Let the visual sit on the page; do not add an enclosing card just to frame it. The title's information button holds the description and controls, and View HTML opens a separate source dialog. Use explicit colors only when the subject requires them, such as a flag or series colors. Keep labels readable in light and dark themes. Use responsive SVG viewBoxes, flexible grids, wrapping labels, and compact legends. Prefer inline styles or locally named CSS classes; no fixed viewport-width layouts.
+The default font also follows the app. Inline previews have no surrounding card or background. Let the visual sit on the page; do not add an enclosing card just to frame it. The title's options menu contains only Copy HTML and Download HTML. The summary remains available to assistive technology; include important context in the visible visual or surrounding text. Use explicit colors only when the subject requires them, such as a flag or series colors. Keep labels readable in light and dark themes. Use responsive SVG viewBoxes, flexible grids, wrapping labels, and compact legends. Prefer inline styles or locally named CSS classes; no fixed viewport-width layouts.
 
 ## Fit the chat thread
 
 - Use the full message width by default: a fluid wrapper, `width:100%` for charts, flexible labels and wrapping controls. Do not add an arbitrary `max-width:640px`, fixed chart width, centered narrow column, or surrounding card. Exceptions are intrinsically sized objects such as a flag or icon, not data charts.
 - Start with the answer and one useful visual. Do not repeat the title, headline number, legend and explanatory paragraph unless each adds information.
-- Keep critical context visible, such as the unit, selected period and next reset. Put snapshot time, provenance, missing secondary windows, caveats and secondary counts inside a closed `<details><summary>Details</summary>...</details>` or the title's information summary. A caveat that changes the main conclusion must remain visible.
-- Choose a compact height for the collapsed state. Details can use the frame's scrolling and the existing Expand action. Do not reserve a tall blank region for hidden content. The iframe does not automatically resize to disclosures.
+- Keep critical context visible, such as the unit, selected period and next reset. Put snapshot time, provenance, missing secondary windows, caveats and secondary counts inside a closed `<details><summary>Details</summary>...</details>` within the visualization. A caveat that changes the main conclusion must remain visible.
+- Choose a compact height that fits the main content. Details can use the frame's scrolling; there is no Expand action. Do not reserve a tall blank region for hidden content. The iframe does not automatically resize to disclosures.
 - Keep visualizations self-contained and lightweight. Prefer one small chart to several duplicate panels. Avoid large precomputed state combinations, rasterized charts, repeated styles across many blocks and decorative effects. The 64 KiB limit is a ceiling, not a target.
 
 ## Useful interactions without scripts
 
-When the user wants controls, author them inside the visualization. The runtime supplies source/export/expand controls, not a universal chart toolbar.
+When the user wants controls, author them inside the visualization. The runtime supplies Copy HTML and Download HTML, not a universal chart toolbar.
 
 - Native `<details>` and `<summary>` work with mouse, touch and keyboard. CSS `[open]` sibling selectors or `:has()` can switch the visible representation, selected measure or included data. Give the summary a clear, current-state label and keep its focus indicator.
 - Offer only useful choices, for example Bar / Ring, Remaining / Used, or Summary / Table. Switching the representation must preserve the selected data and scale. Switching a measure must update its number, label and geometry together.

@@ -42,6 +42,7 @@
     "test:task-ownership-prompt": "node scripts/test-zyra-task-ownership-prompt.mjs",
     "test:agent-fleet:cancellation": "node scripts/test-agent-fleet-cancellation.mjs",
     "test:agent-conversations": "node scripts/test-agent-conversation-kind.mjs",
+    "test:ci-relay": "node scripts/test-ci-relay.mjs",
     "test:work-timeline-v2": "bun run --cwd desktop test:work-timeline-v2",
     "test:child-session-runtime": "node scripts/test-child-session-runtime.mjs",
     "test:managed-processes": "node scripts/test-managed-bash.mjs && node scripts/test-zyra-root-stop.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-child-session-runtime.mjs",

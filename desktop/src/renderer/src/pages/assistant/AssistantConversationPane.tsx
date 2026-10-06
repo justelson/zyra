@@ -40,7 +40,7 @@ import {
     resolveAssistantComposerInsetEnd,
     resolveAssistantStableComposerInsetEnd
 } from './assistant-pane-layout'
-import { getAssistantThreadDisplayTitle, getProjectLabel, getSessionDisplayTitle, isAssistantDraftSession, resolveSessionProjectPath } from './assistant-sessions-rail-utils'
+import { getAssistantThreadDisplayTitle, getProjectLabel, getSessionDisplayTitle, groupSessionsByProject, isAssistantDraftSession, resolveSessionProjectPath } from './assistant-sessions-rail-utils'
 import {
     deriveAssistantConversationSurfaceMode,
     isAssistantComposerTurnActive,
@@ -246,12 +246,20 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const pendingCreateProjectId = pendingCreateSessionInput?.projectId?.trim() || null
     const lastResolvedProjectPathBySessionRef = useRef<Record<string, string>>({})
     const selectedSessionMode = 'work' as const
-    const displayProjectPath = isCreatingFreshChat ? pendingCreateProjectPath : visiblePendingProjectSelection?.projectPath ?? (selectedProjectPath || (
+    const selectedProjectPresentation = useMemo(() => controller.selectedSession
+        ? groupSessionsByProject([controller.selectedSession], {}, projectCatalogState.catalog.projects)[0]
+        : null, [controller.selectedSession, projectCatalogState.catalog.projects])
+    const presentedProjectPath = selectedProjectPresentation?.path ?? selectedProjectPath
+    const presentedProjectId = selectedProjectPresentation
+        ? selectedProjectPresentation.key.startsWith('project:') ? selectedProjectPresentation.key.slice('project:'.length) : null
+        : selectedProjectId
+    const displayProjectPath = isCreatingFreshChat ? pendingCreateProjectPath : visiblePendingProjectSelection?.projectPath ?? (presentedProjectPath || (
         (controller.commandPending || controller.loading) && selectedSessionId && !controller.selectedSession
             ? lastResolvedProjectPathBySessionRef.current[selectedSessionId] || ''
             : ''
     ))
-    const displayProjectId = isCreatingFreshChat ? pendingCreateProjectId : visiblePendingProjectSelection ? visiblePendingProjectSelection.projectId : selectedProjectId
+    const displayProjectId = isCreatingFreshChat ? pendingCreateProjectId : visiblePendingProjectSelection ? visiblePendingProjectSelection.projectId : presentedProjectId
+    const chatWorkingProjectPath = isCreatingFreshChat ? displayProjectPath : selectedProjectPath || displayProjectPath
     const selectedProjectRecord = projectCatalogState.catalog.projects.find((project) => project.id === displayProjectId)
         || (visiblePendingProjectSelection?.projectId === displayProjectId ? visiblePendingProjectSelection.project : null)
     const displayProjectName = selectedProjectRecord?.name || null
@@ -268,10 +276,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         if (!isCreatingFreshChat) {
             const revisionedRoots = controller.selectedSession?.chatScope?.roots || []
             if (revisionedRoots.length > 0) return revisionedRoots
-            return displayProjectPath ? [{
-                id: `working-root:${displayProjectPath}`,
+            return chatWorkingProjectPath ? [{
+                id: `working-root:${chatWorkingProjectPath}`,
                 kind: 'project-home',
-                path: displayProjectPath,
+                path: chatWorkingProjectPath,
                 label: displayProjectName || latestProjectLabel,
                 access: 'read-write'
             }] : []
@@ -299,10 +307,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                 access: folder.access
             }))
         ]
-    }, [controller.selectedSession?.chatScope?.roots, displayProjectName, displayProjectPath, isCreatingFreshChat, latestProjectLabel, selectedProjectRecord])
+    }, [chatWorkingProjectPath, controller.selectedSession?.chatScope?.roots, displayProjectName, displayProjectPath, isCreatingFreshChat, latestProjectLabel, selectedProjectRecord])
     const assistantMessageFilePath = useMemo(
-        () => getAssistantLinkBaseFilePath(displayProjectPath),
-        [displayProjectPath]
+        () => getAssistantLinkBaseFilePath(chatWorkingProjectPath),
+        [chatWorkingProjectPath]
     )
     const availableModels = useMemo(() => {
         if (controller.knownModels.length > 0) return controller.knownModels

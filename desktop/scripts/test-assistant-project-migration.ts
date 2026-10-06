@@ -14,6 +14,7 @@ import {
     detectAssistantProjectCandidates,
     dismissAssistantProjectCandidate,
     ensureLegacyAssistantProjectForFolder,
+    filterAssistantAutomaticProjectImports,
     initializeAssistantProjectSchema,
     isAssistantPathInsideRoot,
     migrateLegacyAssistantProjects,
@@ -410,6 +411,18 @@ try {
         projectHomesRoot: devHomesRoot
     })
     assert.notEqual(deterministicLegacyProject.id, manuallyCreatedProject.id)
+
+    // An older Desktop treated its default chat working folder as a Project.
+    // Reopening that database must not offer the untouched legacy entry again.
+    const legacyCatalog = readAssistantProjectCatalog(devDb)
+    assert.ok(legacyCatalog.projects.some(project => project.id === deterministicLegacyProject.id), 'the old stored catalog reproduces the unwanted workspace entry')
+    const projectlessCatalog = filterAssistantAutomaticProjectImports(legacyCatalog, manualRoot)
+    assert.equal(projectlessCatalog.projects.some(project => project.id === deterministicLegacyProject.id), false)
+    assert.equal(projectlessCatalog.projects.some(project => project.id === manuallyCreatedProject.id), true, 'an explicitly created Project using the same folder remains available')
+    assert.ok(legacyCatalog.projects.some(project => project.id === deterministicLegacyProject.id), 'catalog projection never deletes stored legacy Projects or their chats')
+    assert.equal(filterAssistantAutomaticProjectImports(legacyCatalog, null).projects.some(project => project.id === deterministicLegacyProject.id), false, 'a default folder is unnecessary to hide the duplicate automatic import of a real Project')
+    const revisedCatalog = { ...legacyCatalog, projects: legacyCatalog.projects.map(project => project.id === deterministicLegacyProject.id ? { ...project, revision: 2, name: 'My deliberate Project' } : project) }
+    assert.equal(filterAssistantAutomaticProjectImports(revisedCatalog, manualRoot), revisedCatalog, 'subsequent user edits distinguish a real Project from automatic scaffolding')
     assert.equal(
         deterministicLegacyProject.folders[0]?.folderId,
         manuallyCreatedProject.folders[0]?.folderId,

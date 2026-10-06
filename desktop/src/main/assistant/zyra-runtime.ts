@@ -43,6 +43,7 @@ import { desktopTerminalEnvironment } from './agent-server-namespace'
 import type { PreparedAssistantPromptImage } from './prompt-images'
 import { toUserInputQuestions } from './codex-runtime-session-utils'
 import { getAssistantCanonicalThreadId } from './thread-identity'
+import { remoteAssistantPromptMessageId } from './canonical-message-identity'
 import type { PluginMcpConnections } from './plugin-mcp-connections'
 import {
     emptyAssistantContentParts,
@@ -1775,7 +1776,9 @@ export class ZyraRuntime extends EventEmitter {
             thread.canonicalPresence?.latestSequence || 0
         )
         const providerThreadId = getAssistantCanonicalThreadId(thread)
-        const model = normalizeZyraModel(thread.model) || 'openai-codex/gpt-5.5'
+        // An unset Desktop default must leave selection to the authenticated
+        // runtime and its saved preferences, rather than pinning a removed model.
+        const model = normalizeZyraModel(thread.model) || ''
         const context: ZyraSessionContext = {
             localThreadId: thread.id,
             providerThreadId,
@@ -2982,7 +2985,7 @@ export class ZyraRuntime extends EventEmitter {
         if (
             observedTurnId
             && metadata?.replay !== true
-            && (type === 'agent_start' || type === 'turn_start' || type === 'message_start' || type === 'message_update' || type === 'tool_execution_start')
+            && (type === 'zyra_server_prompt_accepted' || type === 'agent_start' || type === 'turn_start' || type === 'message_start' || type === 'message_update' || type === 'tool_execution_start')
             && context.activeTurnId !== observedTurnId
             && !context.completedTurnIds.has(observedTurnId)
         ) {
@@ -3006,7 +3009,7 @@ export class ZyraRuntime extends EventEmitter {
             this.emitRuntime({
                 eventId: randomUUID(),
                 type: 'turn.started',
-                createdAt: asString(event['timestamp']) || nowIso(),
+                createdAt: asString(event['timestamp']) || metadata?.occurredAt || nowIso(),
                 threadId: context.localThreadId,
                 providerThreadId: context.providerThreadId,
                 turnId: observedTurnId,
@@ -3173,7 +3176,7 @@ export class ZyraRuntime extends EventEmitter {
             return
         }
 
-        if (type === 'message_start' || type === 'message_update' || type === 'message_end') {
+        if (type === 'zyra_server_prompt_accepted' || type === 'message_start' || type === 'message_update' || type === 'message_end') {
             const message = asRecord(event['message'])
             if (type === 'message_end' && message?.['role'] === 'custom' && message['customType'] === 'zyra_thread_message') {
                 const activity = projectThreadMessage(message['details'], nowIso())
@@ -3187,10 +3190,12 @@ export class ZyraRuntime extends EventEmitter {
                     metadata?.localThreadId
                     && metadata.localThreadId !== context.localThreadId
                 )
-                if (type !== 'message_start' || !turnId || !originatedOutsideThisDesktopThread) return
+                if (!turnId || !originatedOutsideThisDesktopThread) return
                 const content = extractAssistantEventContentParts(event, emptyAssistantContentParts(), type)
                 const sourceMessageId = asString(message?.['id'])
-                const messageId = `assistant-message-user-${sourceMessageId || turnId}`
+                const messageId = type === 'zyra_server_prompt_accepted'
+                    ? remoteAssistantPromptMessageId(turnId)
+                    : `assistant-message-user-${sourceMessageId || turnId}`
                 const parts = Array.isArray(message?.['content']) ? message['content'] : []
                 const imageSections = parts.flatMap((part, index) => {
                     const image = asRecord(part)
@@ -3203,7 +3208,7 @@ export class ZyraRuntime extends EventEmitter {
                 this.emitRuntime({
                     eventId: randomUUID(),
                     type: 'user.message.received',
-                    createdAt: asString(event['timestamp']) || nowIso(),
+                    createdAt: asString(event['timestamp']) || metadata?.occurredAt || nowIso(),
                     threadId: context.localThreadId,
                     providerThreadId: context.providerThreadId,
                     turnId,

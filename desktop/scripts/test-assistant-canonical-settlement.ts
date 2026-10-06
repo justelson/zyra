@@ -65,6 +65,16 @@ const { AssistantService } = await import('../src/main/assistant/service')
 const service = new AssistantService()
 try {
     const catalogSnapshot = materializeAssistantShellSnapshot(await service.getSnapshot())
+    const originalWorkspaceResolver = (service as any).options.getDefaultProjectsFolder
+    const storedProjects = (await service.listProjects()).catalog.projects
+    assert.ok(storedProjects.length > 0)
+    try {
+        ;(service as any).options.getDefaultProjectsFolder = () => project
+        assert.equal((await service.listProjects()).catalog.projects.length, 0, 'the real service hides an untouched default-workspace import before the catalog reaches any project picker')
+    } finally {
+        ;(service as any).options.getDefaultProjectsFolder = originalWorkspaceResolver
+    }
+    assert.equal((await service.listProjects()).catalog.projects.length, storedProjects.length, 'projectless catalog projection leaves persisted Project records intact')
     const past = catalogSnapshot.sessions.find(session => session.threads.some(thread => thread.providerThreadId === 'canonical-settlement-fixture'))!
     const other = catalogSnapshot.sessions.find(session => session.id !== past.id)!
     const threadId = past.activeThreadId!

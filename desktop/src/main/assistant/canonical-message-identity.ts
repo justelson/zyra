@@ -1,5 +1,9 @@
 import { normalizeCanonicalMessageSourceId } from '../../shared/assistant/message-identity'
 
+export function remoteAssistantPromptMessageId(turnId: string): string {
+    return `assistant-message-remote-prompt-${turnId}`
+}
+
 export function canonicalPiMessageSourceId(message: Record<string, unknown>, fallback: string): string {
     const value = message['zyraCanonicalMessage']
     const zyraCanonical = value && typeof value === 'object' && !Array.isArray(value)

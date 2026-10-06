@@ -13,6 +13,7 @@ import { canonicalVoicePresentationEvent } from './voice/canonical-voice-present
 import { resolveAssistantWorkingDirectory } from '../../shared/assistant/working-directory'
 import { resolveImportedAssistantProjectPath } from '../../shared/assistant/project-identity'
 import { prepareDefaultChatWorkspace } from '../setup/default-chat-workspace'
+import { filterAssistantAutomaticProjectImports } from './assistant-project-persistence'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -782,7 +783,10 @@ export class AssistantService {
         const discoveryRoots = await this.options.getProjectDiscoveryRoots?.().catch(() => []) || []
         return {
             success: true as const,
-            catalog: await this.persistence.listProjects(discoveryRoots)
+            catalog: filterAssistantAutomaticProjectImports(
+                await this.persistence.listProjects(discoveryRoots),
+                this.options.getDefaultProjectsFolder?.()
+            )
         }
     }
 

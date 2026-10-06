@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DevicePreferencesService } from '../src/main/setup/device-preferences-service'
@@ -59,9 +59,10 @@ try {
     assert.equal((await setup.initialize()).defaultProjectsFolder, setupFolder)
     const accepted = await setup.commitStep({ expectedRevision: 0, step: 'projects', selection: { projectsFolder: '  ' } })
     assert.equal(accepted.record?.currentStep, 'review', 'blank folder is accepted by the main-owned gate')
-    assert.equal(accepted.record?.data.projects?.projectsFolder, setupFolder)
+    const canonicalSetupFolder = await realpath(setupFolder)
+    assert.equal(accepted.record?.data.projects?.projectsFolder, canonicalSetupFolder, 'setup stores the canonical folder, including Windows short-path aliases')
     assert.equal((await stat(setupFolder)).isDirectory(), true, 'blank setup creates the actual directory before continuing')
-    assert.equal((await new OnboardingService(setupFile, setupPreferences, {} as never).initialize()).record?.data.projects?.projectsFolder, setupFolder, 'setup resumes with its saved effective folder')
+    assert.equal((await new OnboardingService(setupFile, setupPreferences, {} as never).initialize()).record?.data.projects?.projectsFolder, canonicalSetupFolder, 'setup resumes with its saved effective folder')
     console.log('Projectless identity, explicit legacy/CLI preservation and Documents fallback: ok')
 } finally {
     await rm(root, { recursive: true, force: true })

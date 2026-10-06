@@ -81,6 +81,10 @@ Type `/` in a chat to find commands and discovered Agent Skills. Project command
 
 Native Windows, macOS, and Linux installers are published on the [GitHub Releases page](https://github.com/justelson/zyra/releases). Desktop and TUI use the same local chats and agent runtime.
 
+Before installing, read the [privacy policy and installation changes](docs/privacy/zyra.md). Stable Windows Desktop adds Explorer actions, file-type icons and a per-user terminal launcher/PATH entry. Development previews use a separate profile and omit the stable Explorer/PATH integration.
+
+Windows signing is pending a SignPath Foundation application; current Windows downloads are unsigned. See the [code signing policy](docs/security/code-signing.md) for the proposed approval process, build verification and attribution. If accepted, the project will acknowledge: "Free code signing provided by SignPath.io, certificate by SignPath Foundation."
+
 ## Roadmap
 
 See the [public roadmap](docs/roadmap.md) for upcoming release targets, reported issues, proposed improvements, and how to add more fixes to the backlog. Plans stay separate from [shipped releases](https://github.com/justelson/zyra/releases).
@@ -128,5 +132,7 @@ Use the focused validation commands in [fast-validation.md](docs/development/fas
 ## Privacy and license
 
 Chats, project memory, local profiles, and credentials stay local by default. Optional product analytics are disabled by default and exclude prompts, responses, files, paths, URLs, terminal content, account identity, and raw errors. See [product analytics](docs/architecture/product-analytics.md).
+
+AI requests send the needed conversation and tool context to your selected providers and services. The [privacy policy](docs/privacy/zyra.md) explains external processing, optional analytics, automatic component downloads, retention and your controls. The Chrome companion has an additional [Browser privacy policy](docs/privacy/zyra-browser.md).
 
 Copyright 2026 justelson. Zyra is licensed under [Apache 2.0](LICENSE). See [NOTICE](NOTICE) and [third-party notices](THIRD_PARTY_NOTICES.md) for packaged dependencies and assets.

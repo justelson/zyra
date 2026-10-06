@@ -2,6 +2,8 @@
 
 Zyra is pre-1.0. Release versions still describe meaningful product and compatibility boundaries.
 
+The [code signing policy](docs/security/code-signing.md) records the proposed SignPath Foundation integration and the gates before a signed Windows release. Approval, service configuration and signing workflow integration are pending; existing unsigned releases must not be described as signed. Download and installer flows must disclose the [privacy policy and installation changes](docs/privacy/zyra.md) before the first signed release is published.
+
 Maintainer checkout: local release-cycle details are indexed in `docs.local/README.md`, with the operating workflow at `docs.local/runbooks/manual-publishing-workflow.md` and version handoffs under `docs.local/releases/`. These ignored local documents are available only in the maintainer's checkout.
 
 ## Lockstep version policy

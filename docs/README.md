@@ -11,6 +11,9 @@ Status words used below:
 
 ## Current guidance
 
+- [Zyra privacy policy](privacy/zyra.md) — **Current.** Desktop and terminal data handling, external services, optional analytics, installation changes and deletion controls.
+- [Code signing policy](security/code-signing.md) — **Proposed integration.** Current unsigned status, maintainer roles, intended signing scope and gates before SignPath-backed releases.
+
 - [Repository map](repository-map.md) — **Current.** Ownership and cleanup policy for every top-level Zyra surface.
 - [Subagents and workflows](guides/subagents-workflows.md) — **Current.** User/developer guide for fleet and workflow behavior.
 - [Model support](guides/model-support.md) — **Current.** Supported providers/models and deferred compatibility work.

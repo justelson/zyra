@@ -220,7 +220,7 @@ export function useOpenAIAccountSettings({ usageActive = false, connectionsActiv
         await Promise.all([loadConnectionState(true, 'retry'), ...(usageActive ? [loadOverview(true)] : [])])
     }, [loadConnectionState, loadOverview, usageActive])
 
-    const connectChatGpt = useCallback(async (signInMethod: ChatGptSignInMethod = 'browser') => {
+    const connectChatGpt = useCallback(async (signInMethod: ChatGptSignInMethod = 'browser', accountId?: string) => {
         setConnectionAction('chatgpt')
         setConnectionError(null)
         setChatGptDeviceCode(null)
@@ -237,7 +237,7 @@ export function useOpenAIAccountSettings({ usageActive = false, connectionsActiv
             }, 350)
             : null
         try {
-            const result = await window.devscope.onboarding.connectChatGpt({ analyticsAction: connections?.chatgpt?.configured ? 'replace' : 'connect', signInMethod })
+            const result = await window.devscope.onboarding.connectChatGpt({ analyticsAction: accountId ? 'replace' : 'connect', signInMethod, accountId })
             if (!result.success) throw Object.assign(new Error(result.error), { code: result.code })
             if (!result.status.verified) throw new Error(result.status.detail || 'ChatGPT could not be verified.')
             invalidateSettingsModels()

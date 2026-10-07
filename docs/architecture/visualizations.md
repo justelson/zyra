@@ -21,15 +21,19 @@ The shared parser in `src/visualizations/blocks.mjs` separates Markdown from vis
 - DOMPurify uses explicit HTML/SVG tag and attribute allowlists.
 - Scripts, event handlers, frames, forms, embedded objects, SVG foreign content/animation, and refresh metadata are removed.
 - Links are restricted to local fragments; images to embedded base64 PNG/JPEG/GIF/WebP data.
-- The document CSP denies network, scripts, fonts, frames, forms, objects, and base URLs. Inline CSS and raster data images are the only resource exceptions.
+- The document CSP denies network, scripts, authored font loading, frames, forms, objects, and base URLs. Inline CSS and raster data images remain supported. When an active trusted app font is present, generated app-owned `@font-face` rules use embedded data fonts; otherwise `font-src` stays `none`. The sanitizer removes authored font-face/import rules, including nested rules, while preserving explicit font-family choices.
 - An empty iframe sandbox grants neither scripts nor same-origin access. There is no app IPC, postMessage command bridge, filesystem access, popup permission, or external navigation action.
-- The parent app CSP is unchanged.
+- The parent app CSP adds only `data:` to `font-src`, permitting the trusted embedded font through the iframe's inherited policy. Other directives remain unchanged.
 
 This is not an arbitrary JavaScript app runner. Native HTML disclosures can provide limited interaction. A later interactive-runtime proposal needs its own security design rather than adding sandbox permissions to this renderer.
 
 ## Theme and controls
 
-The frame receives the surface background, foreground, muted text, accent, border and font. CSS variables are `--viz-bg`, `--viz-text`, `--viz-muted`, `--viz-accent`, and `--viz-border`. App theme events and root/body attribute changes update existing previews. Authored color overrides remain intact.
+The frame receives the surface background, foreground, muted text, accent, border and font. CSS variables are `--viz-bg`, `--viz-text`, `--viz-muted`, `--viz-accent`, and `--viz-border`. A separate theme-aware chart palette exposes `--viz-series-1` through `--viz-series-6` (purple, teal, amber, rose, blue, lime), `--viz-on-series` for labels inside those marks, and `--viz-track` for quiet bar tracks. `--viz-heat-low` and `--viz-heat-high` provide a monotonic heatmap ramp with readable normal foreground text in the default light/dark themes. Category colors remain stable when the app accent changes. App theme events and root/body attribute changes update existing previews. Authored color overrides remain intact.
+
+The built-in skill guides future generation toward aligned bars, visible values/units, vivid category colors and readable heatmaps. The renderer supplies tokens; it does not reinterpret data or recolor arbitrary authored charts. Existing hardcoded colors retain their appearance. Inline previews and standalone exports share the same palette snapshot, sanitization cache and security policy.
+
+The default visualization font follows the active app UI family. The appearance loader loads bundled Bricolage/Hanken assets or existing managed font bytes once and retains an immutable serialized resource beside the loaded FontFaces. A family filter selects only the active matching resource, and font-load/removal events update existing previews. Theme comparisons use scalar/resource-reference equality rather than serializing font bytes. Preview, Copy HTML and Download HTML share that resource through the document builder; they do not perform additional font IPC reads. Parent CSP allows data fonts so its inherited policy permits the trusted iframe resource; the child still denies network and scripts. An explicit authored font-family takes precedence. Local/system families use fonts installed on the viewing computer and are not extracted or embedded.
 
 Previews sit directly in the message without an enclosing card, border, padding or background. The iframe uses the matching color scheme so its transparent canvas blends into the chat. An options button beside the title opens a keyboard-accessible menu with exactly Copy HTML and Download HTML. The description is also available to assistive technology on the iframe. In regular assistant replies, the message timestamp sits beside each completed visualization's options button. Text following a visualization gets the same message timestamp at the end of its text segment. A reply ending in a visualization does not repeat the timestamp below it; copy and elapsed-time controls remain available. Plain-text replies keep their existing timestamp placement.
 
@@ -54,7 +58,7 @@ The TUI shares the parser. It shows the title, summary and a note to view the re
 ## Verification
 
 - `npm run test:visualizations`: parser prefixes/literal examples/limits, actual TUI output, skill discovery and distribution paths.
-- `npm --prefix desktop run test:visualizations`: isolated Electron with the real parent CSP, sanitization, source suppression, cancellation, theme changes, two-action keyboard/focus behavior and copy/download-document safety, opaque-origin isolation, blocked scripts and zero external requests; plus actual assistant Markdown routing/cache checks.
+- `npm --prefix desktop run test:visualizations`: trusted font serialization and descriptor validation; palette contrast across all heatmap percentages; isolated Electron with the real parent CSP, actual decoded bundled/managed font glyphs in inline and exported documents, explicit family overrides, painted chart pixels, data geometry, dark/light and 320px layout, sanitization, source suppression, cancellation, theme changes, two-action keyboard/focus behavior and copy/download-document safety, opaque-origin isolation, blocked scripts and zero external requests; plus actual assistant Markdown routing/cache checks.
 - `node desktop/scripts/test-runtime-source-imports.mjs`: runtime manifest and import-boundary validation.
 
 These fixtures do not prove that an already-running installed app or agent server has loaded the new code. No production build, restart, or deployment is implicit in these checks.

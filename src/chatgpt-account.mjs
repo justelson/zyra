@@ -120,8 +120,8 @@ export function formatZyraAuthAccountStatus(account = {}) {
   return lines;
 }
 
-export async function fetchCodexUsageStats() {
-  const { data, auth } = await requestCodexAccountJson("/wham/usage");
+export async function fetchCodexUsageStats(options = {}) {
+  const { data, auth } = await requestCodexAccountJson("/wham/usage", {}, options);
   return normalizeCodexUsageStats(data, auth.source, auth);
 }
 
@@ -165,6 +165,11 @@ export function formatCodexUsageStats(stats) {
 }
 
 export async function resolveChatGptAccountAuth(options = {}) {
+  if (options.accountCredential) {
+    const credential = options.accountCredential;
+    const claims = extractOpenAiCodexClaims(credential.access);
+    return { source: 'Zyra credential store', accessToken: credential.access, accountId: credential.accountId ?? claims?.accountId, email: claims?.email };
+  }
   const authStorage = options.authStorage ?? await createZyraCredentialAuthStorage(options);
   const accessToken = await authStorage.getApiKey(CHATGPT_ACCOUNT_PROVIDER, { includeFallback: false });
   if (!accessToken) return undefined;
@@ -584,10 +589,10 @@ async function requestCodexAccountJson(pathname, init = {}, options = {}) {
     throw new Error("No ChatGPT account is connected in Zyra. Run /login or `zyra login subscription`.");
   }
 
-  const response = await fetchCodexAccountWithAuth(auth, pathname, init);
+  const response = await fetchCodexAccountWithAuth(auth, pathname, init, options);
   const raw = await response.text().catch(() => "");
   if (!response.ok) {
-    throw new Error(formatCodexUsageHttpFailure(response.status, response.statusText, raw));
+    throw Object.assign(new Error(formatCodexUsageHttpFailure(response.status, response.statusText, raw)), { status: response.status });
   }
   if (!raw) return { data: {}, auth };
   try {
@@ -597,7 +602,7 @@ async function requestCodexAccountJson(pathname, init = {}, options = {}) {
   }
 }
 
-function fetchCodexAccountWithAuth(auth, pathname, init = {}) {
+function fetchCodexAccountWithAuth(auth, pathname, init = {}, options = {}) {
   const headers = {
     Authorization: `Bearer ${auth.accessToken}`,
     Accept: "application/json",
@@ -606,9 +611,10 @@ function fetchCodexAccountWithAuth(auth, pathname, init = {}) {
   };
   if (auth.accountId) headers["ChatGPT-Account-Id"] = auth.accountId;
   if (init.body) headers["Content-Type"] = "application/json";
-  return fetch(`${CODEX_ACCOUNT_API_BASE}${pathname}`, {
+  return (options.fetchImpl ?? globalThis.fetch)(`${CODEX_ACCOUNT_API_BASE}${pathname}`, {
     ...init,
     headers: { ...headers, ...(init.headers ?? {}) },
+    signal: options.signal,
   });
 }
 

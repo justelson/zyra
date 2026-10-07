@@ -48,6 +48,7 @@ export type BrowserViewStateCause =
     | 'error'
 
 export type BrowserViewEvent =
+    | { type: 'link-hover'; tabId: string; url: string }
     | {
         type: 'state'
         cause: BrowserViewStateCause

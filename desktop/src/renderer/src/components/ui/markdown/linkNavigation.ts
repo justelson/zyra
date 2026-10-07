@@ -169,7 +169,7 @@ export function resolveMarkdownLinkTarget(href: string, filePath?: string): Mark
     let normalizedTargetPath = ''
     if (isWindowsPathHref(decodedPathname)) {
         normalizedTargetPath = normalizePath(decodedPathname)
-    } else if (!filePath) {
+    } else if (!filePath && !decodedPathname.startsWith('/')) {
         return null
     } else if (decodedPathname.startsWith('/')) {
         const driveMatch = /^[a-zA-Z]:\//.exec(normalizedSourcePath)

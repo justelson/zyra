@@ -79,8 +79,8 @@ for (const proseToken of ['CLI/runtime:', 'private/person-specific', 'commands/<
     assert.equal(looksLikeMarkdownFileReference(proseToken), false, `${proseToken} is documentation prose rather than an automatic filesystem lookup`)
 }
 assert.equal(
-    resolveMarkdownLinkSearchRoot('C:\\workspace\\zyra\\AGENTS.md', 'C:\\workspace'),
-    'C:\\workspace\\zyra',
+    resolveMarkdownLinkSearchRoot('C:\\Users\\developer\\zyra\\AGENTS.md', 'C:\\Users\\developer'),
+    'C:\\Users\\developer\\zyra',
     'a stale home-level utility root narrows to the previewed file directory'
 )
 assert.equal(
@@ -118,7 +118,7 @@ assert.equal(missing?.availability, 'missing', 'confirmed missing targets are di
 resetMarkdownLinkAvailabilityCache()
 pathInfoResult = { success: false, error: 'temporarily unavailable' }
 const unknown = await inspectMarkdownLinkAvailability('./maybe.md', 'C:\\workspace\\README.md')
-assert.equal(unknown?.availability, 'unknown', 'unverified targets remain eligible for click-time opening')
+assert.equal(unknown?.availability, 'unknown', 'failed checks remain unverified rather than asserting existence')
 
 resetMarkdownLinkAvailabilityCache()
 indexedSearchCalls = 0
@@ -129,7 +129,7 @@ const directOnly = await inspectMarkdownLinkAvailability(
     'C:\\workspace',
     { allowProjectSearch: false }
 )
-assert.equal(directOnly?.availability, 'unknown', 'background shorthand checks remain clickable when direct resolution misses')
+assert.equal(directOnly?.availability, 'missing', 'a missing direct path is marked missing without starting project indexing')
 assert.equal(indexedSearchCalls, 0, 'background automatic references cannot start full project indexing')
 
 resetMarkdownLinkAvailabilityCache()

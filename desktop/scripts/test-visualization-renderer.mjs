@@ -15,7 +15,7 @@ const screenshotArgument = process.argv.slice(2).find(arg => !arg.startsWith('--
 const screenshotDirectory = screenshotArgument ? resolve(screenshotArgument) : null
 const temporary = await mkdtemp(join(tmpdir(), 'zyra-visualization-'))
 try {
-    const bundle = await build({ entryPoints: [join(desktop, 'scripts/fixtures/visualization-renderer.tsx')], bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.hot': 'undefined', 'import.meta.env': '{}', '__ZYRA_DESKTOP_VERSION__': '"0.0.0-test"' }, alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') } })
+    const bundle = await build({ entryPoints: [join(desktop, 'scripts/fixtures/visualization-renderer.tsx')], bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', loader: { '.woff2': 'dataurl' }, define: { 'import.meta.hot': 'undefined', 'import.meta.env': '{}', '__ZYRA_DESKTOP_VERSION__': '"0.0.0-test"' }, alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') } })
     const shell = await readFile(join(desktop, 'src/renderer/index.html'), 'utf8')
     const policy = shell.match(/<meta http-equiv="Content-Security-Policy"[\s\S]*?\/>/)?.[0]
     if (!policy) throw new Error('Missing real renderer CSP')

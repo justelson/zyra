@@ -6,6 +6,7 @@ import type { ControlPendingActionApproval, ControlPendingGrant, ControlTarget }
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { cn } from '@/lib/utils'
 import { AssistantComposer } from './AssistantComposer'
+import { AssistantNewChatGreeting } from './AssistantNewChatGreeting'
 import { AssistantPendingApprovalPanel } from './AssistantPendingApprovalPanel'
 import { AssistantPendingControlApprovalPanel } from './AssistantPendingControlApprovalPanel'
 import { AssistantPendingPlaygroundLabPanel } from './AssistantPendingPlaygroundLabPanel'
@@ -196,15 +197,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     data-assistant-composer-hitbox="true"
                 >
                     {placement === 'center' ? (
-                        <div className="pointer-events-none mb-5 px-2 text-center">
-                            <p
-                                className="mx-auto max-w-[680px] text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-sparkle-text/90"
-                                data-assistant-new-chat-prompt="true"
-                                style={{ fontFamily: 'var(--font-ui, "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif)' }}
-                            >
-                                {props.newChatPrompt || ''}
-                            </p>
-                        </div>
+                        <AssistantNewChatGreeting prompt={props.newChatPrompt} />
                     ) : null}
                     <AssistantComposer
                         sessionId={props.selectedSessionId}

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { FileCode2, Loader2, X } from 'lucide-react'
+import { FileCode2, X } from 'lucide-react'
 import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
 import { resolvePreviewType } from '@/components/ui/file-preview/utils'
 import { parseQuickPreviewFilePath } from '@shared/file-preview-route'
@@ -77,16 +77,7 @@ export default function QuickOpen() {
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-sparkle-bg text-sparkle-text">
             {!previewFile && <QuickPreviewTitleBar title={filePath ? splitFileNameAndExtension(filePath).fileName : undefined} />}
-            {loadingPreview && !previewFile && (
-                <div className="flex flex-1 items-center justify-center">
-                    <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-sm text-white/80">
-                        <Loader2 size={14} className="animate-spin text-[var(--accent-primary)]" />
-                        Loading preview...
-                    </div>
-                </div>
-            )}
-
-            {!loadingPreview && !previewFile && (
+            {!loadingPreview && !previewFile && loadError && (
                 <div className="flex flex-1 items-center justify-center p-6">
                     <div className="max-w-xl w-full rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6">
                         <div className="flex items-center justify-between gap-3">
@@ -107,17 +98,7 @@ export default function QuickOpen() {
 
             {previewFile && (
                 <Suspense
-                    fallback={
-                        <>
-                            <QuickPreviewTitleBar title={previewFile.name} />
-                            <div className="flex flex-1 items-center justify-center">
-                                <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-sm text-white/80">
-                                    <Loader2 size={14} className="animate-spin text-[var(--accent-primary)]" />
-                                    Loading preview...
-                                </div>
-                            </div>
-                        </>
-                    }
+                    fallback={<QuickPreviewTitleBar title={previewFile.name} />}
                 >
                     <FilePreviewModal
                         file={previewFile}

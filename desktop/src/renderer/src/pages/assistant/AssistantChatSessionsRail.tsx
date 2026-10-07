@@ -856,6 +856,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                 {agentInboxEnabled ? (
                     <AssistantAgentInboxSidebar
                         sessions={sessions}
+                        projects={projects}
                         pinnedSessionIds={pinnedSessionIds}
                         activeSessionId={activeSessionId}
                         activeThreadId={activeThreadId}

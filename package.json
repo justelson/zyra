@@ -5,6 +5,7 @@
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
   "scripts": {
+    "test:chatgpt-accounts": "node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs",
     "test:startup-performance": "node scripts/test-agent-server-cold-start.mjs && node scripts/test-session-engine-imports.mjs && node scripts/test-provider-refresh-batching.mjs",
     "test:openai-model-catalog": "node scripts/test-openai-model-catalog.mjs",
     "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs",

@@ -4,9 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Lockstep Zyra version to rehearse from master
+        description: Lockstep Zyra version to rehearse from master or an approved commit on master
         required: true
         default: "0.7.0"
+        type: string
+      approved_source_sha:
+        description: Optional frozen 40-character SHA; requires reviewed preview_manifest
+        required: false
+        type: string
+      preview_manifest:
+        description: Reviewed preview.json for approved_source_sha (paste JSON, not a file path)
+        required: false
         type: string
   push:
     tags:
@@ -22,6 +30,9 @@ concurrency:
 jobs:
   preflight:
     name: Release preflight
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -30,10 +41,13 @@ jobs:
       head: ${{ steps.release_contract.outputs.head }}
       publish: ${{ steps.release_contract.outputs.publish }}
       require_signing: ${{ steps.release_contract.outputs.require_signing }}
+      approved_source_sha: ${{ steps.release_contract.outputs.approved_source_sha }}
+      preview_run_url: ${{ steps.release_contract.outputs.preview_run_url }}
     steps:
       - name: Check out full release history
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_source_sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Node 22
@@ -67,7 +81,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y gnome-keyring libsecret-1-0 libglib2.0-bin
           command -v dbus-run-session
 
-      - name: Enforce tag, version, HEAD, master, and signing gates
+      - name: Enforce approved candidate, preview evidence, tag, version, master, and signing gates
         id: release_contract
         env:
           ZYRA_WINDOWS_CERTIFICATE: ${{ github.event_name == 'push' && secrets.ZYRA_WINDOWS_CERTIFICATE || '' }}
@@ -83,6 +97,10 @@ jobs:
           EVS_PASSWD: ${{ github.event_name == 'push' && secrets.EVS_PASSWD || '' }}
           ZYRA_ACCEPT_ECS_SECURITY_DELTA: ${{ github.event_name == 'push' && secrets.ZYRA_ACCEPT_ECS_SECURITY_DELTA || '' }}
           EXPECTED_VERSION: ${{ inputs.version }}
+          ZYRA_APPROVED_SOURCE_SHA: ${{ github.event_name == 'push' && !contains(github.ref_name, '-') && vars.ZYRA_APPROVED_SOURCE_SHA || inputs.approved_source_sha || '' }}
+          ZYRA_APPROVED_PREVIEW_MANIFEST: ${{ github.event_name == 'push' && !contains(github.ref_name, '-') && vars.ZYRA_APPROVED_PREVIEW_MANIFEST || inputs.preview_manifest || '' }}
+          ZYRA_PREVIEW_BUILD_REPOSITORY: ${{ vars.ZYRA_PREVIEW_BUILD_REPOSITORY || github.repository }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
@@ -90,6 +108,9 @@ jobs:
           else
             node desktop/scripts/release/preflight.mjs --mode=rehearsal --ref-name="${GITHUB_REF_NAME}" --expected-version="${EXPECTED_VERSION}"
           fi
+
+      - name: Run frozen candidate policy regression tests
+        run: node desktop/scripts/test-release-candidate-policy.mjs
 
       - name: Run focused release contracts
         run: npm --prefix desktop run test:release-infra
@@ -434,7 +455,7 @@ jobs:
             fi
             gh release create "${create_args[@]}"
           fi
-          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --title "Zyra ${RELEASE_TAG}" --notes-file release-notes.md
+          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --target "${RELEASE_SHA}" --title "Zyra ${RELEASE_TAG}" --notes-file release-notes.md
 
       - name: Upload the complete verified bundle to the draft
         shell: bash
@@ -444,7 +465,7 @@ jobs:
         shell: bash
         run: |
           gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName,isDraft,targetCommitish,assets > github-draft.json
-          node desktop/scripts/release/validate-github-draft.mjs --file=github-draft.json --version="${RELEASE_VERSION}" --tag="${RELEASE_TAG}" --sha="${RELEASE_SHA}" --branch=master --local-dir=release-assets
+          node desktop/scripts/release/validate-github-draft.mjs --file=github-draft.json --version="${RELEASE_VERSION}" --tag="${RELEASE_TAG}" --sha="${RELEASE_SHA}" --branch="" --local-dir=release-assets
           mkdir github-assets
           gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --dir github-assets
           node desktop/scripts/release/validate-release-assets.mjs --platform=all --version="${RELEASE_VERSION}" --dir=github-assets --checksums=true --exact=true
@@ -460,6 +481,11 @@ jobs:
         if: needs.preflight.outputs.publish == 'true'
         shell: bash
         run: |
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha)"
+          if [[ "${tag_sha}" != "${RELEASE_SHA}" ]]; then
+            echo "Publication blocked: production tag no longer identifies the frozen candidate."
+            exit 1
+          fi
           if [[ "${RELEASE_VERSION}" == *-* ]]; then
             gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --prerelease
           else

@@ -1,5 +1,8 @@
+import { previewComment, upsertPreviewComment } from './preview-report.mjs'
+
 const encoder = new TextEncoder()
 const SHA = /^[a-f0-9]{40}$/
+const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const modes = {
     quick: { name: 'Zyra quick checks', workflow: 'helper-checks.yml', title: 'Quick checks' },
     full: { name: 'Zyra full checks', workflow: 'desktop-ci.yml', title: 'Full checks' },
@@ -29,8 +32,9 @@ export function normalizeWebhook(event, body, env) {
     if (!SHA.test(pr?.head?.sha || '') || pr.head.repo?.full_name !== env.SOURCE_REPOSITORY || !Number.isSafeInteger(pr.number) || pr.state !== 'open') return null
     let mode = null
     if (['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(body.action)) mode = 'quick'
-    if (body.action === 'labeled') mode = { 'ci:preview': 'preview', 'ci:full': 'full', 'ci:quick': 'quick' }[body.label?.name] || null
-    return mode ? { kind: 'request', mode, pr: pr.number, sha: pr.head.sha } : null
+    if (body.action === 'labeled') mode = { 'ci:preview': 'preview', 'ci:preview-retry': 'preview', 'ci:full': 'full', 'ci:quick': 'quick' }[body.label?.name] || null
+    return mode ? { kind: 'request', mode, pr: pr.number, sha: pr.head.sha,
+        ...(body.label?.name === 'ci:preview-retry' && body.action === 'labeled' ? { retry: true } : {}) } : null
 }
 
 function base64url(bytes) {
@@ -82,7 +86,8 @@ export class RelayCoordinator {
             const seenAt = await storage.get(`seen:${delivery}`)
             if (seenAt && Date.now() - seenAt < 7 * 86400000) return false
             await storage.put(`seen:${delivery}`, Date.now())
-            await storage.put(`queue:${delivery}`, event)
+            await storage.put(`queue:${delivery}`, event.mode === 'preview'
+                ? { ...event, requestId: delivery, ...(event.retry ? { attempt: delivery } : {}) } : event)
             await storage.setAlarm(Date.now() + 1)
             return true
         })
@@ -91,7 +96,7 @@ export class RelayCoordinator {
     async saveRecord(key, record) {
         await this.state.storage.transaction(async storage => {
             await storage.put(key, record)
-            if (['completed', 'failed'].includes(record.phase)) await storage.delete(`pending:${key}`)
+            if (['completed', 'failed'].includes(record.phase) && record.reportPhase !== 'pending') await storage.delete(`pending:${key}`)
             else await storage.put(`pending:${key}`, record)
         })
     }
@@ -110,39 +115,61 @@ export class RelayCoordinator {
             }
         }
         const requests = await this.pendingRecords()
-        let pending = false
+        let nextPollAt = Infinity
         const runsByMode = new Map()
         for (const [key, record] of requests) {
-            if (record.phase === 'completed' || record.phase === 'failed') continue
+            if (record.phase === 'failed' || (record.phase === 'completed' && record.reportPhase !== 'pending')) continue
             try {
-                const run = await this.findRun(record, runsByMode)
-                if (run) await this.finish(key, record, run)
-                else if (Date.now() - record.createdAt > 100 * 60 * 1000) await this.fail(key, record, 'No matching helper result arrived. Inspect the helper run before manually requesting another build.')
+                if (record.phase === 'completed') {
+                    if (!record.reportNextAt || record.reportNextAt <= Date.now()) await this.reportPreview(key, record)
+                }
+                else {
+                    const run = await this.findRun(record, runsByMode)
+                    if (run) await this.finish(key, record, run)
+                    else if (Date.now() - record.createdAt > 100 * 60 * 1000) await this.fail(key, record, 'No matching helper result arrived. Inspect the helper run before adding ci:preview-retry or manually requesting another build. No build was automatically retried.')
+                }
             } catch { /* Reporting outage does not authorize a new dispatch. */ }
-            const latest = await this.state.storage.get(key)
-            pending ||= latest && !['completed', 'failed'].includes(latest.phase)
+            let latest = await this.state.storage.get(key)
+            if (latest?.phase === 'completed' && latest.reportPhase === 'pending') {
+                if (!latest.reportNextAt || latest.reportNextAt <= Date.now()) {
+                    const reportAttempts = (latest.reportAttempts || 0) + 1
+                    latest = { ...latest, reportAttempts, reportNextAt: Date.now() + Math.min(15 * 60000, 60000 * 2 ** Math.min(reportAttempts - 1, 4)) }
+                    await this.saveRecord(key, latest)
+                }
+                nextPollAt = Math.min(nextPollAt, latest.reportNextAt)
+            } else if (latest && !['completed', 'failed'].includes(latest.phase)) nextPollAt = Math.min(nextPollAt, Date.now() + 60000)
         }
         const seen = await this.state.storage.list({ prefix: 'seen:' })
         for (const [key, at] of seen) if (Date.now() - at > 7 * 86400000) await this.state.storage.delete(key)
         const history = await this.state.storage.list({ prefix: 'request:' })
-        for (const [key, record] of history) if (['completed', 'failed'].includes(record.phase) && Date.now() - record.createdAt > 7 * 86400000) await this.state.storage.delete(key)
+        for (const [key, record] of history) if (['completed', 'failed'].includes(record.phase) && record.reportPhase !== 'pending' && Date.now() - record.createdAt > 7 * 86400000) {
+            await this.state.storage.delete(key)
+            if (await this.state.storage.get(`preview-latest:${record.pr}`) === key) await this.state.storage.delete(`preview-latest:${record.pr}`)
+        }
         const failed = await this.state.storage.list({ prefix: 'failed:' })
         for (const [key, entry] of failed) if (Date.now() - entry.at > 7 * 86400000) await this.state.storage.delete(key)
         const hasQueue = (await this.state.storage.list({ prefix: 'queue:', limit: 1 })).size > 0
-        if (pending || hasQueue) await this.state.storage.setAlarm(Date.now() + 60000)
+        if (hasQueue) nextPollAt = Math.min(nextPollAt, Date.now() + 60000)
+        if (Number.isFinite(nextPollAt)) await this.state.storage.setAlarm(nextPollAt)
         else if (seen.size || history.size || failed.size) await this.state.storage.setAlarm(Date.now() + 86400000)
     }
     async currentPR(number) { return this.api.request('source', `/pulls/${number}`) }
     matchesRun(record, run) {
-        return (!record.runId || record.runId === run.id) && run.event === 'workflow_dispatch' && run.path === `.github/workflows/${modes[record.mode].workflow}` && run.head_branch === this.env.AUTOMATION_REF && run.display_title === `${modes[record.mode].title} ${record.sha}`
+        // New previews have an attempt token in their run name. Legacy retries
+        // without one still require a returned run ID; a plain same-SHA title
+        // can never identify those attempts after a lost dispatch response.
+        const title = `${modes[record.mode].title} ${record.sha}${record.requestId ? ` request:${record.requestId}` : ''}`
+        return (!record.retry || record.requestId || Number.isSafeInteger(record.runId)) && (!record.runId || record.runId === run.id) && run.event === 'workflow_dispatch' && run.path === `.github/workflows/${modes[record.mode].workflow}` && run.head_branch === this.env.AUTOMATION_REF && run.display_title === title
     }
     async findRun(record, cache = new Map()) {
         if (record.runId) {
             const run = await this.api.request('helper', `/actions/runs/${record.runId}`)
             return run && this.matchesRun(record, run) ? run : undefined
         }
+        if (record.retry && !record.requestId) return undefined
         if (!cache.has(record.mode)) cache.set(record.mode, await this.api.request('helper', `/actions/workflows/${modes[record.mode].workflow}/runs?event=workflow_dispatch&per_page=50`))
-        return cache.get(record.mode).workflow_runs.find(run => this.matchesRun(record, run))
+        const candidates = cache.get(record.mode).workflow_runs.filter(run => this.matchesRun(record, run))
+        return candidates.length === 1 ? candidates[0] : undefined
     }
     async handle(event) {
         if (event.kind === 'completion') {
@@ -153,13 +180,23 @@ export class RelayCoordinator {
         }
         const pr = await this.currentPR(event.pr)
         if (pr.state !== 'open' || pr.head.sha !== event.sha || pr.head.repo.full_name !== this.env.SOURCE_REPOSITORY) return
-        const key = `request:${event.mode}:${event.sha}`
-        const record = { mode: event.mode, sha: event.sha, pr: event.pr, phase: 'preparing', createdAt: Date.now(), checkId: null }
+        if (event.retry && (event.mode !== 'preview' || !/^[a-zA-Z0-9_-]{1,80}$/.test(event.attempt || ''))) return
+        const requestId = event.mode === 'preview' ? (event.requestId || event.attempt || crypto.randomUUID()) : undefined
+        if (requestId && !REQUEST_ID.test(requestId)) return
+        const legacyKey = `request:${event.mode}:${event.sha}${event.retry ? `:retry:${event.attempt}` : ''}`
+        const key = event.mode === 'preview' ? `${legacyKey}:pr:${event.pr}` : legacyKey
+        const record = { mode: event.mode, sha: event.sha, pr: event.pr, phase: 'preparing', createdAt: Date.now(), checkId: null,
+            ...(requestId ? { requestId } : {}),
+            ...(event.retry ? { retry: true, attempt: event.attempt } : {}) }
         const claimed = await this.state.storage.transaction(async storage => {
-            const existing = await storage.get(key)
+            const legacy = event.mode === 'preview' ? await storage.get(legacyKey) : undefined
+            const existing = await storage.get(key) || (legacy?.pr === event.pr ? legacy : undefined)
             if (existing && (!['completed', 'failed'].includes(existing.phase) || Date.now() - existing.createdAt < 7 * 86400000)) return false
+            const pending = await storage.list({ prefix: 'pending:request:' })
+            if ([...pending.values()].some(item => item.mode === event.mode && item.sha === event.sha && (event.mode !== 'preview' || item.pr === event.pr) && !['completed', 'failed'].includes(item.phase))) return false
             await storage.put(key, record)
             await storage.put(`pending:${key}`, record)
+            if (event.mode === 'preview') await storage.put(`preview-latest:${event.pr}`, key)
             return true
         })
         if (!claimed) return
@@ -170,9 +207,14 @@ export class RelayCoordinator {
             })
             record.checkId = check.id
             await this.saveRecord(key, record)
-            const existing = await this.findRun(record)
+            const existing = event.mode === 'preview' ? undefined : await this.findRun(record)
             if (existing) { record.runId = existing.id; await this.saveRecord(key, record); await this.finish(key, record, existing); return }
             const inputs = { source_repository: this.env.SOURCE_REPOSITORY, source_sha: event.sha }
+            if (event.mode === 'preview') {
+                inputs.source_pr = String(event.pr)
+                inputs.request_id = requestId
+                inputs.target = 'windows-x64'
+            }
             if (event.mode === 'quick') {
                 const files = await this.api.request('source', `/pulls/${event.pr}/files?per_page=100`)
                 inputs.source_pr = String(event.pr)
@@ -187,6 +229,8 @@ export class RelayCoordinator {
         } catch {
             // A lost HTTP response may hide an accepted run. Retain the claim,
             // poll for its result, and never automatically send another dispatch.
+            const latest = await this.state.storage.get(key)
+            if (latest?.phase === 'completed' || latest?.phase === 'failed') return
             record.phase = 'uncertain'
             await this.saveRecord(key, record)
         }
@@ -196,7 +240,11 @@ export class RelayCoordinator {
         await this.saveRecord(key, { ...record, phase: 'failed' })
     }
     async finish(key, record, run) {
-        if (record.phase === 'completed' || record.phase === 'failed') return
+        if (record.phase === 'completed') {
+            if (record.reportPhase === 'pending') await this.reportPreview(key, record)
+            return
+        }
+        if (record.phase === 'failed') return
         if (!this.matchesRun(record, run) || !record.checkId) return
         const url = `https://github.com/${this.env.HELPER_REPOSITORY}/actions/runs/${run.id}`
         if (run.status !== 'completed') {
@@ -209,18 +257,35 @@ export class RelayCoordinator {
             status: 'completed', conclusion, details_url: url,
             output: { title: success ? 'Exact revision verified by helper' : 'Helper check did not pass', summary: `Source \`${record.sha}\`. Scope: ${record.mode}. [Run evidence](${url}). Quick checks are not full release acceptance.` }
         })
-        // Persist before the optional comment to avoid duplicate installer replies.
-        await this.saveRecord(key, { ...record, phase: 'completed', runId: run.id })
-        if (record.mode !== 'preview' || !success) return
+        // Build completion and link delivery are independent. Persist the exact
+        // run attempt before any lookup or comment request that could fail.
+        const completed = { ...record, phase: 'completed', runId: run.id, runAttempt: run.run_attempt,
+            ...(record.mode === 'preview' && success ? { reportPhase: 'pending', reportStartedAt: Date.now() } : {}) }
+        await this.saveRecord(key, completed)
+        if (completed.reportPhase === 'pending') await this.reportPreview(key, completed)
+    }
+    async previewIsCurrent(key, record) {
+        const latest = await this.state.storage.get(`preview-latest:${record.pr}`)
+        if (latest && latest !== key) return false
         const pr = await this.currentPR(record.pr)
-        if (pr.state !== 'open' || pr.head.sha !== record.sha) return
-        const artifacts = await this.api.request('helper', `/actions/runs/${run.id}/artifacts`)
-        const artifact = artifacts.artifacts.find(item => !item.expired && item.name === `zyra-preview-windows-${run.id}-${run.run_attempt}`)
-        if (!artifact) return
-        const download = `${url}/artifacts/${artifact.id}`
-        await this.api.request('source', `/issues/${record.pr}/comments`, 'POST', {
-            body: `Personal Windows preview for \`${record.sha}\`: [download installer ZIP](${download}).\n\nUnsigned. Install **Zyra Preview** beside stable. The ZIP includes source provenance and SHA256SUMS; the [build summary](${url}) shows the installer checksum. GitHub login is required. The link expires after one day; the installed app does not expire. No stable release was published.`
-        })
+        return pr.state === 'open' && pr.head.sha === record.sha && pr.head.repo?.full_name === this.env.SOURCE_REPOSITORY
+    }
+    async reportPreview(key, record) {
+        if (record.reportPhase !== 'pending') return
+        const stop = reportPhase => this.saveRecord(key, { ...record, reportPhase })
+        // Seven-day artifacts cannot be delivered indefinitely. Keep the build
+        // result successful and require an explicit retry for a new installer.
+        if (Date.now() - record.reportStartedAt > 7 * 86400000) { await stop('expired'); return }
+        if (!await this.previewIsCurrent(key, record)) { await stop('superseded'); return }
+        const run = { id: record.runId, run_attempt: record.runAttempt }
+        const artifacts = await this.api.request('helper', `/actions/runs/${run.id}/artifacts?per_page=100`)
+        const artifact = artifacts.artifacts.find(item => item.name === `zyra-preview-windows-${run.id}-${run.run_attempt}`)
+        if (!artifact) return // Eventual artifact visibility is reporting work.
+        if (artifact.expired || (artifact.expires_at && Date.parse(artifact.expires_at) <= Date.now())) { await stop('expired'); return }
+        const result = await upsertPreviewComment(this.api, this.env, record,
+            previewComment(record, run, artifact, this.env.HELPER_REPOSITORY), () => this.previewIsCurrent(key, record))
+        await this.saveRecord(key, { ...record, reportPhase: result.skipped ? 'superseded' : 'delivered',
+            ...(result.commentId ? { commentId: result.commentId } : {}) })
     }
 }
 

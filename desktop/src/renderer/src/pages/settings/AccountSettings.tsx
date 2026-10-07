@@ -7,11 +7,14 @@ import { createSettingsRowTargetId } from './settings-search'
 import { SettingsButton, SettingsNotice, SettingsSection, SettingsStatusPill } from './settings-layout'
 import { SensitiveSettingValue } from './SensitiveSettingValue'
 import { useOpenAIAccountSettings } from './providers/useOpenAIAccountSettings'
+import { ChatGptAccountPoolSection } from './providers/ChatGptAccountPoolSection'
 
 export default function AccountSettings() {
-    const { settings, updateSettings, overview, overviewLoading, overviewError, loadOverview, applyAccountOverview, usageCards, initialAccountLoading, displayAccountValue, connectionLabel, accountPlan } = useOpenAIAccountSettings({ usageActive: true })
+    const connection = useOpenAIAccountSettings({ usageActive: true, connectionsActive: true })
+    const { settings, updateSettings, overview, overviewLoading, overviewError, loadOverview, applyAccountOverview, usageCards, initialAccountLoading, displayAccountValue, connectionLabel, accountPlan } = connection
     const [accountDetailsOpen, setAccountDetailsOpen] = useState(false)
     return <>
+            <ChatGptAccountPoolSection connection={connection} />
             <SettingsSection title="ChatGPT account" headerAction={<SettingsButton variant="ghost" onClick={() => void loadOverview(true)} disabled={overviewLoading}><RefreshCw size={12} className={overviewLoading ? 'animate-spin motion-reduce:animate-none' : ''} />Refresh</SettingsButton>}>
                 {overviewError ? <SettingsNotice tone="error">{overviewError}</SettingsNotice> : null}
                 {overview?.requiresOpenaiAuth ? <SettingsNotice tone="warning">Connect your ChatGPT account through Zyra to view its identity, plan, usage limits, and banked resets.</SettingsNotice> : null}

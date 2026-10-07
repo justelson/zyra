@@ -13,12 +13,16 @@ The setup sequence is fixed and ordered:
 1. Welcome
 2. Connect ChatGPT or an OpenAI API key
 3. Appearance
-4. Projects folder
+4. Optional chat folder
 5. Review
 
 Each successful Continue writes the next checkpoint. Closing, restarting, or crashing resumes at `currentStep`; forward navigation cannot skip an unfinished step. Back navigation is limited to completed steps. Back and Continue remain in a fixed viewport action dock while only the step body scrolls. Appearance keeps mode separate from palette: the user selects System, Light, or Dark and configures one validated light theme and one validated dark theme. System follows the local OS appearance and switches between those saved halves. One dropdown is shown for the currently resolved appearance; switching the mode exposes the other catalog without crowding the page. Every option row projects the complete Zyra token palette. Theme changes save immediately through the constrained onboarding API without advancing the step, so a restart or review exit retains the selection. Fresh installs and Appearance reset use Bricolage Grotesque for the interface while explicit existing font and accent choices remain intact.
 
 Web access is not an onboarding decision. New installs start with both search and page fetching enabled; users can change the new-chat default later in Settings → Assistant. Existing explicit settings remain authoritative.
+
+The chat-folder choice is optional. Continuing without choosing a folder creates `Zyra` inside Electron's OS-resolved Documents directory, including redirected or localized Documents locations, and saves that effective path in the setup checkpoint. The screen shows the actual default path. A user-selected existing bounded folder remains authoritative. Clearing the shared folder preference restores the Documents/Zyra fallback; it does not delete either folder. Preference reads and unrelated setting writes only resolve paths. The default folder is created when setup accepts it or before the assistant connects a chat using that configured workspace, so unavailable Documents access does not block unrelated settings.
+
+Working directories and project associations are separate. A Desktop chat with no `projectPath`, `projectId` or project chat scope remains projectless even when its canonical runtime catalog identifies its storage/working directory as a project. Its greeting stays neutral, and its selector, header and sidebar show **No project**. Explicit legacy `projectPath` associations and project-scoped chats retain their identities; new canonical CLI imports retain their explicit project. This change does not migrate chat data or modify CLI project identity.
 
 A completed device remains completed if its OpenAI credential later expires. Normal connection handling can ask the user to reconnect, but auth expiry does not recreate the first-run gate.
 

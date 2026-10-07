@@ -19,7 +19,7 @@ const FILE_REFERENCE_EXTENSIONS = new Set([
     'htm', 'html', 'ico', 'java', 'jpeg', 'jpg', 'js', 'json', 'jsx', 'kt', 'kts', 'less', 'lock',
     'lua', 'md', 'mdx', 'mjs', 'mts', 'php', 'png', 'ps1', 'psd1', 'psm1', 'py', 'rb', 'rs', 'sass',
     'scss', 'sh', 'sql', 'svelte', 'svg', 'swift', 'toml', 'ts', 'tsx', 'txt', 'vue', 'webp', 'xml',
-    'yaml', 'yml', 'zsh'
+    'yaml', 'yml', 'zsh', 'pdf', 'docx', 'xlsx', 'pptx', 'zip', '7z', 'tar', 'gz', 'mp3', 'mp4'
 ])
 
 function safeDecode(value: string): string {

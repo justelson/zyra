@@ -38,8 +38,6 @@ assert.equal(light['quickInputList.focusIconForeground'], '#2563eb')
 assert.equal(light['widget.shadow'], '#00000029')
 
 const previewSource = readFileSync(new URL('../src/renderer/src/components/ui/file-preview/MonacoPreviewEditor.tsx', import.meta.url), 'utf8')
-const diffSource = readFileSync(new URL('../src/renderer/src/components/ui/diff-viewer/MonacoDiffViewer.tsx', import.meta.url), 'utf8')
 assert.match(previewSource, /\.\.\.buildZyraMonacoWidgetColors\(\{/)
-assert.match(diffSource, /\.\.\.buildZyraMonacoWidgetColors\(\{/)
 
 console.log('Monaco built-in widget theme: ok')

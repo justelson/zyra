@@ -42,8 +42,57 @@ Defaults follow the current chat surface, including later theme changes:
 - `--viz-muted`: secondary text
 - `--viz-accent`: accent
 - `--viz-border`: dividers
+- `--viz-series-1` through `--viz-series-6`: chart categories, in purple, teal, amber, rose, blue and lime order; each adapts to light/dark themes
+- `--viz-on-series`: readable labels inside these colored marks
+- `--viz-track`: quiet unfilled bar tracks
+- `--viz-heat-low` and `--viz-heat-high`: endpoints for a sequential heatmap scale
 
-The default font also follows the app. Inline previews have no surrounding card or background. Let the visual sit on the page; do not add an enclosing card just to frame it. The title's options menu contains only Copy HTML and Download HTML. The summary remains available to assistive technology; include important context in the visible visual or surrounding text. Use explicit colors only when the subject requires them, such as a flag or series colors. Keep labels readable in light and dark themes. Use responsive SVG viewBoxes, flexible grids, wrapping labels, and compact legends. Prefer inline styles or locally named CSS classes; no fixed viewport-width layouts.
+The default font also follows the app. Inline previews have no surrounding card or background. Let the visual sit on the page; do not add an enclosing card just to frame it. The title's options menu contains only Copy HTML and Download HTML. The summary remains available to assistive technology; include important context in the visible visual or surrounding text. Use the chart palette proactively for distinct categories or series: a clear purple/teal/amber comparison is welcome without a special color request. Keep the same category's color across views. A single quantity or ordered scale should retain one hue; use the heatmap endpoints for quantitative intensity, not unrelated category colors. Explicit subject colors, such as a flag or established brand, are still supported. Keep labels readable in light and dark themes. Use responsive SVG viewBoxes, flexible grids, wrapping labels, and compact legends. Prefer inline styles or locally named CSS classes; no fixed viewport-width layouts.
+
+The current app UI font is the default for HTML and SVG text. Leave `font-family` unset to inherit it; use an explicit family only when the user or subject calls for one. Zyra embeds the selected bundled or managed app font in previews and exported HTML. Do not author `@font-face`, `@import`, or font URLs: those loading rules are removed. An explicit family such as `serif` remains supported; installed system fonts depend on availability on the computer opening the export.
+
+## Chart craft
+
+- Build a clean reading order: concise heading, plot, visible values and units. Use compact spacing and enough contrast; vivid data marks belong against quiet tracks and dividers.
+- For horizontal bars, align category labels, tracks and end values in three columns. Use one shared baseline and scale, with lengths derived from the actual numbers. Show the unit once beside the scale. Keep labels at a readable size when narrow; do not shrink an entire wide SVG until its text becomes tiny.
+- Use distinct palette colors when categories need to be distinguished. Avoid giving every bar the app accent by habit. For one series across time, use one hue consistently.
+- Heatmaps need row/column labels, visible cell values and a stated scale. Use a monotonic color ramp, for example `color-mix(in srgb, var(--viz-heat-high) 70%, var(--viz-heat-low))` for 70 on a 0–100 scale. Keep numbers legible throughout the ramp; use plain text beside the grid if a cell cannot carry a readable label.
+- Prefer flat bars and tidy rectangular cells. Avoid decorative gradients, large rounded cards, shadows and duplicate headings. A gradient is useful when it expresses a continuous data scale.
+- Give SVG labels `fill="var(--viz-text)"` or `fill="var(--viz-muted)"` explicitly. SVG's default black text is unreadable on dark chat surfaces.
+
+A compact category comparison, with explicitly illustrative values:
+
+```html
+<style>
+.snack-chart { display: grid; grid-template-columns: minmax(72px, 96px) minmax(0, 1fr) 28px; gap: 12px; align-items: center; }
+.snack-track { height: 20px; background: var(--viz-track); }
+.snack-fill { height: 100%; }
+.snack-value { text-align: right; font-variant-numeric: tabular-nums; }
+.snack-axis { display: flex; justify-content: space-between; grid-column: 2; color: var(--viz-muted); font-size: 12px; }
+</style>
+<div class="snack-chart" role="img" aria-label="Fictional snack demand on a 0 to 100 unit scale: Moon chips 84, Byte bites 57, RAM rolls 32.">
+  <span>Moon chips</span><div class="snack-track"><div class="snack-fill" style="width:84%;background:var(--viz-series-1)"></div></div><span class="snack-value">84</span>
+  <span>Byte bites</span><div class="snack-track"><div class="snack-fill" style="width:57%;background:var(--viz-series-2)"></div></div><span class="snack-value">57</span>
+  <span>RAM rolls</span><div class="snack-track"><div class="snack-fill" style="width:32%;background:var(--viz-series-3)"></div></div><span class="snack-value">32</span>
+  <div class="snack-axis"><span>0</span><span>50</span><span>100 units · fictional</span></div>
+</div>
+```
+
+A small heatmap can use the same quantitative ramp for every row; these values are also fictional:
+
+```html
+<style>
+.score-grid { display:grid; grid-template-columns:72px repeat(2,minmax(44px,1fr)); gap:5px; align-items:center; }
+.score-cell { padding:8px; text-align:center; font-variant-numeric:tabular-nums; background:color-mix(in srgb,var(--viz-heat-high) var(--level),var(--viz-heat-low)); color:var(--viz-text); }
+.score-day { color:var(--viz-muted); text-align:center; }
+</style>
+<p>Fictional activity scores · 0–100</p>
+<div class="score-grid" role="img" aria-label="Fictional scores: Kitchen Monday 15, Tuesday 40; Lab Monday 70, Tuesday 25.">
+  <span></span><span class="score-day">Mon</span><span class="score-day">Tue</span>
+  <span>Kitchen</span><span class="score-cell" style="--level:15%">15</span><span class="score-cell" style="--level:40%">40</span>
+  <span>Lab</span><span class="score-cell" style="--level:70%">70</span><span class="score-cell" style="--level:25%">25</span>
+</div>
+```
 
 ## Fit the chat thread
 

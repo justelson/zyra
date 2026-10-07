@@ -199,6 +199,7 @@ export type AssistantRuntimeEvent =
         type: 'content.delta'
         payload: {
             streamKind: AssistantContentStreamKind
+            phase?: 'commentary' | 'final_answer'
             delta: AssistantTextUpdate['delta']
             replaceText?: AssistantTextUpdate['replaceText']
         }

@@ -12,6 +12,7 @@ import type {
 import { encodeAssistantHistoryCursor } from '@shared/assistant/history-cursor'
 import { getAssistantThreadHydrationRevision } from './assistant-thread-hydration-revision'
 import { hasUsableAssistantTimelineHistory } from './assistant-history-readiness'
+import { preserveAssistantMessagePhases } from '@shared/assistant/message-phase'
 import { estimateAssistantTimelineCollectionsCharacters } from './session-hydration-cache'
 import { compareAssistantTimelineOrderKeys, getAssistantTimelineOrderKey, type AssistantTimelineOrderKey, type AssistantTimelineRecordKind } from '@shared/assistant/timeline-order'
 
@@ -144,6 +145,12 @@ export function mergeAssistantShellSnapshot(
             })
         }))
     }
+}
+
+/** Snapshot reads can settle after newer stream events. Never rewind state. */
+export function reconcileAssistantShellSnapshot(current: AssistantSnapshot, incoming: AssistantShellSnapshot): AssistantSnapshot {
+    if (incoming.snapshotSequence < current.snapshotSequence) return current
+    return mergeAssistantShellSnapshot(current, incoming)
 }
 
 function mergeById<T extends { id: string }>(
@@ -285,7 +292,8 @@ export function applyAssistantThreadDetail(
         const retainedPlans = preserveLoadedRange
             ? retainRecordsBefore('plan', existingHistory!.proposedPlans, incomingOldest)
             : []
-        const messages = mergeById('message', retainedMessages, detail.history.messages)
+        const knownPhases = existingHistory ? [...existingHistory.messages, ...thread.messages] : thread.messages
+        const messages = mergeById('message', retainedMessages, preserveAssistantMessagePhases(knownPhases, detail.history.messages))
         const activities = mergeById('activity', retainedActivities, detail.history.activities)
         const proposedPlans = mergeById('plan', retainedPlans, detail.history.proposedPlans)
         const pendingApprovals = detail.pendingApprovals

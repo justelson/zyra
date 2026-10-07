@@ -245,7 +245,7 @@ assert(releaseWorkflow.includes('workflow_dispatch:') && releaseWorkflow.include
 assert(releaseWorkflow.includes(`default: "${rootPackage.version}"`), 'manual rehearsal defaults must match the current lockstep release')
 assert(releaseWorkflow.includes('Create or verify the private draft'))
 assert(releaseWorkflow.includes('validate-github-draft.mjs'))
-assert(releaseWorkflow.includes('--sha="${RELEASE_SHA}" --branch=master'))
+assert(releaseWorkflow.includes('--sha="${RELEASE_SHA}" --branch=""'), 'draft validation must require the exact frozen SHA, without a moving master fallback')
 assert(releaseWorkflow.includes('RELEASE_SHA: ${{ needs.preflight.outputs.head }}'))
 assert(releaseWorkflow.includes("format('rehearsal-{0}-{1}', needs.preflight.outputs.tag, github.run_id)"), 'unsigned rehearsals must not create the production tag')
 assert(releaseWorkflow.indexOf('Create or verify the private draft') < releaseWorkflow.indexOf('Publish only the signed and notarized tagged candidate'))

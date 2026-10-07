@@ -1,6 +1,7 @@
+import { canonicalFolderKey as canonicalAssistantFolderKey } from '../canonical-folder-key'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
-import { basename, join, normalize, parse, resolve, sep } from 'node:path'
+import { basename, join, normalize, resolve, sep } from 'node:path'
 import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantChatScope,
@@ -55,11 +56,7 @@ function runTransaction<T>(db: SqlDatabase, work: () => T): T {
     }
 }
 
-export function canonicalAssistantFolderKey(value: string): string {
-    const resolved = normalize(resolve(String(value || '').trim()))
-    const absolute = resolved === parse(resolved).root ? resolved : resolved.replace(/[\\/]+$/, '')
-    return process.platform === 'win32' ? absolute.toLocaleLowerCase('en-US') : absolute
-}
+export { canonicalFolderKey as canonicalAssistantFolderKey } from '../canonical-folder-key'
 
 export function isAssistantPathInsideRoot(value: string, root: string): boolean {
     const candidateKey = canonicalAssistantFolderKey(value)
@@ -75,6 +72,29 @@ function deterministicId(prefix: string, value: string): string {
 function projectName(value: string, fallback = 'Project'): string {
     const name = basename(String(value || '').replace(/[\\/]+$/, '')).replace(/\s+/g, ' ').trim()
     return (name || fallback).slice(0, PROJECT_NAME_LIMIT)
+}
+
+/** Hide untouched folder imports of the default workspace or a real Project.
+ * Keep the stored records and explicit or subsequently edited Projects intact.
+ */
+export function filterAssistantAutomaticProjectImports(
+    catalog: AssistantProjectCatalog,
+    workspace?: string | null
+): AssistantProjectCatalog {
+    const key = workspace?.trim() ? canonicalAssistantFolderKey(workspace) : null
+    const explicitFolders = new Set(catalog.projects.filter(project => !/^project_[a-f0-9]{32}$/.test(project.id))
+        .flatMap(project => project.folders.map(folder => canonicalAssistantFolderKey(folder.path))))
+    const projects = catalog.projects.filter(project => {
+        if (project.revision !== 1 || project.folders.length !== 1 || !/^project_[a-f0-9]{32}$/.test(project.id)) return true
+        const folder = project.folders[0]!.path
+        const folderKey = canonicalAssistantFolderKey(folder)
+        const automaticImport = project.id === deterministicId('project', folderKey) && project.name === projectName(folder)
+        return !automaticImport || (folderKey !== key && !explicitFolders.has(folderKey))
+    })
+    const candidates = catalog.candidates.filter(candidate => candidate.status !== 'pending' || canonicalAssistantFolderKey(candidate.path) !== key)
+    return projects.length === catalog.projects.length && candidates.length === catalog.candidates.length
+        ? catalog
+        : { ...catalog, projects, candidates }
 }
 
 function nowIso(now?: () => Date): string {

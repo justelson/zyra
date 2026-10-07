@@ -1,0 +1,140 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ZyraCredentialStore, createZyraCredentialAuthStorage } from '../src/zyra-auth-store.mjs';
+import { ChatGptAccountPool, chatGptIdentity, updateChatGptAccount, saveChatGptAccount } from '../src/chatgpt-account-pool.mjs';
+import { DEFAULT_CHATGPT_ROUTING, saveChatGptRouting } from '../src/chatgpt-routing-policy.mjs';
+import { getChatGptAccounts, updateChatGptAccounts } from '../src/chatgpt-pool-service.mjs';
+import { createChatGptRequestCredentials, installChatGptAccountRouting, readChatGptResponseLimits } from '../src/chatgpt-account-runtime.mjs';
+import { AssistantMessageEventStream } from '../src/runtime/providers/src/utils/event-stream.js';
+
+const root = await mkdtemp(join(tmpdir(), 'zyra-account-pool-'));
+let now = Date.now();
+const jwt = (id, generation = 1) => `synthetic.${Buffer.from(JSON.stringify({ sub: id, generation, 'https://api.openai.com/auth': { chatgpt_account_id: id, chatgpt_plan_type: 'plus' }, 'https://api.openai.com/profile': { email: `${id}@example.test` } })).toString('base64url')}.fixture`;
+const credential = (id, generation = 1) => ({ type: 'oauth', accountId: id, access: jwt(id, generation), refresh: `fixture-refresh-${id}`, expires: now + 3_600_000 });
+const store = new ZyraCredentialStore({ authPath: join(root, 'credentials', 'auth.json') });
+const options = { credentialStore: store, now: () => now };
+const pool = new ChatGptAccountPool(store, options);
+const idA = chatGptIdentity(credential('a')).id, idB = chatGptIdentity(credential('b')).id;
+const policy = value => saveChatGptRouting(store.authPath, { ...DEFAULT_CHATGPT_ROUTING, ...value });
+const take = async () => { const lease = await pool.acquire('model'); await lease.release(); return lease.id; };
+try {
+  const auth = await createZyraCredentialAuthStorage(options);
+  await auth.loginApiKey('openai', 'synthetic-api-key');
+  await auth.loginOAuth('openai-codex', credential('a'));
+  await auth.loginOAuth('openai-codex', credential('b'));
+  assert.equal((await pool.list()).length, 2, 'Adding a sign-in preserves the existing account.');
+  await auth.loginOAuth('openai-codex', credential('a', 2));
+  assert.equal((await pool.list()).length, 2, 'Same-account login updates rather than duplicates.');
+  await assert.rejects(auth.loginOAuth('openai-codex', credential('b'), { accountId: idA }), /same ChatGPT account/);
+  assert.equal(store.read('openai-codex').access, jwt('a', 2));
+  await pool.recordUsage(idA, { primary: { usedPercent: 90, resetAt: new Date(now + 10000).toISOString() }, secondary: { usedPercent: 10, resetAt: new Date(now + 50000).toISOString() } });
+  await pool.recordUsage(idB, { primary: { usedPercent: 20, resetAt: new Date(now + 10000).toISOString() } });
+  assert.equal(await take(), idB, 'Balanced routing uses more remaining quota.');
+  await policy({ strategy: 'round-robin' });
+  assert.notEqual(await take(), await take(), 'Round robin rotates eligible identities.');
+  const held = await pool.acquire('model');
+  const concurrent = await pool.acquire('model');
+  assert.notEqual(held.id, concurrent.id, 'Concurrent requests distribute across available accounts.');
+  await held.release(); await concurrent.release();
+  const isolatedPool = new ChatGptAccountPool(new ZyraCredentialStore({ authPath: store.authPath }), options);
+  const firstWorker = await pool.acquire('model');
+  const secondWorker = await isolatedPool.acquire('model');
+  assert.notEqual(firstWorker.id, secondWorker.id, 'Separate worker instances share active reservations.');
+  await firstWorker.release(); await secondWorker.release();
+  const nextWorker = await isolatedPool.acquire('model');
+  await nextWorker.release();
+  const restartedWorker = await new ChatGptAccountPool(store, options).acquire('model');
+  assert.notEqual(nextWorker.id, restartedWorker.id, 'Round-robin cursor persists across new workers.');
+  await restartedWorker.release();
+  await policy({ strategy: 'fill-first', preferredAccountId: idA });
+  assert.equal(await take(), idA);
+  assert.equal(await take(), idA, 'Drain-first keeps using the preferred account.');
+  await pool.recordUsage(idA, { primary: { usedPercent: 100, resetAt: new Date(now + 10000).toISOString() }, secondary: { usedPercent: 100, resetAt: new Date(now + 20000).toISOString() } });
+  assert.equal(await take(), idB);
+  now += 11000;
+  assert.equal(await take(), idB, 'Both exhausted windows must reset before an account resumes.');
+  now += 10000;
+  assert.equal(await take(), idA, 'Expired reset timestamps become eligible without restarting.');
+  await policy({ accountMode: 'selected', accountIds: [idA] });
+  await updateChatGptAccount(store, idA, { enabled: false });
+  await assert.rejects(pool.acquire('model'), /No ChatGPT account/, 'Selected-only never falls through to another account.');
+  await updateChatGptAccount(store, idA, { enabled: true });
+  await policy({ accountMode: 'selected', accountIds: [] });
+  await assert.rejects(pool.acquire('model'), /No ChatGPT account/, 'An empty selected set means no account.');
+  await policy({});
+  await pool.markFailure(idA, '*', { status: 401, expectedAccess: 'obsolete-token' });
+  assert.equal((await pool.list()).find(a => a.id === idA).state, 'ready', 'An old request cannot invalidate reconnected credentials.');
+  const sanitized = JSON.stringify(await getChatGptAccounts(options));
+  for (const secret of ['fixture-refresh', 'synthetic-api-key', 'synthetic.']) assert.ok(!sanitized.includes(secret));
+  const calls = [];
+  const refreshed = await getChatGptAccounts({ ...options, refreshUsage: true, fetchImpl: async (_url, init) => {
+    calls.push(init.headers['ChatGPT-Account-Id']);
+    return new Response(JSON.stringify({ plan_type: 'plus', rate_limit: { primary_window: { used_percent: 50, reset_at: (now + 30000) / 1000 } } }));
+  } });
+  assert.deepEqual(calls.sort(), ['a', 'b']);
+  assert.ok(refreshed.accounts.every(a => a.usage.primary.usedPercent === 50));
+  await pool.recordUsage(idB, { primary: { usedPercent: 5 }, observedAt: now - 1000 });
+  assert.equal((await pool.list()).find(a => a.id === idB).usage.primary.usedPercent, 50, 'An older quota check cannot overwrite newer usage.');
+  await assert.rejects(updateChatGptAccounts({ action: 'remove', accountId: idB }, options), /Confirm/);
+  await updateChatGptAccount(store, idA, { remove: true });
+  assert.equal(chatGptIdentity(store.read('openai-codex')).id, idB, 'Removing primary promotes the remaining identity.');
+  assert.equal(store.read('openai').key, 'synthetic-api-key');
+  await assert.rejects(pool.credential(idA), /no longer available/, 'Disconnected credentials cannot be resurrected.');
+  await saveChatGptAccount(store, credential('a'));
+  // Real refresh helper and cross-store lock: two callers refresh just once.
+  let refreshCount = 0;
+  await store.modifyAll(values => { for (const key of Object.keys(values)) if (values[key]?.accountId === 'a') values[key].expires = 0; return values; });
+  const refreshOptions = { now: () => now, fetchImpl: async () => { refreshCount++; return new Response(JSON.stringify({ access_token: jwt('a', 3), refresh_token: 'fixture-rotated-a', expires_in: 3600 })); } };
+  const freshPools = [new ChatGptAccountPool(store, refreshOptions), new ChatGptAccountPool(new ZyraCredentialStore({ authPath: store.authPath }), refreshOptions)];
+  await Promise.all(freshPools.map(p => p.credential(idA)));
+  assert.equal(refreshCount, 1);
+
+  // Native routing boundary: real serialized credentials with controlled stream events.
+  await policy({ strategy: 'fill-first', preferredAccountId: idA });
+  const request = createChatGptRequestCredentials(store);
+  const requests = [];
+  let partial = false, failAll = false;
+  const message = content => ({ role: 'assistant', provider: 'openai-codex', model: 'model', content, stopReason: 'stop' });
+  const runtime = {
+    getAuth: async () => ({ auth: { apiKey: (await request.credentials.read('openai-codex')).access } }),
+    stream(model, context, options) {
+      const source = new AssistantMessageEventStream();
+      (async () => {
+        const token = (await runtime.getAuth(model)).auth.apiKey;
+        requests.push(token);
+        await options.onResponse({ status: token === jwt('a', 3) || failAll ? 429 : 200, headers: new Headers({ 'retry-after': '30' }) }, model);
+        source.push({ type: 'start', partial: message([]) });
+        if (partial) source.push({ type: 'text_delta', delta: 'Already visible', partial: message([{ type: 'text', text: 'Already visible' }]) });
+        if (token === jwt('a', 3) || failAll) source.push({ type: 'error', reason: 'error', error: { ...message([]), errorMessage: 'Usage limit reached' } });
+        else source.push({ type: 'done', reason: 'stop', message: message([{ type: 'text', text: 'Done' }]) });
+      })().catch(error => source.push({ type: 'error', reason: 'error', error: { ...message([]), errorMessage: error.message } }));
+      return source;
+    },
+    streamSimple(...args) { return this.stream(...args); },
+  };
+  installChatGptAccountRouting(runtime, pool, request.context);
+  const model = { provider: 'openai-codex', id: 'model', api: 'openai-codex-responses' };
+  const events = [];
+  for await (const event of runtime.stream(model, {}, {})) events.push(event.type);
+  assert.deepEqual(requests, [jwt('a', 3), jwt('b')]);
+  assert.deepEqual(events, ['start', 'done'], 'Failed startup events do not appear before the successful response.');
+  assert.equal(pool.inFlight.size, 0);
+  now += 31000;
+  requests.length = 0; partial = true;
+  const failure = await runtime.stream(model, {}, {}).result();
+  assert.equal(failure.errorMessage, 'Usage limit reached');
+  assert.equal(requests.length, 1, 'Partial content prevents replay on another account.');
+  now += 31000; partial = false; failAll = true; requests.length = 0;
+  await runtime.stream(model, {}, {}).result();
+  assert.equal(requests.length, 2, 'Failover is bounded to one attempt per eligible identity.');
+  const controller = new AbortController(); controller.abort(); requests.length = 0;
+  const aborted = await runtime.stream(model, {}, { signal: controller.signal }).result();
+  assert.equal(aborted.stopReason, 'aborted'); assert.equal(requests.length, 0);
+  const limits = readChatGptResponseLimits(new Headers({ 'x-codex-primary-used-percent': '100', 'x-codex-primary-reset-at': String((now + 10000) / 1000), 'x-codex-primary-window-minutes': '300' }), now);
+  assert.equal(Date.parse(limits.primary.resetAt), now + 10000);
+  assert.equal(limits.primary.windowSeconds, 18000);
+  assert.equal(Object.keys(JSON.parse(await readFile(store.authPath, 'utf8'))).filter(k => k.startsWith('openai-codex')).length, 2);
+  console.log('ChatGPT account pool: separate sign-ins, rules, resets, refresh locking, secret filtering and safe bounded failover: ok');
+} finally { await rm(root, { recursive: true, force: true }); }

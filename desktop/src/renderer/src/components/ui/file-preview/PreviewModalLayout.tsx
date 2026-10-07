@@ -106,14 +106,6 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         setViewport,
         csvDistinctColorsEnabled,
         setCsvDistinctColorsEnabled,
-        pythonRunState,
-        pythonRunMode,
-        pythonHasOutput,
-        setPythonRunMode,
-        canRunPython,
-        onRunPython,
-        onStopPython,
-        onClearPythonOutput,
         onOpenInBrowser,
         gitDiffText,
         gitDiffSummary,
@@ -134,7 +126,6 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         isCompactHtmlViewport,
         centerHtmlRenderedPreview,
         flushResponsiveHtmlPreview,
-        hasBottomPanel,
         onOpenLinkedPreview,
         onOpenLinkedPreviewInNewTab,
         folderTreeRefreshToken = 0,
@@ -150,10 +141,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         trailingWhitespaceCount,
         jsonDiagnostic,
         isEditorToolsEnabled,
-        pythonPanel,
         previewBody,
-        previewBottomOverlay,
-        previewBottomOverlayPadding = 0,
         previewModeEnabled,
         showUnsavedModal,
         conflictModifiedAt,
@@ -221,7 +209,6 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         || mode === 'edit'
         || isCsv
         || isHtml
-        || hasBottomPanel
     const shouldStretchPreviewBody = lockPreviewBodyHeight || isMediaFile || isDirectory
 
     const isWindowShell = shellMode === 'window'
@@ -297,9 +284,6 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
             loadingEditableContent={loadingEditableContent}
             viewport={viewport}
             csvDistinctColorsEnabled={csvDistinctColorsEnabled}
-            pythonRunState={pythonRunState}
-            pythonHasOutput={pythonHasOutput}
-            pythonRunMode={pythonRunMode}
             onClose={handleCloseRequest}
             onToggleExpanded={handleToggleExpanded}
             onToggleLeftPanel={() => setLeftPanelOpen((current) => !current)}
@@ -309,11 +293,6 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
             onRevert={handleRevert ?? (() => undefined)}
             onViewportChange={setViewport}
             onCsvDistinctColorsEnabledChange={setCsvDistinctColorsEnabled}
-            canRunPython={canRunPython}
-            onPythonRunModeChange={setPythonRunMode}
-            onRunPython={onRunPython}
-            onStopPython={onStopPython}
-            onClearPythonOutput={onClearPythonOutput}
             onOpenInBrowser={onOpenInBrowser}
             previewTabs={previewTabs}
             activePreviewTabId={activePreviewTabId}
@@ -338,14 +317,10 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
             previewSurfaceRef={previewSurfaceRef}
             centerHtmlRenderedPreview={centerHtmlRenderedPreview}
             isCompactHtmlViewport={isCompactHtmlViewport}
-            overflowLocked={Boolean(previewBody) || mode === 'edit' || isCsv || isHtml || hasBottomPanel}
+            overflowLocked={Boolean(previewBody) || mode === 'edit' || isCsv || isHtml}
             surfaceBackgroundClass={previewSurfaceBackgroundClass}
             shouldStretchPreviewBody={shouldStretchPreviewBody}
-            hasBottomPanel={hasBottomPanel}
-            mode={mode}
             previewContent={renderPreviewBody(true)}
-            bottomOverlay={previewBottomOverlay}
-            bottomOverlayPadding={previewBottomOverlayPadding}
             scrollContainerRef={markdownScrollContainerRef}
         />
     )
@@ -469,7 +444,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
                         ) : null}
                         <div ref={previewSurfaceRef} className="group/preview relative min-h-0 min-w-0 flex-1">
                             <div
-                                ref={hasBottomPanel && mode !== 'edit' ? undefined : markdownScrollContainerRef}
+                                ref={markdownScrollContainerRef}
                                 className={cn(
                                     'h-full w-full custom-scrollbar flex items-stretch justify-center',
                                     previewSurfaceBackgroundClass,
@@ -478,7 +453,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
                                         : flushResponsiveHtmlPreview
                                             ? 'p-0'
                                             : (isCompactHtmlViewport ? 'p-2 sm:p-3' : 'p-4'),
-                                    mode === 'edit' || isCsv || isHtml || hasBottomPanel || isMediaFile || isDirectory
+                                    mode === 'edit' || isCsv || isHtml || isMediaFile || isDirectory
                                         ? 'overflow-hidden'
                                         : 'overflow-auto'
                                 )}
@@ -486,24 +461,15 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
                             >
                                 <div
                                     className={cn('w-full flex flex-col', shouldStretchPreviewBody ? 'h-full min-h-0' : 'min-h-full')}
-                                    style={{ paddingBottom: previewBottomOverlay && previewBottomOverlayPadding > 0 ? `${previewBottomOverlayPadding}px` : undefined }}
                                 >
-                                    <div ref={hasBottomPanel && mode !== 'edit' ? markdownScrollContainerRef : undefined} className={cn(shouldStretchPreviewBody && 'min-h-0', hasBottomPanel ? 'flex-1' : (shouldStretchPreviewBody ? 'h-full' : ''), hasBottomPanel && mode !== 'edit' ? 'overflow-auto custom-scrollbar' : '', centerHtmlRenderedPreview ? 'flex items-center justify-center' : '')}>
+                                    <div className={cn(shouldStretchPreviewBody && 'min-h-0', shouldStretchPreviewBody ? 'h-full' : '', centerHtmlRenderedPreview ? 'flex items-center justify-center' : '')}>
                                         {renderPreviewBody(false)}
                                     </div>
                                 </div>
                             </div>
-                            {previewBottomOverlay ? (
-                                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 m-0 flex items-end p-0">
-                                    <div className="pointer-events-auto m-0 w-full p-0">
-                                        {previewBottomOverlay}
-                                    </div>
-                                </div>
-                            ) : null}
                         </div>
                     </div>
                 )}
-                {pythonPanel}
             </div>
             <PreviewModalDialogs
                 fileName={file.name}

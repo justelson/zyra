@@ -734,7 +734,6 @@ async function testInstrumentationReachability() {
     "desktop/src/renderer/src/pages/assistant/AssistantBrowserHistoryImportDialog.tsx",
     "desktop/src/renderer/src/pages/assistant/AssistantBrowserWorkspace.tsx",
     "desktop/src/renderer/src/pages/settings/SettingsShell.tsx",
-    "desktop/src/renderer/src/pages/folder-browse/useFolderBrowseActions.ts",
     "desktop/src/renderer/src/lib/settings.tsx",
     "src/zyra-app.mjs",
     "src/slash-command-handlers.mjs",
@@ -759,7 +758,6 @@ async function testInstrumentationReachability() {
   assert.match(sources["desktop/src/main/index.ts"], /isAnalyticsAllowedForOwner[\s\S]*isAnalyticsAllowedForGuest/);
   assert.match(sources["desktop/src/main/ipc/handlers/project-details-handlers.ts"], /handleRecordProjectOpen[\s\S]*recordProjectOpenAnalytics\(event\.sender\.id/);
   assert.doesNotMatch(sources["desktop/src/main/ipc/handlers/project-details-handlers.ts"].match(/handleGetProjectDetails[\s\S]*?handleRecordProjectOpen/)?.[0] || "", /recordProjectOpenAnalytics/);
-  assert.match(sources["desktop/src/renderer/src/pages/folder-browse/useFolderBrowseActions.ts"], /recordProjectOpen\?\.\(project\.path\)[\s\S]*recordProjectOpen\?\.\(decodedPath\)/);
   assert.match(sources["desktop/src/main/index.ts"], /isIncognitoBrowserWebContents[\s\S]*hasIncognitoBrowserContents/);
   assert.match(sources["desktop/src/main/index.ts"], /render-process-gone[\s\S]*!isIncognitoBrowserWebContents/);
   assert.doesNotMatch(combined, /captureProductEvent\([^)]*(?:transcript\.delta|command_output|scroll|mousemove|keydown)/s, "high-frequency content loops are not capture points");

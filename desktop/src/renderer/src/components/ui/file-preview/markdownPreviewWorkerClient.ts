@@ -101,6 +101,10 @@ function retainParsedTree(key: string, content: string, tree: Root): void {
     }
 }
 
+export function cacheMarkdownPreviewSection(content: string, tree: Root, headingIds: readonly string[] = []): void {
+    retainParsedTree(parsedSectionCacheKey(content, headingIds), content, tree)
+}
+
 function resolveJob(job: ParseJob, tree: Root | null): void {
     for (const consumer of job.consumers.values()) consumer.resolve(tree)
     job.consumers.clear()

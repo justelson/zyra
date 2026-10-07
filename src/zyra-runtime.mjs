@@ -1,5 +1,8 @@
 import { registerSavedProviders, readProviderConnections, providerConfigPath } from "./provider-connections.mjs";
 import { recoverProviderTransaction } from "./provider-transactions.mjs";
+import { getChatGptAccountPool } from './chatgpt-account-pool.mjs';
+import { createChatGptRequestCredentials, installChatGptAccountRouting } from './chatgpt-account-runtime.mjs';
+import { loginOpenAICodexAuth } from './openai-codex-login.mjs';
 import { syncOpenAIModelCatalog, applyOpenAIModelCatalog } from "./openai-model-catalog.mjs";
 import {
   getZyraCredentialAuthStatus,
@@ -25,6 +28,18 @@ export async function createZyraRuntime(options = {}) {
   const { ModelRegistry, ModelRuntime } = await loadRuntimeEngine();
   const authPath = options.authPath ?? resolveZyraAuthPath(options);
   const credentials = options.credentialStore ?? new ZyraCredentialStore({ authPath });
+  const accountPool = getChatGptAccountPool(credentials, options);
+  if (options.refreshAccountUsage !== false && !accountPool.refreshUsageInBackground) {
+    let lastCheck = 0, pending = false;
+    accountPool.refreshUsageInBackground = () => {
+      if (pending || Date.now() - lastCheck < 60_000) return;
+      pending = true;
+      lastCheck = Date.now();
+      import('./chatgpt-pool-service.mjs').then(module => module.getChatGptAccounts({ ...options, credentialStore: credentials, refreshUsage: true, usageMaxAgeMs: 60_000 }))
+        .catch(() => {}).finally(() => { pending = false; });
+    };
+  }
+  const requestCredentials = createChatGptRequestCredentials(credentials);
   const zyraAuthStorage = await createZyraCredentialAuthStorage({
     credentialStore: credentials,
     migrateLegacy: false,
@@ -35,7 +50,7 @@ export async function createZyraRuntime(options = {}) {
   });
   const modelRuntime = options.modelRuntime ?? await ModelRuntime.create({
     authPath,
-    credentials,
+    credentials: requestCredentials.credentials,
     ...(options.modelsPath !== undefined ? { modelsPath: options.modelsPath } : {}),
     allowModelNetwork: options.allowModelNetwork === true,
     ...(options.refreshOnCreate !== undefined
@@ -43,6 +58,7 @@ export async function createZyraRuntime(options = {}) {
       : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
+  if (!options.modelRuntime) installChatGptAccountRouting(modelRuntime, accountPool, requestCredentials.context);
   if (!options.modelRuntime && options.confirmLegacyPiCredentialMigration === true) {
     const migratedProviders = await migrateLegacyPiCredentials(credentials, authPath, options.legacyPiAuthPath, {
       signal: options.signal,
@@ -126,6 +142,11 @@ function createAuthStorageFacade(modelRuntime, credentials, initialCredentials =
     },
 
     async login(provider, interaction) {
+      if (provider === 'openai-codex') {
+        const result = await loginOpenAICodexAuth(zyraAuthStorage, interaction);
+        await refreshAuthProvider(provider);
+        return result;
+      }
       const result = await modelRuntime.login(provider, "oauth", normalizeAuthInteraction(interaction));
       credentialSnapshot.set(provider, credentials.read(provider));
       return result;
@@ -150,7 +171,7 @@ function createAuthStorageFacade(modelRuntime, credentials, initialCredentials =
     },
 
     async logout(provider, authOptions = {}) {
-      await credentials.delete(provider, { signal: authOptions.signal });
+      await zyraAuthStorage.logout(provider, authOptions);
       credentialSnapshot.set(provider, undefined);
       await refreshAuthProvider(provider, authOptions);
     },

@@ -68,6 +68,7 @@ const MAX_COMPILED_CONTENT_LENGTH = 4_000_000
 const compiledMarkdown = new Map<string, CompiledMarkdownEntry>()
 let compiledContentLength = 0
 let markdownCompilationCount = 0
+let markdownCompilationMilliseconds = 0
 const markdownComponentSets = new Map<string, ReturnType<typeof createMarkdownComponents>>()
 const pendingPreparation = new Map<string, MarkdownRendererProps>()
 let preparationIdleId: number | null = null
@@ -239,6 +240,7 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
 }
 
 function compileMarkdown(props: MarkdownRendererProps): ReactNode {
+    const startedAt = performance.now()
     markdownCompilationCount += 1
     const preparedTree = props.fadeStreamingText && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
     const tree = preparedTree || parseMarkdownToHast(props.content, !props.lightweight)
@@ -247,7 +249,7 @@ function compileMarkdown(props: MarkdownRendererProps): ReactNode {
     if (props.fadeStreamingText) wrapStreamingText(tree, Boolean(props.animateInitialText))
     const components = props.fadeStreamingText ? { ...baseComponents, span: StreamingMarkdownSpan } : baseComponents
 
-    return toJsxRuntime(tree, {
+    const result = toJsxRuntime(tree, {
         Fragment,
         components,
         ignoreInvalidStyle: true,
@@ -256,12 +258,15 @@ function compileMarkdown(props: MarkdownRendererProps): ReactNode {
         passKeys: true,
         passNode: false
     })
+    markdownCompilationMilliseconds += performance.now() - startedAt
+    return result
 }
 
-export function getMarkdownRenderCacheStats(): { entries: number; compilations: number; contentLength: number } {
+export function getMarkdownRenderCacheStats(): { entries: number; compilations: number; contentLength: number; compilationMilliseconds: number } {
     return {
         entries: compiledMarkdown.size,
         compilations: markdownCompilationCount,
+        compilationMilliseconds: markdownCompilationMilliseconds,
         contentLength: compiledContentLength
     }
 }

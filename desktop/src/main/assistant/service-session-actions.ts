@@ -43,6 +43,7 @@ import {
     requireSession
 } from './service-state'
 import { buildSessionHistoryMutationResult } from './session-mutation-utils'
+import { awaitCanonicalSessionTitleSaves, commitAssistantSessionTitle } from './session-title-updates'
 import { getAssistantCanonicalThreadId, matchesAssistantThreadId } from './thread-identity'
 import {
     queueGeneratedSessionTitle,
@@ -194,21 +195,23 @@ export async function selectAssistantThreadAction(deps: AssistantServiceActionDe
 
 export async function renameAssistantSessionAction(deps: AssistantServiceActionDeps, sessionId: string, title: string) {
     await deps.ensureReady()
-    const session = requireSession(deps.getSnapshot(), sessionId)
-    const nextTitle = title.trim() || session.title
-    const occurredAt = nowIso()
-    deps.appendEvent('session.updated', occurredAt, {
-        sessionId,
-        patch: {
-            title: nextTitle,
-            updatedAt: occurredAt
-        }
-    }, sessionId)
-    await Promise.allSettled(session.threads
-        .map((thread) => thread.providerThreadId)
-        .filter((threadId): threadId is string => Boolean(threadId))
-        .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle })))
-    return { success: true as const }
+    return commitAssistantSessionTitle(sessionId, async () => {
+        const session = requireSession(deps.getSnapshot(), sessionId)
+        const nextTitle = title.trim() || session.title
+        await awaitCanonicalSessionTitleSaves(session.threads
+            .map((thread) => thread.providerThreadId)
+            .filter((threadId): threadId is string => Boolean(threadId))
+            .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle })))
+        const occurredAt = nowIso()
+        deps.appendEvent('session.updated', occurredAt, {
+            sessionId,
+            patch: {
+                title: nextTitle,
+                updatedAt: occurredAt
+            }
+        }, sessionId)
+        return { success: true as const }
+    })
 }
 
 export async function archiveAssistantSessionAction(deps: AssistantServiceActionDeps, sessionId: string, archived = true) {
@@ -574,6 +577,9 @@ export async function sendAssistantPromptAction(
 
     const runtimeCwd = deps.getSessionRuntimeCwd(session, thread)
     const runtimeThreadId = getAssistantCanonicalThreadId(thread)
+    // First Send can precede draft warmup. Resolve the saved default before
+    // attachment so an empty new thread cannot select the engine fallback.
+    const model = options?.model || thread.model || await deps.getNewChatPreparationModel?.() || ''
     let hasLiveRuntimeSession = deps.runtime.hasSession(runtimeThreadId)
     const previousRuntimeCwd = sanitizeOptionalPath(thread.cwd)
     if (
@@ -585,7 +591,7 @@ export async function sendAssistantPromptAction(
         hasLiveRuntimeSession = false
     }
     const updatedThreadPatch: Partial<AssistantThread> & Pick<AssistantThread, 'model' | 'runtimeMode' | 'interactionMode' | 'cwd' | 'state' | 'lastError' | 'activePlan' | 'updatedAt'> = {
-        model: options?.model || thread.model,
+        model,
         runtimeMode: options?.runtimeMode || thread.runtimeMode,
         interactionMode: 'default',
         cwd: runtimeCwd,
@@ -651,7 +657,7 @@ export async function sendAssistantPromptAction(
         }
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
-            model: options?.model,
+            model: model || undefined,
             runtimeMode: options?.runtimeMode,
             interactionMode: 'default',
             effort: options?.effort,

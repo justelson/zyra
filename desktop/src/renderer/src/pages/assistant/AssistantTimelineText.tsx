@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type React
 import MarkdownRenderer, { prepareMarkdownRender, type MarkdownMediaMode } from '@/components/ui/MarkdownRenderer'
 import { useObservedElementWidth } from '@/lib/text-layout/useObservedElementWidth'
 import { VisualizationMessage } from '@/components/ui/visualization/VisualizationMessage'
+import { useStreamingMarkdownContent } from './useStreamingMarkdownContent'
 import {
     getUserMessageBodyWidth,
     measureTimelinePlainTextHeight,
@@ -53,74 +54,6 @@ export const StreamingAssistantText = memo(function StreamingAssistantText({
     )
 })
 
-export function splitStreamingMarkdownBlocks(content: string): { settled: string[]; tail: string } {
-    const settled: string[] = []
-    let blockStart = 0
-    let lineStart = 0
-    let fenceCharacter = ''
-    let fenceLength = 0
-
-    while (lineStart < content.length) {
-        const newlineIndex = content.indexOf('\n', lineStart)
-        const lineEnd = newlineIndex >= 0 ? newlineIndex + 1 : content.length
-        const line = content.slice(lineStart, newlineIndex >= 0 ? newlineIndex : content.length).replace(/\r$/, '')
-        const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/)
-        if (fenceMatch) {
-            const marker = fenceMatch[1] || ''
-            if (!fenceCharacter) {
-                fenceCharacter = marker[0] || ''
-                fenceLength = marker.length
-            } else if (
-                marker[0] === fenceCharacter
-                && marker.length >= fenceLength
-                && line.slice((fenceMatch.index || 0) + fenceMatch[0].length).trim() === ''
-            ) {
-                fenceCharacter = ''
-                fenceLength = 0
-            }
-        }
-
-        if (!fenceCharacter && !line.trim()) {
-            const block = content.slice(blockStart, lineStart).trimEnd()
-            if (block.trim()) settled.push(block)
-            blockStart = lineEnd
-        }
-        lineStart = lineEnd
-    }
-
-    return {
-        settled,
-        tail: content.slice(blockStart)
-    }
-}
-
-const StreamingMarkdownBlock = memo(function StreamingMarkdownBlock(props: {
-    content: string
-    filePath?: string
-    className?: string
-    cacheKey: string
-    transient?: boolean
-    fadeStreamingText?: boolean
-    onInternalLinkClick?: AssistantMarkdownInteractionProps['onInternalLinkClick']
-    onLinkNotice?: AssistantMarkdownInteractionProps['onLinkNotice']
-    mediaMode?: MarkdownMediaMode
-}) {
-    return (
-        <MarkdownRenderer
-            content={props.content}
-            filePath={props.filePath}
-            className={props.className}
-            cacheKey={props.cacheKey}
-            lightweight={props.transient}
-            transient={props.transient}
-            fadeStreamingText={props.fadeStreamingText}
-            onInternalLinkClick={props.onInternalLinkClick}
-            onLinkNotice={props.onLinkNotice}
-            mediaMode={props.mediaMode}
-        />
-    )
-})
-
 export const StreamingAssistantMarkdown = memo(function StreamingAssistantMarkdown(props: StreamingAssistantMarkdownProps) {
     return <VisualizationMessage content={props.content} streaming timestamp={props.timestamp} renderFooter={props.renderFooter} renderMarkdown={(content, key) => <StreamingAssistantMarkdownText {...props} content={content} cacheKey={key ? `${props.cacheKey}:${key}` : props.cacheKey} />} />
 })
@@ -135,36 +68,23 @@ const StreamingAssistantMarkdownText = memo(function StreamingAssistantMarkdownT
     mediaMode,
     fadeStreamingText = false
 }: StreamingAssistantMarkdownProps) {
-    const blocks = useMemo(() => splitStreamingMarkdownBlocks(content), [content])
-    if (!content.trim()) return <StreamingAssistantText content=" " className={className} />
+    const renderedContent = useStreamingMarkdownContent(content, cacheKey)
+    if (!renderedContent.trim()) return <StreamingAssistantText content=" " className={className} />
 
     return (
         <div data-assistant-streaming-markdown="true">
-            {blocks.settled.map((block, index) => (
-                <StreamingMarkdownBlock
-                    key={`${index}:${block.length}`}
-                    content={block}
-                    filePath={filePath}
-                    className={className}
-                    cacheKey={`${cacheKey}:settled:${index}:${block.length}`}
-                    onInternalLinkClick={onInternalLinkClick}
-                    onLinkNotice={onLinkNotice}
-                    mediaMode={mediaMode}
-                />
-            ))}
-            {blocks.tail ? (
-                <StreamingMarkdownBlock
-                    content={blocks.tail}
-                    filePath={filePath}
-                    className={className}
-                    cacheKey={`${cacheKey}:tail`}
-                    transient
-                    fadeStreamingText={fadeStreamingText}
-                    onInternalLinkClick={onInternalLinkClick}
-                    onLinkNotice={onLinkNotice}
-                    mediaMode={mediaMode}
-                />
-            ) : null}
+            <MarkdownRenderer
+                content={renderedContent}
+                filePath={filePath}
+                className={className}
+                cacheKey={cacheKey}
+                transient
+                deferCodeHighlighting
+                fadeStreamingText={fadeStreamingText}
+                onInternalLinkClick={onInternalLinkClick}
+                onLinkNotice={onLinkNotice}
+                mediaMode={mediaMode}
+            />
         </div>
     )
 })

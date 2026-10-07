@@ -29,6 +29,7 @@ APP_ICON_VARIANTS = (
     'zyra-prod-dark.png'
 )
 APP_ICON_BACKGROUND = (4, 20, 43, 255)
+DEV_ICON_BACKGROUND = (0, 0, 0, 255)
 APP_ICON_MARK = (57, 206, 230, 255)
 APP_ICON_OPTICAL_SIZES = {16, 24, 32}
 
@@ -274,19 +275,30 @@ def render_16px_optical_mark() -> Image.Image:
     return mark_mask
 
 
-def clamp_approved_app_icon_palette(image: Image.Image) -> Image.Image:
+def create_dev_icon_master(source: Image.Image) -> Image.Image:
+    """Reuse the approved geometry with a black field; never edit source artwork."""
+    tile_alpha, mark_mask = approved_app_icon_masks(source)
+    image = Image.new('RGBA', source.size, DEV_ICON_BACKGROUND)
+    image.putalpha(tile_alpha)
+    mark = Image.new('RGBA', source.size, APP_ICON_MARK)
+    mark.putalpha(ImageChops.multiply(mark_mask, tile_alpha))
+    image.alpha_composite(mark)
+    return image
+
+
+def clamp_approved_app_icon_palette(image: Image.Image, background=APP_ICON_BACKGROUND) -> Image.Image:
     red, green, blue, alpha = image.convert('RGBA').split()
-    red = red.point(lambda value: max(APP_ICON_BACKGROUND[0], min(57, value)))
-    green = green.point(lambda value: max(APP_ICON_BACKGROUND[1], min(207, value)))
-    blue = blue.point(lambda value: max(APP_ICON_BACKGROUND[2], min(231, value)))
+    red = red.point(lambda value: max(background[0], min(57, value)))
+    green = green.point(lambda value: max(background[1], min(207, value)))
+    blue = blue.point(lambda value: max(background[2], min(231, value)))
     return Image.merge('RGBA', (red, green, blue, alpha))
 
 
-def render_app_icon(source: Image.Image, size: int) -> Image.Image:
+def render_app_icon(source: Image.Image, size: int, background=APP_ICON_BACKGROUND) -> Image.Image:
     if size > 64:
         if size == MASTER_SIZE:
             return source.copy()
-        return clamp_approved_app_icon_palette(source.resize((size, size), Image.Resampling.LANCZOS))
+        return clamp_approved_app_icon_palette(source.resize((size, size), Image.Resampling.LANCZOS), background)
 
     tile_alpha_source, mark_mask_source = approved_app_icon_masks(source)
     tile_alpha = tile_alpha_source.resize((size, size), Image.Resampling.LANCZOS)
@@ -296,7 +308,7 @@ def render_app_icon(source: Image.Image, size: int) -> Image.Image:
     elif size <= 64 and size != 16:
         mark_mask = mark_mask.point(lambda value: 255 if value >= 112 else 0)
 
-    image = Image.new('RGBA', (size, size), APP_ICON_BACKGROUND)
+    image = Image.new('RGBA', (size, size), background)
     image.putalpha(tile_alpha)
     mark_layer = Image.new('RGBA', (size, size), APP_ICON_MARK)
     mark_layer.putalpha(ImageChops.multiply(mark_mask, tile_alpha))
@@ -304,21 +316,21 @@ def render_app_icon(source: Image.Image, size: int) -> Image.Image:
     return image
 
 
-def save_app_icon_png(source: Image.Image, *, path: Path, size: int) -> None:
+def save_app_icon_png(source: Image.Image, *, path: Path, size: int, background=APP_ICON_BACKGROUND) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    render_app_icon(source, size).save(path, format='PNG', optimize=True)
+    render_app_icon(source, size, background).save(path, format='PNG', optimize=True)
 
 
-def save_app_icon_ico(source: Image.Image, *, path: Path) -> None:
+def save_app_icon_ico(source: Image.Image, *, path: Path, background=APP_ICON_BACKGROUND) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    frames = [render_app_icon(source, size[0]) for size in ICON_SIZES]
+    frames = [render_app_icon(source, size[0], background) for size in ICON_SIZES]
     frames[-1].save(path, format='ICO', sizes=ICON_SIZES, append_images=frames[:-1])
 
 
-def save_app_icon_icns(source: Image.Image, *, path: Path) -> None:
+def save_app_icon_icns(source: Image.Image, *, path: Path, background=APP_ICON_BACKGROUND) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     sizes = (16, 32, 64, 128, 256, 512, 1024)
-    frames = [render_app_icon(source, size) for size in sizes]
+    frames = [render_app_icon(source, size, background) for size in sizes]
     frames[-1].save(path, format='ICNS', append_images=frames[:-1])
 
 
@@ -330,6 +342,7 @@ def save_png(image: Image.Image, path: Path, size: int) -> None:
 
 def main() -> None:
     icons_only = '--icons-only' in sys.argv[1:]
+    preview = '--preview' in sys.argv[1:]
     clean_brand_path = BRANDING_DIR / 'zyra-mark.png'
     blueprint_path = BRANDING_DIR / 'zyra-blueprint.png'
 
@@ -342,24 +355,33 @@ def main() -> None:
         save_png(blueprint_master, blueprint_path, 1024)
 
     approved_app_icon = load_approved_app_icon_master()
+    dev_app_icon = create_dev_icon_master(approved_app_icon)
     for file_name in APP_ICON_VARIANTS:
         variant_path = APP_ICON_DIR / file_name
-        save_app_icon_png(approved_app_icon, path=variant_path, size=1024)
-        save_app_icon_ico(approved_app_icon, path=variant_path.with_suffix('.ico'))
+        # Packaged Preview uses the prod runtime filename family. Only its CI
+        # staging checkout redirects that family; stable generation stays blue.
+        is_dev = preview or file_name.startswith('zyra-dev')
+        source = dev_app_icon if is_dev else approved_app_icon
+        background = DEV_ICON_BACKGROUND if is_dev else APP_ICON_BACKGROUND
+        save_app_icon_png(source, path=variant_path, size=1024, background=background)
+        save_app_icon_ico(source, path=variant_path.with_suffix('.ico'), background=background)
 
     icon_png = ROOT / 'resources' / 'icon.png'
     dev_icon_png = ROOT / 'resources' / 'icon-dev.png'
-    save_app_icon_png(approved_app_icon, path=icon_png, size=512)
-    save_app_icon_png(approved_app_icon, path=dev_icon_png, size=512)
-    save_app_icon_ico(approved_app_icon, path=ROOT / 'resources' / 'icon.ico')
-    save_app_icon_ico(approved_app_icon, path=ROOT / 'resources' / 'icon-dev.ico')
-    save_app_icon_icns(approved_app_icon, path=ROOT / 'resources' / 'icon.icns')
+    packaged_icon = dev_app_icon if preview else approved_app_icon
+    packaged_background = DEV_ICON_BACKGROUND if preview else APP_ICON_BACKGROUND
+    save_app_icon_png(packaged_icon, path=icon_png, size=512, background=packaged_background)
+    save_app_icon_png(dev_app_icon, path=dev_icon_png, size=512, background=DEV_ICON_BACKGROUND)
+    save_app_icon_ico(packaged_icon, path=ROOT / 'resources' / 'icon.ico', background=packaged_background)
+    save_app_icon_ico(dev_app_icon, path=ROOT / 'resources' / 'icon-dev.ico', background=DEV_ICON_BACKGROUND)
+    save_app_icon_icns(packaged_icon, path=ROOT / 'resources' / 'icon.icns', background=packaged_background)
     linux_icon_dir = ROOT / 'resources' / 'icons'
     for size in LINUX_ICON_SIZES:
         save_app_icon_png(
-            approved_app_icon,
+            packaged_icon,
             path=linux_icon_dir / f'{size}x{size}.png',
-            size=size
+            size=size,
+            background=packaged_background
         )
 
     if not icons_only:

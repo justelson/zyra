@@ -38,11 +38,12 @@ try {
     })
     console.log(JSON.stringify(result, null, 2))
     if (!process.argv.includes('--baseline')) {
-        assert.equal(result.warmCode.placeholderOnCommit, false, 'a warmed editor mounts without repeating the plain loading state')
+        assert.equal(result.coldCode.readableOnCommit, true, 'cold editor initialization keeps the actual code readable')
+        assert.equal(result.warmCode.readableOnCommit, true, 'warm opening shows code on the first commit, including while Monaco initializes')
     }
     console.log('Real preview startup: ok')
 } finally {
-    await server.close()
+    await Promise.race([server.close(), new Promise(resolve => setTimeout(resolve, 5_000))])
     if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith('zyra-preview-startup-')) throw Error('Unexpected cleanup path')
     await rm(directory, { recursive: true, force: true })
 }

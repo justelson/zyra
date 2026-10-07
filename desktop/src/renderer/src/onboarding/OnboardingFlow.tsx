@@ -30,7 +30,7 @@ const STEP_LABELS: Record<OnboardingStep, string> = {
     welcome: 'Welcome',
     'connect-openai': 'Connect a provider',
     appearance: 'Choose your look',
-    projects: 'Choose a projects folder',
+    projects: 'Where chats can work',
     review: 'Review setup'
 }
 
@@ -38,7 +38,7 @@ const STEP_DESCRIPTIONS: Record<OnboardingStep, string> = {
     welcome: '',
     'connect-openai': 'Choose how Zyra connects to its models.',
     appearance: 'Make this space feel like yours.',
-    projects: 'Choose the folder where you keep your work.',
+    projects: 'Chats with no project use this folder for files. Choosing another folder is optional.',
     review: 'Your essentials are ready. You can change them later in Settings.'
 }
 
@@ -259,7 +259,6 @@ export function OnboardingFlow() {
 
     const analyticsChoice = analyticsStatus?.preferenceSet ? analyticsStatus.requested : null
     const canContinue = record.currentStep !== 'connect-openai' || auth.status?.verified === true
-    const projectReady = record.currentStep !== 'projects' || Boolean(projects.projectsFolder.trim())
     const currentIndex = ONBOARDING_STEPS.indexOf(record.currentStep)
     const stepTitle = record.currentStep === 'review' && !record.reviewActive
         ? 'Ready to open Zyra'
@@ -294,7 +293,7 @@ export function OnboardingFlow() {
                                 onConnectApiKey={apiKey => runAuth('api-key', () => onboarding.connectApiKey(apiKey))} />
                         ) : null}
                         {record.currentStep === 'appearance' ? <AppearanceStep selection={appearance} onChange={changeAppearance} /> : null}
-                        {record.currentStep === 'projects' ? <ProjectsStep selection={projects} onChange={setProjects} /> : null}
+                        {record.currentStep === 'projects' ? <ProjectsStep selection={projects} defaultFolder={onboarding.snapshot?.defaultProjectsFolder || undefined} onChange={setProjects} /> : null}
                         {record.currentStep === 'review' ? (
                             <ReviewStep record={record} analyticsChoice={analyticsChoice} analyticsConfigured={analyticsStatus?.configured === true}
                                 analyticsManagedByEnvironment={analyticsStatus?.canChangeEnabled === false} analyticsLoading={analyticsLoading}
@@ -307,7 +306,7 @@ export function OnboardingFlow() {
                 <OnboardingFooter
                     visible={record.currentStep !== 'welcome'} index={currentIndex} total={ONBOARDING_STEPS.length}
                     stepLabel={STEP_LABELS[record.currentStep]} continueLabel={continueLabel} finalStep={record.currentStep === 'review'}
-                    backDisabled={saving} continueDisabled={saving || analyticsLoading || !canContinue || !projectReady}
+                    backDisabled={saving} continueDisabled={saving || analyticsLoading || !canContinue}
                     reducedMotion={settings.accessibilityReduceMotion} direction={transitionDirection.current} error={error}
                     onBack={() => void goBack()} onContinue={() => void continueStep()}
                 />

@@ -57,6 +57,7 @@ import {
     isAssistantRetainedHistoryFresh,
     materializeAssistantShellSnapshot,
     mergeAssistantShellSnapshot,
+    reconcileAssistantShellSnapshot,
     pruneAssistantHistoryCache,
     replaceAssistantVisibleHistory,
     shouldRehydrateAssistantHistoryAfterCanonicalEvent,
@@ -109,6 +110,7 @@ export class AssistantStore {
     private visibilityUnsubscribe: (() => void) | null = null
     private retainCount = 0
     private hydratePromise: Promise<void> | null = null
+    private recoverySequence = 0
     private modelRefreshPromise: Promise<DevScopeResult<{ models: AssistantModelInfo[] }>> | null = null
     private createSessionPromise: Promise<AssistantCreateSessionResult> | null = null
     private pluginChatPending = false
@@ -161,12 +163,13 @@ export class AssistantStore {
 
     async hydrate() {
         if (this.hydratePromise) return this.hydratePromise
-        this.clearPendingAssistantEvents()
+        this.flushPendingAssistantEvents()
         this.setState({ hydrating: true, error: null })
         this.hydratePromise = (async () => {
             try {
                 const bootstrap = await window.devscope.assistant.bootstrap()
-                const bootstrapSnapshot = materializeAssistantShellSnapshot(bootstrap.snapshot)
+                this.flushPendingAssistantEvents()
+                const bootstrapSnapshot = reconcileAssistantShellSnapshot(this.state.snapshot, bootstrap.snapshot)
                 let clientSnapshot = bootstrapSnapshot
                 let clientStatus = bootstrap.status
 
@@ -225,6 +228,13 @@ export class AssistantStore {
                 })
             } finally {
                 this.hydratePromise = null
+                const recoverySequence = this.recoverySequence
+                this.recoverySequence = 0
+                if (this.retainCount > 0 && recoverySequence > this.state.snapshot.snapshotSequence) {
+                    // A gap observed during this read may be newer than its
+                    // captured snapshot. Coalesce those gaps into one fresh read.
+                    void this.hydrate()
+                }
             }
         })()
         return this.hydratePromise
@@ -940,7 +950,25 @@ export class AssistantStore {
         if (selectedSession && threadId && this.state.historyByThreadId[threadId]?.pageInfo.hasNewer) {
             await this.requestSessionHydration(selectedSession.id, threadId, 0, true, true)
         }
-        return this.runAction(() => window.devscope.assistant.sendPrompt(prompt, options), true)
+        const result = await this.runAction(() => window.devscope.assistant.sendPrompt(prompt, options), false)
+        this.flushPendingAssistantEvents()
+        if (result.success) {
+            const thread = this.state.snapshot.sessions.find(session => session.id === result.sessionId)
+                ?.threads.find(candidate => candidate.id === result.threadId)
+            const represented = thread?.latestTurn?.id === result.turnId
+                || (Boolean(thread?.latestTurn) && thread?.messages.some(message => message.turnId === result.turnId))
+            if (!represented) {
+                // The command acknowledgement is authoritative even if an IPC
+                // notification was missed. Recover once, without resending.
+                await this.refreshSessionShellSnapshot(result.sessionId, true, false)
+                await this.requestSessionHydration(result.sessionId, result.threadId, 0, true, true)
+            }
+        }
+        try {
+            const status = await window.devscope.assistant.getStatus()
+            this.setState(current => ({ status: deriveAssistantRuntimeStatus(current.snapshot, status) }))
+        } catch {}
+        return result
     }
 
     async interruptTurn(turnId?: string, sessionId?: string) {
@@ -1006,6 +1034,7 @@ export class AssistantStore {
                 const currentSequence = this.getExpectedSnapshotSequence()
                 if (event.sequence <= currentSequence) continue
                 if (event.sequence !== currentSequence + 1) {
+                    if (this.hydratePromise) this.recoverySequence = Math.max(this.recoverySequence, event.sequence)
                     this.clearPendingAssistantEvents()
                     void this.hydrate()
                     return
@@ -1100,7 +1129,7 @@ export class AssistantStore {
     private queueAssistantEvent(event: AssistantDomainEvent) {
         const streamRecordProjected = this.isStreamRecordProjected(event)
         this.pendingAssistantEvents.push(event)
-        if (isAssistantToolLifecycleStartEvent(event)) {
+        if (isAssistantToolLifecycleStartEvent(event) || event.type === 'thread.latest-turn.updated') {
             this.flushPendingAssistantEvents()
             return
         }
@@ -1429,10 +1458,11 @@ export class AssistantStore {
         }))
     }
 
-    private async refreshSessionShellSnapshot(sessionId: string, preserveClientRoute = true) {
+    private async refreshSessionShellSnapshot(sessionId: string, preserveClientRoute = true, hydrateSelected = true) {
         try {
             const shellSnapshot = await window.devscope.assistant.getSnapshot()
-            const materializedSnapshot = materializeAssistantShellSnapshot(shellSnapshot)
+            this.flushPendingAssistantEvents()
+            const materializedSnapshot = reconcileAssistantShellSnapshot(this.state.snapshot, shellSnapshot)
             let snapshot = materializedSnapshot
             this.setState((current) => {
                 snapshot = preserveClientRoute
@@ -1444,7 +1474,7 @@ export class AssistantStore {
                 }
             })
             const session = snapshot.sessions.find((entry) => entry.id === sessionId) || null
-            if (session?.activeThreadId) void this.requestSessionHydration(sessionId, session.activeThreadId)
+            if (hydrateSelected && session?.activeThreadId) void this.requestSessionHydration(sessionId, session.activeThreadId)
             return { success: true as const, sessionId, snapshot }
         } catch (error) {
             return { success: false as const, error: error instanceof Error ? error.message : 'Failed to refresh assistant sessions.' }

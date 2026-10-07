@@ -1,4 +1,4 @@
-import { Check, Copy, Expand, PanelLeftClose, PanelLeftOpen, Play, Save, Square, Undo2 } from 'lucide-react'
+import { Check, Copy, Expand, PanelLeftClose, PanelLeftOpen, Save, Undo2 } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import { PreviewAppMenu, PreviewWindowControls } from './PreviewWindowChrome'
 import { cn } from '@/lib/utils'
@@ -48,14 +48,6 @@ interface PreviewModalHeaderProps {
     onCsvDistinctColorsEnabledChange: (enabled: boolean) => void
     onOpenInBrowser: () => void
     onClose: () => void
-    canRunPython?: boolean
-    pythonRunState?: 'idle' | 'running' | 'success' | 'failed' | 'stopped'
-    pythonHasOutput?: boolean
-    pythonRunMode?: 'terminal' | 'output'
-    onRunPython?: () => void
-    onStopPython?: () => void
-    onClearPythonOutput?: () => void
-    onPythonRunModeChange?: (mode: 'terminal' | 'output') => void
     previewTabs: PreviewTab[]
     activePreviewTabId: string | null
     onSelectPreviewTab: (tabId: string) => void
@@ -122,14 +114,6 @@ export default function PreviewModalHeader(props: PreviewModalHeaderProps) {
                 onToggleExpanded={props.onToggleExpanded}
                 onToggleLeftPanel={props.onToggleLeftPanel}
                 onToggleRightPanel={props.onToggleRightPanel}
-                canRunPython={props.canRunPython}
-                pythonRunState={props.pythonRunState}
-                pythonHasOutput={props.pythonHasOutput}
-                pythonRunMode={props.pythonRunMode}
-                onRunPython={props.onRunPython}
-                onStopPython={props.onStopPython}
-                onClearPythonOutput={props.onClearPythonOutput}
-                onPythonRunModeChange={props.onPythonRunModeChange}
                 previewTabs={props.previewTabs}
                 activePreviewTabId={props.activePreviewTabId}
                 onSelectPreviewTab={props.onSelectPreviewTab}
@@ -179,10 +163,6 @@ function PreviewWindowedHeader({
     onCsvDistinctColorsEnabledChange,
     onOpenInBrowser,
     onClose,
-    canRunPython = false,
-    pythonRunState = 'idle',
-    onRunPython,
-    onStopPython,
     previewTabs,
     activePreviewTabId,
     onSelectPreviewTab,
@@ -195,7 +175,6 @@ function PreviewWindowedHeader({
     const isHtml = file.type === 'html'
     const isCsv = file.type === 'csv'
     const isEditMode = mode === 'edit'
-    const isPythonRunning = pythonRunState === 'running'
     const containerRef = useRef<HTMLDivElement | null>(null)
     const [headerWidth, setHeaderWidth] = useState(1280)
     const { copied, copyFailed, copyPath } = usePreviewPathCopy(file.path)
@@ -362,21 +341,6 @@ function PreviewWindowedHeader({
                         />
                     </div>
                 ) : !allowExpanded && (!isHtml || isEditMode) ? <span className="ml-auto" /> : null}
-
-                {canRunPython ? (
-                    <button
-                        type="button"
-                        onClick={isPythonRunning ? onStopPython : onRunPython}
-                        className={cn(
-                            'inline-flex size-6 shrink-0 items-center justify-center rounded-[5px] text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text',
-                            isPythonRunning && 'text-amber-300'
-                        )}
-                        title={isPythonRunning ? 'Stop Python run' : 'Run Python'}
-                        aria-label={isPythonRunning ? 'Stop Python run' : 'Run Python'}
-                    >
-                        {isPythonRunning ? <Square size={13} /> : <Play size={13} />}
-                    </button>
-                ) : null}
 
             </div>
 

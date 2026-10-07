@@ -7,6 +7,7 @@ import {
   openAICodexCredentialNeedsRefresh,
   refreshOpenAICodexCredential,
 } from "./openai-codex-oauth.mjs";
+import { saveChatGptAccount, removeAllChatGptAccounts } from './chatgpt-account-pool.mjs';
 
 const LEGACY_PI_AUTH_PROVIDERS = Object.freeze(["openai-codex", "openai"]);
 const LEGACY_PI_AUTH_MIGRATION_MARKER = "pi-auth-migrated-v1";
@@ -59,6 +60,19 @@ export class ZyraCredentialStore {
 
   async delete(provider, options = {}) {
     return this.modify(provider, async () => undefined, options);
+  }
+
+  async modifyAll(update, options = {}) {
+    throwIfAborted(options.signal);
+    await mkdir(path.dirname(this.authPath), { recursive: true, mode: 0o700 });
+    return withProviderStoreLock(this.authPath, async () => {
+      throwIfAborted(options.signal);
+      const next = await update(clone(await readCredentialFileAsync(this.authPath)));
+      for (const [provider, credential] of Object.entries(next)) { assertProvider(provider); normalizeCredential(credential); }
+      throwIfAborted(options.signal);
+      await writeProviderJson(this.authPath, next);
+      return clone(next);
+    }, { waitMs: options.waitMs });
   }
 
   async list(options = {}) {
@@ -182,9 +196,10 @@ export async function createZyraCredentialAuthStorage(options = {}) {
         || !Number.isFinite(Number(credential.expires))) {
         throw new TypeError("Zyra OAuth credentials are invalid for this provider.");
       }
-      return credentials.modify(provider, async () => normalizeCredential(credential), {
-        signal: authOptions.signal ?? options.signal,
+      await saveChatGptAccount(credentials, normalizeCredential(credential), {
+        signal: authOptions.signal ?? options.signal, accountId: authOptions.accountId,
       });
+      return credential;
     },
     async set(provider, credential, authOptions = {}) {
       if (credential?.type === "api_key") return this.loginApiKey(provider, credential.key, authOptions);
@@ -192,6 +207,7 @@ export async function createZyraCredentialAuthStorage(options = {}) {
       throw new Error(`Zyra cannot directly store ${credential?.type ?? "unknown"} credentials.`);
     },
     async logout(provider, authOptions = {}) {
+      if (provider === 'openai-codex') return removeAllChatGptAccounts(credentials, { signal: authOptions.signal ?? options.signal });
       return credentials.delete(provider, { signal: authOptions.signal ?? options.signal });
     },
     async remove(provider, authOptions = {}) {

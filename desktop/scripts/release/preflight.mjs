@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readPreviewRun, resolveReleaseCandidate, validatePreviewManifest, validatePreviewRun } from './candidate-policy.mjs'
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const desktopRoot = path.resolve(scriptDirectory, '..', '..')
@@ -51,11 +52,23 @@ execFileSync(process.execPath, [path.join(repositoryRoot, 'scripts', 'test-legal
 const requestedVersion = arg('expected-version')
 if (requestedVersion) assert(requestedVersion === version, `Requested version ${requestedVersion} does not match package version ${version}`)
 
+const approvedSourceSha = arg('approved-source-sha', process.env.ZYRA_APPROVED_SOURCE_SHA || '')
+const previewManifestFile = arg('preview-manifest')
+const previewManifestJson = process.env.ZYRA_APPROVED_PREVIEW_MANIFEST || ''
+assert(!(previewManifestFile && previewManifestJson), 'Provide preview-manifest or ZYRA_APPROVED_PREVIEW_MANIFEST, not both')
+const hasPreviewEvidence = Boolean(previewManifestFile || previewManifestJson)
+assert(Boolean(approvedSourceSha) === hasPreviewEvidence, 'Approved source SHA and reviewed preview manifest must be supplied together')
+assert(mode !== 'contract' || !approvedSourceSha, 'Candidate approval requires tag or rehearsal mode, not contract-only validation')
+
 let head = null
+let previewRunUrl = ''
 if (mode !== 'contract') {
     head = git(['rev-parse', 'HEAD'])
     const master = git(['rev-parse', 'refs/remotes/origin/master'])
-    assert(head === master, `Release HEAD ${head} must exactly match origin/master ${master}`)
+    const candidate = resolveReleaseCandidate({
+        mode, version, head, master, approvedSourceSha,
+        onMaster: Boolean(approvedSourceSha) && git(['merge-base', head, master]) === head
+    })
 
     if (mode === 'tag') {
         const requestedTag = arg('tag', process.env.GITHUB_REF_NAME || '')
@@ -65,6 +78,20 @@ if (mode !== 'contract') {
     } else {
         const refName = arg('ref-name', process.env.GITHUB_REF_NAME || 'master')
         assert(refName === 'master', `Workflow rehearsal must run from master, not ${refName}`)
+    }
+
+    if (candidate.approved) {
+        const manifest = JSON.parse(previewManifestFile
+            ? await readFile(path.resolve(previewManifestFile), 'utf8')
+            : previewManifestJson)
+        const sourceRepository = arg('source-repository', process.env.GITHUB_REPOSITORY || '')
+        const identity = validatePreviewManifest({
+            manifest, candidateSha: head, version, sourceRepository,
+            buildRepository: arg('preview-build-repository', process.env.ZYRA_PREVIEW_BUILD_REPOSITORY || sourceRepository)
+        })
+        previewRunUrl = validatePreviewRun(identity, await readPreviewRun(identity, {
+            token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+        }))
     }
 }
 
@@ -95,9 +122,12 @@ if (output) {
         `version=${version}`,
         `tag=${tag}`,
         `head=${head || ''}`,
+        `approved_source_sha=${approvedSourceSha}`,
+        `preview_run_url=${previewRunUrl}`,
         `publish=${mode === 'tag' ? 'true' : 'false'}`,
         `require_signing=${taggedPublication ? 'true' : 'false'}`
     ].join('\n') + '\n')
 }
 
 console.log(`Zyra Desktop release preflight: ${mode} ${tag}${head ? ` @ ${head}` : ''}`)
+if (previewRunUrl) console.log(`Approved source preview evidence: ${previewRunUrl}`)

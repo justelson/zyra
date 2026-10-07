@@ -61,16 +61,20 @@ export function collapseAssistantDeltaEvents(events: AssistantDomainEvent[]): As
             }
             const previousIndex = key ? messageIndexByKey.get(key) : undefined
             let combinedDelta = readDelta(event)
+            let phase = event.payload['phase']
             if (previousIndex !== undefined) {
                 const previous = collapsed[previousIndex]
-                if (previous) combinedDelta = `${readDelta(previous)}${combinedDelta}`
+                if (previous) {
+                    combinedDelta = `${readDelta(previous)}${combinedDelta}`
+                    phase ??= previous.payload['phase']
+                }
                 collapsed[previousIndex] = null
             }
-            const combinedEvent = combinedDelta === readDelta(event)
+            const combinedEvent = combinedDelta === readDelta(event) && phase === event.payload['phase']
                 ? event
                 : {
                     ...event,
-                    payload: { ...event.payload, delta: combinedDelta }
+                    payload: { ...event.payload, delta: combinedDelta, ...(phase ? { phase } : {}) }
                 }
             if (key) messageIndexByKey.set(key, collapsed.length)
             collapsed.push(combinedEvent)

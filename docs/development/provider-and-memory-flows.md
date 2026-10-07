@@ -2,6 +2,8 @@
 
 ## Provider connections
 
+First Send resolves the explicit prompt model, then the retained chat model, then the saved new-chat preference before runtime attachment and dispatch. Cold drafts therefore use the saved preference even when preparation has not finished. Canonical drafts named New chat remain eligible for title generation from the first prompt; title utility work starts independently of connection and uses its own configured model.
+
 Desktop setup recommends ChatGPT. Other providers are available from the sign-in page and Settings > Account: OpenCode Zen with an API key, Claude through the Anthropic API, and custom Chat Completions, Responses or Anthropic Messages endpoints.
 
 An API-key connection verifies model access with a small synthetic request before saving it. Credentials are stored in Zyra's `<state-root>/credentials/auth.json`; legacy Pi credentials are imported only with explicit confirmation. ChatGPT subscription sign-in uses Zyra's own browser or device-code OAuth flow and credential refresh, with no Codex installation, Codex credential import, or Zyra-specific OAuth client ID setting. The browser callback uses OpenAI's registered local port 1455; device-code sign-in is available when that port cannot be used. Endpoint and model metadata live in `<data-root>/.zyra/providers.json`; they contain no API keys. The data root follows `ZYRA_DATA_ROOT`, otherwise the user home directory, matching the agent server. Normal runtime startup loads saved metadata without contacting providers. Runtime model refresh and model changes pick up saved connections.

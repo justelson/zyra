@@ -14,6 +14,8 @@ import {
     type SerializedAssistantAttachment
 } from '../../shared/assistant/message-attachments'
 import { deriveSessionTitleFromPrompt, isDefaultSessionTitle, nowIso } from './utils'
+import { commitAssistantSessionTitle } from './session-title-updates'
+import { findSessionTitleThread } from './session-title-target'
 
 const SESSION_TITLE_MAX_LENGTH = 60
 const TITLE_GENERATION_FALLBACK_MODEL = 'openai-codex/gpt-5.4-mini'
@@ -194,20 +196,25 @@ async function generateSessionTitleText(args: {
     cwd: string
     preferredModel?: string | null
     generateText: AssistantTitleTextGenerator
+    isCurrent: () => boolean
 }): Promise<string | null> {
     const modelCandidates = getTitleGenerationModelCandidates(args.preferredModel)
     let lastError: string | null = null
 
-    for (const model of modelCandidates) {
-        const result = await args.generateText(args.prompt, {
-            cwd: args.cwd,
-            model,
-            effort: 'low'
-        })
-        if (result.success && result.text) {
-            return result.text
+    // A utility transport failure is independent of the foreground turn. Try
+    // the fallback models and one bounded retry without delaying submission.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 500))
+        for (const model of modelCandidates) {
+            if (!args.isCurrent()) return null
+            try {
+                const result = await args.generateText(args.prompt, { cwd: args.cwd, model, effort: 'low' })
+                if (result.success && result.text?.trim()) return result.text
+                lastError = result.error || lastError
+            } catch (error) {
+                lastError = error instanceof Error ? error.message : String(error)
+            }
         }
-        lastError = result.error || lastError
     }
 
     if (lastError) {
@@ -259,6 +266,8 @@ function runSessionTitleGeneration(args: SessionTitleGenerationTask): Promise<st
 }
 
 async function generateSessionTitle(args: SessionTitleGenerationTask): Promise<string | null> {
+    const currentSession = () => args.getSnapshot().sessions.find(entry => entry.id === args.sessionId) || null
+    const isCurrent = () => shouldApplyGeneratedTitle(currentSession(), args.seedTitle)
     let settledState = false
     if (args.announceState) {
         const occurredAt = nowIso()
@@ -273,32 +282,40 @@ async function generateSessionTitle(args: SessionTitleGenerationTask): Promise<s
             prompt: args.prompt,
             cwd: args.cwd,
             preferredModel: args.preferredModel,
-            generateText: args.generateText
+            generateText: args.generateText,
+            isCurrent
         })
         if (!generatedText) return null
 
         const nextTitle = sanitizeGeneratedSessionTitle(generatedText, args.seedTitle)
         if (!nextTitle || nextTitle === args.seedTitle.trim()) return null
 
-        const session = args.getSnapshot().sessions.find((entry) => entry.id === args.sessionId) || null
-        if (!shouldApplyGeneratedTitle(session, args.seedTitle)) return null
-
-        const occurredAt = nowIso()
-        args.appendEvent('session.updated', occurredAt, {
-            sessionId: args.sessionId,
-            patch: {
-                title: nextTitle,
-                titleGenerating: false,
-                updatedAt: occurredAt
+        return await commitAssistantSessionTitle(args.sessionId, async () => {
+            if (!isCurrent()) return null
+            // Canonical history must agree with the title we display. An exhausted
+            // save leaves the seed eligible for recovery after reconnect/restart.
+            if (args.onApplied) {
+                for (let attempt = 0; attempt < 3; attempt += 1) {
+                    if (!isCurrent()) return null
+                    try {
+                        await args.onApplied(nextTitle)
+                        break
+                    } catch (error) {
+                        log.warn('[Assistant] Canonical title update failed; retrying:', error)
+                        if (attempt === 2) return null
+                        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)))
+                    }
+                }
+                if (!isCurrent()) return null
             }
-        }, args.sessionId, args.threadId)
-        settledState = true
-        try {
-            await args.onApplied?.(nextTitle)
-        } catch (error) {
-            log.warn('[Assistant] Generated title applied locally but canonical metadata update failed:', error)
-        }
-        return nextTitle
+            const occurredAt = nowIso()
+            args.appendEvent('session.updated', occurredAt, {
+                sessionId: args.sessionId,
+                patch: { title: nextTitle, titleGenerating: false, updatedAt: occurredAt }
+            }, args.sessionId, args.threadId)
+            settledState = true
+            return nextTitle
+        })
     } finally {
         if (args.announceState && !settledState) {
             const occurredAt = nowIso()
@@ -369,4 +386,29 @@ export function regenerateSessionTitle(args: {
         prompt: buildSessionRetitlePrompt(args.turns, args.seedTitle),
         announceState: true
     })
+}
+
+/** Recover a seed title after reconnect or a completed turn, irrespective of
+ * the periodic retitle preference. Callers supply persisted history because
+ * sidebar shells deliberately do not load every conversation's messages. */
+export async function recoverSessionTitleFromHistory(args: {
+    sessionId: string
+    firstUserMessage: string | null
+    turns?: AssistantReviewTurnIndexEntry[]
+    cwd: string
+    preferredModel?: string | null
+    generateText: AssistantTitleTextGenerator
+    getSnapshot: () => { sessions: AssistantSession[] }
+    appendEvent: AppendEvent
+    onApplied?: (title: string) => void | Promise<void>
+}): Promise<string | null> {
+    const session = args.getSnapshot().sessions.find(entry => entry.id === args.sessionId)
+    if (!session || !args.firstUserMessage || !shouldGenerateSessionTitleForPrompt(session, args.firstUserMessage)) return null
+    const thread = findSessionTitleThread(session)
+    if (!thread) return null
+    const task = { ...args, threadId: thread.id, seedTitle: session.title }
+    if (args.turns?.some(turn => turn.state === 'completed' && turn.prompt?.text.trim() && turn.response?.text.trim())) {
+        return regenerateSessionTitle({ ...task, turns: args.turns })
+    }
+    return regenerateSessionTitleFromPrompt({ ...task, messageText: args.firstUserMessage })
 }

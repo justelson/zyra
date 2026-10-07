@@ -13,7 +13,6 @@ import type { GitLineMarker } from './gitDiff'
 import HtmlRenderedPreview from './HtmlRenderedPreview'
 import PdfPreviewContent from './PdfPreviewContent'
 import OfficePreviewContent from './OfficePreviewContent'
-import { PreviewContentSkeleton } from './PreviewLoadingSkeleton'
 
 interface PreviewBodyProps {
     file: PreviewFile
@@ -98,9 +97,10 @@ export default function PreviewBody({
     const isTextLike = isTextLikeFileType(file.type)
     const useFullBleed = isExpanded || fullBleed
 
-    if (loading || loadingEditableContent) {
-        return <PreviewContentSkeleton />
-    }
+    if (file.readError) return <div role="alert" className="p-4 text-sm text-red-400">{file.readError}</div>
+    // Keep the current content visible while an editable full-file read finishes.
+    // An unread document never mounts an empty editable buffer.
+    if (loading && !content) return null
 
     if (file.type === 'directory') {
         return (
@@ -118,7 +118,7 @@ export default function PreviewBody({
         )
     }
 
-    if (mode === 'edit') {
+    if (mode === 'edit' && !loadingEditableContent) {
         if (!isEditable) {
             return (
                 <div className="w-full max-w-4xl rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">

@@ -26,16 +26,6 @@ console.log('Desktop link policy: cancellation, validation, replacement, persist
 
 const storageFailure = createDesktopLinkDispatcher({ preference: () => 'ask', remember: () => { throw Error('storage') }, choose: () => {}, open: async () => ({ success: true }) })
 const unavailableStorage = storageFailure.request('https://example.com'); await storageFailure.select('system', true); assert.match((await unavailableStorage).error || '', /could not be saved/)
-const { suspendLinkOriginOverlays } = await import('../src/renderer/src/lib/desktop-link-overlays')
-function root(display: string, priority = '', inert = false) {
-    const values = { display, priority }
-    return { inert, values, style: { getPropertyValue: () => values.display, getPropertyPriority: () => values.priority, setProperty: (_key: string, value: string, flag = '') => { values.display = value; values.priority = flag }, removeProperty: () => { values.display = ''; values.priority = '' } } }
-}
-const overlay = root('contents'), alreadyHidden = root('none', 'important', true)
-const document = { querySelectorAll: () => [overlay, alreadyHidden] } as unknown as Document
-const restore = suspendLinkOriginOverlays([document, document]); assert.equal(overlay.values.display, 'none'); assert.equal(overlay.inert, true)
-restore(); restore(); assert.equal(overlay.values.display, 'contents'); assert.equal(overlay.values.priority, ''); assert.equal(overlay.inert, false); assert.equal(alreadyHidden.inert, true)
-console.log('Preference storage failures and exact overlay restoration passed')
 
 // Exercise presentation ownership independently of Electron: old modal leases hide,
 // new chooser leases remain visible, and released origins are never restored.

@@ -101,7 +101,6 @@ try {
     const agentInboxSource = await readFile(new URL('../src/renderer/src/pages/assistant/AssistantAgentInboxSidebar.tsx', import.meta.url), 'utf8')
     const conversationHeaderSource = await readFile(new URL('../src/renderer/src/pages/assistant/AssistantConversationHeader.tsx', import.meta.url), 'utf8')
     const projectChipSource = await readFile(new URL('../src/renderer/src/pages/assistant/AssistantNewChatProjectChip.tsx', import.meta.url), 'utf8')
-    const legacyRowsSource = await readFile(new URL('../src/renderer/src/pages/assistant/AssistantSessionsRailRows.tsx', import.meta.url), 'utf8')
     assert.match(sharedProjectIconSource, /hydrateProjectMetadataForPaths\(\[normalizedPath\]\)/, 'mounted project marks should hydrate manifest and framework metadata on demand')
     assert.match(sharedProjectIconSource, /resolvedIconPath[\s\S]{0,180}resolvedFramework[\s\S]{0,180}meaningfulProjectType/, 'project marks should prefer discovered icons before branded and folder fallbacks')
     assert.match(railUtilsSource, /isGenericUserFolderPath/, 'assistant project presentation should preserve ordinary home and shell folders as folders')
@@ -109,7 +108,6 @@ try {
     assert.match(agentInboxSource, /<AssistantProjectIcon[\s\S]{0,220}projectIconPath=\{group\.projectIconPath\}/, 'Agent Inbox should render the same project identity')
     assert.match(conversationHeaderSource, /<AssistantProjectIcon projectPath=\{selectedProjectPath\} size=\{12\}/, 'the chat header should render the active project identity')
     assert.match(projectChipSource, /<AssistantProjectIcon projectPath=\{project\.iconSourcePath\} size=\{13\}/, 'the new-chat project picker should render project identity per choice')
-    assert.match(legacyRowsSource, /<AssistantProjectIcon[\s\S]{0,220}projectIconPath=\{group\.projectIconPath\}/, 'the legacy rail should share the same project mark')
 
     console.log('Project icon resolver: ok')
 } finally {

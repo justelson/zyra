@@ -2,6 +2,7 @@ import { Copy, Minus, Square, X } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useWindowChrome } from '@/lib/useWindowChrome'
 import { cn } from '@/lib/utils'
+import { DevChannelLabel } from '@/components/layout/DevChannelLabel'
 
 export function OnboardingChrome({ reviewActive = false, onExitReview }: {
     reviewActive?: boolean
@@ -17,6 +18,7 @@ export function OnboardingChrome({ reviewActive = false, onExitReview }: {
             )}
             style={{ WebkitAppRegion: draggable ? 'drag' : undefined } as CSSProperties}
         >
+            <DevChannelLabel />
             <div className="flex-1" />
             {reviewActive && onExitReview ? (
                 <button

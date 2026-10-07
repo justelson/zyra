@@ -3,7 +3,7 @@ import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener } from '@/components/ui/native-overlay-portal'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { Check, CheckCircle2, ChevronDown, CircleDashed, Folder, FolderPlus, MessageSquare, MoreHorizontal, Pin, Search, Undo2, X } from 'lucide-react'
-import type { AssistantSession, AssistantThread } from '@shared/assistant/contracts'
+import type { AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import { cn } from '@/lib/utils'
 import { isAssistantUserFacingSession } from '@/lib/assistant/selectors'
@@ -26,7 +26,6 @@ import {
     groupSessionsByProject,
     isAssistantDraftSession,
     resolveAssistantThreadStatusPill,
-    resolveSessionProjectPath,
     type SessionProjectGroup
 } from './assistant-sessions-rail-utils'
 
@@ -52,6 +51,7 @@ type SidebarItem = {
 
 type Props = {
     sessions: AssistantSession[]
+    projects?: readonly AssistantProject[]
     pinnedSessionIds?: ReadonlySet<string>
     activeSessionId: string | null
     activeThreadId: string | null
@@ -246,7 +246,7 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
                 <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
                     <div className="flex h-5 min-w-0 items-center gap-1.5">
                         <ProjectMark group={item.project} />
-                        <span className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{item.project.label}</span>
+                        <span className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{item.project.path ? item.project.label : 'Chat'}</span>
                         <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 text-xs">
                             <span className="shrink-0">
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
@@ -328,12 +328,13 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             return next
         })
     }, [visibleSessions])
-    const projectGroups = useMemo(() => groupSessionsByProject(visibleSessions, props.projectIconOverrides), [props.projectIconOverrides, visibleSessions])
+    const projectGroups = useMemo(() => groupSessionsByProject(visibleSessions, props.projectIconOverrides, props.projects), [props.projectIconOverrides, props.projects, visibleSessions])
     const projectQuery = projectSearch.trim().toLocaleLowerCase()
     const filteredProjectGroups = projectGroups.filter((group) => !projectQuery || [group.label, group.path].join(' ')
         .toLocaleLowerCase().includes(projectQuery))
-    const projectByPath = useMemo(() => new Map(projectGroups.map((group) => [group.path, group])), [projectGroups])
-    useEffect(() => { if (scope !== ALL_PROJECTS && !projectByPath.has(scope)) setScope(ALL_PROJECTS) }, [projectByPath, scope])
+    const projectByKey = useMemo(() => new Map(projectGroups.map((group) => [group.key, group])), [projectGroups])
+    const projectBySession = useMemo(() => new Map(projectGroups.flatMap(group => group.sessions.map(session => [session.id, group] as const))), [projectGroups])
+    useEffect(() => { if (scope !== ALL_PROJECTS && !projectByKey.has(scope)) setScope(ALL_PROJECTS) }, [projectByKey, scope])
     useEffect(() => setSettledAdditionalCount(0), [scope])
     useEffect(() => {
         if (!projectMenuOpen) {
@@ -353,7 +354,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     }, [projectMenuOpen])
 
     const items = useMemo(() => visibleSessions
-        .filter((session) => scope === ALL_PROJECTS || resolveSessionProjectPath(session) === scope)
+        .filter((session) => scope === ALL_PROJECTS || projectBySession.get(session.id)?.key === scope)
         .map((session): SidebarItem => {
             const thread = getStatusThread(session)
             const active = session.id === props.activeSessionId
@@ -366,15 +367,15 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 activityAt,
                 tuiOpen: isAssistantSessionOpenInTui(session),
                 mobileDevices: assistantSessionMobileDevices(session),
-                projectPath: resolveSessionProjectPath(session),
-                project: projectByPath.get(resolveSessionProjectPath(session))!
+                projectPath: projectBySession.get(session.id)!.path,
+                project: projectBySession.get(session.id)!
             }
             const status = session.threads.some((entry) => props.pendingControlThreadIds.has(entry.id))
                 ? 'approval'
                 : resolveRowStatus(thread, active && thread?.id === props.activeThreadId)
             const unsettled = { ...base, status }
             return { ...unsettled, settled: isEffectivelySettled(unsettled, settlementOverrides) }
-        }), [props.activeSessionId, props.activeThreadId, props.pendingControlThreadIds, props.pinnedSessionIds, projectByPath, scope, settlementOverrides, visibleSessions])
+        }), [props.activeSessionId, props.activeThreadId, props.pendingControlThreadIds, props.pinnedSessionIds, projectBySession, scope, settlementOverrides, visibleSessions])
 
     const desiredPriority = useMemo(() => items
         .filter((item) => !item.settled && isPriorityItem(item))
@@ -391,7 +392,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     // An explicit pin/unpin must move immediately, even while hover holds status-driven moves.
     useLayoutEffect(() => stableLayout.release(), [props.pinnedSessionIds, stableLayout.release])
     const hiddenSettledCount = settledItems.length - visibleSettled.length
-    const scopedProject = scope === ALL_PROJECTS ? null : projectByPath.get(scope) || null
+    const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
     const layoutKey = [
         priorityItems.map((item) => `${item.session.id}:card:${item.status}`).join(','),
         recentItems.map((item) => `${item.session.id}:recent`).join(','),
@@ -542,7 +543,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                             </div>
                             <div className="assistant-chat-scrollbar min-h-0 overflow-y-auto">
                                 <button type="button" onClick={() => { setScope(ALL_PROJECTS); setProjectMenuOpen(false) }} className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-sparkle-text-secondary hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><Folder size={16} /><span className="min-w-0 flex-1 truncate">All projects</span>{scope === ALL_PROJECTS ? <Check size={13} /> : null}</button>
-                                {filteredProjectGroups.map((group) => <button key={group.key} type="button" onClick={() => { setScope(group.path); setProjectMenuOpen(false) }} className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-sparkle-text-secondary hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><ProjectMark group={group} /><span className="min-w-0 flex-1 truncate">{group.label}</span>{scope === group.path ? <Check size={13} /> : null}</button>)}
+                                {filteredProjectGroups.map((group) => <button key={group.key} type="button" onClick={() => { setScope(group.key); setProjectMenuOpen(false) }} className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-sparkle-text-secondary hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><ProjectMark group={group} /><span className="min-w-0 flex-1 truncate">{group.label}</span>{scope === group.key ? <Check size={13} /> : null}</button>)}
                                 {filteredProjectGroups.length === 0 ? <p role="status" className="px-2 py-3 text-center text-xs text-sparkle-text-muted/70">No projects found</p> : null}
                             </div>
                         </div></AnchoredNativeOverlay>

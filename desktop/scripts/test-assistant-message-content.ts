@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import {
     emptyAssistantContentParts,
-    extractAssistantEventContentParts
+    extractAssistantEventContentParts,
+    extractAssistantEventMessagePhase
 } from '../src/main/assistant/assistant-message-content'
+
+const signedPhase = (phase: string) => ({ type: 'text', text: '', textSignature: JSON.stringify({ v: 1, id: 'provider-output', phase }) })
+assert.equal(extractAssistantEventMessagePhase({ message: { role: 'assistant', content: [signedPhase('final_answer')] } }), 'final_answer')
+assert.equal(extractAssistantEventMessagePhase({ message: { phase: 'commentary' }, assistantMessageEvent: { partial: { content: [signedPhase('commentary'), signedPhase('final_answer')] } } }), 'final_answer', 'the newest partial slot is authoritative at text_start')
+assert.equal(extractAssistantEventMessagePhase({ message: { content: [{ type: 'text', text: '<final_answer>hello</final_answer>' }] } }), undefined, 'visible text cannot spoof metadata')
+assert.equal(extractAssistantEventMessagePhase({ message: { content: [{ type: 'text', textSignature: '{broken' }] } }), undefined)
+assert.equal(extractAssistantEventMessagePhase({ message: { content: [signedPhase('unknown')] } }), undefined)
 
 const canonicalPrefix = 'Browser requests are bounded by a single'
 const canonicalMidstreamText = `${canonicalPrefix} 12-second timer`

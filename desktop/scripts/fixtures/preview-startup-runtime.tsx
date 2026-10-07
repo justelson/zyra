@@ -20,6 +20,7 @@ async function openCode(label: string) {
     const started = performance.now()
     flushSync(() => root.render(<SyntaxPreview content={code} language="python" filePath={`C:/fixture/${label}.py`} readOnly={false} onEditorMount={value => { instance = value }} />))
     const placeholderOnCommit = Boolean(document.querySelector('[aria-label="Preparing code editor"]'))
+    const readableOnCommit = Boolean(document.getElementById('root')?.textContent?.includes('def greeting(name)'))
     await waitFor(() => instance?.getValue() === code, `${label}: code editor did not mount`)
     const interactiveMs = performance.now() - started
     await waitFor(() => Boolean(document.querySelector('.view-lines [class*="mtk"]:not(.mtk1)')), `${label}: Python syntax colors did not load`)
@@ -27,7 +28,7 @@ async function openCode(label: string) {
     instance!.setPosition({ lineNumber: 1, column: 1 })
     instance!.executeEdits('fixture-input', [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: '# inserted\n' }])
     if (!instance!.getValue().startsWith('# inserted\n')) throw Error('The ready editor is not editable')
-    return { label, interactiveMs, syntaxMs, placeholderOnCommit }
+    return { label, interactiveMs, syntaxMs, placeholderOnCommit, readableOnCommit }
 }
 async function openMarkdown(label: string) {
     flushSync(() => root.render(null))

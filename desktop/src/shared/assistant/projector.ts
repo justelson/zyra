@@ -9,6 +9,7 @@ import type {
     AssistantThread
 } from './contracts'
 import { reconcileAssistantMessageReplays } from './message-reconciliation'
+import { preserveAssistantMessagePhases } from './message-phase'
 import { upsertAssistantRequest } from './request-identity'
 
 // A tool-start notification can precede its permission decision. Keep that
@@ -199,6 +200,7 @@ function areMessagesEquivalent(left: AssistantMessage, right: AssistantMessage):
         && left.text === right.text
         && left.turnId === right.turnId
         && left.streaming === right.streaming
+        && left.phase === right.phase
         && left.timelineSequence === right.timelineSequence
         && left.createdAt === right.createdAt
         && left.updatedAt === right.updatedAt
@@ -345,7 +347,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
             Object.assign(writable.thread, patch)
             if (messages || Array.isArray(event.payload['removedMessageIds'])) {
                 writable.thread.messages = reconcileAssistantMessageReplays(
-                    mergeThreadRecordsById(writable.thread.messages, messages || [], event.payload['removedMessageIds'])
+                    mergeThreadRecordsById(writable.thread.messages, preserveAssistantMessagePhases(writable.thread.messages, messages || []), event.payload['removedMessageIds'])
                 )
             }
             if (activities || Array.isArray(event.payload['removedActivityIds'])) writable.thread.activities = mergeThreadRecordsById(writable.thread.activities, activities || [], event.payload['removedActivityIds'])
@@ -395,6 +397,8 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
                         createdAt: event.occurredAt,
                         updatedAt: event.occurredAt
                     }
+                const phase = event.payload['phase']
+                if (phase === 'commentary' || phase === 'final_answer') nextMessage.phase = phase
                 writable.thread.messages = upsertMessage(writable.thread.messages, nextMessage)
             } else if (event.type === 'thread.message.assistant.completed') {
                 const messageId = String(event.payload['messageId'] || '')

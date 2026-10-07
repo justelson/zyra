@@ -1,4 +1,4 @@
-import { safeStorage, shell } from 'electron'
+import { app, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 import { DevicePreferencesService } from './device-preferences-service'
 import { DeviceSecretsService } from './device-secrets-service'
@@ -18,7 +18,9 @@ export type DesktopSetupServices = {
 
 export function createDesktopSetupServices(userDataPath: string): DesktopSetupServices {
     const setupDirectory = join(userDataPath, 'setup')
-    const preferences = new DevicePreferencesService(join(setupDirectory, 'device-preferences.json'))
+    const preferences = new DevicePreferencesService(
+        join(setupDirectory, 'device-preferences.json'), undefined, join(app.getPath('documents'), 'Zyra')
+    )
     const secrets = new DeviceSecretsService(join(setupDirectory, 'device-secrets.bin'), {
         isAvailable: () => safeStorage.isEncryptionAvailable(),
         encrypt: (value) => safeStorage.encryptString(value),

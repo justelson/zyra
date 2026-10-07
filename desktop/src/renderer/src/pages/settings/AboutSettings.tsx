@@ -75,7 +75,7 @@ export default function AboutSettings() {
                 <h1 className="sr-only">About Zyra</h1>
                 <pre role="img" aria-label="Zyra" className="select-none text-left font-mono text-[12px] leading-[1.15] text-[var(--accent-primary)]">{ZYRA_ASCII_LOGO.join('\n')}</pre>
                 <div className="mt-3 flex items-baseline justify-center gap-2">
-                    <span className="text-[18px] font-medium text-[var(--settings-text)]">{isPreviewDistribution() ? 'Zyra Preview' : 'Zyra'}</span>
+                    <span className="text-[18px] font-medium text-[var(--settings-text)]">{isPreviewDistribution() ? 'Zyra Dev' : 'Zyra'}</span>
                     <span aria-label="App version" className="font-mono text-[11px] text-[var(--settings-text-muted)]">{displayVersion}</span>
                 </div>
                 <p className="mt-2 max-w-[34rem] text-[12px] leading-5 text-[var(--settings-text-secondary)]">Zyra brings your AI providers, projects and tools together for desktop and terminal work.</p>
@@ -116,7 +116,7 @@ export default function AboutSettings() {
                 <SettingsDetails label="Build details">
                     <SettingsKeyValueList label="Build details" items={[
                         { id: 'package', label: 'Package version', value: packageVersion, searchTargetId: createSettingsRowTargetId('About Zyra', 'Package version') },
-                        { id: 'distribution', label: 'Distribution', value: buildMetadata.distribution, searchTargetId: createSettingsRowTargetId('About Zyra', 'Distribution') },
+                        { id: 'distribution', label: 'Channel', value: isPreviewDistribution() || import.meta.env.DEV ? 'Dev' : 'Stable', searchTargetId: createSettingsRowTargetId('About Zyra', 'Distribution') },
                         ...(buildMetadata.sourceSha ? [{ id: 'source', label: 'Source commit', value: <span className="break-all font-mono">{buildMetadata.sourceSha}</span>, searchTargetId: createSettingsRowTargetId('About Zyra', 'Source commit') }] : []),
                         { id: 'channel', label: 'Release channel', value: releaseChannel, searchTargetId: createSettingsRowTargetId('About Zyra', 'Release channel') },
                         { id: 'platform', label: 'Platform', value: platformLabel, searchTargetId: createSettingsRowTargetId('About Zyra', 'Platform') },

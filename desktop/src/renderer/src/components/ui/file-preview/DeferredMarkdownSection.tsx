@@ -4,10 +4,10 @@ import MarkdownRenderer from '../MarkdownRenderer'
 import { markdownPreviewSectionRenderContent, type MarkdownPreviewSection } from './markdownPreviewVirtualModel'
 import { enqueueMarkdownSectionRender } from './markdownPreviewRenderQueue'
 import {
-    readCachedMarkdownPreviewSection,
     requestMarkdownPreviewSection,
     type MarkdownPreviewParseRequest
 } from './markdownPreviewWorkerClient'
+import { prepareImmediateMarkdownSection } from './markdownPreviewImmediateSection'
 
 type PreparedSection = {
     content: string
@@ -48,8 +48,8 @@ export const DeferredMarkdownSection = memo(function DeferredMarkdownSection({
         [documentContent, section]
     )
     const cachedTree = useMemo(
-        () => readCachedMarkdownPreviewSection(renderContent, section.headingIds),
-        [renderContent, section.headingIds]
+        () => prepareImmediateMarkdownSection(renderContent, section.headingIds, urgent),
+        [renderContent, section.headingIds, urgent]
     )
     const [prepared, setPrepared] = useState<PreparedSection | null>(() => (
         cachedTree ? { content: renderContent, tree: cachedTree } : null

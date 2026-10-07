@@ -12,6 +12,29 @@ function asString(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null
 }
 
+/** Read provider metadata, never a tag embedded in visible assistant text. */
+export function extractAssistantEventMessagePhase(event: Record<string, unknown>): 'commentary' | 'final_answer' | undefined {
+    const update = asRecord(event['assistantMessageEvent'])
+    for (const message of [asRecord(update?.['partial']), asRecord(event['message'])]) {
+        const phase = message?.['phase']
+        if (phase === 'commentary' || phase === 'final_answer') return phase
+        const content = message?.['content']
+        if (!Array.isArray(content)) continue
+        // Responses may contain several text slots; the newest text slot owns
+        // the live phase. A finished commentary slot cannot override the final.
+        for (let index = content.length - 1; index >= 0; index -= 1) {
+            const block = asRecord(content[index])
+            if (block?.['type'] !== 'text') continue
+            try {
+                const signature = JSON.parse(String(block['textSignature'] || ''))
+                if (signature?.v === 1 && typeof signature.id === 'string'
+                    && (signature.phase === 'commentary' || signature.phase === 'final_answer')) return signature.phase
+            } catch { /* Providers without signed phase metadata keep the existing behavior. */ }
+        }
+    }
+    return undefined
+}
+
 export function emptyAssistantContentParts(): AssistantContentParts {
     return { thinking: '', text: '', hasThinkingBlock: false }
 }

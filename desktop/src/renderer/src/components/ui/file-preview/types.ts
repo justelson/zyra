@@ -16,6 +16,7 @@ export interface PreviewFile {
     openNavigator?: boolean
     navigatorRevealRequestId?: string | null
     htmlLocation?: PreviewHtmlLocation
+    readError?: string
 }
 
 export interface PreviewTab {

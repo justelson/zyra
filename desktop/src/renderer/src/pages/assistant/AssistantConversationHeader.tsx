@@ -164,8 +164,8 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                         <AssistantProjectIcon projectPath={selectedProjectPath} size={12} />
                         <span className="truncate">{latestProjectLabel}</span>
                     </button>
-                ) : null}
-                {selectedProjectPath ? <span className="shrink-0 px-0.5 text-[12px] text-sparkle-text-muted/35" aria-hidden="true">/</span> : null}
+                ) : <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium leading-none text-sparkle-text-muted/65" aria-label="Project context: No project"><Folder size={12} /><span>No project</span></span>}
+                <span className="shrink-0 px-0.5 text-[12px] text-sparkle-text-muted/35" aria-hidden="true">/</span>
                 <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
                     <h2 className={cn('min-w-0 max-w-[min(360px,35vw)] text-[12px] leading-none text-sparkle-text/90', minimal ? 'font-medium' : 'font-semibold')}>
                         <AssistantSessionTitleText title={selectedSessionTitle} generating={titleGenerating} reveal={false} />

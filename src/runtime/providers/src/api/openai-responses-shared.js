@@ -319,7 +319,9 @@ async function processResponsesStream(openaiStream, output, stream, model, optio
     }
     if (item.type === "message") {
       applyMessagePhaseStopReason(item);
-      const block = { type: "text", text: "" };
+      const block = {
+        type: "text", text: "", textSignature: encodeTextSignatureV1(item.id, item.phase ?? void 0)
+      };
       output.content.push(block);
       const slot = { type: "text", block, contentIndex: output.content.length - 1 };
       outputSlots.set(outputIndex, slot);

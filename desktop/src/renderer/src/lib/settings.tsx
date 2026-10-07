@@ -346,7 +346,7 @@ const DEFAULT_SETTINGS: Settings = {
     compactMode: false,
     sidebarCollapsed: false,
     sidebarHoverPreviewEnabled: true,
-    assistantAgentInboxSidebarEnabled: false,
+    assistantAgentInboxSidebarEnabled: true,
     explorerTabEnabled: false,
     explorerHomePath: '',
     defaultShell: 'powershell',
@@ -696,7 +696,8 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 compactMode: candidate.compactMode === true,
                 sidebarCollapsed: candidate.sidebarCollapsed === true,
                 sidebarHoverPreviewEnabled: candidate.sidebarHoverPreviewEnabled !== false,
-                assistantAgentInboxSidebarEnabled: candidate.assistantAgentInboxSidebarEnabled === true,
+                assistantAgentInboxSidebarEnabled: typeof candidate.assistantAgentInboxSidebarEnabled === 'boolean'
+                    ? candidate.assistantAgentInboxSidebarEnabled : DEFAULT_SETTINGS.assistantAgentInboxSidebarEnabled,
                 explorerTabEnabled: candidate.explorerTabEnabled === true,
                 explorerHomePath: sanitizeString(candidate.explorerHomePath, 2_048),
                 defaultShell: candidate.defaultShell === 'cmd' ? 'cmd' : 'powershell',

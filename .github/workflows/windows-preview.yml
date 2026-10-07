@@ -1,5 +1,5 @@
 name: Windows preview
-run-name: Preview ${{ inputs.source_sha }}
+run-name: Preview ${{ inputs.source_sha }}${{ inputs.request_id && format(' request:{0}', inputs.request_id) || '' }}
 
 # Installer work is explicit. Pushes, PR updates and comments never start it.
 on:
@@ -14,13 +14,29 @@ on:
         description: Full 40-character source commit to install and test
         required: true
         type: string
+      source_pr:
+        description: Source PR number (optional; scopes cancellation to this PR)
+        required: false
+        type: string
+      request_id:
+        description: Explicit relay request identity (optional; retained in provenance)
+        required: false
+        type: string
+      target:
+        description: Explicit installer target
+        required: true
+        default: windows-x64
+        type: choice
+        options:
+          - windows-x64
 
 permissions:
   contents: read
 
-# A new explicit request supersedes an older preview. There are no auto-retries.
+# Supersede only this PR/target. Direct requests use their exact SHA as scope.
+# An unrelated contributor's request must not cancel an in-flight installer.
 concurrency:
-  group: windows-preview
+  group: windows-preview-${{ inputs.source_repository }}-${{ inputs.source_pr && format('pr-{0}', inputs.source_pr) || format('sha-{0}', inputs.source_sha) }}-${{ inputs.target || 'windows-x64' }}
   cancel-in-progress: true
 
 jobs:
@@ -32,8 +48,12 @@ jobs:
       ZYRA_BUILD_DISTRIBUTION: preview
       ZYRA_BUILD_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
       ZYRA_BUILD_SOURCE_SHA: ${{ inputs.source_sha }}
+      ZYRA_BUILD_SOURCE_PR: ${{ inputs.source_pr }}
+      ZYRA_BUILD_REQUEST_ID: ${{ inputs.request_id }}
+      ZYRA_BUILD_TARGET: ${{ inputs.target || 'windows-x64' }}
       ZYRA_EXPECT_SIGNED: '0'
       NODE_OPTIONS: --max-old-space-size=4096
+      ZYRA_TEST_SOFTWARE_RENDERING: '1'
     defaults:
       run:
         working-directory: source
@@ -47,6 +67,9 @@ jobs:
           if ($env:ZYRA_BUILD_SOURCE_REPOSITORY -ne $env:ALLOWED_SOURCE) { throw 'Source repository is not allowlisted.' }
           if ($env:GITHUB_REPOSITORY -eq $env:ALLOWED_SOURCE) { throw 'Preview builds run in the helper repository, not the source account.' }
           if ($env:ZYRA_BUILD_SOURCE_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'An exact source commit is required.' }
+          if ($env:ZYRA_BUILD_SOURCE_PR -and $env:ZYRA_BUILD_SOURCE_PR -cnotmatch '^[1-9][0-9]*$') { throw 'Source PR must be a positive number.' }
+          if ($env:ZYRA_BUILD_REQUEST_ID -and $env:ZYRA_BUILD_REQUEST_ID -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$') { throw 'Invalid explicit request identity.' }
+          if ($env:ZYRA_BUILD_TARGET -ne 'windows-x64') { throw 'Unsupported dev preview target.' }
 
       - name: Check out trusted workflow tools
         uses: actions/checkout@v4
@@ -95,6 +118,9 @@ jobs:
       - name: Check preview isolation contracts
         run: npm --prefix desktop run test:preview-infra
 
+      - name: Verify requested Dev channel behavior
+        run: npm --prefix desktop run test:dev-preview-behavior
+
       - name: Typecheck packaged Desktop contracts
         run: npm --prefix desktop run typecheck
 
@@ -105,7 +131,7 @@ jobs:
         run: npm --prefix desktop run test:native-abi
 
       - name: Prepare native icons
-        run: python -m pip install --disable-pip-version-check Pillow==11.3.0 && npm --prefix desktop run brand:release-assets
+        run: python -m pip install --disable-pip-version-check Pillow==11.3.0 && npm --prefix desktop run brand:release-assets -- --preview
 
       - name: Build and validate personal preview
         run: node ../control/desktop/scripts/release/build-preview.mjs build .
@@ -118,7 +144,7 @@ jobs:
           path: source/desktop/dist/previews/${{ github.run_id }}/upload/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          retention-days: 7
 
       - name: Upload small provenance record
         uses: actions/upload-artifact@v4
@@ -128,7 +154,7 @@ jobs:
             source/desktop/dist/previews/${{ github.run_id }}/upload/preview.json
             source/desktop/dist/previews/${{ github.run_id }}/upload/SHA256SUMS
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
       - name: Show download and source identity
         shell: pwsh
@@ -136,9 +162,15 @@ jobs:
           ARTIFACT_URL: ${{ steps.installer.outputs.artifact-url }}
         run: |
           $manifest = Get-Content "desktop/dist/previews/$env:GITHUB_RUN_ID/upload/preview.json" -Raw | ConvertFrom-Json
-          "## Personal Windows preview" >> $env:GITHUB_STEP_SUMMARY
+          "## Windows Dev channel preview" >> $env:GITHUB_STEP_SUMMARY
           "[Download installer ZIP]($env:ARTIFACT_URL)" >> $env:GITHUB_STEP_SUMMARY
           "Source: ``$env:ZYRA_BUILD_SOURCE_SHA``" >> $env:GITHUB_STEP_SUMMARY
-          "Version: ``$($manifest.version)``" >> $env:GITHUB_STEP_SUMMARY
+          "Source version: ``$($manifest.source.version)``" >> $env:GITHUB_STEP_SUMMARY
+          "Dev package version: ``$($manifest.version)``" >> $env:GITHUB_STEP_SUMMARY
+          "Channel / target: ``$($manifest.channel)`` / ``$($manifest.target)``" >> $env:GITHUB_STEP_SUMMARY
+          "Source PR: ``$($manifest.source.pr)``" >> $env:GITHUB_STEP_SUMMARY
+          "Request: ``$($manifest.build.requestId)``" >> $env:GITHUB_STEP_SUMMARY
+          "Workflow SHA: ``$($manifest.build.workflowSha)``" >> $env:GITHUB_STEP_SUMMARY
+          "Run / attempt: ``$($manifest.build.runId)`` / ``$($manifest.build.runAttempt)``" >> $env:GITHUB_STEP_SUMMARY
           "SHA-256: ``$($manifest.installer.sha256)``" >> $env:GITHUB_STEP_SUMMARY
-          "Unsigned personal test build. Install Zyra Preview beside stable. Artifact expires after one day; the installed app does not expire." >> $env:GITHUB_STEP_SUMMARY
+          "Unsigned Dev channel test build. Install Zyra Preview beside stable; existing Preview state is preserved. Artifact expires after seven days; the installed app does not expire. Updates are manual." >> $env:GITHUB_STEP_SUMMARY

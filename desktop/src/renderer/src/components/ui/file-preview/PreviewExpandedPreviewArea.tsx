@@ -8,11 +8,7 @@ type PreviewExpandedPreviewAreaProps = {
     overflowLocked: boolean
     surfaceBackgroundClass: string
     shouldStretchPreviewBody: boolean
-    hasBottomPanel: boolean
-    mode: 'preview' | 'edit'
     previewContent: ReactNode
-    bottomOverlay?: ReactNode
-    bottomOverlayPadding?: number
     scrollContainerRef?: RefObject<HTMLDivElement | null>
 }
 
@@ -23,11 +19,7 @@ export function PreviewExpandedPreviewArea({
     overflowLocked,
     surfaceBackgroundClass,
     shouldStretchPreviewBody,
-    hasBottomPanel,
-    mode,
     previewContent,
-    bottomOverlay,
-    bottomOverlayPadding = 0,
     scrollContainerRef
 }: PreviewExpandedPreviewAreaProps) {
     return (
@@ -51,14 +43,11 @@ export function PreviewExpandedPreviewArea({
             >
                 <div
                     className={cn('w-full flex flex-col', shouldStretchPreviewBody ? 'h-full min-h-0' : 'min-h-full')}
-                    style={{ paddingBottom: bottomOverlay && bottomOverlayPadding > 0 ? `${bottomOverlayPadding}px` : undefined }}
                 >
                     <div
-                        ref={hasBottomPanel && mode !== 'edit' ? scrollContainerRef : undefined}
                         className={cn(
                             shouldStretchPreviewBody && 'min-h-0',
-                            hasBottomPanel ? 'flex-1' : (shouldStretchPreviewBody ? 'h-full' : ''),
-                            hasBottomPanel && mode !== 'edit' ? 'overflow-auto custom-scrollbar' : '',
+                            shouldStretchPreviewBody ? 'h-full' : '',
                             centerHtmlRenderedPreview ? 'flex items-center justify-center' : ''
                         )}
                     >
@@ -66,13 +55,6 @@ export function PreviewExpandedPreviewArea({
                     </div>
                 </div>
             </div>
-            {bottomOverlay ? (
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 m-0 flex items-end p-0">
-                    <div className="pointer-events-auto m-0 w-full p-0">
-                        {bottomOverlay}
-                    </div>
-                </div>
-            ) : null}
         </div>
     )
 }

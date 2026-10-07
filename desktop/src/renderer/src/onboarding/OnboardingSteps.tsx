@@ -11,6 +11,7 @@ import { getThemeDefinition } from '@/lib/settings-theme-catalog'
 import { SettingsSwitch } from '@/pages/settings/settings-layout'
 import { OpenAiLogo } from '@/components/ui/OpenAiLogo'
 import { cn } from '@/lib/utils'
+import { isPreviewDistribution } from '@shared/distribution-identity'
 
 type OnboardingAnalyticsChoiceProps = {
     analyticsChoice: boolean | null
@@ -82,11 +83,13 @@ export function WelcomeStep({ saving, error, onStart }: {
     error: string | null
     onStart: () => void
 }) {
+    const devChannel = import.meta.env.DEV || isPreviewDistribution()
     return (
         <section className="mx-auto flex w-full max-w-[520px] flex-col items-center text-center" aria-labelledby="onboarding-welcome-title">
             <h1 id="onboarding-welcome-title" aria-label="Welcome to Zyra" className="text-[28px] font-medium tracking-[-0.035em] text-sparkle-text">
                 <span aria-hidden="true" className="onboarding-welcome-letters">{Array.from('Welcome to Zyra').map((letter, index) => <span key={index} style={{ '--letter-index': index } as CSSProperties}>{letter === ' ' ? '\u00a0' : letter}</span>)}</span>
             </h1>
+            {devChannel ? <p className="mt-3 max-w-[360px] text-[12px] leading-5 text-sparkle-text-secondary">You’re setting up the Dev channel. Test new changes here with separate settings and chats from stable Zyra.</p> : null}
             <button
                 type="button"
                 disabled={saving}
@@ -104,8 +107,9 @@ export { ConnectOpenAiStep } from './ConnectOpenAiStep'
 
 export { AppearanceStep } from './AppearanceStep'
 
-export function ProjectsStep({ selection, onChange }: {
+export function ProjectsStep({ selection, defaultFolder = 'Documents/Zyra', onChange }: {
     selection: OnboardingProjectsSelection
+    defaultFolder?: string
     onChange: (selection: OnboardingProjectsSelection) => void
 }) {
     const [choosing, setChoosing] = useState(false)
@@ -135,9 +139,9 @@ export function ProjectsStep({ selection, onChange }: {
             >
                 <span className="inline-flex size-6 items-center justify-center text-sparkle-text-secondary"><FolderOpen size={18} /></span>
                 <span className="min-w-0">
-                    <span className="block text-[12px] font-semibold text-sparkle-text">{selection.projectsFolder ? 'Projects folder' : 'Choose a folder'}</span>
+                    <span className="block text-[12px] font-semibold text-sparkle-text">Chat folder (optional)</span>
                     <span className={cn('mt-1 block truncate text-[11px]', selection.projectsFolder ? 'font-mono text-sparkle-text-secondary' : 'text-sparkle-text-muted')} title={selection.projectsFolder || undefined}>
-                        {selection.projectsFolder || 'Pick the folder where you keep your work'}
+                        {selection.projectsFolder || defaultFolder}
                     </span>
                 </span>
                 <span className="flex items-center gap-1 text-[11px] font-medium text-sparkle-text-secondary">
@@ -145,6 +149,8 @@ export function ProjectsStep({ selection, onChange }: {
                     <ChevronRight size={13} className="transition-transform group-hover:translate-x-0.5" />
                 </span>
             </button>
+            <p className="mt-3 text-[11px] leading-5 text-sparkle-text-secondary">Skip choosing a folder and Zyra will use <span className="break-all font-mono">{defaultFolder}</span>. These chats will show as “No project”.</p>
+            {selection.projectsFolder && selection.projectsFolder !== defaultFolder ? <button type="button" className="mt-2 text-[11px] text-sparkle-text-secondary hover:text-sparkle-text" onClick={() => onChange({ projectsFolder: '' })}>Use default folder</button> : null}
             {error ? <p className="mt-3 text-center text-[11px] text-[var(--status-danger)]">{error}</p> : null}
         </div>
     )
@@ -182,7 +188,6 @@ export function ReviewStep({
         ? `${lightThemeName} / ${darkThemeName}`
         : `${appearanceMode === 'light' ? 'Light' : 'Dark'} mode`
     const projectsFolder = record.data.projects?.projectsFolder || ''
-    const projectFolderName = projectsFolder.split(/[\\/]/).filter(Boolean).at(-1) || 'Projects folder'
     const accountUsesApiKey = record.data.auth?.method === 'api-key'
     const items = [
         {
@@ -201,8 +206,8 @@ export function ReviewStep({
         },
         {
             id: 'projects',
-            label: 'Projects',
-            value: projectFolderName,
+            label: 'Chat folder',
+            value: 'No project chats',
             detail: projectsFolder || 'Ready to choose later',
             icon: <FolderOpen size={15} />
         }

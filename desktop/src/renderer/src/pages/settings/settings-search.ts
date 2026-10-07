@@ -83,6 +83,12 @@ const PREVIOUS_SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly Setting
         })
     ],
     account: [
+        sectionTarget('ChatGPT accounts', 'ChatGPT accounts', 'multiple accounts sign in add reconnect disconnect pause enable subscription load balancing limits reset'),
+        ...rows('ChatGPT usage rules', ['Usage strategy', 'Use first', 'Allowed accounts'], {
+            'Usage strategy': 'balance automatic rotate evenly round robin drain fill first quota',
+            'Use first': 'preferred priority drain account reset',
+            'Allowed accounts': 'only selected restrict account pause enable'
+        }),
         sectionTarget('Other model providers', 'Other model providers', 'opencode zen claude anthropic custom endpoint api key connect disconnect models'),
         ...rows('OpenAI connections', ['ChatGPT subscription', 'OpenAI API key'], {
             'ChatGPT subscription': 'connect reconnect disconnect oauth retry use new chats',

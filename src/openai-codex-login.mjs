@@ -32,7 +32,7 @@ export async function loginOpenAICodexAuth(authStorage, options = {}) {
       : (() => { throw new TypeError(`Unsupported OpenAI sign-in method: ${signInMethod}.`); })();
   throwIfAborted(options.signal);
   const credential = createOAuthCredential(tokens, currentTime(options));
-  await authStorage.loginOAuth("openai-codex", credential, { signal: options.signal });
+  await authStorage.loginOAuth("openai-codex", credential, { signal: options.signal, accountId: options.accountId });
   await options.onProgress?.("ChatGPT sign-in complete.");
   return credential;
 }

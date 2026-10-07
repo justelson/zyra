@@ -31,6 +31,7 @@ import { AssistantControlStatus } from '@/pages/assistant/AssistantControlStatus
 import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import { useWindowChrome } from '@/lib/useWindowChrome'
 import { useRuntimeConnection } from '@/lib/runtime-connection'
+import { isPreviewDistribution } from '@shared/distribution-identity'
 import {
     FILE_PREVIEW_FOCUS_STATE_EVENT,
     FILE_PREVIEW_TOGGLE_NAVIGATOR_EVENT,
@@ -352,7 +353,7 @@ export default function TitleBar() {
                             title={`${runtimeConnection.label} · ${runtimeConnection.detail}`}
                             aria-label={`Zyra · ${runtimeConnection.label} · ${runtimeConnection.detail}`}
                             style={{ color: `var(--status-${runtimeConnection.tone})` }}
-                        >{runtimeConnection.state.installation?.kind === 'development' ? 'Dev' : 'Zyra'}</span>
+                        >{runtimeConnection.state.installation?.kind === 'development' || isPreviewDistribution() ? 'Dev' : 'Zyra'}</span>
                         <ChevronDown size={11} className={cn('text-sparkle-text-muted transition-[color,transform] group-hover:text-sparkle-text-secondary', appMenuOpen && 'rotate-180 text-sparkle-text-secondary')} />
                     </button>
                     {appMenuOpen ? (

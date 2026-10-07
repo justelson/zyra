@@ -269,7 +269,8 @@ export class DevicePreferencesService {
 
     constructor(
         private readonly filePath: string,
-        private readonly now: () => Date = () => new Date()
+        private readonly now: () => Date = () => new Date(),
+        private readonly defaultProjectsFolder: string | null = null
     ) {}
 
     subscribe(listener: (event: DevicePreferencesChangedEvent) => void): () => void {
@@ -361,7 +362,11 @@ export class DevicePreferencesService {
     /** Setup hydrates preferences before starting the assistant. No disk reads on cwd resolution. */
     getConfiguredProjectsFolder(): string | null {
         const value = this.hydrated?.kind === 'ready' ? this.hydrated.record.shared.projectsFolder : null
-        return typeof value === 'string' ? value.trim() || null : null
+        return (typeof value === 'string' ? value.trim() : '') || this.defaultProjectsFolder
+    }
+
+    getDefaultProjectsFolder(): string | null {
+        return this.defaultProjectsFolder
     }
 
     async getNewChatWebDefaults(): Promise<{ webSearch: boolean; webFetch: boolean }> {
@@ -469,7 +474,12 @@ export class DevicePreferencesService {
             schemaVersion: DEVICE_PREFERENCES_SCHEMA_VERSION,
             revision: record.revision,
             surface,
-            settings: structuredClone({ ...record.shared, ...record.surfaces[surface] }),
+            settings: structuredClone({
+                ...record.shared,
+                ...record.surfaces[surface],
+                ...(this.defaultProjectsFolder && !String(record.shared.projectsFolder || '').trim()
+                    ? { projectsFolder: this.defaultProjectsFolder } : {})
+            }),
             desktopLegacyMigrationComplete: Boolean(record.migrations.desktopLegacyV4CompletedAt),
             updatedAt: record.updatedAt
         }

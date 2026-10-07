@@ -169,23 +169,48 @@ The full release-system work must define and test the signed metadata schema, ch
 
 `.github/workflows/desktop-release.yml` supports:
 
-- `workflow_dispatch`: unsigned native rehearsal builds from `master`; it uploads the complete assembled workflow artifact and places the same validated files in a private `rehearsal-v<version>-<run-id>` GitHub draft, without creating the production tag;
+- `workflow_dispatch`: unsigned native rehearsal builds selected from `master`, optionally pinned to an explicitly approved commit contained in its history; it uploads the complete assembled workflow artifact and places the same validated files in a private `rehearsal-v<version>-<run-id>` GitHub draft, without creating the production tag;
 - `v*` tag pushes: signed/notarized publication candidates that refresh and validate the existing draft before publication.
 
 The tag path requires all of the following before any public release exists:
 
 1. the tag is exactly `v<lockstep package version>`;
-2. tag commit, `HEAD`, and `origin/master` are identical;
+2. for stable versions, tag commit and `HEAD` equal the explicitly approved source SHA, which is contained in `origin/master`, and the reviewed preview evidence identifies that exact source and a successful Actions run attempt; unapproved alpha/beta tags retain the tag/`HEAD`/`origin/master` equality gate;
 3. focused checks and the privacy check pass;
 4. signing/notarization secrets pass preflight;
 5. all native matrix jobs finish and upload their isolated artifacts;
 6. updater metadata and every expected platform artifact validate after assembly;
 7. Windows Authenticode and macOS codesign/Gatekeeper/notarization markers validate against the exact standalone TUI bytes and pinned publisher identities;
 8. sorted `SHA256SUMS` validates all release files, including Linux artifacts;
-9. a GitHub **draft** is created, names/sizes are re-read, and its assets are downloaded again for metadata/checksum validation;
-10. only then is that existing draft published.
+9. a GitHub **draft** is created or reused with the exact frozen SHA as its target, names/sizes are re-read, and its assets are downloaded again for metadata/checksum validation;
+10. the production tag still resolves to the frozen SHA immediately before that existing draft is published.
 
 Matrix jobs have read-only repository permissions and cannot race publication. The final publication job alone receives `contents: write`. Releases use `master`, never `main`.
+
+### Freeze the approved stable candidate
+
+Stable tag preflight requires maintainer-controlled repository variables:
+
+- `ZYRA_APPROVED_SOURCE_SHA`: the full lowercase 40-character source commit approved for this release, never a branch name or shortened SHA.
+- `ZYRA_APPROVED_PREVIEW_MANIFEST`: the complete reviewed `preview.json` from that commit's installer ZIP.
+- `ZYRA_PREVIEW_BUILD_REPOSITORY`: the trusted `owner/repository` running preview builds. This defaults to the release repository; set it explicitly when an approved helper builds previews.
+
+Prepare the final lockstep version **before** requesting the preview. After testing the installer and checking its `SHA256SUMS`, approve its source commit and preserve its manifest. The approved commit must contain this candidate policy and must be merged into `master` without changing its SHA. A squash/rebase merge creates a different commit and needs a new preview and approval. Advancing `master` afterwards does not change the candidate. Any subsequent change to code, the final version, or release configuration requires new exact-commit preview evidence and approval.
+
+Preflight compares actual Git `HEAD` with the approval, requires the production tag to identify that same commit, checks the manifest's source repository/SHA/version and trusted builder, then reads the specific Actions **run attempt** through GitHub's API. The attempt must be completed and successful and use `.github/workflows/windows-preview.yml` via manual dispatch. Its title must equal `Preview <source-sha> request:<request-id>` when `manifest.build.requestId` is present; legacy manifests with an absent/null request ID require exactly `Preview <source-sha>`. A different same-SHA retry cannot supply evidence for the approved request. Its control workflow SHA must match `manifest.build.workflowSha`; this SHA can differ from `manifest.source.sha`. Failed, cancelled, unavailable, different-source and different-attempt evidence blocks the release. The manifest is a maintainer-reviewed provenance record, not a signed attestation or proof that a human accepted the app. A successful Windows preview also does not replace the native release matrix or other acceptance gates.
+
+For a private helper, the caller must have read access to that repository's Actions evidence; inaccessible evidence fails closed. Preserve the reviewed manifest outside the expiring download. Once an approved source is resolved, all native builds, assembly, draft targeting and publication use the same preflight SHA. Draft validation rejects a moving `master` target, and publication rechecks the remote production tag.
+
+Rebuild installers from that exact source with the final stable version and existing signing/native/checksum gates. Preview and stable installer bytes are expected to differ; never rename or promote preview bytes into a stable installer. Setting approval variables records a candidate but does not start a workflow or authorize publication.
+
+A manual rehearsal can exercise the frozen-candidate path by supplying both `approved_source_sha` and `preview_manifest` (paste the reviewed JSON) while selecting the `master` workflow. It checks out the supplied commit and remains unsigned and unpublished. Omitting both retains the existing rehearsal policy. Local read-only preflight uses the same contract:
+
+```bash
+node desktop/scripts/release/preflight.mjs --mode=rehearsal --ref-name=master --expected-version=<final-version> --approved-source-sha=<full-approved-sha> --preview-manifest=<path-to-reviewed-preview.json> --source-repository=<owner/repository> --preview-build-repository=<trusted-builder/repository>
+node desktop/scripts/test-release-candidate-policy.mjs
+```
+
+Use a read-capable `GH_TOKEN`/`GITHUB_TOKEN` when necessary; never put credentials in command arguments or manifests. Preflight emits `head`, `approved_source_sha` and `preview_run_url` only after all gates pass. This policy does not grant permission to push tags, start builds, change repository variables, create drafts or publish releases.
 
 ## Approved exception for 0.6.2
 

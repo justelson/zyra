@@ -9,14 +9,15 @@ import { dirname, join, resolve, basename } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import electronPath from 'electron'
 
+const startupReadiness = process.argv.includes('--startup-readiness')
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const directory = await mkdtemp(join(tmpdir(), 'zyra-sidebar-continuity-'))
 try {
     await writeFile(join(directory, 'settings.ts'), `export {getAppearanceCodeFontStack,getThemeAppearance} from ${JSON.stringify(join(desktop, 'src/renderer/src/lib/settings.tsx'))};const settings={assistantAllowCollapseWhileWorking:false,assistantShowActionStats:false};export function useSettings(){return {settings}}`)
-    const fixture = process.argv.includes('--settlement-navigation') ? 'sidebar-settlement-navigation.tsx' : 'assistant-sidebar-continuity.tsx'
+    const fixture = startupReadiness ? 'assistant-launch-readiness.tsx' : process.argv.includes('--settlement-navigation') ? 'sidebar-settlement-navigation.tsx' : 'assistant-sidebar-continuity.tsx'
     const bundle = await build({ entryPoints: [join(desktop, 'scripts/fixtures', fixture)],
-        bundle: true, write: false, format: 'iife', jsx: 'automatic', platform: 'browser', define: { 'import.meta.env.DEV': 'false', 'import.meta.url': JSON.stringify(pathToFileURL(join(directory, 'fixture.js')).href) },
-        alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.css': 'empty', '.ttf': 'dataurl' },
+        bundle: true, write: false, format: 'iife', jsx: 'automatic', platform: 'browser', define: { 'import.meta.env.DEV': 'false', '__ZYRA_BUILD_METADATA__': JSON.stringify({ distribution: startupReadiness ? 'preview' : 'stable', sourceSha: null, sourceRepository: null, runId: null }), 'import.meta.url': JSON.stringify(pathToFileURL(join(directory, 'fixture.js')).href) },
+        alias: { '@/lib/settings': join(directory, 'settings.ts'), '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.css': 'empty', '.ttf': 'dataurl', '.woff2': 'dataurl' },
         plugins: [{ name: 'unused-attachment-preview', setup(builder) {
             // This fixture opens no attachment editors. Keep Vite-only Monaco
             // workers out while exercising the actual message/footer renderer.
@@ -59,7 +60,7 @@ try {
         }})();
         let results;try{results=await window.webContents.executeJavaScript('window.sidebarContinuityCheck || Promise.reject(new Error(window.__fixtureError || "Fixture did not initialize"))')}finally{pumping=false;await pointerPump}
 
-        for(const result of results)console.log('PASS: '+result);clearTimeout(timeout);app.quit()}).catch(error=>{console.error(error);app.exit(1)});`)
+        for(const result of results)console.log('PASS: '+result);${process.env.ZYRA_QA_SCREENSHOT ? `require('node:fs').writeFileSync(${JSON.stringify(process.env.ZYRA_QA_SCREENSHOT)},(await window.webContents.capturePage()).toPNG());` : ''}clearTimeout(timeout);app.quit()}).catch(error=>{console.error(error);app.exit(1)});`)
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
     process.exitCode = await new Promise((resolveExit, reject) => {
         const child = spawn(electronPath, [harness], { cwd: desktop, env, windowsHide: true, shell: false, stdio: 'inherit' })

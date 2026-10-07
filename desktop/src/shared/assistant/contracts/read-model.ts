@@ -19,6 +19,8 @@ export interface AssistantMessage {
     text: string
     turnId: string | null
     streaming: boolean
+    /** Provider metadata; never inferred from response text or turn completion. */
+    phase?: 'commentary' | 'final_answer'
     timelineSequence?: number
     providerItemId?: string
     modality?: 'text' | 'voice' | 'image' | 'multimodal'

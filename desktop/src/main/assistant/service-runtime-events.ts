@@ -1,4 +1,5 @@
 import { reconcileAssistantUserInputResponseMessageIds } from '../../shared/assistant/user-input-continuation'
+import { remoteAssistantPromptMessageId } from './canonical-message-identity'
 import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
 import type {
     AssistantActivity,
@@ -852,17 +853,29 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         if (!eventSession) return
         const existingThread = eventThreadRecord?.thread || deps.requireThread(event.threadId)
         if (existingThread.messages.some((message) => message.id === event.payload.messageId)) return
+        const receiptId = event.turnId ? remoteAssistantPromptMessageId(event.turnId) : null
+        const receipt = existingThread.messages.find(message => message.id === receiptId)
+        if (event.payload.messageId === receiptId && existingThread.messages.some(message => message.role === 'user' && message.turnId === event.turnId)) return
         const message = {
-            ...createAssistantUserMessage(event.payload.text, event.createdAt, event.payload.messageId),
-            turnId: event.turnId || null
+            ...createAssistantUserMessage(event.payload.text, receipt?.createdAt || event.createdAt, event.payload.messageId),
+            turnId: event.turnId || null,
+            timelineSequence: receipt?.timelineSequence
         }
-        const linkedInputs = reconcileAssistantUserInputResponseMessageIds(existingThread.pendingUserInputs, existingThread.messages, [...existingThread.messages, message])
+        const pendingInputs = receipt ? existingThread.pendingUserInputs.map(input => input.responseMessageId === receipt.id ? { ...input, responseMessageId: message.id } : input) : existingThread.pendingUserInputs
+        const messages = receipt ? existingThread.messages.filter(entry => entry.id !== receipt.id) : existingThread.messages
+        const linkedInputs = reconcileAssistantUserInputResponseMessageIds(pendingInputs, existingThread.messages, [...messages, message])
         for (let index = 0; index < linkedInputs.length; index++) {
             const userInput = linkedInputs[index]!
             if (userInput.responseMessageId === existingThread.pendingUserInputs[index]?.responseMessageId) continue
             deps.appendEvent('thread.user-input.updated', event.createdAt, { threadId: eventThreadId, userInput }, eventSession.id, eventThreadId)
         }
-        deps.appendEvent('thread.message.user', event.createdAt, { threadId: eventThreadId, message }, eventSession.id, eventThreadId)
+        if (receipt) {
+            deps.appendEvent('thread.updated', event.createdAt, {
+                threadId: eventThreadId, patch: { messages: [message], updatedAt: event.createdAt }, removedMessageIds: [receipt.id]
+            }, eventSession.id, eventThreadId)
+        } else {
+            deps.appendEvent('thread.message.user', event.createdAt, { threadId: eventThreadId, message }, eventSession.id, eventThreadId)
+        }
         return
     }
 
@@ -1078,6 +1091,15 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         if (deps.isAssistantTextSuppressed(eventThreadId, resolvedTurnId)) return
         const messageId = `assistant-message-${event.itemId || event.turnId || event.eventId}`
         const key = assistantTextBufferKey(eventThreadId, messageId)
+        const phase = event.payload.phase
+        if (phase && eventThreadRecord?.thread.messages.find(message => message.id === messageId)?.phase !== phase) {
+            // Phase metadata must reach the renderer even before the first text
+            // delta. It changes disclosure only, never the turn's running state.
+            deps.flushAssistantTextDelta({ threadId: eventThreadId, messageId })
+            deps.appendEvent('thread.message.assistant.delta', event.createdAt, {
+                threadId: eventThreadId, messageId, delta: '', turnId: resolvedTurnId, phase
+            }, eventSession.id, eventThreadId)
+        }
         if (typeof event.payload.replaceText === 'string') {
             deps.flushAssistantTextDelta({ threadId: eventThreadId, messageId })
             deps.assistantTextBuffers.set(key, event.payload.replaceText)

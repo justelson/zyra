@@ -5,6 +5,7 @@ import { buildVisualizationDocument, DEFAULT_VISUALIZATION_THEME, type Visualiza
 
 import { VisualizationInfo } from './VisualizationInfo'
 import { copyTextToClipboard } from '@/lib/copy-text'
+import { APPEARANCE_FONT_FACES_CHANGED_EVENT, getAppearanceFontResource } from '@/lib/appearance-font-faces'
 
 export const VisualizationPreview = memo(function VisualizationPreview({ block, streaming, timestamp }: { block: VisualizationBlock; streaming: boolean; timestamp?: ReactNode }) {
     const root = useRef<HTMLElement>(null)
@@ -31,17 +32,19 @@ export const VisualizationPreview = memo(function VisualizationPreview({ block, 
                 accent: value('--accent-primary', DEFAULT_VISUALIZATION_THEME.accent),
                 border: value('--surface-divider', DEFAULT_VISUALIZATION_THEME.border),
                 font: css.fontFamily || DEFAULT_VISUALIZATION_THEME.font,
+                fontResource: getAppearanceFontResource(owner, css.fontFamily),
                 scheme: owner.body.classList.contains('light') ? 'light' : 'dark'
             }
-            setTheme(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+            setTheme(previous => (Object.keys(next) as (keyof VisualizationTheme)[]).every(key => previous[key] === next[key]) ? previous : next)
         }
         update()
         setMounted(true)
         view.addEventListener(ZYRA_THEME_CHANGED_EVENT, update)
+        view.addEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, update)
         const observer = new MutationObserver(update)
         observer.observe(owner.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
         observer.observe(owner.body, { attributes: true, attributeFilter: ['class', 'style'] })
-        return () => { view.removeEventListener(ZYRA_THEME_CHANGED_EVENT, update); observer.disconnect() }
+        return () => { view.removeEventListener(ZYRA_THEME_CHANGED_EVENT, update); view.removeEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, update); observer.disconnect() }
     }, [])
     const source = useMemo(() => mounted && block.state === 'complete' ? buildVisualizationDocument(block.html, block.title, theme, { inline: true }) : '', [mounted, block.html, block.title, block.state, theme])
     const pending = block.state === 'incomplete' && streaming

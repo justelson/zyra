@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageChops
@@ -14,6 +18,7 @@ ICONS = RESOURCES / 'branding' / 'icons'
 EXPECTED_ICO_SIZES = {(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)}
 EXPECTED_LINUX_ICON_SIZES = (16, 32, 48, 64, 128, 256, 512, 1024)
 APPROVED_BACKGROUND = (4, 20, 43)
+DEV_BACKGROUND = (0, 0, 0)
 APPROVED_MARK = (57, 207, 231)
 SOURCE_SHA256 = {
     'zyra-dev-source.png': '7002a38e25e9891f8319f792ed8cadbfa9c6f9b3d7b7b9041d65e9576dea46aa',
@@ -31,7 +36,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def assert_flat_approved_artwork(image: Image.Image, label: str) -> None:
+def assert_flat_approved_artwork(image: Image.Image, label: str, background=APPROVED_BACKGROUND) -> None:
     rgba = image.convert('RGBA')
     alpha = rgba.getchannel('A')
     bounds = alpha.getbbox()
@@ -45,10 +50,10 @@ def assert_flat_approved_artwork(image: Image.Image, label: str) -> None:
         if pixel[3] == 255
     }
     for red, green, blue in opaque_colors:
-        assert APPROVED_BACKGROUND[0] <= red <= APPROVED_MARK[0], f'{label} introduced a red outer treatment'
-        assert APPROVED_BACKGROUND[1] <= green <= APPROVED_MARK[1], f'{label} introduced a green glow or field'
-        assert APPROVED_BACKGROUND[2] <= blue <= APPROVED_MARK[2], f'{label} introduced a blue glow or field'
-    assert APPROVED_BACKGROUND in opaque_colors, f'{label} is missing the deep-blue field'
+        assert background[0] <= red <= APPROVED_MARK[0], f'{label} introduced a red outer treatment'
+        assert background[1] <= green <= APPROVED_MARK[1], f'{label} introduced a green glow or field'
+        assert background[2] <= blue <= APPROVED_MARK[2], f'{label} introduced a blue glow or field'
+    assert background in opaque_colors, f'{label} is missing its channel background'
     assert any(red <= 65 and green >= 190 and blue >= 210 for red, green, blue in opaque_colors), f'{label} is missing the cyan Zyra mark'
 
     top_center = next(
@@ -56,7 +61,7 @@ def assert_flat_approved_artwork(image: Image.Image, label: str) -> None:
         for y in range(bounds[1], rgba.height // 2)
         if rgba.getpixel((rgba.width // 2, y))[3] == 255
     )
-    assert max(abs(channel - expected) for channel, expected in zip(top_center[:3], APPROVED_BACKGROUND)) <= 5, f'{label} must not draw a cyan outer border'
+    assert max(abs(channel - expected) for channel, expected in zip(top_center[:3], background)) <= 5, f'{label} must not draw a cyan outer border'
 
 
 def count_mark_pixels(image: Image.Image) -> int:
@@ -89,6 +94,30 @@ def assert_images_identical(left: Path, right: Path) -> None:
     assert difference.getbbox() is None, f'{left.name} and {right.name} must use the same approved artwork'
 
 
+def assert_preview_staging() -> None:
+    # Exercise the actual CLI in a disposable checkout: hosted Preview must use
+    # black runtime prod filenames, while normal stable assets stay untouched.
+    stable_hash = sha256(RESOURCES / 'icon.ico')
+    with tempfile.TemporaryDirectory(prefix='zyra-dev-icons-') as temporary:
+        fixture = Path(temporary)
+        generator = fixture / 'scripts' / 'maint' / 'generate_branding_assets.py'
+        generator.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / 'scripts' / 'maint' / generator.name, generator)
+        icon_sources = fixture / 'resources' / 'branding' / 'icons'
+        icon_sources.mkdir(parents=True)
+        for name in SOURCE_SHA256:
+            shutil.copyfile(ICONS / name, icon_sources / name)
+        subprocess.run([sys.executable, str(generator), '--icons-only', '--preview'], check=True, capture_output=True)
+        for name in ('zyra-prod.png', 'zyra-prod-light.png', 'zyra-prod-dark.png', 'zyra-dev.png'):
+            assert_flat_approved_artwork(open_rgba(icon_sources / name), name, DEV_BACKGROUND)
+        for name in ('icon.ico', 'icon-dev.ico'):
+            with Image.open(fixture / 'resources' / name) as icon:
+                for size in EXPECTED_ICO_SIZES:
+                    assert_flat_approved_artwork(icon.ico.getimage(size), name, DEV_BACKGROUND)
+        assert_flat_approved_artwork(open_rgba(fixture / 'resources' / 'icon.png'), 'staged icon.png', DEV_BACKGROUND)
+    assert sha256(RESOURCES / 'icon.ico') == stable_hash, 'preview staging must not rewrite stable checkout assets'
+
+
 def main() -> None:
     for file_name, expected_hash in SOURCE_SHA256.items():
         path = ICONS / file_name
@@ -105,14 +134,17 @@ def main() -> None:
         for family in ('dev', 'prod')
         for suffix in ('', '-light', '-dark')
     ]
-    reference_variant = ICONS / variant_names[0]
+    reference_variant = ICONS / 'zyra-prod.png'
     assert_images_identical(ICONS / 'zyra-flat-approved-source.png', reference_variant)
     for file_name in variant_names:
         icon_path = ICONS / file_name
         image = open_rgba(icon_path)
         assert image.size == (1024, 1024), f'{file_name} must remain a 1024px master'
-        assert_flat_approved_artwork(image, file_name)
-        assert_images_identical(reference_variant, icon_path)
+        is_dev = file_name.startswith('zyra-dev')
+        background = DEV_BACKGROUND if is_dev else APPROVED_BACKGROUND
+        assert_flat_approved_artwork(image, file_name, background)
+        assert_images_identical(ICONS / ('zyra-dev.png' if is_dev else 'zyra-prod.png'), icon_path)
+        assert image.getchannel('A').tobytes() == approved_source.getchannel('A').tobytes(), 'channel recoloring must preserve the tile geometry'
 
         variant_ico = Image.open(icon_path.with_suffix('.ico'))
         assert EXPECTED_ICO_SIZES.issubset(set(variant_ico.ico.sizes())), f'{file_name} runtime ICO is incomplete'
@@ -122,8 +154,8 @@ def main() -> None:
     for file_name in ('icon.png', 'icon-dev.png'):
         image = open_rgba(RESOURCES / file_name)
         assert image.size == (512, 512), f'{file_name} must be 512px square'
-        assert_flat_approved_artwork(image, file_name)
-    assert_images_identical(RESOURCES / 'icon.png', RESOURCES / 'icon-dev.png')
+        assert_flat_approved_artwork(image, file_name, DEV_BACKGROUND if 'dev' in file_name else APPROVED_BACKGROUND)
+    assert sha256(RESOURCES / 'icon.png') != sha256(RESOURCES / 'icon-dev.png'), 'dev and stable must have visibly distinct fields'
 
     for file_name in ('icon.ico', 'icon-dev.ico'):
         path = RESOURCES / file_name
@@ -133,7 +165,7 @@ def main() -> None:
         for size in sorted(EXPECTED_ICO_SIZES):
             frame = image.ico.getimage(size).convert('RGBA')
             assert frame.size == size
-            assert_flat_approved_artwork(frame, f'{file_name} {size[0]}px')
+            assert_flat_approved_artwork(frame, f'{file_name} {size[0]}px', DEV_BACKGROUND if 'dev' in file_name else APPROVED_BACKGROUND)
             if size[0] <= 32:
                 assert_optical_mark(frame, file_name)
 
@@ -176,7 +208,8 @@ def main() -> None:
     assert 'border_color' not in generator_source and 'outline_color' not in generator_source, 'the generator cannot invent an outer border or mark halo'
     assert 'APP_ICON_OPTICAL_SIZES = {16, 24, 32}' in generator_source, 'small system icons require explicit optical variants'
 
-    print('Zyra branding asset contract: ok')
+    assert_preview_staging()
+    print('Zyra branding asset contract: stable blue, dev black and isolated preview staging passed')
 
 
 if __name__ == '__main__':

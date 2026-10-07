@@ -18,6 +18,7 @@ export type PluginAuthorityUpdate = {
 
 export type ZyraWorkerEventMetadata = {
     sequence?: number
+    occurredAt?: string
     turnId?: string
     localThreadId?: string
     replay?: boolean
@@ -49,6 +50,7 @@ type AgentServerClient = EventEmitter & {
 
 type ReplayEntry = {
     sequence?: number
+    occurredAt?: string
     event?: unknown
     requestContext?: { turnId?: string; localThreadId?: string } | null
 }
@@ -479,6 +481,7 @@ export class DesktopAgentServerConnection {
         if (!sessionKey) return
         const entry: ReplayEntry = {
             sequence: Number(message['sequence']) || undefined,
+            occurredAt: typeof message['occurredAt'] === 'string' ? message['occurredAt'] : undefined,
             event: message['event'],
             requestContext: asRecord(message['requestContext']) as ReplayEntry['requestContext']
         }
@@ -576,6 +579,7 @@ export class ZyraAgentServerWorker implements ZyraWorkerLike {
         if (sequence) this.latestSequence = sequence
         const metadata: ZyraWorkerEventMetadata = {
             ...(sequence ? { sequence } : {}),
+            ...(entry.occurredAt ? { occurredAt: entry.occurredAt } : {}),
             ...(entry.requestContext?.turnId ? { turnId: entry.requestContext.turnId } : {}),
             ...(entry.requestContext?.localThreadId ? { localThreadId: entry.requestContext.localThreadId } : {}),
             ...(replay ? { replay: true } : {})

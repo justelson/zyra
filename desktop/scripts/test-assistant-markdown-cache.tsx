@@ -7,7 +7,6 @@ import {
 } from '../src/renderer/src/components/ui/MarkdownRenderer'
 import { getCodeHighlightCacheStats } from '../src/renderer/src/components/ui/markdown/CodeElements'
 import {
-    splitStreamingMarkdownBlocks,
     StreamingAssistantMarkdown,
     CompletedAssistantMarkdown
 } from '../src/renderer/src/pages/assistant/AssistantTimelineText'
@@ -73,12 +72,7 @@ This is **already bold** while text arrives.
 
 \`\`\`ts
 const streaming = true`
-const streamingBlocks = splitStreamingMarkdownBlocks(streamingContent)
-assert.deepEqual(streamingBlocks.settled, [
-    '# Live heading',
-    'This is **already bold** while text arrives.'
-])
-assert.match(streamingBlocks.tail, /^```ts/)
+const streamCacheBefore = getMarkdownRenderCacheStats()
 const streamingMarkup = renderToStaticMarkup(createElement(StreamingAssistantMarkdown, {
     content: streamingContent,
     cacheKey: 'assistant-message:live-stream',
@@ -88,6 +82,8 @@ assert.match(streamingMarkup, /data-assistant-streaming-markdown="true"/)
 assert.match(streamingMarkup, /<h1[^>]*>Live heading/)
 assert.match(streamingMarkup, /<strong[^>]*>already bold<\/strong>/)
 assert.match(streamingMarkup, /const streaming = true/)
+assert.equal((streamingMarkup.match(/class="markdown-body /g) || []).length, 1, 'live Markdown retains document-wide paragraph and reference context')
+assert.equal(getMarkdownRenderCacheStats().entries, streamCacheBefore.entries, 'streaming documents cannot pollute the completed-tree cache')
 
 const visual = '<visualization title="Chart" summary="Two values.">\n<svg>private-source-marker</svg>'
 const pendingVisual = renderToStaticMarkup(createElement(StreamingAssistantMarkdown, { content: 'Before\n' + visual, cacheKey: 'visual-stream' }))
@@ -102,5 +98,20 @@ assert.match(oldThreadVisual, /Before[\s\S]*Chart[\s\S]*After/)
 const literalVisual = renderToStaticMarkup(createElement(CompletedAssistantMarkdown, { content: '```html\n' + visual + '\n</visualization>\n```', cacheKey: 'visual-example' }))
 assert.doesNotMatch(literalVisual, /data-visualization-state/)
 
+// Reference compilation cost belongs here, outside the native UI fixture's
+// 20s deadline. Native chat-display still tests forty real reveal updates for
+// these same inputs and bounds its actual mounted renderer compilation count.
+for (const [label, largeContent] of [
+    ['large paragraph', 'Ordinary paragraph text with words. '.repeat(470)],
+    ['350 paragraphs', 'Settled paragraph with **bold** text and words.\n\n'.repeat(350)]
+]) {
+    const before = getMarkdownRenderCacheStats()
+    for (let i = 1; i <= 40; i++) prepareMarkdownRender({ content: largeContent + 'x'.repeat(i), transient: true,
+        deferCodeHighlighting: true, fadeStreamingText: true, animateInitialText: true })
+    const after = getMarkdownRenderCacheStats()
+    assert.equal(after.compilations - before.compilations, 40, 'the unthrottled reference compiles every visible update')
+    assert.equal(after.entries, before.entries, 'benchmark versions never enter the completed-message cache')
+    console.log(`Reference ${label} (${largeContent.length} chars): 40 updates/40 compilations/${(after.compilationMilliseconds - before.compilationMilliseconds).toFixed(1)}ms`)
+}
 console.log('Assistant Markdown compiled-cache and visualization routing contracts: ok')
 process.exit(0)

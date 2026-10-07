@@ -5,15 +5,10 @@ import type { PreviewFile, PreviewMeta } from './types'
 import { formatPreviewBytes } from './utils'
 import { schedulePreviewWork } from './schedule-preview-work'
 import SyntaxPreview from './SyntaxPreview'
-import { PreviewContentSkeleton } from './PreviewLoadingSkeleton'
 import type { editor as MonacoEditor } from 'monaco-editor'
 
 const FileMarkdownPreview = lazy(() => import('./FileMarkdownPreview'))
 const CsvPreviewTable = lazy(() => import('./CsvPreviewTable'))
-
-function PreviewRendererFallback({ label }: { label: string }) {
-    return <PreviewContentSkeleton className="min-h-36" label={label} />
-}
 
 interface TextPreviewContentProps {
     file: PreviewFile
@@ -152,7 +147,7 @@ function TextPreviewContent({
 
             {file.type === 'md' && (
                 <div className={markdownContainerClassName}>
-                    <Suspense fallback={<PreviewRendererFallback label="Rendering file..." />}>
+                    <Suspense fallback={null}>
                         <FileMarkdownPreview
                             key={file.path}
                             content={content}
@@ -171,8 +166,6 @@ function TextPreviewContent({
                 <div className={isExpanded ? 'w-full h-full min-h-0 bg-sparkle-card overflow-hidden' : 'w-full h-full min-h-0 max-w-[96%] bg-sparkle-card border border-white/5 overflow-hidden'}>
                     {jsonState.formatted ? (
                         <SyntaxPreview content={jsonState.formatted} language="json" filePath={file.path} focusLine={focusLine} onEditorMount={onEditorMount} height={isExpanded ? '100%' : undefined} />
-                    ) : jsonState.isFormatting ? (
-                        <PreviewContentSkeleton label="Rendering file..." />
                     ) : (
                         <div className={isExpanded ? 'h-full flex flex-col' : ''}>
                             {jsonState.invalid && (
@@ -191,7 +184,7 @@ function TextPreviewContent({
 
             {file.type === 'csv' && (
                 <div className="w-full h-full min-h-0 flex-1">
-                    <Suspense fallback={<PreviewRendererFallback label="Rendering file..." />}>
+                    <Suspense fallback={null}>
                         <CsvPreviewTable
                             content={content}
                             language={file.language}

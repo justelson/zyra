@@ -9,6 +9,7 @@ import { MarkdownTable } from './MarkdownTable'
 import { looksLikeMarkdownFileReference, resolveMarkdownPackageReference } from './fileReferences'
 import { resolveImageSrc, resolveImageSrcSet } from './paths'
 import { resolveMarkdownLinkTarget } from './linkNavigation'
+import { renderMarkdownLinkLabel } from './linkLabels'
 
 type DivProps = HTMLAttributes<HTMLDivElement> & { align?: string }
 type SourceProps = HTMLAttributes<HTMLSourceElement> & { src?: string; srcSet?: string }
@@ -246,7 +247,7 @@ export function createMarkdownComponents(
         mediaMode?: MarkdownMediaMode
     }
 ): Components {
-    return {
+    const components: Components = {
         h1: ({ children, className, align, id, ...props }: HeadingProps) => (
             <h1 id={id} className={cn('group/heading scroll-mt-20 mt-8 mb-4 border-b border-white/10 pb-2 text-2xl font-bold text-sparkle-text first:mt-0', getAlignmentClass(align), className)} {...props}>
                 {children}<HeadingPermalink id={id} />
@@ -291,7 +292,7 @@ export function createMarkdownComponents(
             const isAnchorLink = rawHref.startsWith('#')
             const internalTarget = rawHref ? resolveMarkdownLinkTarget(rawHref, filePath) : null
             const childText = flattenNodeText(children).trim()
-            const renderedChildren = renderColorAwareChildren(children, 'a')
+            const renderedChildren = renderColorAwareChildren(renderMarkdownLinkLabel(children, components.code), 'a')
 
             if (options?.mediaMode === 'images-and-videos' && isMarkdownVideoHref(rawHref)) {
                 return <MarkdownVideo href={rawHref} label={childText} filePath={filePath} />
@@ -302,14 +303,14 @@ export function createMarkdownComponents(
                     <a
                         href={href}
                         draggable={false}
-                        className="text-[var(--accent-primary)] hover:text-white hover:underline"
+                        className="text-[var(--accent-primary)] hover:underline focus-visible:underline decoration-dotted underline-offset-4"
                     >
                         {renderedChildren}
                     </a>
                 )
             }
 
-            if (internalTarget) return (
+            if (internalTarget || looksLikeMarkdownFileReference(rawHref)) return (
                 <a
                     href={href}
                     draggable={false}
@@ -318,9 +319,9 @@ export function createMarkdownComponents(
                     className="markdown-inline-file-tag"
                 >
                     <MarkdownFileTagContent
-                        pathValue={internalTarget.path}
+                        pathValue={internalTarget?.path || rawHref}
                         theme={options?.visualTheme || 'dark'}
-                        focusLine={internalTarget.focusLine}
+                        focusLine={internalTarget?.focusLine}
                         displayPath={looksLikeMarkdownFileReference(childText) ? childText.replace(/:\d+(?::\d+)?$/, '') : undefined}
                     >
                         {renderedChildren}
@@ -355,7 +356,7 @@ export function createMarkdownComponents(
                     rel="noopener noreferrer"
                     draggable={false}
                     title={rawHref || undefined}
-                    className="text-blue-400 hover:text-blue-300 hover:underline"
+                    className="text-blue-400 hover:text-blue-300 hover:underline focus-visible:underline decoration-dotted underline-offset-4"
                 >
                     <MarkdownExternalLinkContent href={rawHref}>{renderedChildren}</MarkdownExternalLinkContent>
                 </a>
@@ -577,4 +578,5 @@ export function createMarkdownComponents(
         },
         del: ({ children }) => <del className="text-sparkle-text-secondary line-through">{children}</del>
     }
+    return components
 }

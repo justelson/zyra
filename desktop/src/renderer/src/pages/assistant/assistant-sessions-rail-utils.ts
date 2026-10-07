@@ -1,4 +1,5 @@
-import type { AssistantPlaygroundState, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
+import type { AssistantPlaygroundState, AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
+import { resolveAssistantSessionProjectPath } from '@shared/assistant/project-identity'
 import type { DevScopeResult } from '@shared/contracts/devscope-api'
 import { isGenericUserFolderPath } from '@shared/projects/project-path-classification'
 import { getAssistantThreadPhase, isAssistantThreadActivelyWorking } from '@/lib/assistant/selectors'
@@ -389,7 +390,7 @@ export function getProjectKey(path: string): string {
 }
 
 export function getProjectLabel(path: string): string {
-    if (!path) return 'Chats'
+    if (!path) return 'No project'
     const parts = path.split(/[\\/]/).filter(Boolean)
     return parts[parts.length - 1] || path
 }
@@ -558,7 +559,7 @@ const PROJECT_METADATA_LAST_ATTEMPT_MS = new Map<string, number>()
 
 export function resolveSessionProjectPath(session: AssistantSession): string {
     if (isDetachedPlaygroundChatSession(session)) return ''
-    const projectPath = normalizeProjectPath(session.projectPath || null)
+    const projectPath = normalizeProjectPath(resolveAssistantSessionProjectPath(session))
     return isLegacyPlaygroundProjectPath(projectPath) ? '' : projectPath
 }
 
@@ -642,19 +643,40 @@ export async function hydrateProjectMetadataForPaths(projectPaths: string[]): Pr
 
 export function groupSessionsByProject(
     sessions: AssistantSession[],
-    projectIconOverrides: Record<string, string> = {}
+    projectIconOverrides: Record<string, string> = {},
+    projects?: readonly AssistantProject[]
 ): SessionProjectGroup[] {
+    const folderKey = (value: string) => {
+        const path = value.replace(/\\/g, '/').replace(/\/+$/, '')
+        return /^[a-z]:\//i.test(path) || path.startsWith('//') ? path.toLowerCase() : path
+    }
+    const projectById = new Map(projects?.map(project => [project.id, project]))
+    const projectsByFolder = new Map<string, AssistantProject[]>()
+    for (const project of projects || []) for (const folder of project.folders) {
+        const key = folderKey(folder.path)
+        projectsByFolder.set(key, [...(projectsByFolder.get(key) || []), project])
+    }
     const groups = new Map<string, SessionProjectGroup>()
     for (const session of sessions) {
-        const normalizedPath = resolveSessionProjectPath(session)
+        let normalizedPath = resolveSessionProjectPath(session)
+        const assignedProjectId = normalizedPath ? session.projectId || session.chatScope?.projectId : null
+        let project = assignedProjectId ? projectById.get(assignedProjectId) : undefined
+        const importedFolder = !assignedProjectId || /^project_[a-f0-9]{32}$/.test(assignedProjectId)
+        if (projects && !project && importedFolder) {
+            const matches = projectsByFolder.get(folderKey(normalizedPath)) || []
+            project = matches.length === 1 ? matches[0] : undefined
+            if (!project) normalizedPath = ''
+        }
+        if (project) normalizedPath = project.folders[0]?.path || normalizedPath
         const projectPresentation = resolveAssistantProjectPresentation(normalizedPath, projectIconOverrides)
-        const key = session.projectId ? `project:${session.projectId}` : getProjectKey(normalizedPath)
+        const projectId = project?.id || (normalizedPath ? assignedProjectId : null)
+        const key = projectId ? `project:${projectId}` : getProjectKey(normalizedPath)
         const sessionUpdatedAt = getSessionLastActivityAt(session)
         const existing = groups.get(key)
         if (!existing) {
             groups.set(key, {
                 key,
-                label: getProjectLabel(normalizedPath),
+                label: project?.name || getProjectLabel(normalizedPath),
                 path: normalizedPath,
                 createdAt: session.createdAt,
                 updatedAt: sessionUpdatedAt,

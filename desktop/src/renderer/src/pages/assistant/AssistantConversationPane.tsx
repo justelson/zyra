@@ -5,6 +5,7 @@ import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessag
 import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reconciliation'
 import { hasActiveAssistantCompaction } from '@shared/assistant/compaction-state'
 import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
+import { resolveAssistantWorkingDirectory } from '@shared/assistant/working-directory'
 import { useSettings, type AssistantProductProfile } from '@/lib/settings'
 import {
     rendererVisibility,
@@ -309,8 +310,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         ]
     }, [chatWorkingProjectPath, controller.selectedSession?.chatScope?.roots, displayProjectName, displayProjectPath, isCreatingFreshChat, latestProjectLabel, selectedProjectRecord])
     const assistantMessageFilePath = useMemo(
-        () => getAssistantLinkBaseFilePath(chatWorkingProjectPath),
-        [chatWorkingProjectPath]
+        () => getAssistantLinkBaseFilePath(resolveAssistantWorkingDirectory({
+            workingRoot: controller.selectedSession?.workingRoot,
+            projectPath: chatWorkingProjectPath,
+            cwd: controller.activeThread?.cwd
+        }, settings.projectsFolder)),
+        [chatWorkingProjectPath, controller.selectedSession?.workingRoot, controller.activeThread?.cwd, settings.projectsFolder]
     )
     const availableModels = useMemo(() => {
         if (controller.knownModels.length > 0) return controller.knownModels

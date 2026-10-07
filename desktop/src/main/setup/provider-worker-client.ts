@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { desktopTerminalEnvironment } from '../assistant/agent-server-namespace'
 import { resolveZyraRoot } from '../zyra/zyra-root'
+import type { ChatGptAccountsUpdate } from '../../shared/onboarding/contracts'
 
 type WorkerCallbacks = {
     onAuth?: (info: unknown) => unknown
@@ -52,10 +53,13 @@ export class ProviderWorkerClient {
     constructor(private readonly createWorker: () => Worker = () => createDesktopProviderWorker()) {}
 
     readonly sdk = {
+        getChatGptAccounts: (options?: { refreshUsage?: boolean }) => this.request({ operation: 'getChatGptAccounts', options }),
+        updateChatGptAccounts: (input: ChatGptAccountsUpdate) => this.request({ operation: 'updateChatGptAccounts', input }),
         loginZyraAuth: (provider: string, options: Record<string, unknown> = {}) => this.request({
             operation: 'loginZyraAuth',
             provider,
-            signInMethod: options.signInMethod
+            signInMethod: options.signInMethod,
+            accountId: options.accountId
         }, {
             onAuth: typeof options.onAuth === 'function' ? options.onAuth as (info: unknown) => unknown : undefined,
             onDeviceCode: typeof options.onDeviceCode === 'function' ? options.onDeviceCode as (info: unknown) => unknown : undefined,

@@ -5,6 +5,8 @@ import type {
     OnboardingAuthStatus,
     ChatGptDeviceCode,
     ChatGptSignInMethod,
+    ChatGptAccountsUpdate,
+    ChatGptPoolSnapshot,
     OpenAIConnectionMethodStatus,
     OpenAIConnectionsStatus
 } from '../../shared/onboarding/contracts'
@@ -25,6 +27,8 @@ type ApiVerificationResult = {
 }
 
 type ZyraSdkAuthModule = {
+    getChatGptAccounts?(options?: { refreshUsage?: boolean }): Promise<ChatGptPoolSnapshot>
+    updateChatGptAccounts?(input: ChatGptAccountsUpdate): Promise<ChatGptPoolSnapshot>
     loginZyraAuth(provider: string, options: Record<string, unknown>): Promise<unknown>
     configureZyraOpenAIApiKey(apiKey: string, options?: Record<string, unknown>): Promise<ApiVerificationResult>
     verifyZyraOpenAIApiAuth(options?: Record<string, unknown>): Promise<ApiVerificationResult>
@@ -116,6 +120,7 @@ function isUsableSubscription(status: ChatGptStatusResult): boolean {
 }
 
 export class OpenAIConnectionService {
+    private poolOperation: Promise<ChatGptPoolSnapshot> | null = null
     private operation: Promise<OnboardingAuthStatus> | null = null
     private verifiedCache: { status: OnboardingAuthStatus; expiresAt: number } | null = null
     private disconnectOperation: Promise<OpenAIConnectionsStatus> | null = null
@@ -161,7 +166,7 @@ export class OpenAIConnectionService {
 
     disconnect(method: OnboardingAuthMethod): Promise<OpenAIConnectionsStatus> {
         if (method !== 'chatgpt' && method !== 'api-key') return Promise.reject(new Error('Choose a valid OpenAI connection to disconnect.'))
-        if (this.operation || this.disconnectOperation) return Promise.reject(new Error('Wait for the current OpenAI connection action to finish.'))
+        if (this.operation || this.disconnectOperation || this.poolOperation) return Promise.reject(new Error('Wait for the current OpenAI connection action to finish.'))
 
         const tracked = this.performDisconnect(method)
         this.disconnectOperation = tracked
@@ -201,9 +206,39 @@ export class OpenAIConnectionService {
         return { chatgpt, apiKey, checkedAt: this.now().toISOString() }
     }
 
-    connectChatGpt(signInMethod: ChatGptSignInMethod = 'browser'): Promise<OnboardingAuthStatus> {
+    async getChatGptAccounts(refreshUsage = false): Promise<ChatGptPoolSnapshot> {
+        const sdk = await this.loadSdk()
+        if (!sdk.getChatGptAccounts) throw new Error('ChatGPT account management is unavailable.')
+        return sdk.getChatGptAccounts({ refreshUsage })
+    }
+
+    updateChatGptAccounts(input: ChatGptAccountsUpdate): Promise<ChatGptPoolSnapshot> {
+        if (this.operation || this.disconnectOperation || this.poolOperation) return Promise.reject(new Error('Wait for the current account action to finish.'))
+        const task = (async () => {
+            const sdk = await this.loadSdk()
+            if (!sdk.updateChatGptAccounts) throw new Error('ChatGPT account management is unavailable.')
+            if (input?.action === 'remove') {
+                if (input.confirmed !== true) throw new Error('Confirm the account before disconnecting it.')
+                const snapshot = await this.getChatGptAccounts()
+                if (snapshot.accounts.length === 1 && snapshot.accounts[0].id === input.accountId) {
+                    await this.performDisconnect('chatgpt')
+                    return this.getChatGptAccounts()
+                }
+            }
+            const snapshot = await sdk.updateChatGptAccounts(input)
+            this.verifiedCache = null
+            await this.dependencies.onCredentialChanged?.('openai-codex')
+            return snapshot
+        })()
+        this.poolOperation = task
+        const clear = () => { if (this.poolOperation === task) this.poolOperation = null }
+        void task.then(clear, clear)
+        return task
+    }
+
+    connectChatGpt(signInMethod: ChatGptSignInMethod = 'browser', accountId?: string): Promise<OnboardingAuthStatus> {
         if (this.operation) return this.operation
-        if (this.disconnectOperation) return Promise.reject(new Error('Wait for the current OpenAI connection action to finish.'))
+        if (this.disconnectOperation || this.poolOperation) return Promise.reject(new Error('Wait for the current OpenAI connection action to finish.'))
         const controller = new AbortController()
         this.chatGptLoginController = controller
         return this.track((async () => {
@@ -213,6 +248,7 @@ export class OpenAIConnectionService {
                 if (controller.signal.aborted) throw controller.signal.reason
                 await sdk.loginZyraAuth('openai-codex', {
                     signInMethod,
+                    accountId,
                     signal: controller.signal,
                     onMessage: () => undefined,
                     onProgress: () => undefined,
@@ -306,6 +342,12 @@ export class OpenAIConnectionService {
     private async readChatGptConnection(): Promise<OpenAIConnectionMethodStatus> {
         const checkedAt = this.now().toISOString()
         try {
+            const sdk = await this.loadSdk()
+            if (sdk.getChatGptAccounts) {
+                const pool = await sdk.getChatGptAccounts()
+                const usable = pool.accounts.some(account => account.state !== 'needs-sign-in' && Date.parse(account.tokenExpiresAt || '') > this.now().getTime() + 60_000)
+                if (pool.accounts.length && usable) return { method: 'chatgpt', provider: 'openai-codex', configured: true, verified: true, label: 'ChatGPT connected', detail: null, checkedAt }
+            }
             const account = await this.loadAccount()
             const status = await account.buildChatGptAccountStatus('openai-codex', { includeUsage: false, refreshCredential: false })
             const configured = status.status?.configured === true
@@ -379,6 +421,11 @@ export class OpenAIConnectionService {
 
     private async verifyChatGptConnection(): Promise<OnboardingAuthStatus> {
         const checkedAt = this.now().toISOString()
+        const sdk = await this.loadSdk()
+        if (sdk.getChatGptAccounts) {
+            const pool = await sdk.getChatGptAccounts()
+            if (pool.accounts.some(account => account.state !== 'needs-sign-in' && Date.parse(account.tokenExpiresAt || '') > this.now().getTime() + 60_000)) return { checking: false, verified: true, method: 'chatgpt', provider: 'openai-codex', label: 'ChatGPT connected', detail: null, checkedAt }
+        }
         const account = await this.loadAccount()
         const status = await account.buildChatGptAccountStatus('openai-codex', { includeUsage: false, refreshCredential: false })
         if (!isUsableSubscription(status)) {

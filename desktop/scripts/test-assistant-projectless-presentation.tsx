@@ -38,7 +38,8 @@ const explicitChip = render(createElement(AssistantNewChatProjectChip, { project
 assert.match(explicitChip, /Project context: Legacy app/)
 const sidebar = render(createElement(AssistantAgentInboxSidebar, { sessions: [projectless, legacy], activeSessionId: projectless.id, activeThreadId: thread.id, commandPending: false, pendingControlThreadIds: new Set(), projectIconOverrides: {}, headerActions: null, onCreateProjectChat: () => {}, onSelectSession: () => {}, onRename: () => {}, getSessionMenuItems: () => [], onOpenContextMenu: () => {} }))
 assert.match(sidebar, /data-agent-inbox-layout-id="projectless"/)
-assert.match(sidebar, />No project</)
+assert.match(sidebar, />Chat</)
+assert.doesNotMatch(sidebar, />No project</)
 assert.match(sidebar, />Legacy app</)
 assert.doesNotMatch(sidebar, /Implicit work folder|Documents/)
 const actualProject = { id: 'project-explicit', name: 'Zyra app', folders: [{ path: 'C:/work/zyra' }] } as AssistantProject
@@ -54,7 +55,8 @@ assert.equal(groups.find(group => group.label === 'No project')?.sessions[0]?.id
 const catalogSidebar = render(createElement(AssistantAgentInboxSidebar, { sessions: catalogSessions, projects: [actualProject], activeSessionId: projectless.id, activeThreadId: thread.id, commandPending: false, pendingControlThreadIds: new Set(), projectIconOverrides: {}, headerActions: null, onCreateProjectChat: () => {}, onSelectSession: () => {}, onRename: () => {}, getSessionMenuItems: () => [], onOpenContextMenu: () => {} }))
 assert.doesNotMatch(catalogSidebar, /Implicit work folder|Documents/)
 assert.match(catalogSidebar, />Zyra app</)
-assert.match(catalogSidebar, />No project</)
+assert.match(catalogSidebar, />Chat</)
+assert.doesNotMatch(catalogSidebar, />No project</)
 const separateProject = { ...actualProject, id: 'project-second', name: 'Another deliberate Project' }
 const distinctGroups = groupSessionsByProject([explicitSession, { ...explicitSession, id: 'other-project-chat', projectId: separateProject.id }], {}, [actualProject, separateProject])
 assert.equal(distinctGroups.length, 2, 'separate user-created Projects sharing a folder keep distinct menu identities')

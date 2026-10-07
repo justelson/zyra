@@ -1,4 +1,5 @@
 import type { RuntimeActivationStatus } from '../runtime-activation'
+import type { ChatGptAccountsUpdate, ChatGptPoolSnapshot } from '../onboarding/contracts'
 import type { BrowserExtensionRecord } from '../browser-extensions'
 import type { BrowserRecordingOverlayCommand, BrowserRecordingOverlayPresentation, BrowserRecordingOverlayState } from './browser-recording-overlay'
 import type { NativeOverlayApi } from './native-overlay'
@@ -569,6 +570,8 @@ export interface DevScopeSecretsApi {
 }
 
 export interface DevScopeOnboardingApi {
+    getChatGptAccounts: (input?: { refreshUsage?: boolean }) => Promise<DevScopeResult<{ pool: ChatGptPoolSnapshot }>>
+    updateChatGptAccounts: (input: ChatGptAccountsUpdate) => Promise<DevScopeResult<{ pool: ChatGptPoolSnapshot }>>
     getState: () => Promise<DevScopeResult<{ snapshot: OnboardingSnapshot }>>
     connectModelProvider: (input: ModelProviderInput) => Promise<DevScopeResult<{ connection: ModelProviderConnection }>>
     disconnectModelProvider: (provider: string) => Promise<DevScopeResult<{ provider: string }>>

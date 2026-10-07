@@ -3,6 +3,7 @@ import { readDelegationPreferences, saveDelegationPreferences, delegationSetting
 import { connectHarnessProvider, connectModelProvider, disconnectHarnessProvider, disconnectModelProvider, listModelProviders } from "./provider-connections.mjs";
 import { HARNESS_PROVIDER_ID, detectHarness } from "./opencode-harness.mjs";
 import { parentPort } from "node:worker_threads";
+import { getChatGptAccounts, updateChatGptAccounts } from './chatgpt-pool-service.mjs';
 import {
   configureZyraOpenAIApiKey,
   getZyraAuthStatus,
@@ -28,6 +29,8 @@ function messageFor(error) {
 
 async function execute(message, signal) {
   switch (message.operation) {
+    case 'getChatGptAccounts': return getChatGptAccounts(message.options);
+    case 'updateChatGptAccounts': return updateChatGptAccounts(message.input);
     case "readDelegationPreferences": return delegationSettingsSnapshot(readDelegationPreferences());
     case "saveDelegationPreferences": return delegationSettingsSnapshot(await saveDelegationPreferences(message.input));
     case "readRoleModels": return readRoleModels();
@@ -56,6 +59,7 @@ async function execute(message, signal) {
     case "loginZyraAuth":
       return loginZyraAuth(message.provider, {
         signInMethod: message.signInMethod,
+        accountId: message.accountId,
         signal,
         onAuth: (info) => parentPort.postMessage({ type: "auth", id: message.id, info }),
         onDeviceCode: (info) => parentPort.postMessage({ type: "deviceCode", id: message.id, info }),

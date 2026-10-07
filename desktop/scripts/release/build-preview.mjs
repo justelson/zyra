@@ -28,9 +28,17 @@ export function previewBuilderConfig(build, output) {
         fileAssociations: [],
         protocols: [],
         publish: null,
+        // Dependency source maps are diagnostic artifacts, not runtime assets.
+        // Keep the staged source manifest intact and preserve native/WASM data.
+        extraResources: build.extraResources?.map(resource => typeof resource === 'object'
+            && /^zyra-runtime(?:\/node_modules)?$/.test(resource.to)
+            ? { ...resource, filter: [...(Array.isArray(resource.filter) ? resource.filter : [resource.filter || '**/*']), resource.to.endsWith('/node_modules') ? '!**/*.{js,cjs,mjs,css}.map' : '!node_modules/**/*.{js,cjs,mjs,css}.map'] }
+            : resource),
         directories: { ...build.directories, output },
         win: { ...build.win, icon: 'resources/icon-dev.ico', artifactName: 'Zyra-Preview-${version}-Windows-${arch}.${ext}' },
-        nsis: { ...build.nsis, installerIcon: 'resources/icon-dev.ico', uninstallerIcon: 'resources/icon-dev.ico', include: 'build/preview-installer.nsh', differentialPackage: false, oneClick: true, perMachine: false, allowToChangeInstallationDirectory: false }
+        // ZIP uses NSIS's checked direct extraction instead of writing the full
+        // payload into 7z-out and copying every file a second time.
+        nsis: { ...build.nsis, installerIcon: 'resources/icon-dev.ico', uninstallerIcon: 'resources/icon-dev.ico', include: 'build/preview-installer.nsh', differentialPackage: false, useZip: true, oneClick: true, perMachine: false, allowToChangeInstallationDirectory: false }
     }
 }
 

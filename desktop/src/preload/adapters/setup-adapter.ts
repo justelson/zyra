@@ -3,6 +3,7 @@ import { ipcRenderer } from 'electron'
 import {
     ONBOARDING_IPC,
     type AccountConnectionAnalyticsInput,
+    type ChatGptAccountsUpdate,
     type AccountConnectionStatusInput,
     type BeginOnboardingReviewInput,
     type CancelOnboardingReviewInput,
@@ -41,6 +42,8 @@ export function createSetupAdapter() {
             updateBrowserIntegrationSecrets: (input: UpdateBrowserIntegrationSecretsInput) => ipcRenderer.invoke(DEVICE_SECRETS_IPC.updateBrowserIntegrationSecrets, input)
         },
         onboarding: {
+            getChatGptAccounts: (input?: { refreshUsage?: boolean }) => ipcRenderer.invoke(ONBOARDING_IPC.getChatGptAccounts, input),
+            updateChatGptAccounts: (input: ChatGptAccountsUpdate) => ipcRenderer.invoke(ONBOARDING_IPC.updateChatGptAccounts, input),
             connectModelProvider: (input: ModelProviderInput) => ipcRenderer.invoke(ONBOARDING_IPC.connectModelProvider, input),
             disconnectModelProvider: (provider: string) => ipcRenderer.invoke(ONBOARDING_IPC.disconnectModelProvider, provider),
             getDelegationPreferences: () => ipcRenderer.invoke(ONBOARDING_IPC.getDelegationPreferences),

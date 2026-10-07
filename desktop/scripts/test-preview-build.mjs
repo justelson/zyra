@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { previewVersion, previewBuilderConfig, preparePreview, previewRequestIdentity } from './release/build-preview.mjs'
-import { getMainFileMatchers, getNodeModuleFileMatcher } from 'app-builder-lib/out/fileMatcher.js'
+import { FileMatcher, getMainFileMatchers, getNodeModuleFileMatcher } from 'app-builder-lib/out/fileMatcher.js'
 import { computeFileSets, computeNodeModuleFileSets, getDestinationPath } from 'app-builder-lib/out/util/appFileCopier.js'
 import { PM } from 'app-builder-lib/out/node-module-collector/index.js'
 import { Platform } from 'app-builder-lib/out/core.js'
@@ -25,6 +25,7 @@ assert.equal(preview.executableName, 'Zyra Preview')
 assert.equal(preview.beforePack, 'hook.cjs')
 assert.equal(preview.nsis.include, 'build/preview-installer.nsh')
 assert.equal(preview.nsis.differentialPackage, false)
+assert.equal(preview.nsis.useZip, true, 'Manual Dev installs extract directly instead of copying the payload twice')
 assert.equal(preview.nsis.oneClick, true, 'Preserve the existing Preview installation directory calculation')
 assert.equal(preview.nsis.perMachine, false)
 assert.equal(preview.nsis.allowToChangeInstallationDirectory, false)
@@ -39,8 +40,27 @@ assert.equal(base.win.icon, 'icon.ico', 'Stable icon remains untouched')
 const desktopBuild = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).build
 const desktopBuildSnapshot = structuredClone(desktopBuild)
 const actualPreviewBuild = previewBuilderConfig(desktopBuild, 'preview-output')
-for (const key of ['asar', 'asarUnpack', 'extraResources']) {
+for (const key of ['asar', 'asarUnpack']) {
     assert.deepEqual(actualPreviewBuild[key], desktopBuild[key], `Preserve actual Desktop ${key}`)
+}
+for (let index = 0; index < desktopBuild.extraResources.length; index++) {
+    const original = desktopBuild.extraResources[index]
+    const filtered = actualPreviewBuild.extraResources[index]
+    assert.equal(filtered.from, original.from)
+    assert.equal(filtered.to, original.to)
+    if (/^zyra-runtime(?:\/node_modules)?$/.test(original.to)) {
+        assert.ok(filtered.filter.includes(original.to.endsWith('/node_modules')
+            ? '!**/*.{js,cjs,mjs,css}.map' : '!node_modules/**/*.{js,cjs,mjs,css}.map'))
+        const source = path.resolve('fixture-runtime')
+        const filter = new FileMatcher(source, path.resolve('fixture-output'), value => value, filtered.filter).createFilter()
+        const prefix = original.to.endsWith('/node_modules') ? '' : 'node_modules/'
+        const file = { isDirectory: () => false, isFile: () => true }
+        assert.equal(filter(path.join(source, `${prefix}provider/dist/index.js.map`), file), false)
+        for (const asset of ['index.js', 'addon.node', 'sql-wasm.wasm', 'routes.map', 'LICENSE'])
+            assert.equal(filter(path.join(source, `${prefix}provider/dist/${asset}`), file), true, `${asset} remains installed`)
+        if (!prefix) continue
+        assert.equal(filter(path.join(source, 'src/runtime/index.js.map'), file), true, 'Manifest-tracked source files remain intact')
+    } else assert.deepEqual(filtered, original)
 }
 assert.deepEqual(actualPreviewBuild.win.extraResources, desktopBuild.win.extraResources,
     'Preserve actual platform extra resources')
@@ -157,8 +177,8 @@ async function testPreviewFileCollection() {
         assert.deepEqual(stable, stableSnapshot, 'Preview configuration must not mutate stable packaging')
         assert.deepEqual(config.asar, stable.asar)
         assert.deepEqual(config.asarUnpack, stable.asarUnpack)
-        assert.deepEqual(config.extraResources, stable.extraResources,
-            'Runtime/extension extra resources keep their independent filters')
+        assert.equal(config.extraResources[0].to, stable.extraResources[0].to)
+        assert.deepEqual(stable, stableSnapshot, 'Dev installer optimizations leave stable configuration intact')
     } finally {
         const resolved = path.resolve(fixtureRoot)
         assert.equal(path.dirname(resolved), path.resolve(tmpdir()), 'Cleanup stays within the temporary fixture root')

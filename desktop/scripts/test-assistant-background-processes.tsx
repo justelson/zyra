@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 
 const directory = await mkdtemp(join(tmpdir(), 'zyra-background-process-test-'))
 const component = resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantThreadBackgroundProcesses.tsx')
@@ -13,6 +14,7 @@ const harness = `
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AssistantThreadBackgroundProcesses } from ${JSON.stringify(component)}
+import { AssistantThreadDetailsWorkspace } from ${JSON.stringify(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantControlWorkspace.tsx'))}
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve } }
@@ -35,6 +37,32 @@ const text = () => document.body.textContent
 const click = async label => { const button = [...document.querySelectorAll('button')].find(b => b.textContent === label || b.getAttribute('aria-label') === label); assert(button, 'button exists: ' + label); await act(async () => button.click()) }
 const settle = async (request, result) => act(async () => request.resolve(result))
 try {
+ const thread = id => ({id, model:'test-model', state:'idle', runtimeMode:'approval-required', activities:[], pendingApprovals:[], pendingUserInputs:[]})
+ window.__assistantState = {commandPending:false, snapshot:{selectedSessionId:'other-session',knownModels:[],sessions:[
+  {id:'session',title:'Pinned details',activeThreadId:'old',threads:[thread('old'),thread('new')]},
+  {id:'other-session',title:'Other chat',activeThreadId:'other-thread',threads:[thread('other-thread')]}
+ ]}}
+ const renderWorkspace = async (active, threadId = 'new', sessionId = 'session') => act(async () => root.render(
+  <AssistantThreadDetailsWorkspace active={active} sessionId={sessionId} threadId={threadId} projectPath={null} fleetSnapshot={null} controlState={null} />))
+ await renderWorkspace(true)
+ assert(reads.length === 1, 'the actual Desktop Thread Details workspace mounts live background controls')
+ assert(JSON.stringify(reads[0].args) === JSON.stringify({sessionId:'session',threadId:'new'}), 'pinned details read their own thread instead of global selection or session active thread')
+ await settle(reads[0], ok([job('workspace-job')]))
+ assert(document.querySelector('[data-testid="assistant-thread-details-workspace"] [aria-label="Background processes"]') && text().includes('workspace-job'), 'processes appear inside the real details workspace')
+ await click('Stop process workspace-job')
+ assert(stops[0].args.sessionId === 'session' && stops[0].args.threadId === 'new' && stops[0].args.jobId === 'workspace-job', 'real workspace stop controls keep the pinned owner')
+ await settle(stops[0], ok())
+ await renderWorkspace(false)
+ assert(timers.size === 0 && !document.querySelector('[aria-label="Background processes"]'), 'inactive retained workspace unmounts controls and polling')
+ window.__assistantState.selectionHydrationKey = 'session:new'
+ await renderWorkspace(true)
+ assert(reads.length === 1, 'hydrating details cannot mount process controls')
+ window.__assistantState.selectionHydrationKey = null
+ await renderWorkspace(true, 'missing-thread')
+ await renderWorkspace(true, 'new', 'missing-session')
+ assert(reads.length === 1, 'missing pinned owners cannot read a fallback thread or another selected chat')
+ await act(async () => root.render(null))
+ reads.length = 0; stops.length = 0
  await render('old')
  assert(text().includes('Loading processes'), 'loading visible')
  await render('new')
@@ -102,13 +130,23 @@ finally { window.setTimeout = nativeTimeout; window.clearTimeout = nativeClear }
 try {
     const source = await readFile(component, 'utf8')
     assert.doesNotMatch(source, /AssistantActivity|activityFeed|getAssistantActivityFeed|latestTurn/, 'saved history cannot infer live processes')
-    const connected = await readFile(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/ConnectedAssistantThreadDetailsPanel.tsx'), 'utf8')
-    assert.match(connected, /backgroundProcesses=\{props\.open && !selection\.selectionHydrating && selection\.selectedSessionId && selection\.activeThreadId/, 'process owner mounts only for open, fixed selection')
-    const panel = await readFile(resolve(import.meta.dir, '../src/renderer/src/pages/assistant/AssistantThreadDetailsPanel.tsx'), 'utf8')
-    assert.match(panel, /\{open && props\.backgroundProcesses\}/, 'closed panel unmounts process controls')
     const build = await Bun.build({
         entrypoints: ['background-process-harness'], target: 'browser',
         plugins: [{ name: 'isolated-harness', setup(builder) {
+            const mockModules = {
+                '@/lib/assistant/store': 'export const useAssistantStoreSelector = selector => selector(window.__assistantState); export const useAssistantStoreActions = () => ({});',
+                '@/lib/settings': 'export const useSettings = () => ({settings:{}});',
+                './useAssistantSessionTurnUsage': 'export const useAssistantSessionTurnUsage = () => ({sessionTurnUsage:null,sessionTurnUsageLoading:false});',
+                './useAssistantPageSidebarState': 'export const SIDEBAR_EFFORT_LABELS = {high:"High"};',
+                './assistant-composer-controller-constants': 'export const getProfileLabel = () => "Supervised";'
+            }
+            builder.onResolve({ filter: /^(?:@\/|@shared\/|\.\/)/ }, args => {
+                if (args.path in mockModules) return {path:args.path, namespace:'mock'}
+                const base = args.path.startsWith('@/') ? resolve(import.meta.dir, '../src/renderer/src', args.path.slice(2))
+                    : args.path.startsWith('@shared/') ? resolve(import.meta.dir, '../src/shared', args.path.slice(8)) : null
+                if (base) return {path:['.ts','.tsx','.js','/index.ts','/index.tsx'].map(suffix => base + suffix).find(existsSync) || base}
+            })
+            builder.onLoad({ filter: /.*/, namespace:'mock' }, args => ({contents:mockModules[args.path],loader:'js'}))
             builder.onResolve({ filter: /^background-process-harness$/ }, () => ({ path: 'harness', namespace: 'fixture' }))
             builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: harness, loader: 'tsx', resolveDir: resolve(import.meta.dir, '..') }))
         } }]

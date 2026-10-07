@@ -2,7 +2,6 @@ import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import { DeferredMarkdownSection } from './DeferredMarkdownSection'
 import { MarkdownInteractionLayer } from '../markdown/MarkdownInteractionLayer'
 import { MARKDOWN_PREVIEW_ACTIVE_HEADING_EVENT, MARKDOWN_PREVIEW_NAVIGATE_EVENT } from '../markdown/markdownHeadingIds'
-import { prewarmMarkdownRenders } from '../MarkdownRenderer'
 import { isMarkdownScrollBusy, markMarkdownScrollActivity } from '../markdown/markdownScrollActivity'
 import {
     markdownDomHeight,
@@ -16,8 +15,10 @@ import {
 import { resolveMarkdownLineAnchor, type MarkdownLineAnchor } from './markdownPreviewModeLocation'
 import {
     readCachedMarkdownPreviewIndex,
-    requestMarkdownPreviewIndex
+    requestMarkdownPreviewIndex,
+    warmMarkdownPreviewIndexWorker
 } from './markdownPreviewIndexWorkerClient'
+import { warmMarkdownPreviewWorker } from './markdownPreviewWorkerClient'
 import {
     buildMarkdownPreviewSections,
     MARKDOWN_VIRTUAL_OVERSCAN_PX,
@@ -44,19 +45,11 @@ function findScrollParent(node: HTMLElement): HTMLElement | null {
 
 const ASYNC_MARKDOWN_INDEX_THRESHOLD = 120_000
 const EMPTY_MARKDOWN_SECTIONS: ReturnType<typeof buildMarkdownPreviewSections> = []
-const MARKDOWN_PREVIEW_WARM_CONTENT = '# Preview\n\nWarm renderer.\n\n```ts\nconst ready = true\n```\n'
-let markdownPreviewRendererWarmed = false
 
 export function warmFileMarkdownPreview(): void {
-    if (markdownPreviewRendererWarmed || typeof window === 'undefined') return
-    markdownPreviewRendererWarmed = true
-    prewarmMarkdownRenders([{
-        content: MARKDOWN_PREVIEW_WARM_CONTENT,
-        filePath: 'zyra-markdown-preview-warmup.md',
-        cacheKey: 'file-preview:warmup',
-        deferCodeHighlighting: true,
-        prewarmCodeBlocks: false
-    }])
+    if (typeof window === 'undefined') return
+    warmMarkdownPreviewWorker()
+    warmMarkdownPreviewIndexWorker()
 }
 
 function equalMarkdownRange(left: MarkdownVirtualRange, right: MarkdownVirtualRange): boolean {
@@ -105,8 +98,10 @@ export default function FileMarkdownPreview({
             request.cancel()
         }
     }, [content, immediateSections])
+    const openingSections = useMemo(() => immediateSections ? EMPTY_MARKDOWN_SECTIONS
+        : buildMarkdownPreviewSections(content.slice(0, 16_000)), [content, immediateSections])
     const sections = immediateSections
-        || (indexedDocument?.content === content ? indexedDocument.sections : EMPTY_MARKDOWN_SECTIONS)
+        || (indexedDocument?.content === content ? indexedDocument.sections : openingSections)
     const renderedDocumentContent = content
     const heightIndex = useMemo(
         () => new MarkdownPreviewHeightIndex(sections.map((section) => section.estimatedHeight)),

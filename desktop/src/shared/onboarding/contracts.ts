@@ -112,7 +112,28 @@ export type ChatGptDeviceCode = {
 export type AccountConnectionAnalyticsInput = {
     analyticsAction?: AccountConnectionAnalyticsAction
     signInMethod?: ChatGptSignInMethod
+    accountId?: string
 }
+
+export type ChatGptRoutingPolicy = {
+    strategy: 'balanced' | 'round-robin' | 'fill-first'
+    accountMode: 'all' | 'selected'
+    accountIds: string[]
+    preferredAccountId: string | null
+}
+export type ChatGptAccountUsageWindow = { usedPercent: number; resetAt: string | null; windowSeconds: number | null }
+export type ChatGptAccountProfile = {
+    id: string; email: string | null; plan: string | null; primary: boolean; enabled: boolean
+    state: 'ready' | 'limited' | 'paused' | 'needs-sign-in'; resetAt: string | null
+    lastUsedAt: string | null; requestCount: number
+    tokenExpiresAt: string | null
+    usage: { primary: ChatGptAccountUsageWindow | null; secondary: ChatGptAccountUsageWindow | null; updatedAt: string } | null
+}
+export type ChatGptPoolSnapshot = { accounts: ChatGptAccountProfile[]; policy: ChatGptRoutingPolicy; checkedAt: string }
+export type ChatGptAccountsUpdate =
+    | { action: 'policy'; policy: ChatGptRoutingPolicy }
+    | { action: 'enabled'; accountId: string; enabled: boolean }
+    | { action: 'remove'; accountId: string; confirmed: true }
 
 export type AccountConnectionStatusInput = {
     analyticsAction?: 'retry'
@@ -177,6 +198,8 @@ export const ONBOARDING_IPC = {
     getAuthStatus: 'zyra:onboarding:get-auth-status',
     getConnectionsStatus: 'zyra:account:get-openai-connections',
     getChatGptDeviceCode: 'zyra:account:get-chatgpt-device-code',
+    getChatGptAccounts: 'zyra:account:get-chatgpt-accounts',
+    updateChatGptAccounts: 'zyra:account:update-chatgpt-accounts',
     connectChatGpt: 'zyra:onboarding:connect-chatgpt',
     cancelChatGpt: 'zyra:onboarding:cancel-chatgpt',
     connectApiKey: 'zyra:onboarding:connect-api-key',

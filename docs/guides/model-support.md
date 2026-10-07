@@ -30,6 +30,8 @@ See [subagents-workflows.md](subagents-workflows.md) for definition formats, con
 
 ## Authentication Methods
 
+Desktop supports [multiple ChatGPT accounts and usage rules](chatgpt-accounts.md) in **Settings > Providers > Limits**.
+
 Zyra treats the active model provider as the active authentication method:
 
 - `openai-codex/*` uses the ChatGPT/Codex subscription connection.

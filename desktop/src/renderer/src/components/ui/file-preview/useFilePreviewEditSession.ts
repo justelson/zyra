@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { summarizeGitDiff, type GitDiffSummary } from './gitDiff'
 import type { PreviewFile } from './types'
 import type { PendingIntent } from './modalShared'
@@ -7,6 +7,7 @@ import { captureProductEvent } from '@/lib/product-analytics'
 type UseFilePreviewEditSessionParams = {
     file: PreviewFile
     content: string
+    loading?: boolean
     truncated?: boolean
     modifiedAt?: number
     projectPath?: string
@@ -19,6 +20,7 @@ type UseFilePreviewEditSessionParams = {
 export function useFilePreviewEditSession({
     file,
     content,
+    loading = false,
     truncated,
     modifiedAt,
     projectPath,
@@ -45,15 +47,19 @@ export function useFilePreviewEditSession({
 
     const isDirty = draftContent !== sourceContent
     const sessionFilePathRef = useRef(file.path)
+    const contentHydratedRef = useRef(!loading)
     const editStateRef = useRef({ mode, isDirty })
     editStateRef.current = { mode, isDirty }
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const fileChanged = sessionFilePathRef.current !== file.path
         sessionFilePathRef.current = file.path
+        const receivingFirstRead = !loading && !contentHydratedRef.current
+        if (fileChanged) contentHydratedRef.current = !loading
+        else if (receivingFirstRead) contentHydratedRef.current = true
         // File watchers and post-save refreshes must not reset an active editor.
         // Explicit reload/revert still owns replacing the current draft.
-        if (!fileChanged && (editStateRef.current.mode === 'edit' || editStateRef.current.isDirty)) return
+        if (!fileChanged && (editStateRef.current.isDirty || (editStateRef.current.mode === 'edit' && !receivingFirstRead))) return
         setMode(initialMode)
         setSourceContent(content)
         setDraftContent(content)
@@ -65,7 +71,7 @@ export function useFilePreviewEditSession({
         pendingExternalActionRef.current = null
         setFileModifiedAt(typeof modifiedAt === 'number' ? modifiedAt : null)
         setConflictModifiedAt(null)
-    }, [content, file.path, initialMode, modifiedAt, truncated])
+    }, [content, file.path, initialMode, loading, modifiedAt, truncated])
 
     useEffect(() => {
         if (isDirty || mode === 'edit') return

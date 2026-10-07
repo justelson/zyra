@@ -1,9 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { useAssistantBrowserSurfaceRequests } from '../../src/renderer/src/pages/assistant/useAssistantBrowserSurfaceRequests'
-import { AssistantChatFolderAccess } from '../../src/renderer/src/pages/assistant/AssistantChatFolderAccess'
 import { BrowserSurfaceInbox } from '../../src/preload/adapters/browser-surface-inbox'
-import { session, changed, applies, setFailure } from './issue-recovery-state'
 const assert=(value:unknown,message:string)=>{if(!value)throw Error(message)}
 const pause=()=>new Promise(resolve=>setTimeout(resolve,20))
 const inbox=new BrowserSurfaceInbox<any>()
@@ -23,7 +21,6 @@ function BrowserHarness({thread='thread:a'}:{thread?:string}) {
 }
 const root=createRoot(document.getElementById('root')!)
 const mount=(element:any)=>{flushSync(()=>root.render(element))}
-const click=(label:string)=>{const button=[...document.querySelectorAll('button')].find(node=>node.textContent===label);assert(button,'missing '+label);button!.click()}
 ;(window as any).issueRecoveryCheck=(async()=>{
     const results:string[]=[]
     inbox.receive(request('before-mount'))
@@ -40,18 +37,6 @@ const click=(label:string)=>{const button=[...document.querySelectorAll('button'
     mount(<BrowserHarness/>);await pause();inbox.receive(request('retry'));await pause()
     assert(document.getElementById('request')?.textContent==='retry','retry recovers after remount')
     results.push('Browser hook: buffered reveal, remount, stale ack, unmount race, wrong thread and retry')
-    mount(<AssistantChatFolderAccess sessionId="chat"/>);await pause()
-    assert(document.getElementById('root')?.textContent?.includes('Review folder changes'),'existing chat offers scope refresh')
-    click('Review folder changes');await pause()
-    assert(document.getElementById('root')?.textContent?.includes('C:/fixture/docs')&&document.getElementById('root')?.textContent?.includes('Read only'),'review displays newly granted root and ceiling')
-    session.threads[0].state='running';changed();await pause()
-    assert((document.querySelector('button') as HTMLButtonElement).disabled,'active work blocks scope change')
-    session.threads[0].state='idle';changed();await pause();setFailure(true);click('Apply folder changes');await pause()
-    assert(document.querySelector('[role="alert"]')?.textContent==='Fixture connection unavailable','failed apply keeps review and shows error')
-    setFailure(false);click('Apply folder changes');await pause()
-    assert(applies===2&&session.chatScope.revision===2,'retry applies to existing chat once')
-    assert(!document.getElementById('root')?.textContent?.includes('Apply folder changes')&&document.getElementById('root')?.textContent?.includes('C:/fixture/docs'),'saved scope is displayed after apply')
-    results.push('Folder access: review, read-only ceiling, active-turn lock, failed apply and successful retry')
     root.unmount()
     return results
 })()

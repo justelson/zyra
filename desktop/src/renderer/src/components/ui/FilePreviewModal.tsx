@@ -7,21 +7,17 @@ import {
 } from '@dnd-kit/core'
 import { addOverlayEventListener, createOverlayPortal as createPortal } from './native-overlay-portal'
 import { getParentFolderPath } from '@/lib/filesystem/fileSystemPaths'
-import { getAppearanceCodeFontStack, useSettings } from '@/lib/settings'
-import { isEditableFileType, PREVIEW_TERMINAL_MIN_HEIGHT } from './file-preview/modalShared'
+import { useSettings } from '@/lib/settings'
+import { isEditableFileType } from './file-preview/modalShared'
 import type { FilePreviewModalProps } from './file-preview/modalTypes'
 import type { PreviewMediaItem } from './file-preview/types'
 import { PreviewModalLayout } from './file-preview/PreviewModalLayout'
-import { PreviewPythonOutputPanel } from './file-preview/PreviewPythonOutputPanel'
-import { PreviewTerminalPanel } from './file-preview/PreviewTerminalPanel'
 import { useFilePreviewModalAnalysis } from './file-preview/useFilePreviewModalAnalysis'
 import { useFilePreviewModalInteractions } from './file-preview/useFilePreviewModalInteractions'
 import { useFilePreviewNavigationHistory } from './file-preview/useFilePreviewNavigationHistory'
 import { useFilePreview } from './file-preview/useFilePreview'
 import { useFilePreviewChrome } from './file-preview/useFilePreviewChrome'
 import { useFilePreviewEditSession } from './file-preview/useFilePreviewEditSession'
-import { useFilePreviewPython } from './file-preview/useFilePreviewPython'
-import { useFilePreviewTerminal } from './file-preview/useFilePreviewTerminal'
 import { usePreviewSiblingMediaItems } from './file-preview/usePreviewSiblingMediaItems'
 import { readFilePreviewPanelPreferences, writeFilePreviewPanelPreferences } from './file-preview/filePreviewPanelPreferences'
 import { resolveFilePreviewChromePolicy } from './file-preview/filePreviewChromePolicy'
@@ -64,13 +60,13 @@ export function FilePreviewModal({
     onShowToast,
     onClose
 }: FilePreviewModalProps) {
-    const { settings, updateSettings } = useSettings()
+    const { settings } = useSettings()
     const chromePolicy = resolveFilePreviewChromePolicy(chromeContext)
     const isDirectory = file.type === 'directory'
     const isCsv = file.type === 'csv'
     const isHtml = file.type === 'html'
     const previewModeEnabled = file.type === 'md' || file.type === 'csv' || file.type === 'html'
-    const canEdit = !readOnly && isEditableFileType(file.type)
+    const canEdit = !readOnly && !file.readError && !loading && isEditableFileType(file.type)
     const defaultMode: 'preview' | 'edit' = !previewModeEnabled && canEdit
         ? 'edit'
         : canEdit ? settings.filePreviewDefaultMode : 'preview'
@@ -109,9 +105,6 @@ export function FilePreviewModal({
     const defaultLeftPanelOpen = navigatorInitiallyAvailable
         && (hasNavigationSidebarOverride || navigatorRequested || settings.filePreviewFullscreenShowLeftPanel)
     const defaultRightPanelOpen = initialMode === 'edit' && settings.filePreviewFullscreenShowRightPanel
-    const canRunPython = !readOnly && file.type === 'code'
-        && (file.language === 'python' || /\.py$/i.test(file.name) || /\.py$/i.test(file.path))
-    const canUsePreviewTerminal = !readOnly && Boolean(projectPath || file.path)
     const resolvedPreviewTabs = useMemo(
         () => (previewTabs && previewTabs.length > 0 ? previewTabs : [{ id: file.path || file.name, file }]),
         [file, previewTabs]
@@ -131,10 +124,6 @@ export function FilePreviewModal({
     const handlePanelWidthCommit = useCallback((side: 'left' | 'right', width: number) => {
         writeFilePreviewPanelPreferences(side === 'left' ? { leftWidth: width } : { rightWidth: width })
     }, [])
-    const terminalInitialHeight = Math.max(
-        PREVIEW_TERMINAL_MIN_HEIGHT,
-        Math.min(720, Math.round(settings.filePreviewTerminalPanelHeight || 220))
-    )
 
     const {
         mode,
@@ -165,6 +154,7 @@ export function FilePreviewModal({
     } = useFilePreviewEditSession({
         file,
         content,
+        loading,
         truncated,
         modifiedAt: modifiedAt ?? undefined,
         projectPath,
@@ -257,75 +247,6 @@ export function FilePreviewModal({
     }, [chromePolicy.allowFullscreen, isExpanded, setIsExpanded])
 
     const {
-        setTerminalVisible,
-        terminalSessions,
-        terminalState,
-        terminalPanelPhase,
-        terminalGroupKey,
-        terminalHeight,
-        terminalError,
-        terminalShellLabel,
-        terminalNewShell,
-        setTerminalNewShell,
-        currentTerminalSession,
-        terminalTheme,
-        terminalHostRef,
-        shouldShowTerminalPanel,
-        renderTerminalPanel,
-        queueTerminalCommand,
-        clearTerminalOutput,
-        focusTerminal,
-        createPreviewTerminalSession,
-        stopPreviewTerminalSession,
-        selectPreviewTerminalSession,
-        startTerminalResize
-    } = useFilePreviewTerminal({
-        canUsePreviewTerminal,
-        file,
-        projectPath,
-        defaultShell: settings.defaultShell,
-        accentColorPrimary: settings.accentColor.primary,
-        themeKey: settings.theme,
-        initialHeight: terminalInitialHeight,
-        fontSize: settings.terminalFontSize,
-        fontFamily: getAppearanceCodeFontStack(settings.appearanceCodeFont),
-        cursorBlink: settings.terminalCursorBlink,
-        scrollback: settings.terminalScrollback,
-        persistHeight: (height) => {
-            if (settings.filePreviewTerminalPanelHeight === height) return
-            updateSettings({ filePreviewTerminalPanelHeight: height })
-        }
-    })
-
-    const {
-        pythonRunState,
-        pythonRunMode,
-        setPythonRunMode,
-        pythonOutputEntries,
-        pythonInterpreter,
-        pythonCommand,
-        pythonOutputVisible,
-        pythonOutputHeight,
-        pythonShowTimestamps,
-        setPythonShowTimestamps,
-        pythonOutputScrollRef,
-        handleRunPython,
-        stopPythonRun,
-        clearPythonOutput,
-        startPythonOutputResize
-    } = useFilePreviewPython({
-        canRunPython,
-        file,
-        projectPath,
-        mode,
-        isDirty,
-        defaultRunMode: settings.filePreviewPythonRunMode,
-        handleSave,
-        queueTerminalCommand,
-        defaultShell: settings.defaultShell
-    })
-
-    const {
         folderTreeRefreshToken,
         dndSensors,
         openMediaItem,
@@ -388,11 +309,6 @@ export function FilePreviewModal({
             expanded: effectiveIsExpanded
         })
     }, [effectiveIsExpanded, file.name, file.path, mode, onViewStateChange])
-
-    useEffect(() => {
-        if (settings.filePreviewPythonRunMode === pythonRunMode) return
-        updateSettings({ filePreviewPythonRunMode: pythonRunMode })
-    }, [pythonRunMode, settings.filePreviewPythonRunMode, updateSettings])
 
     const handleModeChange = useCallback(async (nextMode: 'preview' | 'edit') => {
         if (nextMode === mode) return
@@ -458,40 +374,8 @@ export function FilePreviewModal({
         draftContent,
         isDirty
     })
-    const showPythonOutputPanel = canRunPython && (pythonOutputVisible || pythonRunState !== 'idle')
-    const hasBottomPanel = showPythonOutputPanel
-    const centerHtmlRenderedPreview = isHtmlRenderedPreview && !hasBottomPanel
+    const centerHtmlRenderedPreview = isHtmlRenderedPreview
     const flushResponsiveHtmlPreview = isHtmlRenderedPreview && viewport === 'responsive' && !effectiveIsExpanded
-
-    const pythonOutputPanel = showPythonOutputPanel ? (
-        <PreviewPythonOutputPanel fileName={file.name} visible={showPythonOutputPanel} runState={pythonRunState} interpreter={pythonInterpreter} command={pythonCommand} entries={pythonOutputEntries} height={pythonOutputHeight} showTimestamps={pythonShowTimestamps} scrollRef={pythonOutputScrollRef} onResizeStart={startPythonOutputResize} onToggleTimestamps={() => setPythonShowTimestamps((current) => !current)} onClear={clearPythonOutput} />
-    ) : null
-
-    const terminalPanel = renderTerminalPanel ? (
-        <PreviewTerminalPanel
-            render={renderTerminalPanel}
-            phase={terminalPanelPhase}
-            height={terminalHeight}
-            state={terminalState}
-            shellLabel={terminalShellLabel}
-            sessions={terminalSessions}
-            groupKey={terminalGroupKey}
-            currentSession={currentTerminalSession}
-            themeBackground={terminalTheme.background}
-            hostRef={terminalHostRef}
-            onHostInteract={focusTerminal}
-            error={terminalError}
-            onResizeStart={startTerminalResize}
-            newShell={terminalNewShell}
-            onNewShellChange={setTerminalNewShell}
-            onNew={(shell) => { void createPreviewTerminalSession(shell) }}
-            onClear={clearTerminalOutput}
-            onStop={(sessionId) => { void stopPreviewTerminalSession(sessionId) }}
-            onMinimize={() => setTerminalVisible(false)}
-            onSelect={selectPreviewTerminalSession}
-        />
-    ) : null
-    const previewBottomOverlayPadding = 0
 
     const modalContent = (
         <PreviewModalLayout
@@ -549,14 +433,6 @@ export function FilePreviewModal({
             setViewport={setViewport}
             csvDistinctColorsEnabled={csvDistinctColorsEnabled}
             setCsvDistinctColorsEnabled={setCsvDistinctColorsEnabled}
-            pythonRunState={pythonRunState}
-            pythonRunMode={pythonRunMode}
-            pythonHasOutput={pythonOutputEntries.length > 0}
-            setPythonRunMode={setPythonRunMode}
-            canRunPython={canRunPython}
-            onRunPython={handleRunPython}
-            onStopPython={stopPythonRun}
-            onClearPythonOutput={clearPythonOutput}
             onOpenInBrowser={handleOpenInBrowser}
             gitDiffText={gitDiffText}
             gitDiffSummary={gitDiffSummary}
@@ -579,7 +455,6 @@ export function FilePreviewModal({
             isCompactHtmlViewport={isCompactHtmlViewport}
             centerHtmlRenderedPreview={centerHtmlRenderedPreview}
             flushResponsiveHtmlPreview={flushResponsiveHtmlPreview}
-            hasBottomPanel={hasBottomPanel}
             onOpenLinkedPreview={handleOpenLinkedPreview}
             onOpenLinkedPreviewInNewTab={handleOpenLinkedPreviewInNewTab}
             folderTreeRefreshToken={folderTreeRefreshToken}
@@ -595,10 +470,7 @@ export function FilePreviewModal({
             trailingWhitespaceCount={trailingWhitespaceCount}
             jsonDiagnostic={jsonDiagnostic}
             isEditorToolsEnabled={isEditorToolsEnabled}
-            pythonPanel={pythonOutputPanel}
             previewBody={previewBody}
-            previewBottomOverlay={terminalPanel}
-            previewBottomOverlayPadding={previewBottomOverlayPadding}
             showUnsavedModal={showUnsavedModal}
             conflictModifiedAt={conflictModifiedAt}
             previewModeEnabled={previewModeEnabled}

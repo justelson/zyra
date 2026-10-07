@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type SetStateAction } from 'react'
 import type { PreviewFile, PreviewMediaItem, PreviewMediaSource, PreviewOpenOptions, PreviewTab } from './types'
 import { readPreviewContentCache, writePreviewContentCache, type PreviewContentSnapshot } from './preview-content-cache'
 import { isMediaPreviewType, resolvePreviewType } from './utils'
@@ -77,9 +77,13 @@ function normalizePreviewContent(content: unknown): string {
 }
 
 export function preloadPreviewRenderer(type: PreviewFile['type']): void {
-    if (type === 'md') void import('./FileMarkdownPreview').then((module) => module.warmFileMarkdownPreview())
-    else if (type === 'csv') void import('./CsvPreviewTable')
-    else if (type === 'code' || type === 'text' || type === 'json') void import('./MonacoPreviewEditor')
+    void preparePreviewRenderer(type).catch(() => undefined)
+}
+
+async function preparePreviewRenderer(type: PreviewFile['type']): Promise<void> {
+    if (type === 'md') (await import('./FileMarkdownPreview')).warmFileMarkdownPreview()
+    else if (type === 'csv') await import('./CsvPreviewTable')
+    else if (type === 'code' || type === 'text' || type === 'json') await import('./MonacoPreviewEditor')
 }
 
 async function loadPreviewContentSnapshot(filePath: string): Promise<PreviewContentSnapshot> {
@@ -150,11 +154,20 @@ function normalizeMediaItems(items?: PreviewMediaSource[]): PreviewMediaItem[] {
 }
 
 export function useFilePreview(): UseFilePreviewReturn {
-    const [previewTabsState, setPreviewTabsState] = useState<PreviewTabState[]>([])
+    const [previewTabsState, commitPreviewTabsState] = useState<PreviewTabState[]>([])
+    const previewTabsRef = useRef<PreviewTabState[]>([])
+    const setPreviewTabsState = useCallback((update: SetStateAction<PreviewTabState[]>) => {
+        const next = typeof update === 'function' ? update(previewTabsRef.current) : update
+        previewTabsRef.current = next
+        commitPreviewTabsState(next)
+    }, [])
     const [activePreviewTabId, setActivePreviewTabId] = useState<string | null>(null)
+    const [openingRequestId, setOpeningRequestId] = useState<number | null>(null)
     const activePreviewRequestIdRef = useRef(0)
     const previewRequestByTabRef = useRef(new Map<string, number>())
     const focusLineRequestIdRef = useRef(0)
+    const pendingOpenIdRef = useRef(0)
+    const previewCloseGenerationRef = useRef(0)
     const activePreviewTab = useMemo(
         () => previewTabsState.find((tab) => tab.id === activePreviewTabId) || null,
         [activePreviewTabId, previewTabsState]
@@ -247,6 +260,32 @@ export function useFilePreview(): UseFilePreviewReturn {
             return
         }
         preloadPreviewRenderer(previewTarget.type)
+        const startedAt = performance.now()
+        const openingId = ++pendingOpenIdRef.current
+        const closeGeneration = previewCloseGenerationRef.current
+        const cached = previewTarget.needsContent ? readPreviewContentCache(sharedPreviewContentCache, file.path) : null
+        let openingSnapshot = cached
+        let readError: string | undefined
+        if (previewTarget.needsContent && !cached) {
+            setOpeningRequestId(openingId)
+            // Read and prepare the renderer together, then publish a complete tab.
+            // Keep the current file visible until the replacement is ready.
+            try {
+                const [snapshot] = await Promise.all([loadPreviewContentSnapshot(file.path), preparePreviewRenderer(previewTarget.type)])
+                openingSnapshot = snapshot
+            } catch (error) {
+                readError = error instanceof Error ? error.message : 'Could not open this file.'
+            }
+            setOpeningRequestId(current => current === openingId ? null : current)
+            if (previewCloseGenerationRef.current !== closeGeneration || (mode === 'replace' && pendingOpenIdRef.current !== openingId)) return
+            captureProductEvent({ event: 'zyra_v1_files', properties: {
+                action: 'preview', outcome: readError ? 'failed' : 'completed',
+                preview_kind: analyticsPreviewKind(previewTarget.type),
+                size_bucket: analyticsSizeBucket(openingSnapshot?.size ?? null),
+                duration_ms: performance.now() - startedAt,
+                ...(readError ? { error_code: 'unknown' as const } : {})
+            } })
+        }
         const captureContentlessPreview = () => {
             if (!previewTarget.needsContent) {
                 captureProductEvent({ event: 'zyra_v1_files', properties: { action: 'preview', outcome: 'completed', preview_kind: analyticsPreviewKind(previewTarget.type), size_bucket: 'unknown' } })
@@ -269,6 +308,7 @@ export function useFilePreview(): UseFilePreviewReturn {
             path: file.path,
             type: previewTarget.type,
             language: 'language' in previewTarget ? previewTarget.language : undefined,
+            readError,
             startInEditMode: options?.startInEditMode === true,
             focusLine: requestedFocusLine,
             focusLineRequestId,
@@ -279,16 +319,18 @@ export function useFilePreview(): UseFilePreviewReturn {
                 : null
         }
         const nextMediaItems = normalizeMediaItems(options?.mediaItems)
-        const existingTab = previewTabsState.find((tab) => tab.file.path.toLowerCase() === file.path.toLowerCase()) || null
+        const normalizeTabPath = (path: string) => /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\') ? path.replace(/\\/g, '/').toLowerCase() : path
+        const existingTab = previewTabsRef.current.find((tab) => normalizeTabPath(tab.file.path) === normalizeTabPath(file.path)) || null
 
         if (existingTab) {
             updatePreviewTab(existingTab.id, (tab) => ({
                 ...tab,
+                ...(!cached && openingSnapshot ? openingSnapshot : {}),
                 file: nextFile,
                 mediaItems: nextMediaItems
             }))
-            setActivePreviewTabId(existingTab.id)
-            if (previewTarget.needsContent && !existingTab.content && !existingTab.loading) {
+            if (pendingOpenIdRef.current === openingId) setActivePreviewTabId(existingTab.id)
+            if (previewTarget.needsContent && cached && !existingTab.loading && !readError) {
                 await loadPreviewTabContent(existingTab.id, file, ext)
             }
             captureContentlessPreview()
@@ -296,7 +338,7 @@ export function useFilePreview(): UseFilePreviewReturn {
         }
 
         let targetTabId: string
-        let shouldLoad = previewTarget.needsContent
+        const shouldLoad = previewTarget.needsContent && Boolean(cached)
 
         if (mode === 'replace' && activePreviewTabId) {
             targetTabId = activePreviewTabId
@@ -307,12 +349,12 @@ export function useFilePreview(): UseFilePreviewReturn {
                         ...tab,
                         file: nextFile,
                         mediaItems: nextMediaItems,
-                        content: '',
-                        loading: previewTarget.needsContent,
-                        truncated: false,
-                        size: null,
-                        previewBytes: null,
-                        modifiedAt: null,
+                        content: openingSnapshot?.content ?? '',
+                        loading: false,
+                        truncated: openingSnapshot?.truncated ?? false,
+                        size: openingSnapshot?.size ?? null,
+                        previewBytes: openingSnapshot?.previewBytes ?? null,
+                        modifiedAt: openingSnapshot?.modifiedAt ?? null,
                         requestId: 0
                     }
                     : tab
@@ -323,12 +365,12 @@ export function useFilePreview(): UseFilePreviewReturn {
                 id: targetTabId,
                 file: nextFile,
                 mediaItems: nextMediaItems,
-                content: '',
-                loading: previewTarget.needsContent,
-                truncated: false,
-                size: null,
-                previewBytes: null,
-                modifiedAt: null,
+                content: openingSnapshot?.content ?? '',
+                loading: false,
+                truncated: openingSnapshot?.truncated ?? false,
+                size: openingSnapshot?.size ?? null,
+                previewBytes: openingSnapshot?.previewBytes ?? null,
+                modifiedAt: openingSnapshot?.modifiedAt ?? null,
                 requestId: 0
             }
             setPreviewTabsState((currentTabs) => {
@@ -344,7 +386,7 @@ export function useFilePreview(): UseFilePreviewReturn {
             })
         }
 
-        setActivePreviewTabId(targetTabId)
+        if (pendingOpenIdRef.current === openingId) setActivePreviewTabId(targetTabId)
         captureContentlessPreview()
 
         if (shouldLoad) {
@@ -365,6 +407,7 @@ export function useFilePreview(): UseFilePreviewReturn {
     ) => openPreviewWithMode(file, ext, options, 'new-tab')
 
     const setActivePreviewTab = useCallback((tabId: string) => {
+        pendingOpenIdRef.current += 1
         setActivePreviewTabId((currentActiveTabId) => {
             if (!previewTabsState.some((tab) => tab.id === tabId)) return currentActiveTabId
             return tabId
@@ -372,6 +415,7 @@ export function useFilePreview(): UseFilePreviewReturn {
     }, [previewTabsState])
 
     const closePreviewTab = useCallback((tabId: string) => {
+        previewCloseGenerationRef.current += 1
         previewRequestByTabRef.current.delete(tabId)
         setPreviewTabsState((currentTabs) => {
             const targetIndex = currentTabs.findIndex((tab) => tab.id === tabId)
@@ -400,6 +444,9 @@ export function useFilePreview(): UseFilePreviewReturn {
     }, [])
 
     const closePreview = () => {
+        previewCloseGenerationRef.current += 1
+        pendingOpenIdRef.current += 1
+        setOpeningRequestId(null)
         activePreviewRequestIdRef.current += 1
         previewRequestByTabRef.current.clear()
         setPreviewTabsState([])
@@ -412,7 +459,7 @@ export function useFilePreview(): UseFilePreviewReturn {
         previewFile: activePreviewTab?.file || null,
         previewMediaItems: activePreviewTab?.mediaItems || [],
         previewContent: activePreviewTab?.content || '',
-        loadingPreview: activePreviewTab?.loading || false,
+        loadingPreview: activePreviewTab?.loading || (!activePreviewTab && openingRequestId !== null),
         previewTruncated: activePreviewTab?.truncated || false,
         previewSize: activePreviewTab?.size ?? null,
         previewBytes: activePreviewTab?.previewBytes ?? null,

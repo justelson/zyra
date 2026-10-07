@@ -1,5 +1,6 @@
 import { openDesktopLink } from '@/lib/desktop-links'
-import { useEffect, type RefObject } from 'react'
+import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { MarkdownLinkContextMenu, type MarkdownLinkMenuTarget } from './MarkdownLinkContextMenu'
 import { hasActiveTextSelection } from './fileReferences'
 import { inspectMarkdownLinkAvailability } from './linkAvailability'
 import { isMarkdownScrollBusy } from './markdownScrollActivity'
@@ -89,10 +90,11 @@ function applyLinkState(
         return
     }
 
-    target.removeAttribute('aria-disabled')
+    if (state === 'checking' || state === 'unknown') target.setAttribute('aria-disabled', 'true')
+    else target.removeAttribute('aria-disabled')
     if (state === 'checking') target.title = `Checking link: ${targetPath}`
     if (state === 'available') target.title = `Open: ${targetPath}`
-    if (state === 'unknown') target.title = `Could not verify this link. Click to try: ${targetPath}`
+    if (state === 'unknown') target.title = `Could not verify this link: ${targetPath}`
 }
 
 const SANITIZED_FRAGMENT_PREFIX = 'user-content-'
@@ -137,6 +139,14 @@ export function MarkdownInteractionLayer({
     onLinkNotice,
     onAnchorLinkClick
 }: MarkdownInteractionLayerProps) {
+    const [menuTarget, setMenuTarget] = useState<MarkdownLinkMenuTarget | null>(null)
+    const closeMenu = useCallback((options?: { restoreFocus?: boolean }) => {
+        setMenuTarget((target) => {
+            if (options?.restoreFocus && target?.element.isConnected) target.element.focus({ preventScroll: true })
+            return null
+        })
+    }, [])
+    useEffect(() => closeMenu(), [contentKey, filePath, searchRootPath, closeMenu])
     useEffect(() => {
         const root = rootRef.current
         if (!root) return
@@ -267,7 +277,13 @@ export function MarkdownInteractionLayer({
             }
 
             const internalTarget = resolveMarkdownLinkTarget(rawHref, filePath)
-            if (!internalTarget) return
+            if (!internalTarget) {
+                if (target.hasAttribute('data-markdown-file-link')) {
+                    event.preventDefault()
+                    onLinkNotice?.('The working folder for this file link is not available yet.', 'error')
+                }
+                return
+            }
 
             // Local Markdown targets must never fall through to browser/app routing.
             event.preventDefault()
@@ -276,18 +292,26 @@ export function MarkdownInteractionLayer({
             markdownLinkRequestSequence += 1
             const requestToken = `${markdownLinkRequestSequence}:${rawHref}`
             target.dataset.markdownLinkRequest = requestToken
-            const availability = await inspectMarkdownLinkAvailability(rawHref, filePath, searchRootPath)
-            if (!root.contains(target) || getTargetHref(target) !== rawHref || target.dataset.markdownLinkRequest !== requestToken) return
+            const availability = await inspectMarkdownLinkAvailability(rawHref, filePath, searchRootPath, {
+                force: true,
+                allowProjectSearch: !target.dataset.devscopeFileReference
+            })
+            if (disposed || !root.contains(target) || getTargetHref(target) !== rawHref || target.dataset.markdownLinkRequest !== requestToken) return
             delete target.dataset.markdownLinkRequest
             if (availability?.availability === 'missing') {
                 applyLinkState(target, 'missing', availability.path)
                 onLinkNotice?.(`Broken link — file not found: ${availability.path}`, 'error')
                 return
             }
-            if (availability) {
-                applyLinkState(target, availability.availability, availability.path, availability.targetKind)
+            if (availability?.availability !== 'available') {
+                applyLinkState(target, 'unknown', availability?.path || internalTarget.path)
+                onLinkNotice?.(`Could not verify this file: ${availability?.path || internalTarget.path}`, 'error')
+                return
             }
-            const openTarget = availability?.resolvedBy === 'project-search' ? availability.path : rawHref
+            applyLinkState(target, availability.availability, availability.path, availability.targetKind)
+            const openTarget = availability.resolvedBy === 'project-search'
+                ? `${availability.path}${internalTarget.anchor ? `#${internalTarget.anchor}` : internalTarget.focusLine ? `#L${internalTarget.focusLine}` : ''}`
+                : rawHref
 
             try {
                 const opened = onInternalLinkClick
@@ -315,16 +339,31 @@ export function MarkdownInteractionLayer({
         const handleDragStart = (event: DragEvent) => {
             preventDragFromInteractiveTarget(event.target, root, event)
         }
+        const handleContextMenu = (event: MouseEvent) => {
+            const target = findInteractiveTarget(event.target, root)
+            if (!target) return
+            const href = getTargetHref(target)
+            if (!href || href.startsWith('#')) return
+            const fileLink = Boolean(resolveMarkdownLinkTarget(href, filePath) || target.hasAttribute('data-markdown-file-link'))
+            if (!fileLink && !/^https?:\/\//i.test(href)) return
+            event.preventDefault()
+            event.stopPropagation()
+            setMenuTarget({ element: target, href, fileLink, x: event.clientX, y: event.clientY })
+        }
 
+        let disposed = false
         root.addEventListener('click', handleClick)
         root.addEventListener('keydown', handleKeyDown)
         root.addEventListener('dragstart', handleDragStart)
+        root.addEventListener('contextmenu', handleContextMenu)
         return () => {
+            disposed = true
             root.removeEventListener('click', handleClick)
             root.removeEventListener('keydown', handleKeyDown)
             root.removeEventListener('dragstart', handleDragStart)
+            root.removeEventListener('contextmenu', handleContextMenu)
         }
     }, [filePath, onAnchorLinkClick, onInternalLinkClick, onLinkNotice, rootRef, searchRootPath])
 
-    return null
+    return menuTarget ? <MarkdownLinkContextMenu key={`${filePath}:${menuTarget.href}`} target={menuTarget} filePath={filePath} searchRootPath={searchRootPath} onClose={closeMenu} onLinkNotice={onLinkNotice} /> : null
 }

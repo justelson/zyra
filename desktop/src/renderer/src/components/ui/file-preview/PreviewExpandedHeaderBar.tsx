@@ -1,4 +1,4 @@
-import { Check, Copy, Edit3, Globe2, List, Minimize2, Palette, PanelLeftClose, PanelLeftOpen, PanelRight, Play, Save, Square, SquareTerminal, Trash2, Undo2, X } from 'lucide-react'
+import { Check, Copy, Edit3, Globe2, Minimize2, Palette, PanelLeftClose, PanelLeftOpen, PanelRight, Save, Undo2, X } from 'lucide-react'
 import { type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { cn } from '@/lib/utils'
@@ -42,14 +42,6 @@ type PreviewExpandedHeaderBarProps = {
     onToggleExpanded: () => void
     onToggleLeftPanel: () => void
     onToggleRightPanel: () => void
-    canRunPython?: boolean
-    pythonRunState?: 'idle' | 'running' | 'success' | 'failed' | 'stopped'
-    pythonHasOutput?: boolean
-    pythonRunMode?: 'terminal' | 'output'
-    onRunPython?: () => void
-    onStopPython?: () => void
-    onClearPythonOutput?: () => void
-    onPythonRunModeChange?: (mode: 'terminal' | 'output') => void
     previewTabs: PreviewTab[]
     activePreviewTabId: string | null
     onSelectPreviewTab: (tabId: string) => void
@@ -123,14 +115,6 @@ export function PreviewExpandedHeaderBar({
     onToggleExpanded,
     onToggleLeftPanel,
     onToggleRightPanel,
-    canRunPython = false,
-    pythonRunState = 'idle',
-    pythonHasOutput = false,
-    pythonRunMode = 'terminal',
-    onRunPython,
-    onStopPython,
-    onClearPythonOutput,
-    onPythonRunModeChange,
     previewTabs,
     activePreviewTabId,
     onSelectPreviewTab,
@@ -150,7 +134,6 @@ export function PreviewExpandedHeaderBar({
     const isHtml = file.type === 'html'
     const isCsv = file.type === 'csv'
     const isEditMode = mode === 'edit'
-    const isPythonRunning = pythonRunState === 'running'
     const showFileTabs = showPreviewTabs && previewTabs.length > 1
     const { copied: copiedPath, copyFailed, copyPath } = usePreviewPathCopy(file.path)
 
@@ -168,33 +151,6 @@ export function PreviewExpandedHeaderBar({
             checked: csvDistinctColorsEnabled,
             onSelect: () => onCsvDistinctColorsEnabledChange(!csvDistinctColorsEnabled)
         }] : []),
-        ...(canRunPython ? [
-            {
-                id: 'python-run',
-                label: isPythonRunning ? 'Stop Python run' : 'Run Python',
-                icon: isPythonRunning ? <Square size={12} /> : <Play size={12} />,
-                onSelect: isPythonRunning ? (onStopPython || (() => undefined)) : (onRunPython || (() => undefined))
-            },
-            ...(!isPythonRunning ? [{
-                id: 'python-terminal',
-                label: 'Terminal output',
-                icon: <SquareTerminal size={12} />,
-                checked: pythonRunMode === 'terminal',
-                onSelect: () => onPythonRunModeChange?.('terminal')
-            }, {
-                id: 'python-output',
-                label: 'Output panel',
-                icon: <List size={12} />,
-                checked: pythonRunMode === 'output',
-                onSelect: () => onPythonRunModeChange?.('output')
-            }] : []),
-            ...(pythonHasOutput ? [{
-                id: 'python-clear',
-                label: 'Clear run output',
-                icon: <Trash2 size={12} />,
-                onSelect: onClearPythonOutput || (() => undefined)
-            }] : [])
-        ] : [])
     ]
 
     const toolbar = (

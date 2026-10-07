@@ -17,6 +17,7 @@ import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { resolveAssistantThreadDetailsNowState, selectAssistantThreadControl, summarizeAssistantThreadUsage } from './assistant-thread-details'
 import { AssistantThreadDetailsContext } from './AssistantThreadDetailsContext'
 import { AssistantThreadDetailsComputerUse } from './AssistantThreadDetailsComputerUse'
+import { AssistantThreadBackgroundProcesses } from './AssistantThreadBackgroundProcesses'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 
 type ThreadDetailsSelection = {
@@ -25,6 +26,7 @@ type ThreadDetailsSelection = {
     titleGenerating: boolean
     commandPending: boolean
     threadId: string | null
+    selectionHydrating: boolean
     threadState: string
     threadModel: string
     threadEffort: string | null
@@ -49,6 +51,7 @@ const EMPTY_SELECTION: ThreadDetailsSelection = {
     titleGenerating: false,
     commandPending: false,
     threadId: null,
+    selectionHydrating: false,
     threadState: 'idle',
     threadModel: '',
     threadEffort: null,
@@ -73,6 +76,7 @@ function areSelectionsEqual(left: ThreadDetailsSelection, right: ThreadDetailsSe
         && left.titleGenerating === right.titleGenerating
         && left.commandPending === right.commandPending
         && left.threadId === right.threadId
+        && left.selectionHydrating === right.selectionHydrating
         && left.threadState === right.threadState
         && left.threadModel === right.threadModel
         && left.threadEffort === right.threadEffort
@@ -133,6 +137,8 @@ export function AssistantThreadDetailsWorkspace({
             titleGenerating: session.titleGenerating === true,
             commandPending: state.commandPending,
             threadId: thread.id,
+            selectionHydrating: state.selectionTransitionKey === `${session.id}:${thread.id}`
+                || state.selectionHydrationKey === `${session.id}:${thread.id}`,
             threadState: thread.state,
             threadModel: thread.model,
             threadEffort: thread.thinking || null,
@@ -345,6 +351,10 @@ export function AssistantThreadDetailsWorkspace({
                             controlState={controlState}
                             threadControl={threadControl}
                         />
+                        {active && !selection.selectionHydrating && sessionId && threadId
+                            && selection.sessionId === sessionId && selection.threadId === threadId ? (
+                            <AssistantThreadBackgroundProcesses sessionId={sessionId} threadId={threadId} />
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -363,4 +373,3 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 // Retained for imports from older Desktop bundles while the user-facing surface is Thread Details.
-export const AssistantControlWorkspace = AssistantThreadDetailsWorkspace

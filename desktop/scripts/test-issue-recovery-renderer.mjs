@@ -8,7 +8,7 @@ import electronPath from 'electron'
 const desktop=resolve(dirname(fileURLToPath(import.meta.url)),'..')
 const directory=await mkdtemp(join(tmpdir(),'zyra-issue-recovery-'))
 try {
- const bundle=await build({entryPoints:[join(desktop,'scripts/fixtures/issue-recovery-renderer.tsx')],bundle:true,write:false,format:'iife',jsx:'automatic',platform:'browser',alias:{'@':join(desktop,'src/renderer/src'),'@shared':join(desktop,'src/shared')},plugins:[{name:'fixture-state',setup(b){b.onResolve({filter:/^(?:@\/lib\/assistant\/store|\.\/useAssistantProjectCatalog)$/},()=>({path:join(desktop,'scripts/fixtures/issue-recovery-state.ts')}))}}]})
+ const bundle=await build({entryPoints:[join(desktop,'scripts/fixtures/issue-recovery-renderer.tsx')],bundle:true,write:false,format:'iife',jsx:'automatic',platform:'browser',alias:{'@':join(desktop,'src/renderer/src'),'@shared':join(desktop,'src/shared')}})
  const html=join(directory,'index.html')
  await writeFile(html,`<!doctype html><input id="owner-input"><div id="root"></div><script></script><script>${bundle.outputFiles[0].text}</script>`)
  const harness=join(directory,'run.cjs')

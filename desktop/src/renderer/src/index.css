@@ -1805,7 +1805,8 @@ html[data-file-preview-titlebar-navigator='true'] [data-file-preview-local-navig
   border-color: color-mix(in srgb, var(--accent-primary), transparent 55%);
   background: color-mix(in srgb, var(--accent-primary), transparent 90%);
   color: var(--color-text);
-  text-decoration: none;
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
 }
 
 .markdown-body .markdown-inline-package-tag {

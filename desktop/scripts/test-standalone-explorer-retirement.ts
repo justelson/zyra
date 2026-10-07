@@ -10,7 +10,6 @@ const loadingSkeletonSource = read('src/renderer/src/components/ui/AppRouteSkele
 const projectSettingsSource = read('src/renderer/src/pages/settings/ProjectsSettings.tsx')
 const settingsNavigationSource = read('src/renderer/src/pages/settings/settings-navigation.tsx')
 const settingsSearchSource = read('src/renderer/src/pages/settings/settings-search.ts')
-const legacyProjectsSource = read('src/renderer/src/pages/FolderBrowse.tsx')
 
 assert.doesNotMatch(appSource, /import\('\.\/pages\/Explorer'\)/, 'the retired standalone Explorer cannot remain in the renderer bundle graph')
 assert.doesNotMatch(appSource, /<Explorer\s*\/>/, 'no route can render the retired standalone Explorer')
@@ -25,7 +24,7 @@ assert.doesNotMatch(settingsNavigationSource, /Projects & explorer|discovery, an
 assert.doesNotMatch(settingsSearchSource, /Enable Explorer|rows\('Explorer'/, 'settings search cannot resurrect retired Explorer controls')
 assert.equal(existsSync(new URL('../src/renderer/src/pages/Explorer.tsx', import.meta.url)), false, 'the standalone Explorer wrapper is removed')
 
-assert.match(legacyProjectsSource, /mode = 'projects'/, 'the legacy Projects page remains available for later retirement')
+assert.equal(existsSync(new URL('../src/renderer/src/pages/FolderBrowse.tsx', import.meta.url)), false, 'the unused legacy Projects page is removed')
 assert.match(appSource, /path="\/projects" element=\{<Navigate to="\/assistant" replace \/>\}/, 'this change does not alter the existing legacy Projects route policy')
 assert.equal(existsSync(new URL('../src/renderer/src/pages/assistant/AssistantExplorerWorkspace.tsx', import.meta.url)), true, 'Assistant Files remains intact and out of scope')
 assert.doesNotMatch(projectSettingsSource, /ExplorerPreferencesSections|ProjectPresentationSettings/, 'legacy project browser preferences are no longer exposed')

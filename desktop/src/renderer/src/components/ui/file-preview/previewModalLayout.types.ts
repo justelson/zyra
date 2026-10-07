@@ -55,14 +55,6 @@ export type PreviewModalLayoutProps = {
     setViewport: Dispatch<SetStateAction<ViewportPreset>>
     csvDistinctColorsEnabled: boolean
     setCsvDistinctColorsEnabled: Dispatch<SetStateAction<boolean>>
-    pythonRunState: 'idle' | 'running' | 'success' | 'failed' | 'stopped'
-    pythonRunMode: 'terminal' | 'output'
-    pythonHasOutput: boolean
-    setPythonRunMode: Dispatch<SetStateAction<'terminal' | 'output'>>
-    canRunPython: boolean
-    onRunPython: () => Promise<void>
-    onStopPython: () => Promise<boolean>
-    onClearPythonOutput: () => void
     onOpenInBrowser: () => Promise<void>
     gitDiffText: string
     gitDiffSummary: GitDiffSummary | null
@@ -88,7 +80,6 @@ export type PreviewModalLayoutProps = {
     isCompactHtmlViewport: boolean
     centerHtmlRenderedPreview: boolean
     flushResponsiveHtmlPreview: boolean
-    hasBottomPanel: boolean
     onOpenLinkedPreview?: (file: { name: string; path: string }, ext: string, options?: PreviewOpenOptions) => Promise<void>
     onOpenLinkedPreviewInNewTab?: (file: { name: string; path: string }, ext: string, options?: PreviewOpenOptions) => Promise<void>
     folderTreeRefreshToken?: number
@@ -104,10 +95,7 @@ export type PreviewModalLayoutProps = {
     trailingWhitespaceCount: number
     jsonDiagnostic: { ok: boolean; message: string } | null
     isEditorToolsEnabled: boolean
-    pythonPanel: ReactNode
     previewBody?: ReactNode
-    previewBottomOverlay?: ReactNode
-    previewBottomOverlayPadding?: number
     previewModeEnabled: boolean
     showUnsavedModal: boolean
     conflictModifiedAt: number | null

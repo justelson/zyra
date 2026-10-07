@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron'
 import {
     ONBOARDING_IPC,
     type AccountConnectionAnalyticsInput,
+    type ChatGptAccountsUpdate,
     type AccountConnectionStatusInput,
     type BeginOnboardingReviewInput,
     type CancelOnboardingReviewInput,
@@ -159,11 +160,13 @@ export function registerSetupIpcHandlers(services: DesktopSetupServices): void {
         }
     }))
     ipcMain.handle(ONBOARDING_IPC.getChatGptDeviceCode, () => result(async () => ({ deviceCode: services.auth.getChatGptDeviceCode() })))
+    ipcMain.handle(ONBOARDING_IPC.getChatGptAccounts, (_event, input?: { refreshUsage?: boolean }) => result(async () => ({ pool: await services.auth.getChatGptAccounts(input?.refreshUsage === true) })))
+    ipcMain.handle(ONBOARDING_IPC.updateChatGptAccounts, (_event, input: ChatGptAccountsUpdate) => result(async () => ({ pool: await services.auth.updateChatGptAccounts(input) })))
     ipcMain.handle(ONBOARDING_IPC.connectChatGpt, (_event, input?: AccountConnectionAnalyticsInput) => result(async () => {
         const action = input?.analyticsAction === 'replace' ? 'replace' : 'connect'
         services.analytics.capture({ event: 'zyra_v1_account_connection', properties: { action, method: 'subscription', outcome: 'started' } })
         try {
-            const status = await services.onboarding.connectChatGpt(input?.signInMethod)
+            const status = await services.onboarding.connectChatGpt(input?.signInMethod, input?.accountId)
             services.analytics.capture({ event: 'zyra_v1_account_connection', properties: { action, method: 'subscription', outcome: status.verified ? 'completed' : 'failed', ...(status.verified ? {} : { error_code: 'authorization_failed' }) } })
             return { status }
         } catch (error) {

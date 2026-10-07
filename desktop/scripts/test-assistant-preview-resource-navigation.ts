@@ -19,8 +19,8 @@ assert.equal(resolvePreviewResourceNavigatorView(420, 'table'), 'table', 'the us
 assert.match(loadingSource, /label = 'Loading file\.\.\.'/u, 'file reads use concise loading copy')
 assert.equal(loadingSource.includes('CONTENT_LINE_WIDTHS'), false, 'file loading no longer draws editor-like vertical skeleton rails')
 assert.match(loadingSource, /aria-live="polite"/u, 'loading copy remains accessible')
-assert.match(syntaxSource, /PreviewContentSkeleton label="Rendering file\.\.\."/u, 'lazy editor rendering uses the rendering phase copy')
-assert.match(textSource, /PreviewRendererFallback label="Rendering file\.\.\."/u, 'lazy rich text renderers use the rendering phase copy')
+assert.match(syntaxSource, /CodePreviewPlaceholder[^]*content=\{safeContent\}/u, 'editor preparation keeps the real file content readable')
+assert.doesNotMatch(textSource, /PreviewRendererFallback|PreviewContentSkeleton/u, 'rich text previews have no file-content loading screen')
 assert.match(officeSource, />Rendering file\.\.\.<\/span>/u, 'office rendering uses the same concise phase copy')
 
 assert.match(modalSource, /hasNavigationSidebarOverride = navigationSidebar != null/u, 'a caller-owned navigator participates in preview chrome state')

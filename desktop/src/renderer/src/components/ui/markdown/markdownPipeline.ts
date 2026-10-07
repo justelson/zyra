@@ -91,3 +91,16 @@ export function stripMarkdownTreePositions(tree: Root): Root {
     visitNode(tree as MarkdownAstNode)
     return tree
 }
+
+export function applyDocumentMarkdownHeadingIds(tree: Root, headingIds: readonly string[] | undefined): void {
+    if (!headingIds?.length) return
+    const headings: Array<Extract<Root['children'][number], { type: 'element' }>> = []
+    const visitNode = (node: Root['children'][number]) => {
+        if (node.type !== 'element') return
+        if (/^h[1-6]$/.test(node.tagName) && !node.properties.id) headings.push(node)
+        for (const child of node.children) visitNode(child as Root['children'][number])
+    }
+    for (const child of tree.children) visitNode(child)
+    if (headings.length !== headingIds.length) return
+    for (let index = 0; index < headings.length; index += 1) headings[index].properties.id = headingIds[index]
+}

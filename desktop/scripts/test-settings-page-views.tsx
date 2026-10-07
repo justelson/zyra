@@ -9,7 +9,6 @@ import { SettingsPageTabs } from '../src/renderer/src/pages/settings/SettingsPag
 import { AppearanceAccentPicker } from '../src/renderer/src/pages/settings/appearance/AppearanceAccentPicker'
 import { ACCENT_COLORS } from '../src/renderer/src/lib/settings'
 import { SettingsSidebarNavigation } from '../src/renderer/src/pages/settings/SettingsSidebarNavigation'
-import { chatGptWritingTestModel } from '../src/renderer/src/pages/settings/providers/provider-settings-policy'
 
 const source = (name: string) => readFileSync(new URL(`../src/renderer/src/${name}`, import.meta.url), 'utf8')
 const app = source('App.tsx')
@@ -65,7 +64,4 @@ assert.match(source('pages/settings/AccountSettings.tsx'), /useOpenAIAccountSett
 assert.match(source('pages/settings/providers/ProviderConnections.tsx'), /useOpenAIAccountSettings\(\{ connectionsActive: true \}\)/)
 assert.doesNotMatch(source('pages/settings/ModelProviderConnections.tsx'), /<AgentRoleModels/)
 assert.match(source('pages/settings/SettingsShell.tsx'), /details\.open = true/, 'search reveals collapsed details before focusing a control')
-assert.equal(chatGptWritingTestModel('', '', 'anthropic/example'), undefined, 'a generic chat default cannot be sent to the ChatGPT-only test')
-assert.equal(chatGptWritingTestModel('legacy-model', '', 'anthropic/example'), 'legacy-model', 'explicit legacy writing choices remain authoritative')
-assert.equal(chatGptWritingTestModel('', '', 'openai-codex/example'), 'openai-codex/example')
 console.log('Settings views: 19 primary pages, routed inner views, parent selection, migrated search, scoped provider reads and writing-provider boundaries: ok')

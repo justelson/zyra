@@ -1,5 +1,6 @@
 import { useBrowserTargetCursor } from './useBrowserTargetCursor'
-import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { BrowserLinkHoverStatus } from './BrowserLinkHoverStatus'
 import type { DevScopeBrowserGuestTargetInput, DevScopeBrowserPreviewConfig } from '@shared/contracts/devscope-api'
 import type { ControlCursorState } from '@shared/agent-control/contracts'
 import type { BrowserViewEvent, BrowserViewState } from '@shared/browser-view'
@@ -69,6 +70,8 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
     const controlBindAttemptsRef = useRef(0)
     const controlBindTimerRef = useRef(0)
     const disposedRef = useRef(false)
+    const [hoveredLink, setHoveredLink] = useState('')
+    useLayoutEffect(() => { setHoveredLink('') }, [active, visible, tab.id])
     const skipMatchingNavigationRef = useRef<{ url: string; expiresAt: number } | null>(null)
     const controlOverlayRequestRef = useRef<BrowserViewCommandInput | null>(null)
     const controlOverlayInFlightRef = useRef(false)
@@ -129,6 +132,10 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
     useLayoutEffect(() => {
         disposedRef.current = false
         const unsubscribe = window.devscope.browserView.onEvent((event: BrowserViewEvent) => {
+            if (event.type === 'link-hover') {
+                if (event.tabId === tab.id) setHoveredLink(activeRef.current ? event.url : '')
+                return
+            }
             if (event.type === 'focus') {
                 if (event.tabId === tab.id) {
                     dismissTransientMenus()
@@ -307,12 +314,13 @@ export const AssistantBrowserWebview = memo(forwardRef<AssistantBrowserWebviewHa
             callbacksRef.current.onViewportRectChange(tab.id, null)
     }, [tab.id])
 
-    return (
+    return (<>
         <div
             ref={slotRef}
             className="absolute inset-0 h-full w-full overflow-hidden bg-white"
             aria-hidden={active ? undefined : true}
             data-assistant-browser-view-slot={tab.id}
         />
-    )
+        {active && visible && hoveredLink ? <BrowserLinkHoverStatus url={hoveredLink} slot={slotRef} /> : null}
+    </>)
 }))

@@ -27,7 +27,8 @@ const UNKNOWN_TTL_MS = 1_500
 const availabilityCache = new Map<string, AvailabilityCacheEntry>()
 
 function normalizePathKey(pathValue: string): string {
-    return String(pathValue || '').trim().replace(/\\/g, '/').toLowerCase()
+    const normalized = String(pathValue || '').trim().replace(/\\/g, '/')
+    return /^[a-z]:\//i.test(normalized) || normalized.startsWith('//') ? normalized.toLowerCase() : normalized
 }
 
 function getParentPath(pathValue: string | undefined): string {
@@ -97,7 +98,7 @@ export async function inspectMarkdownLinkAvailability(
     href: string,
     filePath?: string,
     searchRootPath?: string,
-    options: { allowProjectSearch?: boolean } = {}
+    options: { allowProjectSearch?: boolean; force?: boolean } = {}
 ): Promise<MarkdownLinkAvailabilityResult | null> {
     const target = resolveMarkdownLinkTarget(href, filePath)
     if (!target) return null
@@ -107,7 +108,7 @@ export async function inspectMarkdownLinkAvailability(
     const key = `${searchMode}|${normalizePathKey(projectRoot)}|${normalizePathKey(target.path)}`
     const now = Date.now()
     const cached = availabilityCache.get(key)
-    if (cached && cached.expiresAt > now) {
+    if (!options.force && cached && cached.expiresAt > now) {
         retainAvailabilityEntry(key, cached)
         return cached.promise
     }
@@ -156,7 +157,7 @@ export async function inspectMarkdownLinkAvailability(
             }
 
             return {
-                availability: pathInfo?.success && (!canSearchProject || shouldSearchProject) ? 'missing' : 'unknown',
+                availability: pathInfo?.success ? 'missing' : 'unknown',
                 path: pathInfo?.success ? pathInfo.path : target.path,
                 resolvedBy: 'direct',
                 targetKind: null

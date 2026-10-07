@@ -99,7 +99,6 @@ const indexCssSource = readFileSync(new URL('../src/renderer/src/index.css', imp
 const quickOpenSource = readFileSync(new URL('../src/renderer/src/pages/QuickOpen.tsx', import.meta.url), 'utf8')
 const assistantPageSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantPage.tsx', import.meta.url), 'utf8')
 const utilityHostSource = readFileSync(new URL('../src/renderer/src/pages/assistant/utility/AssistantUtilityWorkspaceHost.tsx', import.meta.url), 'utf8')
-const folderBrowseOverlaysSource = readFileSync(new URL('../src/renderer/src/pages/folder-browse/FolderBrowseOverlays.tsx', import.meta.url), 'utf8')
 const projectDetailsTransientSource = readFileSync(new URL('../src/renderer/src/pages/project-details/ProjectDetailsTransientUi.tsx', import.meta.url), 'utf8')
 const desktopPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies?: Record<string, string> }
 
@@ -117,7 +116,6 @@ const chromeCallerCases = [
     [quickOpenSource, 'quick-view', 'dedicated shell previews'],
     [assistantPageSource, 'peek', 'chat previews'],
     [utilityHostSource, 'peek', 'utility Browser and Resources previews'],
-    [folderBrowseOverlaysSource, 'detail', 'Explorer and Projects previews'],
     [projectDetailsTransientSource, 'detail', 'project previews'],
     [assistantFilesWorkspaceSource, 'workspace', 'Files previews']
 ] as const
@@ -138,7 +136,7 @@ assert.equal(expandedHeaderSource.includes('border-y border-[var(--surface-panel
 assert.equal(expandedHeaderSource.includes('createPortal(toolbar, focusHost)'), false, 'file controls render as a second workspace toolbar instead of replacing the app tab strip')
 assert.equal(expandedHeaderSource.includes('const showFileTabs = showPreviewTabs && previewTabs.length > 1'), true, 'a single focused file uses quiet identity instead of a redundant tab strip')
 assert.equal(windowedHeaderSource.includes('const showFileTabs = showPreviewTabs && previewTabs.length > 1'), true, 'multi-file sessions expose the same tabs before entering full screen')
-assert.equal(windowedHeaderSource.includes('pythonRunModeMenuOpen'), false, 'centered previews keep Python optional through one quiet Run or Stop action')
+assert.doesNotMatch(windowedHeaderSource + expandedHeaderSource, /canRunPython|pythonRunState|Run Python|Stop Python/, 'windowed and expanded previews expose no Python runner')
 assert.equal(expandedHeaderSource.includes('<FileActionsMenu'), false, 'full-screen file chrome has no redundant three-dot actions menu')
 assert.equal(expandedHeaderSource.includes('<MoreHorizontal'), false, 'the removed overflow trigger cannot leave an inert icon behind')
 assert.equal(titleBarSource.includes('FILE_PREVIEW_FOCUS_TOOLBAR_HOST_ID'), false, 'the main title bar remains reserved for workspace tabs')

@@ -563,6 +563,9 @@ export class BrowserViewManager implements BrowserViewTransferHost {
 
     private installPageLifecycle(record: BrowserViewRecord): void {
         const page = record.view.webContents
+        page.on('update-target-url', (_event, url) => {
+            this.publishEvent(record, { type: 'link-hover', tabId: record.tabId, url: /^https?:\/\//i.test(url) || /^(mailto:|tel:|file:)/i.test(url) || url.startsWith(`${BROWSER_LOCAL_FILE_SCHEME}:`) ? url.slice(0, 8192) : '' })
+        })
         const pageSession = page.session
         page.on('focus', () => this.publishEvent(record, {
             type: 'focus',
@@ -574,6 +577,7 @@ export class BrowserViewManager implements BrowserViewTransferHost {
             this.publishEvent(record, { type: 'focus', tabId: record.tabId, guestWebContentsId: page.id })
         })
         page.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+            if (isMainFrame) this.publishEvent(record, { type: 'link-hover', tabId: record.tabId, url: '' })
             // Install requests are intercepted in will-navigate, not document changes.
             if (!isMainFrame || url.startsWith('zyra-extension:') || url.startsWith('chrome-error:')) return
             record.url = url === 'about:blank' ? '' : url

@@ -5,6 +5,7 @@ import {
   verifyOpenAIApiKey,
 } from "./auth-methods.mjs";
 import { loginOpenAICodexAuth } from "./openai-codex-login.mjs";
+export { getChatGptAccounts, updateChatGptAccounts } from './chatgpt-pool-service.mjs';
 import { createZyraCredentialAuthReader, createZyraCredentialAuthStorage } from "./zyra-auth-store.mjs";
 
 export async function loginZyraAuth(provider = "openai-codex", options = {}) {

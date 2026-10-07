@@ -295,8 +295,8 @@ export class OnboardingService {
         return additional ? { checking: false, verified: true, method: 'api-key', provider: additional.provider, label: `${additional.label} connected`, detail: null, checkedAt: this.now().toISOString() } : status
     }
 
-    connectChatGpt(signInMethod?: ChatGptSignInMethod): Promise<OnboardingAuthStatus> {
-        return this.auth.connectChatGpt(signInMethod)
+    connectChatGpt(signInMethod?: ChatGptSignInMethod, accountId?: string): Promise<OnboardingAuthStatus> {
+        return this.auth.connectChatGpt(signInMethod, accountId)
     }
 
     cancelChatGpt(): Promise<boolean> {

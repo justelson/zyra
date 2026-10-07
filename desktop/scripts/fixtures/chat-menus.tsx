@@ -6,8 +6,8 @@ import { AssistantConversationHeader } from '../../src/renderer/src/pages/assist
 import { createChatActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-chat-actions-menu'
 import { createSessionActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-sessions-rail-menus'
 import { resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from '../../src/renderer/src/pages/assistant/assistant-chat-menu-state'
-import { usePinnedSessionIds } from '../../src/renderer/src/pages/assistant/assistant-pinned-sessions'
-import { useAssistantSettlementOverrides } from '../../src/renderer/src/pages/assistant/assistant-settlement-store'
+import { usePinnedSessionIds, writePinnedSessionIds } from '../../src/renderer/src/pages/assistant/assistant-pinned-sessions'
+import { useAssistantSettlementOverrides, setAssistantSettlementOverrides } from '../../src/renderer/src/pages/assistant/assistant-settlement-store'
 import type { AssistantSession, AssistantThread } from '../../src/shared/assistant/contracts'
 
 const root = createRoot(document.getElementById('root')!)
@@ -40,7 +40,7 @@ function Header() {
         onArchiveChat={() => { calls.push(`archive:${target.id}`) }} onDeleteChat={() => { calls.push(`delete:${target.id}`) }} onToggleRightSidebar={() => {}} />
     </div>
 }
-flushSync(() => root.render(<MemoryRouter><Header /><div className="flex h-[620px]">
+function renderMenus() { flushSync(() => root.render(<MemoryRouter><Header /><div className="flex h-[620px]">
     <AssistantChatSessionsRail collapsed={false} width={322} previewPinned={false} agentInboxEnabled
         projectIconOverrides={{}} projects={[]} sessions={sessions} activeSessionId="selected" activeThreadId="selected-thread"
         commandPending={false} pendingControlThreadIds={new Set()} onCreateChat={() => {}} onCreateProjectChat={() => {}}
@@ -48,7 +48,36 @@ flushSync(() => root.render(<MemoryRouter><Header /><div className="flex h-[620p
         onCreateThread={id => { calls.push(`thread:${id}`) }} onChooseSessionProject={target => { calls.push(`project:${target.id}`) }}
         onArchiveSession={id => { calls.push(`archive:${id}`) }} onDeleteSession={async () => ({ success: true })}
         onPreviewPinnedChange={() => {}} onShowToast={() => {}} />
-</div></MemoryRouter>))
+</div></MemoryRouter>)) }
+renderMenus()
+function PreferenceProbe() {
+    const pins = usePinnedSessionIds()
+    const [settlement] = useAssistantSettlementOverrides()
+    return <output data-preferences data-pinned={[...pins].join(',')} data-settled={Object.keys(settlement).join(',')} />
+}
+async function checkPreferenceRemount() {
+    flushSync(() => root.render(null))
+    localStorage.setItem('assistant:pinned-session-ids:v1', JSON.stringify(['saved-pin']))
+    localStorage.setItem('assistant:agent-inbox-settled-overrides:v1', JSON.stringify({ 'saved-settlement': {state:'settled', activityAt:now} }))
+    flushSync(() => root.render(<PreferenceProbe/>)); await sleep()
+    const probe = () => document.querySelector<HTMLElement>('[data-preferences]')!.dataset
+    check(probe().pinned === 'saved-pin' && probe().settled === 'saved-settlement', 'Remount reads choices saved while no chat surface was mounted')
+    flushSync(() => root.render(null))
+    const originalSetItem = Storage.prototype.setItem
+    try {
+        Storage.prototype.setItem = () => { throw new DOMException('Quota exceeded', 'QuotaExceededError') }
+        writePinnedSessionIds(new Set(['memory-pin']))
+        setAssistantSettlementOverrides({'memory-settlement': {state:'settled', activityAt:now}})
+        flushSync(() => root.render(<PreferenceProbe/>)); await sleep()
+        check(probe().pinned === 'memory-pin' && probe().settled === 'memory-settlement', 'Failed storage writes retain both choices across remount')
+    } finally {
+        flushSync(() => root.render(null))
+        Storage.prototype.setItem = originalSetItem
+        writePinnedSessionIds(new Set())
+        setAssistantSettlementOverrides({})
+        renderMenus()
+    }
+}
 function button(label: string) {
     return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')).find(item => (item.getAttribute('aria-label') || item.textContent?.trim()) === label)!
 }
@@ -117,6 +146,7 @@ async function run() {
     button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(); check(!document.querySelector('[role="menu"]'), 'Escape dismisses context menu')
     await sidebar(); button('Delete chat').click(); await sleep(); check(document.body.textContent?.includes('Delete chat?'), 'Sidebar preserves delete confirmation')
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent?.trim() === 'Cancel')!.click(); await sleep()
+    await checkPreferenceRemount()
     return ['shared complete chat actions; compact hover submenus and gap crossing; keyboard enter/return/Escape; unselected chat targeting; header/sidebar pin and settlement synchronization; delete confirmation retained']
 }
 ;(window as any).sidebarEdgeCheck = run()

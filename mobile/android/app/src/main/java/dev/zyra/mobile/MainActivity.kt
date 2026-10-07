@@ -14,6 +14,10 @@ import dev.zyra.mobile.ui.*
 class MainActivity : ComponentActivity() {
     private val vm by viewModels<MobileViewModel>()
     private val session get() = vm.session
+    private val chatNotificationLifecycle by lazy { dev.zyra.mobile.notifications.ChatNotificationLifecycle(
+        { session.preferences.notifications.value },
+        { dev.zyra.mobile.notifications.ChatNotificationService.start(this); Unit },
+        { dev.zyra.mobile.notifications.ChatNotificationService.stop(this) }) }
     private val pairingLink = mutableStateOf("")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge(); acceptIntent(intent)
@@ -23,8 +27,8 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptIntent(intent) }
-    override fun onStart() { super.onStart(); session.foreground(true); if (session.preferences.notifications.value) dev.zyra.mobile.notifications.ChatNotificationService.start(this) }
-    override fun onStop() { session.foreground(false); super.onStop() }
+    override fun onStart() { super.onStart(); session.foreground(true); chatNotificationLifecycle.foreground() }
+    override fun onStop() { chatNotificationLifecycle.background(isChangingConfigurations); session.foreground(false); super.onStop() }
     private fun acceptIntent(intent: Intent) {
         if (intent.action == dev.zyra.mobile.notifications.ChatNotificationService.OPEN) {
             val machine = intent.getStringExtra("machine").orEmpty(); val chat = intent.getStringExtra("chat").orEmpty()

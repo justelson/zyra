@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { browserAssistantBridgeProxyPlugin } from './scripts/maint/browser-assistant-bridge-proxy'
 import { createDesktopBuildMetadata } from './src/shared/distribution-identity'
+import { visualizationFramePlugin } from './scripts/maint/visualization-frame-document.mjs'
 
 const projectRoot = resolve(__dirname)
 const rendererRoot = resolve(__dirname, 'src/renderer')
@@ -89,6 +90,7 @@ export default defineConfig({
         },
         plugins: [
             react(),
+            visualizationFramePlugin(),
             ...(fastBuild ? [] : [viteStaticCopy({
                 targets: [{
                     src: resolve(__dirname, 'node_modules/material-icon-theme/icons/*.svg').replace(/\\/g, '/'),

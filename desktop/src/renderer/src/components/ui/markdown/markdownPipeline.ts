@@ -7,17 +7,19 @@ import { normalizeMathDelimiters, remarkMathFallback, rehypeSafeMath } from './m
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
+import { isUnclosedCodeFence } from './streaming-code-fence'
 
 type MarkdownAstNode = {
     type?: string
     meta?: unknown
+    lang?: string
     data?: { hProperties?: Record<string, unknown> }
-    position?: unknown
+    position?: { start: { offset?: number }; end: { offset?: number } }
     children?: MarkdownAstNode[]
 }
 
 function remarkPreserveCodeMeta() {
-    return (tree: MarkdownAstNode) => {
+    return (tree: MarkdownAstNode, file: { value: unknown }) => {
         const visitNode = (node: MarkdownAstNode) => {
             if (node.type === 'code' && typeof node.meta === 'string' && node.meta.trim()) {
                 node.data = {
@@ -27,6 +29,10 @@ function remarkPreserveCodeMeta() {
                         dataCodeMeta: node.meta.trim()
                     }
                 }
+            }
+            if (node.type === 'code' && node.lang === 'mermaid') {
+                const source = String(file.value).slice(node.position?.start.offset, node.position?.end.offset)
+                node.data = { ...node.data, hProperties: { ...node.data?.hProperties, dataCodeIncomplete: String(isUnclosedCodeFence(source)) } }
             }
             node.children?.forEach(visitNode)
         }
@@ -43,7 +49,7 @@ const MARKDOWN_SANITIZE_SCHEMA = {
             ...(defaultSchema.attributes?.['*'] || []).filter((attribute) => attribute !== 'title'),
             'align'
         ],
-        code: [...(defaultSchema.attributes?.code || []).filter(attribute => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', /^language-./, 'math-inline', 'math-display'], 'dataCodeMeta'],
+        code: [...(defaultSchema.attributes?.code || []).filter(attribute => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', /^language-./, 'math-inline', 'math-display'], 'dataCodeMeta', 'dataCodeIncomplete'],
         details: [...(defaultSchema.attributes?.details || []), 'open'],
         div: [...(defaultSchema.attributes?.div || []), 'dataCacheRaw'],
         source: [...(defaultSchema.attributes?.source || []), 'src', 'srcSet', 'type', 'media']

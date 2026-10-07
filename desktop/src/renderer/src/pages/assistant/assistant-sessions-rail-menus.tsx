@@ -1,4 +1,7 @@
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Edit2, Pin, PinOff, RotateCw, SquarePen, Trash2 } from 'lucide-react'
+import { ArchiveRestore, ChevronDown, ChevronRight, SquarePen, Trash2 } from 'lucide-react'
+import { createChatActionMenuItems } from './assistant-chat-actions-menu'
+import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
+import { getPrimarySessionThread, resolveSessionProjectPath } from './assistant-sessions-rail-utils'
 import type { AssistantSession } from '@shared/assistant/contracts'
 import type { FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import type { SessionProjectGroup } from './assistant-sessions-rail-utils'
@@ -8,6 +11,14 @@ export function createSessionActionMenuItems(args: {
     session: AssistantSession
     archived?: boolean
     pinned?: boolean
+    settled?: boolean
+    settlementDisabled?: boolean
+    disabled?: boolean
+    threadId?: string | null
+    onToggleSettlement?: () => void
+    onCreateThread?: (sessionId: string) => void | Promise<void>
+    onCopyThreadId?: (threadId: string | null) => void | Promise<void>
+    onChooseProject?: (session: AssistantSession) => void | Promise<void>
     onOpenRename: (session: AssistantSession) => void
     onRegenerateTitle?: (session: AssistantSession) => void | Promise<void>
     onTogglePinned?: (sessionId: string, pinned: boolean) => void
@@ -34,40 +45,21 @@ export function createSessionActionMenuItems(args: {
         ]
     }
 
-    return [
-        ...(onTogglePinned ? [{
-            id: pinned ? 'unpin' : 'pin',
-            label: pinned ? 'Unpin chat' : 'Pin chat',
-            icon: pinned ? <PinOff size={13} /> : <Pin size={13} />,
-            onSelect: () => onTogglePinned(session.id, !pinned)
-        }] : []),
-        {
-            id: 'rename',
-            label: 'Rename chat',
-            icon: <Edit2 size={13} />,
-            onSelect: () => onOpenRename(session),
-            secondaryAction: args.onRegenerateTitle ? {
-                id: 'regenerate-title',
-                label: session.titleGenerating ? 'Regenerating chat title' : 'Regenerate chat title',
-                icon: <RotateCw size={12} strokeWidth={1.5} />,
-                disabled: session.titleGenerating,
-                onSelect: () => args.onRegenerateTitle?.(session)
-            } : undefined
-        },
-        {
-            id: 'archive',
-            label: 'Archive chat',
-            icon: <Archive size={13} />,
-            onSelect: () => onArchiveSession(session.id, true)
-        },
-        {
-            id: 'delete',
-            label: 'Delete chat',
-            icon: <Trash2 size={13} />,
-            danger: true,
-            onSelect: () => onDeleteRequest(session)
-        }
-    ]
+    const thread = session.threads.find(entry => entry.id === (args.threadId || session.activeThreadId)) || getPrimarySessionThread(session)
+    const canonicalThreadId = thread?.providerThreadId || thread?.id || null
+    return createChatActionMenuItems({
+        disabled: args.disabled, pinned, settled: args.settled, settlementDisabled: args.settlementDisabled,
+        titleGenerating: session.titleGenerating, canonicalThreadId,
+        projectPath: resolveSessionProjectPath(session) || null, projectLocked: isAssistantSessionProjectLocked(session),
+        onCreateThread: args.onCreateThread ? () => args.onCreateThread!(session.id) : undefined,
+        onCopyThreadId: () => args.onCopyThreadId?.(canonicalThreadId),
+        onChooseProject: args.onChooseProject ? () => args.onChooseProject!(session) : undefined,
+        onToggleSettlement: args.onToggleSettlement,
+        onTogglePinned: onTogglePinned ? () => onTogglePinned(session.id, !pinned) : undefined,
+        onRename: () => onOpenRename(session),
+        onRegenerateTitle: args.onRegenerateTitle ? () => args.onRegenerateTitle!(session) : undefined,
+        onArchive: () => onArchiveSession(session.id, true), onDelete: () => onDeleteRequest(session)
+    }, true)
 }
 
 export function createProjectActionMenuItems(args: {

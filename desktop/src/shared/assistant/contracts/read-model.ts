@@ -178,6 +178,7 @@ export interface AssistantThreadShell {
         state: 'detached' | 'ready' | 'running' | 'background'
         activeTurnId: string | null
         clients: Array<{ clientId: string; surface: string; displayName?: string }>
+        viewers?: Array<{ clientId: string; surface: string }>
         backgroundWorkActive: boolean
         attention?: 'approval' | 'input' | 'user-input' | null
         latestTurn?: AssistantLatestTurn | null

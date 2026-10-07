@@ -172,6 +172,23 @@ export function resolveSessionStatusPill(
     return resolveAssistantThreadStatusPill(activeThread, session.id === activeSessionId, recencyTierByThreadId, context)
 }
 
+export type AssistantSidebarRowStatus = 'approval' | 'input' | 'working' | 'failed' | 'stopped' | 'done' | 'ready'
+
+export function resolveAssistantSidebarRowStatus(thread: AssistantThread | null, isActiveThread: boolean): AssistantSidebarRowStatus {
+    switch (resolveAssistantThreadStatusPill(thread, isActiveThread)?.label) {
+        case 'Pending': return 'approval'
+        case 'Input needed': return 'input'
+        case 'Working':
+        case 'Background':
+        case 'Connecting': return 'working'
+        case 'Failed':
+        case 'Stale': return 'failed'
+        case 'Done': return 'done'
+        case 'Stopped': return 'stopped'
+        default: return 'ready'
+    }
+}
+
 export function resolveAssistantThreadStatusPill(
     thread: AssistantThread | null,
     isActiveThread: boolean,

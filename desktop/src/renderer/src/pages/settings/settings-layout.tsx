@@ -41,8 +41,9 @@ export function SettingsPageContainer({ children, className, title, navigation, 
     )
 }
 
-export function SettingsSection({ title, searchSection, icon, titleAction, headerAction, children, className, bodyClassName, hideHeader = false }: {
+export function SettingsSection({ title, displayTitle, searchSection, icon, titleAction, headerAction, children, className, bodyClassName, hideHeader = false }: {
     title: string
+    displayTitle?: ReactNode
     searchSection?: string
     icon?: ReactNode
     titleAction?: ReactNode
@@ -61,7 +62,7 @@ export function SettingsSection({ title, searchSection, icon, titleAction, heade
         >
             {!hideHeader ? (
                 <div className="flex min-h-7 items-center justify-between gap-4 px-1">
-                    <h2 className="flex min-w-0 items-center gap-2 text-[14px] font-medium tracking-[-0.01em] text-[var(--settings-text-secondary)]">{icon}{title}{titleAction}</h2>
+                    <h2 className="flex min-w-0 items-center gap-2 text-[14px] font-medium tracking-[-0.01em] text-[var(--settings-text-secondary)]">{icon}{displayTitle || title}{titleAction}</h2>
                     <div className="flex min-h-7 items-center justify-end">{headerAction}</div>
                 </div>
             ) : null}
@@ -96,7 +97,7 @@ export function SettingsStatusPill({ label, tone = 'muted', title }: {
     )
 }
 
-export function SettingsRow({ title, description, icon, info, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, searchTargetId: explicitSearchTargetId, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
+export function SettingsRow({ title, description, icon, info, status, statusTone = 'muted', statusTitle, resetAction, control, children, className, layout = 'default', searchTargetId: explicitSearchTargetId, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
     title: ReactNode
     description: ReactNode
     icon?: ReactNode
@@ -108,7 +109,9 @@ export function SettingsRow({ title, description, icon, info, status, statusTone
     control?: ReactNode
     children?: ReactNode
     searchTargetId?: string
+    layout?: 'default' | 'connection'
 }) {
+    const connection = layout === 'connection'
     const sectionTitle = useContext(SettingsSearchSectionContext)
     const searchTargetId = explicitSearchTargetId || (typeof title === 'string' ? createSettingsRowTargetId(sectionTitle, title) : null)
     return (
@@ -116,18 +119,18 @@ export function SettingsRow({ title, description, icon, info, status, statusTone
             {...props}
             data-settings-search-target={searchTargetId || undefined}
             tabIndex={searchTargetId ? -1 : props.tabIndex}
-            className={cn('zyra-settings-row px-4 transition-colors duration-100 hover:bg-[var(--settings-row-hover)] [content-visibility:auto] [contain-intrinsic-size:auto_68px]', children ? 'pb-2.5 pt-3.5' : 'py-3.5', className)}
+            className={cn('zyra-settings-row px-4 transition-colors duration-100 hover:bg-[var(--settings-row-hover)] [content-visibility:auto] [contain-intrinsic-size:auto_68px]', connection ? 'py-2.5 min-h-16 flex flex-col justify-center' : children ? 'pb-2.5 pt-3.5' : 'py-3.5', className)}
         >
-            <div className={cn('grid gap-3', Boolean(control) && 'sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center sm:gap-8')}>
+            <div className={cn('grid', connection ? 'grid-cols-[minmax(0,1fr)_auto] items-center gap-4' : 'gap-3', !connection && Boolean(control) && 'sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center sm:gap-8')}>
                 <div className="min-w-0 space-y-1">
-                    <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                    <div className={cn('flex min-h-5 min-w-0 items-center gap-x-1.5 gap-y-1', connection ? 'flex-nowrap' : 'flex-wrap')}>
                         {icon ? <span className="inline-flex size-4 shrink-0 items-center justify-center">{icon}</span> : null}
-                        <h3 className="min-w-0 text-[13px] font-medium tracking-[-0.003em] text-[var(--settings-text)]">{title}</h3>
+                        <h3 className={cn('min-w-0 text-[13px] font-medium tracking-[-0.003em] text-[var(--settings-text)]', connection && 'truncate')}>{title}</h3>
                         {info ? <SettingsInfoTooltip label={typeof title === 'string' ? `About ${title}` : 'Setting details'}>{info}</SettingsInfoTooltip> : null}
                         {status ? <SettingsStatusPill label={status} tone={statusTone} title={statusTitle ?? (typeof status === 'string' ? status : undefined)} /> : null}
                         {resetAction ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{resetAction}</span> : null}
                     </div>
-                    <p className="max-w-[34rem] text-[12px] leading-[1.5] text-[var(--settings-text-secondary)]">{description}</p>
+                    <p className={cn('max-w-[34rem] text-[12px] leading-[1.5] text-[var(--settings-text-secondary)]', connection && 'truncate')}>{description}</p>
                 </div>
                 {control ? <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">{control}</div> : null}
             </div>

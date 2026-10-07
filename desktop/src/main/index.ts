@@ -1195,6 +1195,21 @@ app.whenReady().then(async () => {
         log.warn('[OpenAI] connection prewarm failed', error)
     })
     configureAssistantService({
+        openNotificationChat: async (canonicalChatId) => {
+            const chat = await resolveAssistantUtilityChat(canonicalChatId)
+            if (!chat) return
+            await getAssistantService().selectThread(chat.sessionId, chat.threadId)
+            const route = `/assistant/chat/${encodeURIComponent(chat.sessionId)}/thread/${encodeURIComponent(chat.threadId)}`
+            if (!mainWindow || mainWindow.isDestroyed()) {
+                mainWindow = createWindow(true, route)
+                ensureIpcHandlersRegistered(mainWindow)
+            } else {
+                loadRendererRoute(mainWindow, route)
+                if (mainWindow.isMinimized()) mainWindow.restore()
+                mainWindow.show()
+                mainWindow.focus()
+            }
+        },
         getDefaultProjectsFolder: () => setupServices.preferences.getConfiguredProjectsFolder(),
         getNewChatExecutionDefaults: () => setupServices.preferences.getNewChatWebDefaults(),
         getNewChatPreparationModel: async () => String(

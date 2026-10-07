@@ -1,8 +1,12 @@
 import { defaultThemeTokens } from '@shared/preferences/default-theme-tokens'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import mermaid from 'mermaid'
+import './diagram-canvas.css'
 import { useMarkdownVisualTheme } from './markdownTheme'
 import { useThemeRevision } from '@/lib/use-theme-revision'
+import { Expand } from 'lucide-react'
+import { MermaidExpandedView } from './MermaidExpandedView'
+import { ArtifactCreationState } from '../ArtifactCreationState'
 
 function readMermaidTheme(visualTheme: 'light' | 'dark') {
     const root = getComputedStyle(document.documentElement)
@@ -82,6 +86,7 @@ export const MermaidDiagram = memo(function MermaidDiagram({ chart }: { chart: s
     const cacheKey = `${activeTheme.cacheKey}:${chart}`
     const [svg, setSvg] = useState<string>(() => readCachedSvg(cacheKey))
     const [error, setError] = useState('')
+    const [expanded, setExpanded] = useState(false)
 
     useEffect(() => {
         const cachedSvg = readCachedSvg(cacheKey)
@@ -144,21 +149,13 @@ export const MermaidDiagram = memo(function MermaidDiagram({ chart }: { chart: s
     }
 
     if (!svg) {
-        return (
-            <div
-                ref={containerRef}
-                className="flex min-h-[220px] items-center justify-center rounded-lg border border-white/10 bg-sparkle-card p-4 text-sm text-sparkle-text-secondary"
-            >
-                Rendering diagram...
-            </div>
-        )
+        return <ArtifactCreationState kind="diagram" phase="loading"/>
     }
 
     return (
-        <div
-            ref={containerRef}
-            className="mermaid-diagram flex items-center justify-center overflow-x-auto rounded-lg border border-white/10 bg-sparkle-card p-4"
-            dangerouslySetInnerHTML={{ __html: svg }}
-        />
+        <><div className="mermaid-canvas group relative rounded-lg border border-[var(--surface-divider)] bg-sparkle-card">
+            <button type="button" aria-label="Expand diagram" title="Expand diagram" onClick={() => setExpanded(true)} className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-md border border-[var(--surface-divider)] bg-sparkle-card text-sparkle-text-muted hover:text-sparkle-text"><Expand size={15}/></button>
+            <div ref={containerRef} className="mermaid-diagram flex items-center justify-center overflow-x-auto p-4" dangerouslySetInnerHTML={{ __html: svg }}/>
+        </div>{expanded ? <MermaidExpandedView svg={svg} onClose={() => setExpanded(false)}/> : null}</>
     )
 }, (previous, next) => previous.chart === next.chart)

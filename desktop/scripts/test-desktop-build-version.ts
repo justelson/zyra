@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { reportHostDesktopVersion } from '../src/renderer/src/lib/release-build-metadata'
+import { reportHostDesktopVersion, resolveDesktopBuildChannel } from '../src/renderer/src/lib/release-build-metadata'
 import type { DevScopeUpdateState } from '../src/shared/contracts/devscope-api'
 
 const browserFallback: DevScopeUpdateState = {
@@ -32,5 +32,12 @@ assert.equal(reportHostDesktopVersion(browserFallback, '0.7.0-alpha.2').channel,
 
 const alreadyCurrent = { ...browserFallback, currentVersion: '0.6.0' }
 assert.equal(reportHostDesktopVersion(alreadyCurrent, '0.6.0'), alreadyCurrent, 'matching Desktop state stays referentially stable')
+
+assert.equal(resolveDesktopBuildChannel('0.7.0-dev.11'), 'Dev')
+assert.equal(resolveDesktopBuildChannel('0.7.0', true), 'Dev', 'build identity overrides a stable-looking version')
+assert.equal(resolveDesktopBuildChannel('0.7.0-alpha.3', true), 'Dev', 'older preview packages keep the Dev distribution identity')
+assert.equal(resolveDesktopBuildChannel('0.7.0-alpha.3'), 'Alpha')
+assert.equal(resolveDesktopBuildChannel('0.7.0-beta.12'), 'Beta')
+assert.equal(resolveDesktopBuildChannel('0.7.0'), 'Stable')
 
 console.log('Zyra Desktop/Browser build-version contract: ok')

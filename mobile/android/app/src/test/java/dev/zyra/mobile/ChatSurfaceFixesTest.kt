@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatSurfaceFixesTest {
+    @Test fun canonicalReadAndOtherSurfaceVisibilitySuppressAlerts() {
+        val done = Chat("c", "Title", "p", "ready", null, false, "pc", lastTurnId="one", lastTurnState="completed", lastTurnCompletedAt="1970-01-01T00:00:03Z")
+        assertNull(ChatAlertPolicy(linkedMapOf(), 2000).observe(done.copy(lastSeenCompletedTurnId="one"), null))
+        assertNull(ChatAlertPolicy(linkedMapOf(), 2000).observe(done.copy(viewed=true), null))
+        assertNull(ChatAlertPolicy(linkedMapOf(), 2000).observe(done.copy(viewed=true, attention="user-input"), null))
+        assertEquals("Response ready", ChatAlertPolicy(linkedMapOf(), 2000).observe(done, null))
+        val parsed = Chat.parse(org.json.JSONObject().put("canonicalChatId", "c").put("lastSeenCompletedTurnId", "one")
+            .put("presence", org.json.JSONObject().put("latestTurn", org.json.JSONObject().put("id", "one").put("state", "completed"))
+                .put("viewers", org.json.JSONArray().put(org.json.JSONObject().put("surface", "desktop")))))
+        assertEquals("one", parsed.lastSeenCompletedTurnId)
+        assertTrue(parsed.viewed)
+    }
     private val context = "<browser-context>{\"source\":\"Zyra Chrome sidebar\",\"targetId\":\"control-target:chrome-tab:abc-123\"}</browser-context>"
     @Test fun browserContextIsDisplayOnly() {
         val prompt = "Hello\n\n$context"

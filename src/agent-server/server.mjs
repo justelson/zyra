@@ -20,6 +20,7 @@ import { agentEndOutcome } from './agent-end-outcome.mjs';
 import { ServerPluginAuthority } from "./plugin-authority.mjs";
 import { AgentEventJournal } from "./event-journal.mjs";
 import { CanonicalChatCatalog } from "./catalog.mjs";
+import { CanonicalChatAttention } from "./chat-attention.mjs";
 import { getAgentServerPaths } from "./paths.mjs";
 import { isNetworkRecoveryError } from "../network-recovery.mjs";
 import {
@@ -77,6 +78,7 @@ export class ZyraAgentServer extends EventEmitter {
     this.sessionWorkerPool = options.createWorker ? null : new SessionWorkerPool(this.root);
     this.harnessTransport = new HarnessTransport(this.root);
     this.catalog = options.catalog || new CanonicalChatCatalog(options);
+    this.chatAttention = new CanonicalChatAttention(this);
     this.catalog.index?.on?.("modelsChanged", change => this.broadcastCatalogChanged(change));
     this.clients = new Map();
     this.sessions = new Map();
@@ -460,6 +462,14 @@ export class ZyraAgentServer extends EventEmitter {
       return { revoked: affected.map((session) => session.sessionKey) };
     }
     if (method === "session.attach") return this.attachSession(client, params);
+    if (method === "session.view") {
+      const chat = await this.catalog.find(params.session, { allProjects: true });
+      if (!chat || chat.deleted) throw new AgentServerProtocolError("Chat is unavailable.", "AGENT_SERVER_SESSION_NOT_FOUND");
+      if (typeof params.viewing !== 'boolean' || typeof params.viewId !== 'string' || !/^[\w:.-]{1,128}$/.test(params.viewId)) {
+        throw new AgentServerProtocolError('Chat view report is invalid.');
+      }
+      return this.chatAttention.report(client, chat.canonicalChatId, params);
+    }
     if (method === "session.join") {
       const chat = await this.catalog.find(params.session, { allProjects: true });
       if (!chat || chat.deleted) throw new AgentServerProtocolError("Chat is unavailable.", "AGENT_SERVER_SESSION_NOT_FOUND");
@@ -626,6 +636,7 @@ export class ZyraAgentServer extends EventEmitter {
       state: "detached",
       activeTurnId: null,
       clients: [],
+      viewers: this.chatAttention.viewers(sessionKey),
       backgroundWorkActive: false,
       attention: null,
       latestTurn: null
@@ -636,6 +647,7 @@ export class ZyraAgentServer extends EventEmitter {
       state: turnRunning ? "running" : session.hasBackgroundAgentWork() ? "background" : "ready",
       activeTurnId: turnRunning ? activeTurnId : null,
       clients: [...session.clients].map((client) => ({ clientId: client.clientId, surface: client.surface, ...(client.displayName ? { displayName: client.displayName } : {}) })),
+      viewers: this.chatAttention.viewers(sessionKey),
       backgroundWorkActive: session.hasBackgroundWork(),
       attention: session.pendingUserInputRequestIds.size > 0 ? "user-input" : session.pendingApprovalRequestIds.size > 0 ? "approval" : null,
       latestTurn: session.latestTurn ? { ...session.latestTurn } : null,
@@ -856,6 +868,7 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   dropClient(client) {
+    this.chatAttention.drop(client);
     this.externalTools.dropClient(client);
     clearTimeout(client.handshakeTimer);
     client.cleanupReader?.();
@@ -1354,6 +1367,7 @@ class ServerOwnedSession {
     for (const client of this.clients) {
       this.server.send(client, { type: "session.event", sessionKey: this.sessionKey, ...entry });
     }
+    this.server.chatAttention.observe(this, event);
     if (
       publishedRequestContext
       && this.activeRequestContext === publishedRequestContext

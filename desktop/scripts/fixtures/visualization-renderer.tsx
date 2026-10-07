@@ -15,13 +15,11 @@ const root = createRoot(document.querySelector('#root')!)
 const wait = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms))
 const until = async (predicate: () => unknown) => { for (let i = 0; i < 100; i++) { if (predicate()) return; await wait() } throw new Error('Visualization did not settle') }
 const render = (content: string, streaming: boolean) => flushSync(() => root.render(<VisualizationMessage content={content} streaming={streaming} renderMarkdown={text => <p>{text}</p>} />))
-const loadedSources = new WeakMap<HTMLIFrameElement, string>()
-document.addEventListener('load', event => {
-    if (event.target instanceof HTMLIFrameElement) loadedSources.set(event.target, event.target.srcdoc)
-}, true)
+// Readiness is reported by the trusted frame after actual layout.
 const waitForFrame = async (frame: HTMLIFrameElement) => {
     frame.loading = 'eager'
-    await until(() => loadedSources.get(frame) === frame.srcdoc)
+    await until(() => document.querySelector<HTMLIFrameElement>('iframe')?.dataset.visualizationReady === 'true')
+    await wait(120) // Let child ResizeObserver and parent layout settle after a width/font change.
 }
 installVisualizationFontChecks(render, until, waitForFrame)
 const body = `<style>.plot { border:1px solid var(--viz-border); background-image:url(https://visualization-test.invalid/style.png) }</style>
@@ -33,9 +31,11 @@ const body = `<style>.plot { border:1px solid var(--viz-border); background-imag
 <svg><foreignObject><iframe srcdoc="bad"></iframe></foreignObject><animate attributeName="href" values="javascript:alert(1)"/></svg>`
 const opening = '<visualization title="Chart" summary="Illustrative values, 80 and 40." height="240">\n'
 let initialPreviewHeight = 0
+let initialPreviewLabel = ''
 function InitialHeightProbe() {
     useLayoutEffect(() => {
         initialPreviewHeight = document.querySelector('figure > div')?.getBoundingClientRect().height ?? 0
+        initialPreviewLabel = document.querySelector('[data-artifact-phase="loading"]')?.getAttribute('aria-label') || ''
     }, [])
     return <VisualizationMessage content={opening + '<p>Height probe</p>\n</visualization>'} streaming={false} renderMarkdown={text => <p>{text}</p>} />
 }
@@ -58,18 +58,20 @@ function InitialHeightProbe() {
     }
     flushSync(() => root.render(<InitialHeightProbe />))
     assert(initialPreviewHeight === 240, 'initial preparation reserves the complete preview height before effects')
+    assert(initialPreviewLabel === 'Loading visualization', 'completed content loads rather than claiming it is still being created')
     render('Before\n' + opening + body, true)
     assert(document.body.textContent?.includes('Creating visualization'), 'streaming shows a compact placeholder')
     assert(!document.querySelector('iframe'), 'partial HTML never renders')
     assert(!document.body.textContent?.includes('parent.document'), 'streaming never dumps source')
     render('Before\n' + opening + body + '\n</visualization>\nAfter', false)
-    await until(() => document.querySelector('iframe')?.srcdoc)
+    await until(() => document.querySelector('iframe'))
     const frame = document.querySelector('iframe')!
     const figure = document.querySelector('figure')!
     assert(!/\b(border|rounded|bg-sparkle-card)/.test(figure.className), 'visualization sits on the page without an enclosing card')
     assert(!figure.querySelector('details, pre, figcaption'), 'description and HTML are not inline')
-    assert(frame.srcdoc.includes('padding:0;background:transparent'), 'inline document has no padded background panel')
-    assert(frame.srcdoc.includes(';--viz-border:#343b46}*{'), 'theme rule closes before document layout rules')
+    const inlineSource = buildVisualizationDocument(body, 'Chart', DEFAULT_VISUALIZATION_THEME, { inline: true })
+    assert(inlineSource.includes('padding:0;background:transparent'), 'inline document has no padded background panel')
+    assert(inlineSource.includes(';--viz-border:#343b46}*{'), 'theme rule closes before document layout rules')
     assert(!document.body.textContent?.includes('Illustrative values'), 'description stays hidden until requested')
     const info = document.querySelector('[aria-label="Options for Chart"]') as HTMLButtonElement
     assert(info, 'small options trigger sits beside the title')
@@ -87,15 +89,16 @@ function InitialHeightProbe() {
     ;(window as any).devscope.copyToClipboard = originalBridge
     await until(() => !document.querySelector('[role="menu"]'))
     assert(document.activeElement === info, 'copy returns focus to the trigger')
-    assert(frame.style.height === '240px', 'the authored preview height stays fixed')
+    assert(parseFloat(frame.style.height) <= 240, 'content height is capped at the authored maximum')
     frame.loading = 'eager'
     await wait(120)
-    assert(frame.getAttribute('sandbox') === '', 'opaque scriptless sandbox')
+    assert(frame.getAttribute('sandbox') === 'allow-scripts', 'app-owned presentation runs without same-origin access')
     assert(frame.referrerPolicy === 'no-referrer', 'no referrer leakage')
-    assert(!/<script|<iframe|<meta[^>]+refresh|onerror|<form|<input|foreignObject|<animate/i.test(frame.srcdoc), 'active elements and handlers are removed')
-    assert(!/href="https:|src="https:/i.test(frame.srcdoc), 'external navigation and image sources are removed')
-    assert(frame.srcdoc.includes("default-src 'none'") && frame.srcdoc.includes("connect-src 'none'"), 'network is denied by CSP')
-    assert(frame.srcdoc.includes('.plot') && frame.srcdoc.includes('viewBox') && frame.srcdoc.includes('Two series'), 'styles and SVG survive sanitization')
+    assert(!/<iframe|<meta[^>]+refresh|onerror|<form|<input|foreignObject|<animate|parent\.document|visualization-test\.invalid\/script/i.test(inlineSource), 'authored active elements and handlers are removed')
+    assert(!inlineSource.includes('<script') && frame.src.endsWith('/visualization-frame.html'), 'authored markup is scriptless and runs in the dedicated app frame')
+    assert(!/href="https:|src="https:/i.test(inlineSource), 'external navigation and image sources are removed')
+    assert(inlineSource.includes("default-src 'none'") && inlineSource.includes("connect-src 'none'"), 'export network is denied by CSP')
+    assert(inlineSource.includes('.plot') && inlineSource.includes('viewBox') && inlineSource.includes('Two series'), 'styles and SVG survive sanitization')
     assert(document.body.textContent?.includes('Before') && document.body.textContent?.includes('After'), 'text around the visualization stays in order')
     assert(!document.body.dataset.compromised, 'authored HTML cannot change the host')
     info.focus()
@@ -115,15 +118,13 @@ function InitialHeightProbe() {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await until(() => !document.querySelector('[role="menu"]'))
     assert(document.activeElement === info, 'Escape restores trigger focus')
-    const oldSource = frame.srcdoc
     document.body.classList.add('light')
     document.documentElement.style.setProperty('--color-bg', '#ffffff')
     document.documentElement.style.setProperty('--color-text', '#18212b')
     document.documentElement.style.setProperty('--accent-primary', '#245acc')
     window.dispatchEvent(new Event(ZYRA_THEME_CHANGED_EVENT))
-    await until(() => frame.srcdoc !== oldSource)
-    assert(frame.srcdoc.includes('--viz-bg:#ffffff') && frame.srcdoc.includes('--viz-text:#18212b'), 'current theme reaches an existing preview')
-    assert(frame.srcdoc.includes('#e76f51'), 'explicit authored colors remain intact')
+    await until(() => document.querySelector('iframe') !== frame)
+    await waitForFrame(document.querySelector('iframe')!)
     const exported = buildVisualizationDocument('<h2>Saved</h2><script>alert(1)</script>', 'Export <safe>', DEFAULT_VISUALIZATION_THEME)
     assert(exported.includes('Export &lt;safe&gt;') && !exported.includes('<script>'), 'saved HTML is sanitized and has the same CSP')
     assert(exported.includes('padding:16px;background:var(--viz-bg)'), 'saved documents retain a standalone page background')
@@ -145,7 +146,8 @@ function InitialHeightProbe() {
     render('```html\n' + opening + '<b>Example</b>\n</visualization>\n```', false)
     assert(!document.querySelector('figure'), 'fenced examples remain literal')
     render(opening + '<h2>Back in an existing thread</h2>\n</visualization>', false)
-    await until(() => document.querySelector('iframe')?.srcdoc.includes('Back in an existing thread'))
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
     document.querySelector('iframe')!.loading = 'eager'
     await wait(120)
     assert(unexpectedWindows === 0, 'browser menus and source dialogs never open native companion windows')
@@ -154,6 +156,13 @@ function InitialHeightProbe() {
 })()
 
 const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as const
+;(window as any).visualizationInteractionCase = async () => {
+    render(`<visualization title="Interactive sample" summary="Fictional sample, 84 units." height="320">\n<svg viewBox="0 0 680 70"><circle cx="120" cy="35" r="6" fill="var(--viz-accent)" data-viz-tooltip="Sample: 84 units"><title>Sample: 84 units</title></circle></svg><figcaption>Fictional sample</figcaption><details><summary>Show data table</summary><table style="width:100%">${Array.from({ length: 20 }, (_, i) => `<tr><td>Sample ${i}</td><td>${i}</td></tr>`).join('')}</table></details>\n</visualization>`, false)
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
+    await until(() => { const height = document.querySelector('iframe')!.getBoundingClientRect().height; return height > 80 && height < 200 })
+    return document.querySelector('iframe')!.getBoundingClientRect().height
+}
 const heatRows = [
     ['Kitchen', [15, 40, 85, 30, 65, 95, 20]],
     ['Lab', [70, 25, 45, 95, 35, 60, 80]],
@@ -198,13 +207,14 @@ ${heatRows.map(([name, values], row) => `<span class="heat-label">${name}</span>
         window.dispatchEvent(new Event(ZYRA_THEME_CHANGED_EVENT))
         render(content, false)
     })
-    await until(() => document.querySelector('iframe')?.srcdoc.includes('Robot snack demand') && document.querySelector('iframe')?.srcdoc.includes('--viz-bg:' + colors[0]))
+    await until(() => document.querySelector('iframe'))
     await waitForFrame(document.querySelector('iframe')!)
+    await until(() => document.querySelector('iframe')!.getBoundingClientRect().height > 32)
     const theme = { ...DEFAULT_VISUALIZATION_THEME, background: colors[0], text: colors[2], muted: colors[3], accent: colors[4], border: colors[5], scheme: mode }
     // Production Copy/Download receive block.html too, including its closing
     // newline. Export the identical parser output so it shares the preview key.
     const exported = buildVisualizationDocument(block.html, block.title, theme)
-    const inline = document.querySelector('iframe')!.srcdoc
+    const inline = buildVisualizationDocument(block.html, block.title, theme, { inline: true })
     for (const token of ['series-1', 'series-2', 'series-3', 'series-4', 'series-5', 'series-6', 'track', 'heat-low', 'heat-high', 'on-series']) {
         const declaration = inline.match(new RegExp(`--viz-${token}:([^;}]+)`))?.[0]
         assert(declaration && exported.includes(declaration), `${token}: export preserves the inline palette`)

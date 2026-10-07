@@ -230,7 +230,10 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
     private var foregroundVisible = false
     private var notificationsConnected = false
     val notificationChanges = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    fun notificationConnection(active: Boolean) { notificationsConnected = active; pool.foreground(foregroundVisible || active) }
+    private val chatAlerts = dev.zyra.mobile.notifications.AndroidChatAlerts(app, scope, this)
+    fun notificationMonitoringActive() = foregroundVisible || notificationsConnected
+    fun notificationUiVisible() = foregroundVisible
+    fun notificationConnection(active: Boolean) { notificationsConnected = active; pool.foreground(foregroundVisible || active); notificationChanges.tryEmit(Unit) }
     fun visibleChatKey(): String? = mutable.value.let { if (foregroundVisible && it.page == "chat") "${it.machine?.id}:${it.session.id}" else null }
     suspend fun notificationChats(): List<Chat> {
         val result = mutableListOf<Chat>()
@@ -256,6 +259,16 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         } catch (_: TimeoutCancellationException) { error(IllegalStateException("Reconnect to ${machine.name} to open this chat.")) } catch (e: CancellationException) { throw e } catch (e: Exception) { error(e) }
     }
     private val pluginVisible = MutableStateFlow(false)
+    private val chatViewLease = dev.zyra.mobile.network.ChatViewLease(scope)
+    init {
+        scope.launch {
+            combine(mutable, pluginVisible, pool.links) { state, visible, links ->
+                val connection = state.machine?.id?.let { links[it]?.connection }
+                if (visible && state.page == "chat" && state.connection == ConnectionState.Connected)
+                    connection to state.session.id else null to null
+            }.distinctUntilChanged().collect { (connection, session) -> chatViewLease.update(connection, session) }
+        }
+    }
     private val pluginInvalidations = PluginInvalidations(scope, combine(
         mutable.map { it.page }.distinctUntilChanged(), pluginVisible,
         plugins.state.map { !it.busy && !it.saving && !it.reviewing }.distinctUntilChanged(),
@@ -268,7 +281,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         PluginRefreshTarget.STORE -> pluginStore.refresh()
         else -> Unit
     } }
-    fun foreground(active: Boolean) { if (!active) dictation.cancel(); foregroundVisible = active; pluginVisible.value=active; pool.foreground(active || notificationsConnected) }
+    fun foreground(active: Boolean) { if (!active) dictation.cancel(); foregroundVisible = active; pluginVisible.value=active; pool.foreground(active || notificationsConnected); notificationChanges.tryEmit(Unit) }
     private var machinesReturnPage = "settings"
     fun page(page: String) = navigatePage(page, back = false)
     private fun navigatePage(page: String, back: Boolean) {

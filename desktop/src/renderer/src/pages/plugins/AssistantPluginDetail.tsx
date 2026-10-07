@@ -1,14 +1,13 @@
 import type { AssistantPluginCatalog, AssistantPluginInstallation, AssistantProject, AssistantSession } from '@shared/assistant/contracts'
-import { SettingsPageContainer, SettingsSwitch } from '../settings/settings-layout'
-import { Link } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { SettingsSwitch } from '../settings/settings-layout'
 import { UseInChatIcon } from './plugin-presentation'
 import { PluginDialog } from './PluginDialog'
 import { PluginMcpConnections } from './PluginMcpConnections'
 import { SettingsInfoTooltip } from '../settings/SettingsInfoTooltip'
 import { formatDigest, getChatPluginScope, getContributionSummary, getPluginRelease } from './plugin-directory-state'
+import { PluginSettingsDetail } from '../settings/plugins/PluginSettingsDetail'
 
-export function AssistantPluginDetail({ catalog, plugin, projects, selectedSession, busy, error, notice, onClose, onUseInChat, onToggleInstallation, onToggleAppViews, onToggleSet, onRefreshChat, onRollback, inline = false }: {
+export type AssistantPluginDetailProps = {
     catalog: AssistantPluginCatalog
     plugin: AssistantPluginInstallation
     projects: AssistantProject[]
@@ -24,7 +23,11 @@ export function AssistantPluginDetail({ catalog, plugin, projects, selectedSessi
     onRefreshChat: () => void
     onRollback: (releaseId: string) => void
     inline?: boolean
-}) {
+}
+
+export function AssistantPluginDetail(props: AssistantPluginDetailProps) {
+    const { catalog, plugin, projects, selectedSession, busy, error, notice, onClose, onUseInChat, onToggleInstallation, onToggleAppViews, onToggleSet, onRefreshChat, onRollback, inline = false } = props
+    if (inline) return <PluginSettingsDetail {...props} />
     const release = getPluginRelease(catalog, plugin)
     const source = catalog.sources.find((entry) => entry.id === plugin.sourceId)
     const releases = catalog.releases.filter((entry) => entry.pluginId === plugin.id).sort((a, b) => b.installedAt.localeCompare(a.installedAt))
@@ -79,9 +82,5 @@ export function AssistantPluginDetail({ catalog, plugin, projects, selectedSessi
             </div>)}
         </details> : null}
     </>
-    if (inline) return <SettingsPageContainer title={name} navigation={<div className="flex items-center justify-between gap-3 px-0.5">
-        <Link className="plugin-text-button" to="/settings/assistant/plugins"><ArrowLeft size={15} />Installed plugins</Link>
-        <button type="button" className="plugin-button plugin-button-primary" disabled={busy || !active || !hasSupportedContributions} onClick={onUseInChat} title="Start a new Chat with this release"><UseInChatIcon size={15} />Use in Chat</button>
-    </div>}><div className="plugin-settings-inline">{content}</div></SettingsPageContainer>
     return <PluginDialog title={name} subtitle={[release ? `Version ${release.version}` : 'Release unavailable', release?.manifest.interface.developerName].filter(Boolean).join(' · ')} busy={busy} onClose={onClose} footer={<button type="button" className="plugin-button plugin-button-primary" disabled={busy || !active || !hasSupportedContributions} onClick={onUseInChat} title="Start a new Chat with this release"><UseInChatIcon size={15} />Use in Chat</button>}>{content}</PluginDialog>
 }

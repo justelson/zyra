@@ -13,10 +13,10 @@ const choices: readonly ProviderAddChoice[] = [
 export function availableProviderAddChoices(existing: readonly string[], chatGptConfigured: boolean, openAiConfigured: boolean): ProviderAddChoice[] {
     return choices.filter(choice => {
         if (choice.id === 'custom') return true
-        if (choice.id === 'openai-codex') return !chatGptConfigured
+        if (choice.id === 'openai-codex') return true
         if (choice.id === 'openai') return !openAiConfigured
         return !existing.includes(choice.id)
-    })
+    }).map(choice => choice.id === 'openai-codex' && chatGptConfigured ? { ...choice, description: 'Sign in with another ChatGPT account.' } : choice)
 }
 
 export type ProviderAddGroupId = 'openai' | 'opencode'

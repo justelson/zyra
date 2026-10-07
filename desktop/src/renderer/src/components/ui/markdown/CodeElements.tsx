@@ -7,6 +7,8 @@ import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { hasColorToken, renderColorAwareText } from './colorTokens'
 import { isMarkdownScrollBusy } from './markdownScrollActivity'
 import { copyTextToClipboard as copyCodeBlockText } from '@/lib/copy-text'
+import './diagram-canvas.css'
+import { ArtifactCreationState } from '../ArtifactCreationState'
 
 const MermaidDiagram = lazy(async () => ({
     default: (await import('./MermaidDiagram')).MermaidDiagram
@@ -232,7 +234,8 @@ export const CodeBlock = memo(function CodeBlock({
     theme = 'dark',
     children,
     maxLines,
-    deferHighlighting = false
+    deferHighlighting = false,
+    diagramStreaming = false
 }: {
     language?: string
     title?: string | null
@@ -240,6 +243,7 @@ export const CodeBlock = memo(function CodeBlock({
     children: string
     maxLines?: number
     deferHighlighting?: boolean
+    diagramStreaming?: boolean
 }) {
     const [copied, setCopied] = useState(false)
     const [expanded, setExpanded] = useState(false)
@@ -263,13 +267,10 @@ export const CodeBlock = memo(function CodeBlock({
     }
 
     if (language === 'mermaid') {
+        if (diagramStreaming) return <div className="my-4"><ArtifactCreationState kind="diagram" phase="creating"/></div>
         return (
             <div className="my-4">
-                <Suspense fallback={(
-                    <div className="flex min-h-40 items-center justify-center rounded-lg border border-white/10 bg-sparkle-card text-xs text-sparkle-text-muted">
-                        <span className="animate-pulse">Preparing diagram…</span>
-                    </div>
-                )}>
+                <Suspense fallback={<ArtifactCreationState kind="diagram" phase="loading"/>}>
                     <MermaidDiagram chart={children} />
                 </Suspense>
             </div>

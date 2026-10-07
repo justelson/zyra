@@ -116,7 +116,7 @@ try {
  await render('empty')
  await settle(reads[8], ok())
  assert(text().includes('No running background processes.'), 'authoritative empty result')
- assert(text().includes('Stop turn leaves these running.'), 'turn-stop behavior explained')
+ assert(!text().includes('Stop turn leaves these running.') && !text().includes('App-owned processes'), 'background section has no explanatory description')
  await poll()
  const pending = reads[9]
  await act(async () => root.unmount())

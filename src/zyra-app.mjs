@@ -283,6 +283,7 @@ async function runMain() {
   cliStartupCompleted = true;
   captureCliEvent("zyra_v1_cli", { action: "startup", outcome: "completed", runtime: useEmbeddedRuntime ? "embedded" : "client" });
   const terminalTitle = createZyraTerminalTitle({ project: parsed.project, state: "ready" });
+  let terminalFocused = true;
   process.once("exit", () => terminalTitle.dispose());
 
   const setTerminalTitleState = (state, runtime) => {
@@ -502,6 +503,7 @@ async function runMain() {
   ui.setTheme(runtime.terminalTheme);
   ui.banner(describeRuntime(runtime));
   ui.history?.(runtime.history?.events?.() || []);
+  runtime.agentServer?.setViewed?.(terminalFocused);
   if (useEmbeddedRuntime) startZyraMemoryBackgroundStartup(runtime);
   let unsubscribe = subscribeRuntimeEvents(runtime);
   if (runtime.modelFallbackMessage) {
@@ -527,6 +529,7 @@ async function runMain() {
     unsubscribe?.();
     runtime.session.dispose();
     runtime = nextRuntime;
+    runtime.agentServer?.setViewed?.(terminalFocused);
     ui.setTheme(runtime.terminalTheme);
     ui.resetSession(describeRuntime(runtime));
     ui.history?.(runtime.history?.events?.() || []);
@@ -678,7 +681,7 @@ async function runMain() {
     starterRecommendations: onboardingResult?.starterPrompt ? [{ prompt: onboardingResult.starterPrompt }] : [],
     project: runtime.project,
     theme: runtime.terminalTheme,
-    onTerminalFocusChange: (focused) => terminalTitle.setFocused(focused),
+    onTerminalFocusChange: (focused) => { terminalFocused = focused; terminalTitle.setFocused(focused); runtime.agentServer?.setViewed?.(focused); },
   });
   if (restartMode) {
     await restartZyraProcess(runtime, { mode: restartMode });

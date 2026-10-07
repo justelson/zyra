@@ -1,9 +1,10 @@
 import { memo, useState } from 'react'
-import { Archive, Check, Copy, Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Pencil, Radio, SquarePen, Trash2 } from 'lucide-react'
-import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
+import { Check, Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Radio } from 'lucide-react'
+import { FileActionsMenu } from '@/components/ui/FileActionsMenu'
 import type { AssistantChatDisplayMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
-import { copyTextToClipboard } from './AssistantPageHelpers'
+import { copyChatThreadId } from './assistant-chat-menu-state'
+import { createChatActionMenuItems } from './assistant-chat-actions-menu'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
@@ -17,6 +18,12 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
     showRightSidebarToggle?: boolean
     selectedSessionTitle: string
     titleGenerating?: boolean
+    settled?: boolean
+    pinned?: boolean
+    settlementDisabled?: boolean
+    onToggleSettlement?: () => void
+    onTogglePinned?: () => void
+    onRegenerateTitle?: () => void | Promise<void>
     canonicalThreadId: string | null
     canonicalPresence?: {
         state: 'detached' | 'ready' | 'running' | 'background'
@@ -87,64 +94,21 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
             ? `${canonicalPresence.state}${typeof canonicalPresence.latestSequence === 'number' ? ` · seq ${canonicalPresence.latestSequence}` : ''}`
             : 'presence unavailable'
         : null
-    const headerMenuItems: FileActionsMenuItem[] = [
-        {
-            id: 'new-thread',
-            label: 'New thread',
-            icon: <SquarePen size={13} />,
-            disabled: actionsDisabled,
-            onSelect: onCreateThread
-        },
-        {
-            id: 'rename',
-            label: 'Rename chat',
-            icon: <Pencil size={13} />,
-            disabled: actionsDisabled,
-            onSelect: onRenameChat
-        },
-        {
-            id: 'copy-thread-id',
-            label: threadIdCopied ? 'Thread ID copied' : 'Copy thread ID',
-            icon: threadIdCopied ? <Check size={13} /> : <Copy size={13} />,
-            disabled: !canonicalThreadId,
-            onSelect: async () => {
-                if (!canonicalThreadId) return
-                try {
-                    await copyTextToClipboard(canonicalThreadId)
-                    setThreadIdCopied(true)
-                    onShowToast?.('Thread ID copied', 'success')
-                    window.setTimeout(() => setThreadIdCopied(false), 1600)
-                } catch (error) {
-                    const message = error instanceof Error && error.message
-                        ? `Could not copy thread ID: ${error.message}`
-                        : 'Could not copy thread ID'
-                    onShowToast?.(message, 'error')
-                }
+    const headerMenuItems = createChatActionMenuItems({
+        disabled: actionsDisabled, pinned: props.pinned, settled: props.settled,
+        settlementDisabled: props.settlementDisabled, titleGenerating,
+        canonicalThreadId, threadIdCopied, projectPath: selectedProjectPath, projectLocked: projectDirectoryLocked,
+        onCreateThread, onRename: onRenameChat, onChooseProject,
+        onCopyThreadId: async () => {
+            if (await copyChatThreadId(canonicalThreadId, input => onShowToast?.(input.message, input.tone))) {
+                setThreadIdCopied(true)
+                window.setTimeout(() => setThreadIdCopied(false), 1600)
             }
         },
-        {
-            id: 'project',
-            label: projectDirectoryLocked ? 'Project locked' : selectedProjectPath ? 'Change project' : 'Attach project',
-            icon: <Folder size={13} />,
-            disabled: actionsDisabled || projectDirectoryLocked,
-            onSelect: onChooseProject
-        },
-        {
-            id: 'archive',
-            label: 'Archive chat',
-            icon: <Archive size={13} />,
-            disabled: actionsDisabled,
-            onSelect: onArchiveChat
-        },
-        {
-            id: 'delete',
-            label: 'Delete chat',
-            icon: <Trash2 size={13} />,
-            disabled: actionsDisabled,
-            danger: true,
-            onSelect: onDeleteChat
-        }
-    ]
+        onTogglePinned: props.onTogglePinned, onToggleSettlement: props.onToggleSettlement,
+        onRegenerateTitle: props.onRegenerateTitle,
+        onArchive: onArchiveChat, onDelete: onDeleteChat
+    })
 
     return (
         <div
@@ -164,7 +128,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                         <AssistantProjectIcon projectPath={selectedProjectPath} size={12} />
                         <span className="truncate">{latestProjectLabel}</span>
                     </button>
-                ) : <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium leading-none text-sparkle-text-muted/65" aria-label="Project context: No project"><Folder size={12} /><span>No project</span></span>}
+                ) : <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium leading-none text-sparkle-text-muted/65" aria-label="Chat"><Folder size={12} /><span>Chat</span></span>}
                 <span className="shrink-0 px-0.5 text-[12px] text-sparkle-text-muted/35" aria-hidden="true">/</span>
                 <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
                     <h2 className={cn('min-w-0 max-w-[min(360px,35vw)] text-[12px] leading-none text-sparkle-text/90', minimal ? 'font-medium' : 'font-semibold')}>
@@ -187,6 +151,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                         {tuiOpen ? <AssistantTuiPresenceIndicator /> : null}
                         {mobileDevices.length > 0 || mobileVoiceDevice ? <AssistantTuiPresenceIndicator mobileDevices={mobileDevices} mobileVoiceDevice={mobileVoiceDevice} /> : null}
                     </span>
+                    {props.settled ? <span className="ml-1 inline-flex shrink-0 items-center gap-1 text-[10px] font-normal text-sparkle-text-muted" title="Send a message to unsettle this thread"><Check size={11} /><span>Settled</span></span> : null}
                 </div>
                 {remotePresenceLabel ? (
                     <span

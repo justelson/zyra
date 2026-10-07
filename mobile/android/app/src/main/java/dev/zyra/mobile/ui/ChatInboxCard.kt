@@ -83,8 +83,8 @@ internal val LocalChatStatusNow = staticCompositionLocalOf<Long?> { null }
         chat.attention != null -> "Input needed"
         chat.working -> listOfNotNull(if (chat.state == "background") "Background" else "Working", chatWorkingDuration(chat, fixedNow ?: now)).joinToString(" · ")
         chat.lastTurnState in setOf("failed", "error") -> "Failed"
-        chat.lastTurnState == "interrupted" -> "Stopped"
-        chat.lastTurnState == "completed" -> "Done"
+        chat.lastTurnState == "interrupted" && chat.lastTurnId != chat.lastSeenCompletedTurnId -> "Stopped"
+        chat.lastTurnState == "completed" && chat.lastTurnId != chat.lastSeenCompletedTurnId -> "Done"
         else -> relativeChatTime(chat.modifiedAt)
     }
     if (label.isEmpty()) return

@@ -69,6 +69,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const connected = asRecord(attached.connected) || {};
   const connectedConfig = normalizeRemoteChatConfig(asRecord(connected.config) || connected);
   const canonicalChatId = String(attached.canonicalChatId || attached.sessionKey);
+  let viewLeaseTimer;
   const { modelRegistry } = await createZyraRuntime();
   registerZyraRuntimeModels(modelRegistry);
   const model = resolveModel(modelRegistry, String(connectedConfig.model || connected.model || preferences.model));
@@ -664,6 +665,8 @@ export async function createZyraTuiClientRuntime(options = {}) {
     getContextUsage: () => getRemoteContextUsage(state.messages, currentModel),
     dispose() {
       if (disposed) return;
+      clearInterval(viewLeaseTimer);
+      void client.request('session.view', { session: canonicalChatId, viewId: 'main', viewing: false }).catch(() => undefined);
       disposed = true;
       client.off("session-event", onServerEvent);
       client.off("disconnect", onDisconnect);
@@ -781,6 +784,12 @@ export async function createZyraTuiClientRuntime(options = {}) {
     },
     agentServer: {
       client,
+      setViewed(focused) {
+        clearInterval(viewLeaseTimer);
+        const report = () => { if (!disposed) void client.request('session.view', { session: canonicalChatId, viewId: 'main', viewing: focused === true }).catch(() => undefined); };
+        report();
+        if (focused) { viewLeaseTimer = setInterval(report, 10_000); viewLeaseTimer.unref?.(); }
+      },
       connectionStatus: () => client.connectionStatus,
       canonicalChatId,
       activeTurnId: () => activeTurnId,

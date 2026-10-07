@@ -236,6 +236,24 @@ Object.assign(window, { nativeOverlayCallerCheck: (async () => {
     await settle(() => childDocument.activeElement === firstAction, 'keyboard focus waits for actual native portal mount')
     await click(firstAction)
     check(selected === 1, 'shared FileActions action fires once')
+    let contextDismissals = 0
+    await act(async () => root.render(<FileActionsMenu key="chat-context" title="Chat context" density="compact" containEscape
+        contextAnchor={{ x: 150, y: 100 }} onDismiss={() => { contextDismissals++ }}
+        items={[{ id: 'thread', label: 'Thread', submenuOnly: true, onSelect: () => {}, choicesLabel: 'Thread actions',
+            choices: [{ id: 'new-thread', label: 'New thread', onSelect: () => { selected++ } }] }]} />))
+    await settle(() => Boolean(childDocument.querySelector('[aria-label="Chat context"]')), 'chat context opens in native child document')
+    const threadParent = childDocument.querySelector<HTMLButtonElement>('[data-submenu-id="thread"]')!
+    await key(threadParent, 'ArrowRight')
+    await settle(() => Boolean(childDocument.querySelector('[aria-label="Thread actions"]')), 'chat submenu mounts in native child document')
+    const threadAction = [...childDocument.querySelectorAll<HTMLButtonElement>('[aria-label="Thread actions"] button')][0]
+    await settle(() => childDocument.activeElement === threadAction, 'keyboard focuses native submenu after mount')
+    await key(threadAction, 'ArrowLeft')
+    await settle(() => childDocument.activeElement === threadParent && !childDocument.querySelector('[aria-label="Thread actions"]'), 'keyboard returns to native submenu parent')
+    await key(threadParent, 'ArrowRight')
+    await settle(() => Boolean(childDocument.querySelector('[aria-label="Thread actions"]')), 'native submenu reopens')
+    await click(childDocument.querySelector<HTMLButtonElement>('[aria-label="Thread actions"] button')!)
+    check(selected === 2 && contextDismissals === 1, 'native context submenu fires once and dismisses its owner')
+    results.push('actual chat context submenu: child-document positioning, keyboard focus/return, one action and dismissal')
     await act(async () => root.render(<NativeOverlayPortal><PreviewChromeFixture /></NativeOverlayPortal>))
     await settle(() => Boolean(childDocument.querySelector('[data-preview-resize-side]')), 'preview resize handle mounts')
     const separator = childDocument.querySelector('[data-preview-resize-side]')!

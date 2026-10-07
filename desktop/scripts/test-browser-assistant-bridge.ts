@@ -74,7 +74,9 @@ let realtimeVoiceEventListener: ((event: AssistantRealtimeVoiceEvent) => void) |
 let devscopeEventListener: ((event: BrowserDevscopeRelayEvent) => void) | null = null
 const browserClientCounts: number[] = []
 const devscopeInvocations: Array<{ methodPath: string[]; args: unknown[] }> = []
+const threadViewReports: unknown[][] = []
 const service = {
+    async setThreadView(...args: unknown[]) { threadViewReports.push(args); return { success: true } },
     subscribeExternalEvents(listener: (payload: AssistantEventStreamPayload) => void) {
         eventListener = listener
         return () => { eventListener = null }
@@ -187,6 +189,21 @@ try {
     assert.equal(bootstrap.value.snapshot.sessions[0].title, 'Shared browser session', 'browser bootstrap must use the live AssistantService')
     assert.equal(typeof eventListener, 'function', 'the first protected Browser request binds live Assistant events')
     assert.equal(bootstrapResponse.headers.get('access-control-allow-origin'), allowedOrigin)
+
+    for (const clientId of ['browser-view-tab-0001', 'browser-view-tab-0002']) {
+        const viewed = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
+            method: 'POST', headers, body: JSON.stringify({ method: 'setThreadView', clientId, args: [{ threadId: 'thread:real', viewing: true }] })
+        })
+        assert.equal(viewed.status, 200)
+    }
+    assert.deepEqual(threadViewReports, [
+        ['browser:browser-view-tab-0001', { threadId: 'thread:real', viewing: true }, 'browser'],
+        ['browser:browser-view-tab-0002', { threadId: 'thread:real', viewing: true }, 'browser']
+    ], 'protected browser view reports retain independent document identity and surface')
+    const invalidView = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
+        method: 'POST', headers, body: JSON.stringify({ method: 'setThreadView', args: [{ threadId: 'thread:real', viewing: true }] })
+    })
+    assert.equal(invalidView.status, 400, 'anonymous view reports cannot overwrite a tab reader')
 
     const pluginCatalogResponse = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
         method: 'POST',

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { assert, fault } from './errors.mjs';
 import { mobileEvent, projectEvent, replayGap } from './projection.mjs';
 const TERMINAL_METHODS = new Set(['terminal.list', 'terminal.create', 'terminal.attach', 'terminal.detach', 'terminal.input', 'terminal.resize', 'terminal.close', 'terminal.clear']);
+const VIEW_METHODS = new Set(['session.view']);
 const VOICE_METHODS = new Set(['voice.status', 'voice.start', 'voice.stop', 'voice.ingest', 'voice.message', 'voice.recovery.begin', 'voice.recovery.chunk', 'voice.recovery.finish', 'voice.recovery.cancel']);
 const READS = new Set(['catalog.project', 'catalog.search', 'catalog.search.context', 'catalog.list', 'catalog.get', 'catalog.history', 'catalog.entry.body', 'catalog.tool-output.search', 'runtime.models']);
 const ACTIONS = new Set(['prompt', 'abort', 'steer', 'follow_up', 'compact', 'clear_queue', 'configure', 'preferences.get', 'memory.configure',
@@ -210,6 +211,11 @@ export class HostRouter {
       await this.voice?.detach(params.sessionKey);
       this.attached.delete(params.sessionKey); return this.client.detach(params.sessionKey);
     }
+    if (method === 'session.view') {
+      const chat = await this.assertChat(params.session);
+      assert(typeof params.viewing === 'boolean', 'Invalid chat view.');
+      return this.client.request(method, { session: chat.canonicalChatId, viewId: 'main', viewing: params.viewing });
+    }
     if (method === 'fleet.definition') {
       assert(this.attached.has(params.session), 'Open this chat first.');
       assert(['agents', 'workflows'].includes(params.kind), 'Choose agents or workflows.');
@@ -268,7 +274,7 @@ export class HostRouter {
 }
 // Voice signaling is tied to a live connection; never replay a prior connection's
 // start/stop or persist transient Voice events in the durable command ledger.
-export const isRead = (method, params = {}) => ['account.limits', 'account.usage', 'session.details'].includes(method) || REVIEW_METHODS.has(method) || DICTATION_METHODS.has(method) || PLUGIN_READS.has(method) || READS.has(method) || WORKSPACE_READS.has(method) || VOICE_METHODS.has(method) || ['upload.begin', 'upload.status', 'upload.chunk', 'upload.finish', 'upload.cancel', 'fleet.definition', 'host.status', 'operation.status', 'media.chunk', 'body.chunk', 'session.attach', 'session.detach', 'terminal.list', 'terminal.attach', 'terminal.detach', 'terminal.input', 'terminal.resize'].includes(method)
+export const isRead = (method, params = {}) => ['account.limits', 'account.usage', 'session.details'].includes(method) || REVIEW_METHODS.has(method) || DICTATION_METHODS.has(method) || PLUGIN_READS.has(method) || READS.has(method) || WORKSPACE_READS.has(method) || VOICE_METHODS.has(method) || VIEW_METHODS.has(method) || ['upload.begin', 'upload.status', 'upload.chunk', 'upload.finish', 'upload.cancel', 'fleet.definition', 'host.status', 'operation.status', 'media.chunk', 'body.chunk', 'session.attach', 'session.detach', 'terminal.list', 'terminal.attach', 'terminal.detach', 'terminal.input', 'terminal.resize'].includes(method)
   || (method === 'session.request' && (params.type === 'preferences.get' || /^(agents|workflows)\.(list|listDefinitions|listRuns|status|transcript)$/.test(params.type)));
 
 

@@ -42,7 +42,7 @@ export function AssistantActionBatchScroll({ expanded, children }: { expanded: b
             data-assistant-action-batch-scroll="true"
             data-scroll-fade-top={edges.top}
             data-scroll-fade-bottom={edges.bottom}
-            className="project-surface-scrollbar overflow-y-auto overscroll-y-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--surface-divider)]"
+            className="project-surface-scrollbar overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--surface-divider)]"
             style={{ maxHeight: 'min(16rem, 35vh)', maskImage: mask, WebkitMaskImage: mask }}
             onScroll={syncEdges}
         >

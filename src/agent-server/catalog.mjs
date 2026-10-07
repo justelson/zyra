@@ -309,6 +309,16 @@ export class CanonicalChatCatalog {
     return structuredClone(this.record);
   }
 
+  markCompletionSeen(canonicalChatId, turnId, completedAt) {
+    const existing = this.record.metadata[canonicalChatId] || {};
+    if (existing.lastSeenCompletedTurnId === turnId) return false;
+    const timestamp = Date.parse(completedAt);
+    if (!Number.isFinite(timestamp) || timestamp < (Date.parse(existing.lastSeenCompletedAt) || 0)) return false;
+    this.record.metadata[canonicalChatId] = { ...existing, lastSeenCompletedTurnId: turnId, lastSeenCompletedAt: completedAt };
+    this.persist();
+    return true;
+  }
+
   persist() {
     trimRecord(this.record);
     writeCatalog(this.paths.catalogFile, this.record);
@@ -359,7 +369,8 @@ function applyMetadata(chat, metadata = {}, record = {}) {
     deleted: metadata.deleted === true,
     deletedAt: metadata.deletedAt || null,
     aliases: Object.entries(record.aliases || {}).filter(([, id]) => id === canonicalChatId).map(([alias]) => alias).slice(0, 32),
-    surfaces: [...new Set(record.surfaces?.[canonicalChatId] || [])]
+    surfaces: [...new Set(record.surfaces?.[canonicalChatId] || [])],
+    lastSeenCompletedTurnId: metadata.lastSeenCompletedTurnId || null
   };
 }
 

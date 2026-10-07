@@ -2,24 +2,32 @@ import { KeyRound, MessageSquarePlus, MonitorSmartphone, RefreshCw, Unplug } fro
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { SettingsProviderIcon } from '../SettingsProviderIcon'
 import { SettingsActionsMenu } from '../SettingsActionsMenu'
-import { SettingsButton, SettingsDialog, SettingsInput, SettingsNotice, SettingsRow } from '../settings-layout'
+import { SettingsButton, SettingsDialog, SettingsInput, SettingsNotice } from '../settings-layout'
+import { ProviderConnectionRow } from './ProviderConnectionRow'
 import { createSettingsRowTargetId } from '../settings-search'
 import { connectionStatusLabel, connectionStatusTone, useOpenAIAccountSettings } from './useOpenAIAccountSettings'
 import { ChatGptAuthenticationSuccess } from './ChatGptAuthenticationSuccess'
 import { ChatGptDeviceCodeDialog } from './ChatGptDeviceCodeDialog'
 
-export function OpenAIConnectionRows({ connection, onBackToProviders }: { connection: ReturnType<typeof useOpenAIAccountSettings>; onBackToProviders?: () => void }) {
-    const { desktopHost, connectionError, connectionAction, apiKeyDialogOpen, setApiKeyDialogOpen, apiKeyDraft, setApiKeyDraft, disconnectMethod, setDisconnectMethod, chatGptAuthenticationSuccessOpen, setChatGptAuthenticationSuccessOpen, chatGptDeviceCode, chatGptDeviceCodeOpen, dismissChatGptDeviceCode, refreshAll, connectChatGpt, cancelChatGpt, connectApiKey, switchDefaultConnection, disconnect, chatGptConnection, apiKeyConnection, activeDefaultMethod, connectionBusy } = connection
+export function OpenAIConnectionNotices({ connection }: { connection: ReturnType<typeof useOpenAIAccountSettings> }) {
+    const { desktopHost, connectionError, connectionAction, connectionBusy, refreshAll, cancelChatGpt } = connection
+    return <>
+        {!desktopHost ? <SettingsNotice tone="neutral">Open Zyra Desktop on this computer to manage OpenAI credentials.</SettingsNotice> : null}
+        {connectionError ? <SettingsNotice tone="error">{connectionError}<SettingsButton variant="ghost" disabled={connectionBusy} onClick={() => void refreshAll()}>Retry</SettingsButton></SettingsNotice> : null}
+        {connectionAction === 'chatgpt' ? <SettingsNotice>Waiting for ChatGPT sign-in… <SettingsButton variant="ghost" onClick={() => void cancelChatGpt()}>Cancel sign-in</SettingsButton></SettingsNotice> : null}
+    </>
+}
+
+export function OpenAIConnectionRows({ connection, onBackToProviders, showChatGpt = true, showNotices = true }: { connection: ReturnType<typeof useOpenAIAccountSettings>; onBackToProviders?: () => void; showChatGpt?: boolean; showNotices?: boolean }) {
+    const { desktopHost, connectionAction, apiKeyDialogOpen, setApiKeyDialogOpen, apiKeyDraft, setApiKeyDraft, disconnectMethod, setDisconnectMethod, chatGptAuthenticationSuccessOpen, setChatGptAuthenticationSuccessOpen, chatGptDeviceCode, chatGptDeviceCodeOpen, dismissChatGptDeviceCode, connectChatGpt, cancelChatGpt, connectApiKey, switchDefaultConnection, disconnect, chatGptConnection, apiKeyConnection, activeDefaultMethod, connectionBusy } = connection
     const backFromApiKey = () => {
         setApiKeyDraft('')
         setApiKeyDialogOpen(false)
         onBackToProviders?.()
     }
     return <>
-                {!desktopHost ? <SettingsNotice tone="neutral">Open Zyra Desktop on this computer to connect, replace, switch, or disconnect OpenAI credentials.</SettingsNotice> : null}
-                {connectionError ? <SettingsNotice tone="error">{connectionError}<SettingsButton variant="ghost" disabled={connectionBusy} onClick={() => void refreshAll()}>Retry</SettingsButton></SettingsNotice> : null}
-                {connectionAction === 'chatgpt' ? <SettingsNotice>Waiting for ChatGPT sign-in… <SettingsButton variant="ghost" onClick={() => void cancelChatGpt()}>Cancel sign-in</SettingsButton></SettingsNotice> : null}
-                {chatGptConnection?.configured ? (<SettingsRow
+                {showNotices ? <OpenAIConnectionNotices connection={connection} /> : null}
+                {showChatGpt && chatGptConnection?.configured ? (<ProviderConnectionRow
                     title="ChatGPT subscription"
                     searchTargetId={createSettingsRowTargetId('OpenAI connections', 'ChatGPT subscription')}
                     description="Use your subscription for ChatGPT models, Voice and usage limits."
@@ -36,11 +44,11 @@ export function OpenAIConnectionRows({ connection, onBackToProviders }: { connec
                         ]} />
                     ) : <span className="text-xs text-sparkle-text-muted">Managed in Desktop</span>}
                 />) : null}
-                {apiKeyConnection?.configured ? (<SettingsRow
+                {apiKeyConnection?.configured ? (<ProviderConnectionRow
                     title="OpenAI API key"
                     searchTargetId={createSettingsRowTargetId('OpenAI connections', 'OpenAI API key')}
-                    description="Connect an API key for usage billed to your OpenAI account."
-                    info="The key is verified before saving and is never returned to this page."
+                    description="API billing"
+                    info="Usage is billed to your OpenAI API account. The key is verified before saving and is never returned to this page."
                     icon={<SettingsProviderIcon provider="openai" />}
                     status={desktopHost ? connectionStatusLabel(apiKeyConnection) : 'Desktop only'}
                     statusTone={desktopHost ? connectionStatusTone(apiKeyConnection) : 'muted'}

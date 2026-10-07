@@ -15,12 +15,14 @@ import {
 } from './settings-layout'
 
 type AccountResetCreditsSectionProps = {
+    compact?: boolean
     overview: AssistantAccountOverview | null
     loading: boolean
     onOverviewChange: (overview: AssistantAccountOverview) => void
 }
 
 export function AccountResetCreditsSection({
+    compact = false,
     overview,
     loading,
     onOverviewChange
@@ -120,7 +122,11 @@ export function AccountResetCreditsSection({
 
     return (
         <>
-            <SettingsSection title="Banked resets">
+            {compact ? <button type="button" className="chatgpt-reset-credit" disabled={loading && !overview} onClick={openResetManager}
+                aria-label={loading && !overview ? 'Checking reset credits' : overview?.resetCreditsError ? 'Check reset credits' : `${availableCount} reset credit${availableCount === 1 ? '' : 's'}`}
+                title={overview?.resetCreditsError || `${availableCount} reset credit${availableCount === 1 ? '' : 's'} available`}>
+                <RotateCcw size={11} aria-hidden="true" /><span>{loading && !overview ? '…' : overview?.resetCreditsError ? '!' : availableCount}</span>
+            </button> : <SettingsSection title="Banked resets">
                 <SettingsRow
                     title="Reset credits"
                     description="Review banked resets for the connected ChatGPT account and approve one when needed."
@@ -137,7 +143,7 @@ export function AccountResetCreditsSection({
                         </SettingsButton>
                     )}
                 />
-            </SettingsSection>
+            </SettingsSection>}
 
             <SettingsDialog
                 open={resetsOpen}

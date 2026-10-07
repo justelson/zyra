@@ -11,7 +11,9 @@ import { SettingsProviderIcon } from '../settings/SettingsProviderIcon'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
-import { getSidebarSettlementActivityKey, isSidebarSettlementCurrent, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
+import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
+import { useAssistantSettlementOverrides } from './assistant-settlement-store'
+import { createChatSettlementMenuItem } from './assistant-chat-actions-menu'
 import { AssistantTuiPresenceIndicator } from './AssistantTuiPresenceIndicator'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
 import { assistantSessionMobileDevices, isAssistantSessionOpenInTui } from './assistant-tui-presence'
@@ -25,16 +27,14 @@ import {
     getSortableTimestamp,
     groupSessionsByProject,
     isAssistantDraftSession,
-    resolveAssistantThreadStatusPill,
+    resolveAssistantSidebarRowStatus as resolveRowStatus,
+    type AssistantSidebarRowStatus as RowStatus,
     type SessionProjectGroup
 } from './assistant-sessions-rail-utils'
 
 const ALL_PROJECTS = '__assistant-agent-inbox-all-projects__'
-const SETTLED_OVERRIDES_KEY = 'assistant:agent-inbox-settled-overrides:v1'
-const AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000
 const SETTLED_PAGE_COUNT = 25
 
-type RowStatus = 'approval' | 'input' | 'working' | 'failed' | 'stopped' | 'done' | 'ready'
 type SidebarItem = {
     session: AssistantSession
     thread: AssistantThread | null
@@ -66,42 +66,8 @@ type Props = {
     onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, session: AssistantSession, items: FileActionsMenuItem[]) => void
 }
 
-function readSettlementOverrides(): SettlementOverrides {
-    try {
-        const value = JSON.parse(localStorage.getItem(SETTLED_OVERRIDES_KEY) || '{}') as unknown
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-        return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, SettlementOverride] => {
-            const override = entry[1] as Partial<SettlementOverride> | null
-            return Boolean(override && (override.state === 'active' || override.state === 'settled') && typeof override.activityAt === 'string'
-                && (override.activityKey === undefined || typeof override.activityKey === 'string'))
-        }))
-    } catch {
-        return {}
-    }
-}
-
-function writeSettlementOverrides(value: SettlementOverrides): void {
-    try { localStorage.setItem(SETTLED_OVERRIDES_KEY, JSON.stringify(value)) } catch { /* keep in memory */ }
-}
-
 function getStatusThread(session: AssistantSession): AssistantThread | null {
     return session.threads.find((thread) => thread.id === session.activeThreadId) || getPrimarySessionThread(session)
-}
-
-function resolveRowStatus(thread: AssistantThread | null, isSelectedThread: boolean): RowStatus {
-    const pill = resolveAssistantThreadStatusPill(thread, isSelectedThread)
-    switch (pill?.label) {
-        case 'Pending': return 'approval'
-        case 'Input needed': return 'input'
-        case 'Working':
-        case 'Background':
-        case 'Connecting': return 'working'
-        case 'Failed':
-        case 'Stale': return 'failed'
-        case 'Done': return 'done'
-        case 'Stopped': return 'stopped'
-        default: return 'ready'
-    }
 }
 
 function isWorkingItem(item: Pick<SidebarItem, 'status'>): boolean {
@@ -113,12 +79,7 @@ function isPriorityItem(item: Pick<SidebarItem, 'pinned' | 'status'>): boolean {
 }
 
 function isEffectivelySettled(item: Omit<SidebarItem, 'settled'>, overrides: SettlementOverrides): boolean {
-    if (isPriorityItem(item)) return false
-    const override = overrides[item.session.id]
-    if (override && isSidebarSettlementCurrent(item.session, override)) return override.state === 'settled'
-    if (item.status !== 'ready') return false
-    const activity = getSortableTimestamp(item.activityAt)
-    return activity > 0 && Date.now() - activity >= AUTO_SETTLE_AFTER_MS
+    return isAssistantChatSettled(item.session, overrides, { priority: isPriorityItem(item), ready: item.status === 'ready', activityAt: item.activityAt })
 }
 
 function formatWorkingDuration(startedAt: string | null): string {
@@ -173,17 +134,11 @@ function topStatus(item: SidebarItem): ReactNode {
 }
 
 function getAgentInboxMenuItems(item: SidebarItem, onToggleSettlement: (item: SidebarItem) => void, props: Props): FileActionsMenuItem[] {
-    const settle = !item.settled
-    return [
-        {
-            id: settle ? 'settle' : 'unsettle',
-            label: item.pinned ? 'Unpin chat to settle' : settle ? 'Settle chat' : 'Un-settle chat',
-            disabled: isPriorityItem(item),
-            icon: settle ? <Check size={13} /> : <Undo2 size={13} />,
-            onSelect: () => onToggleSettlement(item)
-        },
-        ...props.getSessionMenuItems(item.session)
-    ]
+    const settlement = createChatSettlementMenuItem({ pinned: item.pinned, settled: item.settled, settlementDisabled: isPriorityItem(item), disabled: props.commandPending, onToggleSettlement: () => onToggleSettlement(item) })
+    const actions = props.getSessionMenuItems(item.session)
+    return actions.some(action => action.id === 'settle' || action.id === 'unsettle')
+        ? actions.map(action => action.id === 'settle' || action.id === 'unsettle' ? settlement : action)
+        : [settlement, ...actions]
 }
 
 function InboxRowActions({ item, action, onAction, props, showLabel = false, inFlow = false }: {
@@ -226,6 +181,7 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false, inF
                     presentation="portal"
                     rootClassName="flex shrink-0 items-center"
                     density="compact"
+                    revealSecondaryOnHover
                     buttonClassName="h-6 w-6 rounded-md text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
                     openButtonClassName="rounded-md bg-[var(--surface-hover)] text-sparkle-text opacity-100"
                 />
@@ -310,7 +266,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [settledExpanded, setSettledExpanded] = useState(true)
     const [settledInitialCount, setSettledInitialCount] = useState(1)
     const [settledAdditionalCount, setSettledAdditionalCount] = useState(0)
-    const [settlementOverrides, setSettlementOverrides] = useState<SettlementOverrides>(readSettlementOverrides)
+    const [settlementOverrides, setSettlementOverrides] = useAssistantSettlementOverrides()
     const menuRef = useRef<HTMLDivElement | null>(null)
     const projectTriggerRef = useRef<HTMLButtonElement | null>(null)
     const projectSearchRef = useRef<HTMLInputElement | null>(null)
@@ -324,7 +280,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     useEffect(() => {
         setSettlementOverrides(current => {
             const next = upgradeSidebarSettlementOverrides(current, visibleSessions)
-            if (next !== current) writeSettlementOverrides(next)
             return next
         })
     }, [visibleSessions])
@@ -508,7 +463,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         stableLayout.release()
         setSettlementOverrides((current) => {
             const next = { ...current, [item.session.id]: { state, activityAt: item.activityAt, activityKey: getSidebarSettlementActivityKey(item.session) } }
-            writeSettlementOverrides(next)
             return next
         })
     }

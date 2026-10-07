@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatGptAccountsUpdate, ChatGptPoolSnapshot } from '@shared/onboarding/contracts'
 
-export function useChatGptAccountPool() {
+export function useChatGptAccountPool({ usageActive = true }: { usageActive?: boolean } = {}) {
     const [snapshot, setSnapshot] = useState<ChatGptPoolSnapshot | null>(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -19,7 +19,7 @@ export function useChatGptAccountPool() {
         } catch (failure) { if (request === generation.current) setError(failure instanceof Error ? failure.message : 'Could not check accounts.') }
     }, [])
     const update = useCallback(async (input: ChatGptAccountsUpdate) => {
-        if (mutation.current) return
+        if (mutation.current) return false
         mutation.current = true
         ++generation.current
         setBusy(true)
@@ -28,13 +28,14 @@ export function useChatGptAccountPool() {
             if (!result.success) throw new Error(result.error)
             setSnapshot(result.pool)
             setError(null)
-        } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save account preferences.') }
+            return true
+        } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save account preferences.'); return false }
         finally { mutation.current = false; setBusy(false) }
     }, [])
     useEffect(() => {
-        void refresh().then(() => refresh(true))
-        const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(true) }, 60_000)
+        void refresh().then(() => { if (usageActive) return refresh(true) })
+        const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(usageActive) }, 60_000)
         return () => { ++generation.current; window.clearInterval(timer) }
-    }, [refresh])
+    }, [refresh, usageActive])
     return { snapshot, busy, error, refresh, update }
 }

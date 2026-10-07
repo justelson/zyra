@@ -22,6 +22,8 @@ import { AssistantTimelineSearchAction } from './AssistantTimelineSearchAction'
 import { AssistantTimelineSkillAction } from './AssistantTimelineSkillAction'
 import { AssistantTimelineWebAction } from './AssistantTimelineWebAction'
 import { TimelineToolCallCard } from './AssistantTimelineToolCallCard'
+import { PluginToolCallCard } from './PluginToolCallCard'
+import { isPluginActivity } from '@shared/assistant/plugin-activity-presentation'
 import { AssistantTimelineThreadMessage } from './AssistantTimelineThreadMessage'
 
 function normalizeTimelineFilePath(value: string): string {
@@ -108,6 +110,7 @@ export const TimelineToolCallList = memo(({
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
 
     const renderActivity = (activity: AssistantActivity) => {
+        if (isPluginActivity(activity)) return <PluginToolCallCard key={activity.id} activity={activity} onOpenUrl={onOpenUrl}/>
         if (activity.kind === 'thread-message' || activity.kind === 'thread-collaboration') return <AssistantTimelineThreadMessage key={activity.id} activity={activity} displayMode={displayMode} />
         if (isAssistantConnectionRecoveryActivity(activity)) return <AssistantTimelineNetworkRecovery key={activity.id} activity={activity} />
         if (isIssueActivity(activity)) return <TimelineIssueList key={activity.id} activities={[activity]} />

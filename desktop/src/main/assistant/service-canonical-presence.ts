@@ -5,6 +5,12 @@ import type { CanonicalAgentChatPresence } from './zyra-agent-server-worker'
 const ACTIVE_CANONICAL_PRESENCE_STATES = new Set<CanonicalAgentChatPresence['state']>(['running', 'background'])
 const ACTIVE_ASSISTANT_THREAD_STATES = new Set<AssistantThreadState>(['starting', 'running', 'waiting'])
 
+/** Preserve a freshly read local terminal turn while an older catalog response is in flight. */
+export function mergeCanonicalCompletionReceipt(local: string | null | undefined, canonical: string | null | undefined, latestTurnId: string | undefined): string | null {
+    if (local && local === latestTurnId && canonical !== latestTurnId) return local
+    return canonical || local || null
+}
+
 type DesktopCanonicalPresence = CanonicalAgentChatPresence & { observedSequence?: number }
 
 export function isCanonicalPresenceActive(presence?: CanonicalAgentChatPresence | null): boolean {

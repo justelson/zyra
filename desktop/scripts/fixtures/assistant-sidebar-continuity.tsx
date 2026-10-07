@@ -15,6 +15,7 @@ import { assistantStore } from '../../src/renderer/src/lib/assistant/assistant-s
 import type { AssistantSession, AssistantThread } from '../../src/shared/assistant/contracts'
 import { checkVoiceRecorderInput } from './voice-recorder-input'
 import { checkConversationMarkers } from './conversation-markers'
+import { useAssistantThreadView } from '../../src/renderer/src/pages/assistant/useAssistantThreadView'
 
 const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
@@ -59,8 +60,13 @@ function session(id: string, working = false): AssistantSession {
 let sessions = [session('drawing'), session('child'), session('other', true)]
 let selected = 'drawing'
 let disabled = false
+function CompletionViewReporter() {
+    useAssistantThreadView(sessions.find(session => session.id === selected)?.threads[0])
+    return null
+}
 function render() {
     flushSync(() => root.render(<div id="rail" className="flex h-full w-[300px] flex-col p-2">
+        {location.search.includes('unreadCompletion=1') && <CompletionViewReporter />}
         <AssistantAgentInboxSidebar sessions={sessions} activeSessionId={selected} activeThreadId={`${selected}-thread`} commandPending={disabled}
             pendingControlThreadIds={new Set()} projectIconOverrides={{}} onSelectSession={id => { selected = id; render() }}
             onCreateProjectChat={() => undefined} onRename={() => undefined} getSessionMenuItems={() => []} onOpenContextMenu={() => undefined}
@@ -111,18 +117,30 @@ async function keyboardFocusStyle(id: string, enabled: boolean) {
 }
 
 async function checkUnreadCompletion() {
+    let focused = true
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    // Native focus and the service are tested separately. This fixture exercises the real renderer hook and sidebar.
+    ;(window as any).devscope = { ...(window.devscope || {}), assistant: { ...(window.devscope?.assistant || {}), setThreadView: async ({ threadId, viewing }: any) => {
+        const thread = sessions.flatMap(session => session.threads).find(thread => thread.id === threadId)
+        if (viewing && thread?.latestTurn && ['completed', 'interrupted'].includes(thread.latestTurn.state) && thread.lastSeenCompletedTurnId !== thread.latestTurn.id) {
+            project('thread.updated', { threadId, patch: { lastSeenCompletedTurnId: thread.latestTurn.id } })
+            queueMicrotask(render)
+        }
+        return { success: true }
+    } } }
     selected = 'drawing'
     sessions = [session('drawing'), session('child', true)]
-    render(); await sleep(250)
-    const cardHeight = row('child').getBoundingClientRect().height
-    check(cardHeight > 60 && section('child') === 'Priority', 'Background working chat starts as a full-size Priority card')
     let sequence = 0
     const project = (type: string, payload: Record<string, unknown>) => {
         sessions = applyAssistantDomainEvents({ ...createDefaultAssistantSnapshot(), sessions, selectedSessionId: selected }, [{
             eventId: `completion-event-${++sequence}`, sequence, occurredAt: now,
-            type, sessionId: 'child', threadId: 'child-thread', payload
+            type, sessionId: sessions.find(session => session.threads.some(thread => thread.id === payload.threadId))?.id, threadId: payload.threadId, payload
         } as any]).sessions
     }
+    render(); await sleep(250)
+    const cardHeight = row('child').getBoundingClientRect().height
+    check(cardHeight > 60 && section('child') === 'Priority', 'Background working chat starts as a full-size Priority card')
     const completedTurn = session('child').threads[0].latestTurn!
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: completedTurn })
     project('thread.updated', { threadId: 'child-thread', patch: { state: 'ready', canonicalPresence: { state: 'ready', clients: [] } } })
@@ -130,19 +148,34 @@ async function checkUnreadCompletion() {
     check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Unread completed chat keeps a full-size Recent card, not Priority')
     check(row('child').textContent?.includes('Done'), 'Retained completion card says Done')
     selected = 'child'; render(); await sleep(250)
-    project('thread.updated', { threadId: 'child-thread', patch: { lastSeenCompletedTurnId: completedTurn.id } })
+    check(sessions.find(session => session.id === 'child')?.threads[0].lastSeenCompletedTurnId === completedTurn.id, 'Mounted visible chat acknowledges through the real view hook')
     selected = 'drawing'; render(); await sleep(250)
     check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Read completion keeps the full-size Recent card')
+    check(!row('child').textContent?.includes('Done'), 'Leaving the viewed completed chat does not revive Done')
+    selected = 'child'; render(); await sleep(150)
+    const viewedTurn = { ...completedTurn, id: 'completed-while-viewing' }
+    project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: viewedTurn }); render(); await sleep(150)
+    selected = 'drawing'; render(); await sleep(150)
+    check(!row('child').textContent?.includes('Done'), 'Completion arriving inside the open chat stays read after leaving')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...completedTurn, id: 'child-new-turn' } })
     render(); await sleep(250)
     await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight && Boolean(row('child').textContent?.includes('Done')), 'A new unread completion remains a readable Done card in Recent')
+    focused = false
+    selected = 'child'; render(); await sleep(100)
+    project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...completedTurn, id: 'finished-in-background-window' } }); render(); await sleep(100)
+    selected = 'drawing'; render(); await sleep(100)
+    check(row('child').textContent?.includes('Done'), 'A selected but unfocused chat remains unread when it finishes')
+    focused = true; window.dispatchEvent(new Event('focus'))
+    selected = 'child'; render(); await sleep(150)
+    selected = 'drawing'; render(); await sleep(150)
+    check(!row('child').textContent?.includes('Done'), 'Actually viewing the background completion clears Done persistently')
     const stoppedTurn = { ...completedTurn, id: 'child-stopped-turn', state: 'interrupted' }
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: stoppedTurn })
     project('thread.updated', { threadId: 'child-thread', patch: { state: 'interrupted' } })
     render(); await sleep(250)
     await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight && Boolean(row('child').textContent?.includes('Stopped')), 'Unread stopped work retains a large Stopped card, never Failed')
     selected = 'child'; render(); await sleep(250)
-    project('thread.updated', { threadId: 'child-thread', patch: { lastSeenCompletedTurnId: stoppedTurn.id } })
+    check(sessions.find(session => session.id === 'child')?.threads[0].lastSeenCompletedTurnId === stoppedTurn.id, 'Visible interrupted work is acknowledged by the hook')
     selected = 'drawing'; render(); await sleep(250)
     check(row('child').getBoundingClientRect().height === cardHeight, 'Opening stopped work keeps its full-size Recent card')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...stoppedTurn } })

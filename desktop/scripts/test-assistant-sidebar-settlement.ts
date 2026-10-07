@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { AssistantSession, AssistantThread } from '../src/shared/assistant/contracts'
-import { getSidebarSettlementActivityKey, isSidebarSettlementCurrent, upgradeSidebarSettlementOverrides } from '../src/renderer/src/pages/assistant/assistant-sidebar-settlement'
+import { getSidebarSettlementActivityKey, isSidebarSettlementCurrent, upgradeSidebarSettlementOverrides, isAssistantChatSettled, AUTO_SETTLE_AFTER_MS } from '../src/renderer/src/pages/assistant/assistant-sidebar-settlement'
 
 const createdAt = '2026-01-01T00:00:00Z'
 const completedAt = '2026-01-02T00:00:00Z'
@@ -26,4 +26,10 @@ assert.equal(upgraded.chat.activityKey, override.activityKey)
 assert.equal(isSidebarSettlementCurrent(changed({ messageCount: 5 }), upgraded.chat), false, 'Migrated legacy choices detect new messages')
 assert.equal(upgradeSidebarSettlementOverrides(upgraded, [session]), upgraded, 'Repeated snapshots preserve the override object')
 assert.equal(isSidebarSettlementCurrent(session, { ...legacy, activityAt: 'invalid' }), false)
+const presentation = { priority: false, ready: true, activityAt: completedAt, now: Date.parse(completedAt) + AUTO_SETTLE_AFTER_MS }
+assert(isAssistantChatSettled(session, {}, presentation), 'Automatic settlement drives every surface from the same metadata')
+assert(isAssistantChatSettled(session, { chat: override }, { ...presentation, now: Date.parse(completedAt) }), 'Manual settlement appears immediately')
+assert(!isAssistantChatSettled(session, { chat: override }, { ...presentation, priority: true }), 'Sending, active work, approval or pinning suppresses the settled state')
+assert(!isAssistantChatSettled(changed({ messageCount: 5 }), { chat: override }, { ...presentation, now: Date.parse(completedAt) }), 'New messages invalidate a settled indicator without a navigation or hydration timestamp')
+assert(!isAssistantChatSettled(session, { chat: { ...override, state: 'active' } }, presentation), 'Explicitly unsettled chats remain active')
 console.log('Sidebar settlement metadata, legacy choices, new activity, and hydration regressions passed.')

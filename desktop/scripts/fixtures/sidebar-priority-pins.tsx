@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { MemoryRouter } from 'react-router-dom'
 import { AssistantChatSessionsRail } from '../../src/renderer/src/pages/assistant/AssistantChatSessionsRail'
+import { setAssistantSettlementOverrides } from '../../src/renderer/src/pages/assistant/assistant-settlement-store'
 import type { AssistantSession, AssistantThread } from '../../src/shared/assistant/contracts'
 
 const root = createRoot(document.getElementById('root')!)
@@ -80,7 +81,7 @@ async function action(id: string, label: string) {
 }
 async function run() {
     localStorage.removeItem(pinKey)
-    localStorage.setItem(settleKey, JSON.stringify({ manual: { state: 'settled', activityAt: now } }))
+    setAssistantSettlementOverrides({ manual: { state: 'settled', activityAt: now } })
     render(); await sleep(150)
     check(!row('private-review'), 'Supporting subagents never become top-level sidebar cards')
     check(section('independent') === 'Priority', 'An explicitly independent working conversation stays visible')

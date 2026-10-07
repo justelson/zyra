@@ -114,7 +114,7 @@ assert.equal((connections.match(/<ChromeBrowserConnectionSettings \/>/g) || []).
 assert.equal((connections.match(/<MobileConnectionSettings \/>/g) || []).length, 1)
 
 const archived = source('ArchivedChatsSettings.tsx')
-assert.match(archived, /<SettingsPageContainer title="Archived chats">/)
+assert.match(archived, /<SettingsPageContainer title="Archived chats" fillViewport>/)
 assert.doesNotMatch(archived, /SettingsPageTabs/)
 assert.match(archived, /createSettingsRowTargetId\('Archive', 'Search'\)/)
 assert.match(archived, /archiveSessionResult/)

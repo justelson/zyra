@@ -3,6 +3,16 @@ import type { AssistantSession } from '@shared/assistant/contracts'
 export type SettlementOverride = { state: 'active' | 'settled'; activityAt: string; activityKey?: string }
 export type SettlementOverrides = Record<string, SettlementOverride>
 
+export const AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000
+
+export function isAssistantChatSettled(session: AssistantSession, overrides: SettlementOverrides, { priority, ready, activityAt, now = Date.now() }: { priority: boolean; ready: boolean; activityAt: string; now?: number }): boolean {
+    if (priority) return false
+    const override = overrides[session.id]
+    if (override && isSidebarSettlementCurrent(session, override)) return override.state === 'settled'
+    const activity = Date.parse(activityAt)
+    return ready && Number.isFinite(activity) && activity > 0 && now - activity >= AUTO_SETTLE_AFTER_MS
+}
+
 /** Use catalog metadata, never the currently loaded history page or navigation timestamps. */
 export function getSidebarSettlementActivityKey(session: AssistantSession): string {
     return JSON.stringify(session.threads.map(thread => [

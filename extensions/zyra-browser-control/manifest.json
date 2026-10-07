@@ -24,8 +24,10 @@
     "type": "module"
   },
   "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; script-src 'unsafe-inline'; object-src 'none'; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:",
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self' blob: data: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: http://127.0.0.1:*; media-src 'self' blob: http://127.0.0.1:*; worker-src 'self'; base-uri 'none'"
   },
+  "sandbox": { "pages": ["chat/visualization-frame.html"] },
   "minimum_chrome_version": "125",
   "incognito": "not_allowed",
   "icons": {

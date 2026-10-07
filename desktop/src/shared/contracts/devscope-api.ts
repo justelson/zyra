@@ -65,6 +65,7 @@ import type {
     AssistantSendPromptOptions,
     AssistantSendRealtimeVoiceMessageInput,
     AssistantSelectThreadInput,
+    AssistantThreadViewInput,
     AssistantSkillSourceOverviewPayload,
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
@@ -686,6 +687,7 @@ export interface DevScopeAssistantApi {
     createSession: (input?: AssistantCreateSessionInput) => Promise<DevScopeResult<{ sessionId: string }>>
     selectSession: (sessionId: string) => Promise<DevScopeResult<{ sessionId: string; snapshot?: AssistantShellSnapshot; status?: AssistantRuntimeStatus }>>
     selectThread: (input: AssistantSelectThreadInput) => Promise<DevScopeResult<{ sessionId: string; threadId: string; snapshot?: AssistantShellSnapshot; status?: AssistantRuntimeStatus }>>
+    setThreadView?: (input: AssistantThreadViewInput) => Promise<DevScopeResult>
     getThreadDetailBootstrap: (threadId: string) => Promise<DevScopeResult<AssistantThreadDetailResultPayload>>
     getHistoryPage: (input: AssistantGetHistoryPageInput) => Promise<DevScopeResult<AssistantHistoryPageResultPayload>>
     getHistoryAroundMessage: (input: AssistantGetHistoryAroundMessageInput) => Promise<DevScopeResult<AssistantHistoryAroundMessageResultPayload>>

@@ -307,7 +307,10 @@ function reorganizeSearchTargets(): Record<string, SettingsSearchTarget[]> {
     result.usage = [sectionTarget('Token activity', 'Token activity', 'usage tokens input output cached cache cost daily history'), sectionTarget('Breakdown', 'Breakdown', 'provider model tokens turns cost')]
     move('providers', 'provider-writing', () => true)
     move('account', 'providers', labels('ChatGPT subscription', 'OpenAI API key'), 'Connections')
-    result.account = result.account.filter(target => target.section !== 'Other model providers' && !['Access refresh', 'Connection source'].includes(target.label))
+    move('account', 'providers', target => target.section === 'ChatGPT accounts', 'Connections')
+    result.providers = result.providers.map(target => target.label === 'ChatGPT accounts' ? sectionTarget('Connections', 'ChatGPT accounts', 'multiple accounts add provider sign in reconnect disconnect subscription') : target)
+    result.account = result.account.filter(target => !['Other model providers', 'ChatGPT account', 'Usage limits', 'Banked resets'].includes(target.section))
+    result.account.unshift(sectionTarget('ChatGPT usage', 'ChatGPT usage', 'accounts quota remaining used rate limits weekly five hour reset credits pause enable'))
     result.skills = result.skills.filter(target => target.section !== 'When changes apply').map(target => target.label === 'Resolution order' ? { ...target, keywords: `${target.keywords} reload new chats apply existing chats` } : target)
     result['skill-conflicts'] = [sectionTarget('Names to review', 'Skill name conflicts', 'overlapping duplicate skills unresolved resolved preferred source automatic priority')]
     result.providers.push(sectionTarget('Connections', 'Provider connections', 'opencode zen anthropic claude custom endpoint connect api key'))
@@ -415,7 +418,8 @@ export function resolveSettingsSearchLocation(pageId: string | null, targetId: s
     for (const [oldSection, label] of [['Chat behavior', 'Default prompt'], ['Tools & approvals', 'Permission mode'], ['Chat behavior', 'Busy send behavior']]) {
         if (targetId === createSettingsRowTargetId(oldSection, label)) return at('chat-defaults', createSettingsRowTargetId('New chat setup', label))
     }
-    if ([createSettingsRowTargetId('ChatGPT account', 'Access refresh'), createSettingsRowTargetId('ChatGPT account', 'Connection source')].includes(targetId)) return at('account', createSettingsRowTargetId('ChatGPT account', 'Connection'))
+    if (['ChatGPT account', 'ChatGPT accounts'].some(section => targetId === createSettingsSectionTargetId(section)) || ['Connection', 'Email', 'Plan', 'Pi provider', 'Account ID', 'Access refresh', 'Connection source'].some(label => targetId === createSettingsRowTargetId('ChatGPT account', label))) return at('providers', createSettingsSectionTargetId('Connections'))
+    if (['Usage limits', 'Banked resets'].some(section => targetId === createSettingsSectionTargetId(section)) || ['Usage display', 'Usage windows'].some(label => targetId === createSettingsRowTargetId('Usage limits', label)) || targetId === createSettingsRowTargetId('Banked resets', 'Reset credits')) return at('account', createSettingsSectionTargetId('ChatGPT usage'))
     if (['Provider', 'Planning', 'Implementation', 'Review', 'Debugging', 'Verification', 'Research', 'Other agents'].some(label => targetId === createSettingsRowTargetId('Delegated work', label))) return at('provider-models', createSettingsRowTargetId('Delegated work', 'Approach'))
     const movedSection = sectionMoves.find(([old]) => targetId === createSettingsSectionTargetId(old))
     if (movedSection) {

@@ -19,6 +19,8 @@ import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
+import * as electron from 'electron'
+import { ChatNotifications, type ChatAttentionNotice } from './chat-notifications'
 import { PluginMcpConnections } from './plugin-mcp-connections'
 import log from 'electron-log'
 import { requestAssistantBackgroundProcesses } from './service-background-processes'
@@ -195,7 +197,7 @@ import {
     handleAssistantRuntimeEvent
 } from './service-runtime-events'
 import { projectCanonicalAgentOrigin } from './service-canonical-agent-origin'
-import { hasCanonicalUserInputAttention, isCanonicalPresenceActive, mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from './service-canonical-presence'
+import { hasCanonicalUserInputAttention, isCanonicalPresenceActive, mergeCanonicalCompletionReceipt, mergeCanonicalPresenceLatestTurn, mergeCanonicalPresenceObservation, resolveCanonicalPresenceAttention, resolveCanonicalPresenceThreadState } from './service-canonical-presence'
 import { leaveAssistantThreadForNavigation, shouldKeepAssistantThreadAttachedDuringNavigation } from './service-navigation-runtime'
 import { CanonicalHistoryRefreshTracker, shouldRefreshCanonicalHistory } from './canonical-history-refresh-policy'
 import { TrailingAsyncReconciler } from './trailing-async-reconciler'
@@ -276,6 +278,7 @@ type PendingCanonicalVoiceStart = {
 }
 
 export type AssistantServiceOptions = {
+    openNotificationChat?: (canonicalChatId: string) => Promise<void>
     getDefaultProjectsFolder?: () => string | null
     getNewChatExecutionDefaults?: () => Promise<{ webSearch: boolean; webFetch: boolean }>
     getNewChatPreparationModel?: () => Promise<string | null>
@@ -331,6 +334,13 @@ export class AssistantService {
     private static readonly ASSISTANT_EVENT_BROADCAST_BATCH_MS = 16
 
     private readonly runtime: ZyraRuntime
+    private readonly threadViews = new Map<string, { threadId: string; expiresAt: number }>()
+    private readonly chatNotifications = new ChatNotifications({
+        readChat: (id) => this.runtime.getCanonicalChat(id),
+        create: (options) => electron.Notification.isSupported() ? new electron.Notification(options) : null,
+        openChat: async (id) => { await this.options.openNotificationChat?.(id) },
+        failed: (error) => log.warn('[Assistant] Chat notification failed', error)
+    })
     private modelCatalogLastAttemptAt = 0
     private modelCatalogLastRefreshFailed = false
     private modelCatalogTimer: ReturnType<typeof setInterval> | null = null
@@ -506,9 +516,11 @@ export class AssistantService {
         this.runtime.on('runtime', (event) => {
             this.handleRuntimeEvent(event)
         })
+        this.runtime.on('chat.attention', (notice: ChatAttentionNotice) => { void this.chatNotifications.receive(notice) })
         this.runtime.on('catalog.changed', (value) => {
             const change = asCanonicalRecord(value)
             const canonicalChatId = String(change?.['canonicalChatId'] || '').trim()
+            void this.chatNotifications.refresh(canonicalChatId || undefined)
             const transcriptChanged = !change
                 || change['canonicalMessage'] === true
                 || !change['presence'] && !change['metadata'] && !change['title'] && !change['project']
@@ -575,6 +587,26 @@ export class AssistantService {
 
     unsubscribe(senderId: number) {
         this.subscribers.delete(senderId)
+        this.threadViews.delete(`desktop:${senderId}`)
+        return { success: true as const }
+    }
+
+    async setThreadView(viewId: string, input: { threadId: string; viewing: boolean }, surface: 'desktop' | 'browser' = 'desktop') {
+        await this.ensureReady()
+        if (!input || typeof input.threadId !== 'string' || typeof input.viewing !== 'boolean') throw new Error('Invalid chat view.')
+        const record = findThreadRecord(this.state.snapshot, input.threadId)
+        if (!record) return { success: false as const, error: 'Chat is unavailable.' }
+        for (const [id, view] of this.threadViews) if (view.expiresAt <= Date.now()) this.threadViews.delete(id)
+        if (input.viewing) this.threadViews.set(viewId, { threadId: record.thread.id, expiresAt: Date.now() + 35_000 })
+        else if (this.threadViews.get(viewId)?.threadId === record.thread.id) this.threadViews.delete(viewId)
+        const turn = record.thread.latestTurn
+        if (input.viewing && turn && ['completed', 'interrupted'].includes(turn.state) && record.thread.lastSeenCompletedTurnId !== turn.id) {
+            this.appendEvent('thread.updated', nowIso(), { threadId: record.thread.id, patch: { lastSeenCompletedTurnId: turn.id } }, record.session.id, record.thread.id)
+        }
+        if (record.thread.providerThreadId) await this.runtime.reportCanonicalChatView(record.thread.providerThreadId, {
+            viewId, surface, viewing: input.viewing,
+            ...(turn && ['completed', 'interrupted'].includes(turn.state) ? { seenTurnId: turn.id, seenCompletedAt: turn.completedAt } : {})
+        })
         return { success: true as const }
     }
 
@@ -2085,6 +2117,8 @@ export class AssistantService {
     }
 
     dispose(): Promise<void> {
+        this.chatNotifications.dispose()
+        this.threadViews.clear()
         if (this.disposePromise) return this.disposePromise
         this.disposeRequested = true
         if (this.modelCatalogTimer) clearInterval(this.modelCatalogTimer)
@@ -2941,6 +2975,7 @@ export class AssistantService {
                 patch: {
                     canonicalPresence: mergeCanonicalPresenceObservation(thread.canonicalPresence, chat.presence),
                     latestTurn,
+                    lastSeenCompletedTurnId: mergeCanonicalCompletionReceipt(thread.lastSeenCompletedTurnId, chat.lastSeenCompletedTurnId, latestTurn?.id),
                     state: resolveCanonicalPresenceThreadState({
                         currentState: thread.state,
                         localThread: thread,
@@ -3022,6 +3057,7 @@ export class AssistantService {
                     presence: nextCanonicalPresence
                 })
                 const nextLatestTurn = mergeCanonicalPresenceLatestTurn(existing.thread.latestTurn, nextCanonicalPresence)
+                const nextSeenTurnId = mergeCanonicalCompletionReceipt(existing.thread.lastSeenCompletedTurnId, chat.lastSeenCompletedTurnId, nextLatestTurn?.id)
                 const latestTurnChanged = JSON.stringify(existing.thread.latestTurn || null) !== JSON.stringify(nextLatestTurn || null)
                 const nextAttention = resolveCanonicalPresenceAttention({
                     currentHasPendingApprovals: existing.thread.hasPendingApprovals,
@@ -3041,6 +3077,7 @@ export class AssistantService {
                     || existing.thread.hasPendingApprovals !== nextHasPendingApprovals
                     || existing.thread.hasPendingUserInputs !== nextHasPendingUserInputs
                     || latestTurnChanged
+                    || existing.thread.lastSeenCompletedTurnId !== nextSeenTurnId
                     || presenceChanged
                     || Boolean(chat.agentLabel && existing.thread.agentNickname !== chat.agentLabel)
                     || Boolean(agentOrigin && existing.thread.source !== agentOrigin.source)
@@ -3054,6 +3091,7 @@ export class AssistantService {
                             activityCount: nextActivityCount,
                             canonicalPresence: nextCanonicalPresence,
                             latestTurn: nextLatestTurn,
+                            lastSeenCompletedTurnId: nextSeenTurnId,
                             hasPendingApprovals: nextHasPendingApprovals,
                             hasPendingUserInputs: nextHasPendingUserInputs,
                             state: nextThreadState,
@@ -3086,6 +3124,7 @@ export class AssistantService {
                 ? mergeCanonicalPresenceObservation(undefined, chat.presence)
                 : undefined
             thread.latestTurn = mergeCanonicalPresenceLatestTurn(null, chat.presence)
+            thread.lastSeenCompletedTurnId = chat.lastSeenCompletedTurnId || null
             thread.hasPendingApprovals = chat.presence?.attention === 'approval'
             thread.hasPendingUserInputs = hasCanonicalUserInputAttention(chat.presence)
             if (chat.presence?.state === 'running') thread.state = 'running'
@@ -3835,10 +3874,10 @@ export class AssistantService {
         if (event.type !== 'turn.completed') return
 
         const completedThreadRecord = findThreadRecord(this.state.snapshot, event.threadId)
-        const selectedSession = getSelectedSession(this.state.snapshot)
-        const activeThread = getActiveThread(selectedSession)
+        const activeThread = completedThreadRecord?.thread
+        const selectedSession = completedThreadRecord?.session
         if (!selectedSession || !activeThread) return
-        if ((completedThreadRecord?.thread.id || event.threadId) !== activeThread.id) return
+        if (![...this.threadViews.values()].some(view => view.threadId === activeThread.id && view.expiresAt > Date.now())) return
         if (!activeThread.latestTurn || !['completed', 'interrupted'].includes(activeThread.latestTurn.state)) return
         if (activeThread.lastSeenCompletedTurnId === activeThread.latestTurn.id) return
 

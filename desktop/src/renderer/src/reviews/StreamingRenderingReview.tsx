@@ -11,7 +11,7 @@ import { useStreamingReview } from './use-streaming-review'
 const date = '2026-10-07T13:20:00.000Z'
 const history: TimelineDisplayRow[] = Array.from({ length: 8 }, (_, index) => ({
     id: `preview-history-${index}`, kind: 'message', createdAt: date,
-    message: { id: `preview-history-${index}`, role: 'assistant', text: `Earlier message ${index + 1}. This is fictional history to make the preview scrollable.`, streaming: false, createdAt: date, updatedAt: date }
+    message: { id: `preview-history-${index}`, turnId: null, role: 'assistant', text: `Earlier message ${index + 1}. This is fictional history to make the preview scrollable.`, streaming: false, createdAt: date, updatedAt: date }
 }))
 const renderRow = (row: TimelineDisplayRow) => row.kind !== 'message' ? null : row.message.streaming
     ? <StreamingAssistantMarkdown content={row.message.text} cacheKey={row.id} fadeStreamingText />
@@ -26,7 +26,7 @@ export function StreamingRenderingReview() {
     const scroll = useRef<HTMLDivElement | null>(null)
     const rows = useMemo<TimelineDisplayRow[]>(() => [...history, {
         id: 'stream-preview', kind: 'message', createdAt: date,
-        message: { id: 'stream-preview', role: 'assistant', text: prose.text || 'Replay to simulate a live response.', streaming: prose.running, createdAt: date, updatedAt: date }
+        message: { id: 'stream-preview', turnId: 'preview-turn', role: 'assistant', text: prose.text || 'Replay to simulate a live response.', streaming: prose.running, createdAt: date, updatedAt: date }
     }], [prose.text, prose.running])
     return <section id="streaming" className="space-y-6">
         <div data-diagram-simulation>

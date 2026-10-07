@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { AssistantChatSessionsRail } from '../../src/renderer/src/pages/assistant/AssistantChatSessionsRail'
 import { AssistantConversationHeader } from '../../src/renderer/src/pages/assistant/AssistantConversationHeader'
 import { createChatActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-chat-actions-menu'
+import { createSessionActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-sessions-rail-menus'
 import { resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from '../../src/renderer/src/pages/assistant/assistant-chat-menu-state'
 import { usePinnedSessionIds } from '../../src/renderer/src/pages/assistant/assistant-pinned-sessions'
 import { useAssistantSettlementOverrides } from '../../src/renderer/src/pages/assistant/assistant-settlement-store'
@@ -86,6 +87,10 @@ async function run() {
         ...(item.submenuOnly ? item.choices!.map(choice => choice.id) : [item.id]), ...(item.secondaryAction ? [item.secondaryAction.id] : [])
     ]).sort().join(',')
     check(flatten(createChatActionMenuItems(options)) === flatten(createChatActionMenuItems(options, true)), 'Header/sidebar share the complete action union')
+    const unattached = session('unattached')
+    unattached.threads[0].providerThreadId = null
+    const threadActions = createSessionActionMenuItems({ session: unattached, onOpenRename: noop, onArchiveSession: noop, onDeleteRequest: noop, onCopyThreadId: noop }).find(item => item.id === 'thread-actions')
+    check(threadActions?.choices?.find(item => item.id === 'copy-thread-id')?.disabled, 'An unattached sidebar chat cannot copy its local thread ID')
     await sleep(150)
     await header()
     for (const label of ['Settle chat', 'Pin chat', 'Rename chat', 'Regenerate chat title', 'New thread', 'Copy thread ID', 'Attach project', 'Archive chat', 'Delete chat']) check(button(label), `Header contains ${label}`)

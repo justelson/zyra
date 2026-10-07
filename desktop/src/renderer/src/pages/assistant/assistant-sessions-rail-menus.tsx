@@ -46,7 +46,7 @@ export function createSessionActionMenuItems(args: {
     }
 
     const thread = session.threads.find(entry => entry.id === (args.threadId || session.activeThreadId)) || getPrimarySessionThread(session)
-    const canonicalThreadId = thread?.providerThreadId || thread?.id || null
+    const canonicalThreadId = thread?.providerThreadId || null
     return createChatActionMenuItems({
         disabled: args.disabled, pinned, settled: args.settled, settlementDisabled: args.settlementDisabled,
         titleGenerating: session.titleGenerating, canonicalThreadId,

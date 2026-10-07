@@ -26,7 +26,7 @@ export default function ProviderConnections() {
                 connection.setApiKeyDialogOpen(true)
             }}>
             <ChatGptConnectionRows connection={connection} pool={pool} />
-            <OpenAIConnectionRows showNotices={false} showChatGpt={false} connection={connection} onBackToProviders={() => {
+            <OpenAIConnectionRows showNotices={false} showChatGpt={!pool.snapshot} connection={connection} onBackToProviders={() => {
                 const returnToProviders = returnToProviderOptions.current
                 returnToProviderOptions.current = null
                 returnToProviders?.()

@@ -63,7 +63,8 @@ assert.equal(distinctGroups.length, 2, 'separate user-created Projects sharing a
 const detachedPlayground = { ...explicitSession, mode: 'playground', projectPath: null, playgroundLabId: null } as AssistantSession
 assert.equal(groupSessionsByProject([detachedPlayground], {}, [actualProject])[0]?.label, 'No project', 'a detached playground chat cannot acquire a Project from a stale stored ID')
 const header = render(createElement(AssistantConversationHeader, { rightPanelOpen: false, rightPanelMode: 'none', selectedSessionTitle: 'A conversation', canonicalThreadId: null, activeThreadIsSubagent: false, activeThreadLabel: null, selectedProjectTooltip: 'No project', selectedProjectPath: path, latestProjectLabel: 'No project', projectDirectoryLocked: false, onCreateThread: () => {}, onRenameChat: () => {}, onCreateProjectChat: () => {}, onChooseProject: () => {}, onArchiveChat: () => {}, onDeleteChat: () => {}, onToggleRightSidebar: () => {} }))
-assert.match(header, /Project context: No project/)
+assert.match(header, /aria-label="Chat"/, 'projectless header uses the requested Chat label')
+assert.doesNotMatch(header, /No project/, 'projectless header does not retain the old label')
 assert.doesNotMatch(header, /Implicit work folder|Documents/)
 const setup = render(createElement(ProjectsStep, { selection: { projectsFolder: '' }, defaultFolder: 'D:/Redirected Documents/Zyra', onChange: () => {} }))
 assert.match(setup, /Chat folder \(optional\)/)

@@ -17,6 +17,7 @@ function read(): SettlementOverrides {
     } catch { return {} }
 }
 let snapshot = read()
+const getSnapshot = () => snapshot
 const publish = () => { for (const listener of listeners) listener() }
 const onStorage = (event: StorageEvent) => { if (event.key === KEY || event.key === null) { snapshot = read(); publish() } }
 function subscribe(listener: () => void) {
@@ -37,5 +38,5 @@ export function setAssistantSettlementOverrides(update: SettlementOverrides | ((
     publish()
 }
 export function useAssistantSettlementOverrides() {
-    return [useSyncExternalStore(subscribe, () => snapshot), setAssistantSettlementOverrides] as const
+    return [useSyncExternalStore(subscribe, getSnapshot, getSnapshot), setAssistantSettlementOverrides] as const
 }

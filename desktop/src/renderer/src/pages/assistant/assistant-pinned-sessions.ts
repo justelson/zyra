@@ -26,4 +26,4 @@ export function writePinnedSessionIds(ids: Set<string>) {
     try { const raw = JSON.stringify([...ids]); localStorage.setItem(KEY, raw); persistedRaw = raw } catch { /* retain pins in memory */ }
     publish()
 }
-export const usePinnedSessionIds = () => useSyncExternalStore(subscribe, () => snapshot)
+export const usePinnedSessionIds = () => useSyncExternalStore(subscribe, getPinnedSessionIds, getPinnedSessionIds)

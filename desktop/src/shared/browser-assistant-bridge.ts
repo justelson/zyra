@@ -63,6 +63,7 @@ export const BROWSER_ASSISTANT_BRIDGE_METHODS = [
     'seedDevelopmentChatFixtures',
     'selectSession',
     'selectThread',
+    'setThreadView',
     'getThreadDetailBootstrap',
     'getHistoryPage',
     'getHistoryAroundMessage',

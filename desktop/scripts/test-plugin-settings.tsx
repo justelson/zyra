@@ -34,6 +34,7 @@ assert.match(html, /No plugins installed\./)
 assert.equal((html.match(/Browse store<\/button>/g) || []).length, 1, 'one labeled browse action serves empty and populated states')
 assert.match(html, /<button[^>]*border-\[var\(--settings-border\)\][^>]*>[\s\S]*?Browse store<\/button>/, 'browse uses the shared settings button')
 assert.doesNotMatch(html, /class="plugin-(?:detail-row|button|icon-button|help)/, 'store styles do not leak into settings controls or empty states')
+assert.ok(html.indexOf('Installed plugins') < html.indexOf('Show app views in Chat'), 'installed plugins are the primary workflow')
 
 catalog.appViews.enabled = true
 catalog.appViews.displayMode = 'automatic'
@@ -50,6 +51,8 @@ html = render()
 assert.match(html, /aria-label="Installed Plugins"/)
 assert.match(html, /aria-label="Open Review Helper"/)
 assert.match(html, /aria-label="Keep Review Helper active"/)
+assert.match(html, /aria-label="Search installed plugins"/)
+assert.match(html, /plugin-settings-version/)
 assert.doesNotMatch(html, /No plugins installed\./)
 assert.equal((html.match(/Browse store<\/button>/g) || []).length, 1)
 assert.match(render('/settings/assistant/plugins?plugin=missing'), /role="alert"[^>]*>That plugin is no longer installed\./)

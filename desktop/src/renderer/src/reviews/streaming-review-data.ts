@@ -1,0 +1,5 @@
+export const streamingDiagram = '```mermaid\nflowchart LR\n A[Receive tokens] --> B{Fence complete?}\n B -->|Still streaming| C[Creating diagram]\n B -->|Complete| D[Render once]\n D --> E[Pan and zoom]\n```'
+export const streamingVisualization = '<visualization title="Fictional sample arrivals" summary="Illustrative arrivals: 24, 52 and 80." height="220">\n<div style="display:grid;grid-template-columns:50px 1fr;gap:12px;align-items:center"><span>Mon</span><div style="height:20px;width:24%;background:var(--viz-series-1)">24</div><span>Tue</span><div style="height:20px;width:52%;background:var(--viz-series-1)">52</div><span>Wed</span><div style="height:20px;width:80%;background:var(--viz-series-1)">80</div></div>\n</visualization>'
+export const streamingParagraphs = Array.from({ length: 16 }, (_, index) =>
+    `Paragraph ${index + 1}. The response arrives a few words at a time. New lines wrap naturally as the message grows, and the bottom follows without replaying the text already on screen. Scroll upward during this replay to read an earlier paragraph; the viewport should stay where you put it.`
+).join('\n\n')

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { LegendList, type LegendListRef, type LegendListRenderItemProps } from '@legendapp/list/react'
 import { ChevronUp } from 'lucide-react'
+import { usePresentationReducedMotion } from '@/lib/use-presentation-reduced-motion'
 import {
     rendererVisibility,
     shouldSnapRendererPresentation,
@@ -74,6 +75,8 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     renderRow: (row: TimelineDisplayRow) => ReactNode
 }) {
     const visibilitySnapshot = useRendererVisibilitySnapshot()
+    const reducedMotion = usePresentationReducedMotion()
+    const textStreaming = props.rows.some(row => row.kind === 'message' && row.message.streaming)
     const renderRowRef = useRef(props.renderRow)
     const disclosureTimerRef = useRef(0)
     const completionFollowTimerRef = useRef(0)
@@ -766,9 +769,12 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     ])
 
     useLayoutEffect(() => {
+        // LegendList owns live size/data follow. A second instant alignment on
+        // every token canceled its animation and produced visible line jumps.
+        if (startupSettled && textStreaming) return
         if (!props.selectionHydrating && !disclosureLayoutActive && !props.focusMessageId
             && scrollModeRef.current === 'following-end') requestEndAlignment()
-    }, [disclosureLayoutActive, props.focusMessageId, props.rows, props.selectionHydrating, props.windowKey, requestEndAlignment])
+    }, [disclosureLayoutActive, props.focusMessageId, props.rows, props.selectionHydrating, props.windowKey, requestEndAlignment, startupSettled, textStreaming])
 
     useEffect(() => () => {
         window.clearTimeout(disclosureTimerRef.current)
@@ -828,7 +834,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             onLoad={handleInitialLoad}
             maintainVisibleContentPosition={maintainVisibleContentPosition}
             maintainScrollAtEnd={scrollMode === 'following-end' ? {
-                animated: false,
+                animated: startupSettled && textStreaming && !reducedMotion,
                 on: {
                     dataChange: true,
                     itemLayout: !disclosureLayoutActive,

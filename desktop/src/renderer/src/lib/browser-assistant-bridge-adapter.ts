@@ -48,10 +48,13 @@ function getBrowserAssistantClientId(): string {
 }
 
 const browserAssistantClientId = getBrowserAssistantClientId()
+// Duplicated tabs can inherit sessionStorage; viewing identity must belong to this document.
+const browserChatViewClientId = crypto.randomUUID().replace(/-/g, '')
 
 async function invokeBrowserAssistantBridge<T>(method: BrowserAssistantBridgeMethod, args: unknown[]): Promise<T> {
     const response = await fetch(`${BROWSER_ASSISTANT_BRIDGE_PROXY_PREFIX}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
         method: 'POST',
+        keepalive: method === 'setThreadView',
         headers: {
             'Content-Type': 'application/json',
             [BROWSER_ASSISTANT_BRIDGE_HEADER]: BROWSER_ASSISTANT_BRIDGE_HEADER_VALUE
@@ -59,7 +62,7 @@ async function invokeBrowserAssistantBridge<T>(method: BrowserAssistantBridgeMet
         body: JSON.stringify({
             method,
             args,
-            ...(BROWSER_VOICE_METHODS.has(method) ? { clientId: browserAssistantClientId } : {})
+            ...(BROWSER_VOICE_METHODS.has(method) || method === 'setThreadView' ? { clientId: method === 'setThreadView' ? browserChatViewClientId : browserAssistantClientId } : {})
         })
     })
     const payload = await response.json() as BrowserAssistantBridgeInvokeResponse
@@ -358,6 +361,7 @@ export function createBrowserAssistantBridgeAdapter(): DevScopeApi['assistant'] 
         createSession: remoteAssistantMethod('createSession'),
         selectSession: remoteAssistantMethod('selectSession'),
         selectThread: remoteAssistantMethod('selectThread'),
+        setThreadView: remoteAssistantMethod('setThreadView') as NonNullable<DevScopeAssistantApi['setThreadView']>,
         getThreadDetailBootstrap: remoteAssistantMethod('getThreadDetailBootstrap'),
         getHistoryPage: remoteAssistantMethod('getHistoryPage'),
         getHistoryAroundMessage: remoteAssistantMethod('getHistoryAroundMessage'),

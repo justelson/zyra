@@ -3,7 +3,7 @@ import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import config from '../tailwind.config.js'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,12 +11,15 @@ import electronPath from 'electron'
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const priorityPins = process.argv.includes('--priority-pins')
+const chatMenus = process.argv.includes('--chat-menus')
+const screenshotDirectory = process.argv.find(arg => arg.startsWith('--screenshots='))?.slice('--screenshots='.length)
+if (screenshotDirectory) await mkdir(resolve(screenshotDirectory), { recursive: true })
 const directory = await mkdtemp(join(tmpdir(), 'zyra-sidebar-edge-'))
 try {
-    const bundle = await build({ entryPoints: [join(desktop, priorityPins ? 'scripts/fixtures/sidebar-priority-pins.tsx' : 'scripts/fixtures/sidebar-hover-edge.tsx')],
+    const bundle = await build({ entryPoints: [join(desktop, chatMenus ? 'scripts/fixtures/chat-menus.tsx' : priorityPins ? 'scripts/fixtures/sidebar-priority-pins.tsx' : 'scripts/fixtures/sidebar-hover-edge.tsx')],
         bundle: true, write: false, metafile: true, format: 'iife', jsx: 'automatic', platform: 'browser',
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') },
-        define: { 'import.meta.hot': 'undefined' }, loader: { '.png': 'dataurl', '.svg': 'dataurl' }, logLevel: 'silent',
+        define: { 'import.meta.hot': 'undefined' }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.woff2': 'dataurl' }, logLevel: 'silent',
         plugins: [{ name: 'edge-unrelated-services', setup(build) {
             build.onResolve({ filter: /\/AssistantSidebarFooter$/ }, () => ({ path: 'footer', namespace: 'fixture' }))
             build.onResolve({ filter: /\/useAssistantRailTitleRegeneration$/ }, () => ({ path: 'titles', namespace: 'fixture' }))
@@ -40,8 +43,10 @@ try {
         let pumping=true;const pump=(async()=>{while(pumping){const request=await window.webContents.executeJavaScript('window.sidebarPointerRequest && !window.sidebarPointerRequest.done ? {x:window.sidebarPointerRequest.x,y:window.sidebarPointerRequest.y,type:window.sidebarPointerRequest.type} : null');
         if(request){window.webContents.sendInputEvent({type:request.type,x:request.x,y:request.y});await window.webContents.executeJavaScript('window.sidebarPointerRequest.done=true')}
         await new Promise(resolve=>setTimeout(resolve,10))}})();
-        let results;try{results=await window.webContents.executeJavaScript('window.sidebarEdgeCheck')}finally{pumping=false;await pump}
-        for(const result of results)console.log('PASS: '+result);clearTimeout(timer);window.destroy();app.quit()}).catch(error=>{console.error(error);clearTimeout(timer);app.exit(1)});`)
+        const results=await window.webContents.executeJavaScript('window.sidebarEdgeCheck');
+        for(const result of results)console.log('PASS: '+result);
+        ${chatMenus && screenshotDirectory ? `for(const surface of ['header','sidebar']){await window.webContents.executeJavaScript('window.chatMenuReview('+JSON.stringify(surface)+')');const image=await window.webContents.capturePage();require('fs').writeFileSync(require('path').join(${JSON.stringify(resolve(screenshotDirectory))},surface+'-chat-menu.png'),image.toPNG())}` : ''}
+        pumping=false;await pump;clearTimeout(timer);window.destroy();app.quit()}).catch(error=>{console.error(error);clearTimeout(timer);app.exit(1)});`)
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
     process.exitCode = await new Promise((done, reject) => {
         const child = spawn(electronPath, [harness], { cwd: desktop, env, windowsHide: true, shell: false, stdio: 'inherit' })

@@ -111,6 +111,7 @@ import {
     handleAssistantSearchTurns,
     handleAssistantSelectSession,
     handleAssistantSelectThread,
+    handleAssistantSetThreadView,
     handleAssistantSendPrompt,
     handleAssistantSetPlaygroundRoot,
     handleAssistantSetSessionProject,
@@ -466,6 +467,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.createSession, requireCompletedSetup(handleAssistantCreateSession))
     ipcMain.handle(ASSISTANT_IPC.selectSession, requireCompletedSetup(handleAssistantSelectSession))
     ipcMain.handle(ASSISTANT_IPC.selectThread, requireCompletedSetup(handleAssistantSelectThread))
+    ipcMain.handle(ASSISTANT_IPC.setThreadView, requireCompletedSetup(handleAssistantSetThreadView))
     ipcMain.handle(ASSISTANT_IPC.getThreadDetailBootstrap, requireCompletedSetup(handleAssistantGetThreadDetailBootstrap))
     ipcMain.handle(ASSISTANT_IPC.getHistoryPage, requireCompletedSetup(handleAssistantGetHistoryPage))
     ipcMain.handle(ASSISTANT_IPC.getHistoryAroundMessage, requireCompletedSetup(handleAssistantGetHistoryAroundMessage))

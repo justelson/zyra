@@ -58,6 +58,7 @@
     "test:agent-platform-integration": "bun desktop/scripts/test-agent-platform-integration.ts",
     "test:agent-server:compatibility": "node scripts/test-zyra-agent-server-compatibility.mjs && node scripts/test-agent-server-connection-status.mjs",
     "test:agent-server:connection-status": "node scripts/test-agent-server-connection-status.mjs",
+    "test:agent-server:attention": "node scripts/test-chat-attention.mjs",
     "test:agent-server": "node scripts/test-zyra-agent-server-compatibility.mjs && node scripts/test-agent-server-connection-status.mjs && node scripts/test-zyra-chat-index.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-zyra-agent-server-bridge.mjs && bun run --cwd desktop test:agent-server && bun run --cwd desktop test:assistant-project",
     "test:permissions:command-policy": "node scripts/test-permission-command-policy.mjs",
     "test:permissions:lifecycle": "node scripts/test-permission-approval-lifecycle.mjs",

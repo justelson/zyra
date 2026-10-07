@@ -83,7 +83,6 @@ function BackgroundProcessOwner({ sessionId, threadId }: { sessionId: string; th
             <span className="font-medium text-sparkle-text">Background processes</span>
             {runningCount > 0 && <span className="text-sparkle-text-muted">{runningCount} running</span>}
         </div>
-        <p className="text-sparkle-text-secondary">App-owned processes for this thread only. Stop turn leaves these running.</p>
         {loading && <p role="status" className="text-sparkle-text-muted">Loading processes…</p>}
         {!loading && runtimeAvailable === false && <p className="text-sparkle-text-muted">Process runtime unavailable.</p>}
         {!loading && runtimeAvailable === true && processes.length === 0 && <p className="text-sparkle-text-muted">No running background processes.</p>}

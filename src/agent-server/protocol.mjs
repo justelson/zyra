@@ -28,6 +28,7 @@ export const AGENT_SERVER_METHODS = Object.freeze([
   "catalog.message.find",
   "session.attach",
   "session.join",
+  "session.view",
   "session.pluginAuthority",
   "session.request",
   "session.detach",

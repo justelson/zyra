@@ -11,7 +11,7 @@ assert.ok(getSettingsCategoryDestinations('assistant').some((item) => item.id ==
 assert.ok(!SETTINGS_PAGE_VIEWS.chats.some((view) => view.id === 'archived'), 'archive is not a Chats tab')
 assert.equal(findSettingsDestination('/settings/data/archived')?.id, 'archived', 'old archive links still resolve')
 assert.match(read('App.tsx'), /<Route path="assistant\/archived" element=\{<ArchivedChatsSettings \/>\}/)
-assert.match(read('pages/settings/ArchivedChatsSettings.tsx'), /<SettingsPageContainer title="Archived chats">/)
+assert.match(read('pages/settings/ArchivedChatsSettings.tsx'), /<SettingsPageContainer title="Archived chats" fillViewport>/)
 assert.doesNotMatch(read('pages/settings/ArchivedChatsSettings.tsx'), /SettingsPageTabs/)
 assert.doesNotMatch(read('pages/settings/DataPrivacySettings.tsx'), /Archived chats|\/settings\/assistant\/archived/)
 

@@ -159,7 +159,6 @@ export async function selectAssistantSessionAction(deps: AssistantServiceActionD
     deps.appendEvent('session.selected', occurredAt, { sessionId }, sessionId)
     const session = requireSession(deps.getSnapshot(), sessionId)
     if (session.activeThreadId) deps.runtime.setNavigationBackgrounded?.(session.activeThreadId, false)
-    markThreadCompletionSeen(deps, session, occurredAt)
     return { success: true as const, sessionId }
 }
 
@@ -188,8 +187,6 @@ export async function selectAssistantThreadAction(deps: AssistantServiceActionDe
         deps.appendEvent('session.selected', occurredAt, { sessionId }, session.id, localThreadId)
     }
     deps.runtime.setNavigationBackgrounded?.(localThreadId, false)
-    const updatedSession = requireSession(deps.getSnapshot(), sessionId)
-    markThreadCompletionSeen(deps, updatedSession, occurredAt)
     return { success: true as const, sessionId, threadId: localThreadId }
 }
 
@@ -859,17 +856,4 @@ export async function getAssistantSessionTurnUsageAction(
         fetchedAt: nowIso()
     }
     return { success: true as const, usage }
-}
-
-function markThreadCompletionSeen(deps: AssistantServiceActionDeps, session: ReturnType<typeof requireSession>, occurredAt: string) {
-    const activeThread = getActiveThread(session)
-    if (!activeThread || !activeThread.latestTurn || !['completed', 'interrupted'].includes(activeThread.latestTurn.state)) return
-    if (activeThread.lastSeenCompletedTurnId === activeThread.latestTurn.id) return
-
-    deps.appendEvent('thread.updated', occurredAt, {
-        threadId: activeThread.id,
-        patch: {
-            lastSeenCompletedTurnId: activeThread.latestTurn.id
-        }
-    }, session.id, activeThread.id)
 }

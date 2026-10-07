@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Download, MoreHorizontal } from 'lucide-react'
+import { Copy, Download, MoreVertical } from 'lucide-react'
 
 const actionClass = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-sparkle-text hover:bg-[var(--surface-hover)] focus:bg-[var(--surface-hover)] focus:outline-none'
 
@@ -43,7 +43,7 @@ export function VisualizationInfo({ title, onCopy, onDownload }: { title: string
             onKeyDown={event => {
                 if (event.key === 'ArrowDown' || (open && event.key === 'Tab' && !event.shiftKey)) { event.preventDefault(); setOpen(true); focusFirst() }
             }}
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded text-sparkle-text-muted hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)]"><MoreHorizontal size={14} aria-hidden="true" /></button>
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded text-sparkle-text-muted hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)]"><MoreVertical size={14} aria-hidden="true" /></button>
         {open && trigger.current ? createPortal(<div ref={panel} id={id} role="menu" aria-label={`HTML options for ${title}`} style={position}
             onKeyDown={event => {
                 const items = [...panel.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]

@@ -5,6 +5,10 @@ import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessag
 import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reconciliation'
 import { hasActiveAssistantCompaction } from '@shared/assistant/compaction-state'
 import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
+import { usePinnedSessionIds } from './assistant-pinned-sessions'
+import { useAssistantSettlementOverrides } from './assistant-settlement-store'
+import { resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
+import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegeneration'
 import { resolveAssistantWorkingDirectory } from '@shared/assistant/working-directory'
 import { useSettings, type AssistantProductProfile } from '@/lib/settings'
 import {
@@ -61,6 +65,7 @@ import { buildAssistantProjectChoices, getAssistantProjectIconSourcePath } from 
 import { getNewChatProjectUnavailableReason, getOptimisticProjectWorkingRoot, runLatestProjectSave } from './assistant-new-chat-project-selection'
 import { useAgentControlState } from './useAgentControlState'
 import { isControlPrincipalForThread } from './assistant-thread-details'
+import { useAssistantThreadView } from './useAssistantThreadView'
 
 const TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX = 420
 const TIMELINE_HIDE_SCROLL_BUTTON_THRESHOLD_PX = 180
@@ -105,6 +110,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         void preloadAssistantTimeline().catch(() => undefined)
     }, [])
     const controller = useAssistantConversationStore()
+    useAssistantThreadView(controller.activeThread)
     const historyWindowKey = `${controller.selectedSession?.id || ''}:${controller.activeThread?.id || ''}`
     const initialHistoryRef = useRef({key: historyWindowKey, cold: !controller.history})
     if (initialHistoryRef.current.key !== historyWindowKey) {
@@ -173,6 +179,24 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const voiceExecutionConfigurationRef = useRef<AssistantVoiceExecutionConfiguration | null>(null)
 
     const isThreadWorking = isAssistantThreadActivelyWorking(controller.activeThread)
+    const settlementHasPendingControl = [...(controlState?.pendingGrants || []), ...(controlState?.pendingActionApprovals || [])].some(request => controller.selectedSession?.threads.some(thread => isControlPrincipalForThread(request.principal, thread.id)))
+    const pinnedChatIds = usePinnedSessionIds()
+    const [chatSettlementOverrides] = useAssistantSettlementOverrides()
+    const chatPinned = Boolean(controller.selectedSession && pinnedChatIds.has(controller.selectedSession.id))
+    const chatSettlement = controller.selectedSession ? resolveChatMenuSettlement(controller.selectedSession, chatSettlementOverrides, chatPinned, controller.activeThread?.id || null, optimisticPromptSending || settlementHasPendingControl) : null
+    const chatSettled = chatSettlement?.settled ?? false
+    const settlementDisabled = !chatSettlement || chatSettlement.priority
+    const showChatActionToast = useCallback((input: { message: string; tone?: 'success' | 'error' | 'info' }) => props.onShowToast?.(input.message, input.tone), [props.onShowToast])
+    const regenerateChatTitle = useAssistantRailTitleRegeneration(showChatActionToast)
+    const handleRegenerateChatTitle = useCallback(() => { if (controller.selectedSession) return regenerateChatTitle(controller.selectedSession) }, [controller.selectedSession, regenerateChatTitle])
+    const handleToggleChatPinned = useCallback(() => {
+        if (!controller.selectedSession) return
+        const pinned = toggleChatPinned(controller.selectedSession.id)
+        props.onShowToast?.(pinned ? 'Pinned chat' : 'Unpinned chat', 'success')
+    }, [controller.selectedSession, props.onShowToast])
+    const handleToggleChatSettlement = useCallback(() => {
+        if (controller.selectedSession && !settlementDisabled) setChatSettlement(controller.selectedSession, !chatSettled)
+    }, [controller.selectedSession, settlementDisabled, chatSettled])
     const selectedSessionId = controller.selectedSession?.id || null
     const activeThreadId = controller.activeThread?.id || null
     const handleLoadOlderHistory = useCallback((turnLimit = 1) => actions.loadOlderHistory(activeThreadId || undefined, turnLimit), [actions, activeThreadId])
@@ -1158,6 +1182,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             latestProjectLabel={latestProjectLabel}
             selectedSessionTitle={selectedSessionTitle}
             titleGenerating={controller.selectedSession?.titleGenerating === true}
+            settled={chatSettled}
+            pinned={chatPinned}
+            settlementDisabled={settlementDisabled}
+            onTogglePinned={handleToggleChatPinned}
+            onToggleSettlement={handleToggleChatSettlement}
+            onRegenerateTitle={handleRegenerateChatTitle}
             canonicalThreadId={controller.activeThread?.providerThreadId || controller.activeThread?.id || null}
             canonicalPresence={settings.assistantShowStatusDetails || settings.assistantShowDiagnostics ? controller.activeThread?.canonicalPresence : null}
             mobileVoice={controller.activeThread?.mobileVoice}
@@ -1182,6 +1212,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         activeThreadHasAgentOrigin,
         activeThreadLabel,
         composerIsCentered,
+        chatSettled,
+        chatPinned,
+        settlementDisabled,
+        handleToggleChatPinned,
+        handleToggleChatSettlement,
+        handleRegenerateChatTitle,
         controller.activeThread?.canonicalPresence,
         controller.activeThread?.mobileVoice,
         controller.activeThread?.id,
@@ -1311,6 +1347,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         />
                     ) : (
                     <AssistantConversationComposerPane
+                        settled={chatSettled}
                         paneRef={composerPaneRef}
                         placement={composerIsCentered ? 'center' : 'bottom'}
                         newChatPrompt={emptyComposerPrompt}

@@ -75,6 +75,7 @@ export const ASSISTANT_IPC = {
     createSession: 'devscope:assistant:createSession',
     selectSession: 'devscope:assistant:selectSession',
     selectThread: 'devscope:assistant:selectThread',
+    setThreadView: 'devscope:assistant:setThreadView',
     getThreadDetailBootstrap: 'devscope:assistant:getThreadDetailBootstrap',
     getHistoryPage: 'devscope:assistant:getHistoryPage',
     getHistoryAroundMessage: 'devscope:assistant:getHistoryAroundMessage',
@@ -335,6 +336,11 @@ export interface AssistantCreateSessionInput {
 export interface AssistantSelectThreadInput {
     sessionId: string
     threadId: string
+}
+
+export interface AssistantThreadViewInput {
+    threadId: string
+    viewing: boolean
 }
 
 export interface AssistantSetPlaygroundRootInput {

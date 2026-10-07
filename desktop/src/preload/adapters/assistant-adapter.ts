@@ -37,6 +37,7 @@ import type {
     AssistantSendPromptOptions,
     AssistantSendRealtimeVoiceMessageInput,
     AssistantSelectThreadInput,
+    AssistantThreadViewInput,
     AssistantSkillSourceSettings,
     AssistantStartRealtimeVoiceInput,
     AssistantSetPlaygroundRootInput,
@@ -57,6 +58,10 @@ import { ASSISTANT_IPC, assertAssistantIpcContract } from '../../shared/assistan
 
 export function createAssistantAdapter() {
     assertAssistantIpcContract()
+    // Main owns one subscription per WebContents, while this renderer can have
+    // multiple consumers (Chat and the settings model catalog). A consumer's
+    // cleanup must not disconnect the others from the shared native stream.
+    let eventSubscriberCount = 0
 
     return {
         assistant: {
@@ -122,6 +127,7 @@ export function createAssistantAdapter() {
             createSession: (input?: AssistantCreateSessionInput) => ipcRenderer.invoke(ASSISTANT_IPC.createSession, input),
             selectSession: (sessionId: string) => ipcRenderer.invoke(ASSISTANT_IPC.selectSession, sessionId),
             selectThread: (input: AssistantSelectThreadInput) => ipcRenderer.invoke(ASSISTANT_IPC.selectThread, input),
+            setThreadView: (input: AssistantThreadViewInput) => ipcRenderer.invoke(ASSISTANT_IPC.setThreadView, input),
             getThreadDetailBootstrap: (threadId: string) => ipcRenderer.invoke(ASSISTANT_IPC.getThreadDetailBootstrap, threadId),
             getHistoryPage: (input: AssistantGetHistoryPageInput) => ipcRenderer.invoke(ASSISTANT_IPC.getHistoryPage, input),
             getHistoryAroundMessage: (input: AssistantGetHistoryAroundMessageInput) => ipcRenderer.invoke(ASSISTANT_IPC.getHistoryAroundMessage, input),
@@ -194,10 +200,17 @@ export function createAssistantAdapter() {
                     callback(payload)
                 }
                 ipcRenderer.on(ASSISTANT_IPC.eventStream, listener)
-                void ipcRenderer.invoke(ASSISTANT_IPC.subscribe).catch(() => undefined)
+                if (eventSubscriberCount++ === 0) {
+                    void ipcRenderer.invoke(ASSISTANT_IPC.subscribe).catch(() => undefined)
+                }
+                let disposed = false
                 return () => {
+                    if (disposed) return
+                    disposed = true
                     ipcRenderer.removeListener(ASSISTANT_IPC.eventStream, listener)
-                    void ipcRenderer.invoke(ASSISTANT_IPC.unsubscribe).catch(() => undefined)
+                    if (--eventSubscriberCount === 0) {
+                        void ipcRenderer.invoke(ASSISTANT_IPC.unsubscribe).catch(() => undefined)
+                    }
                 }
             }
         }

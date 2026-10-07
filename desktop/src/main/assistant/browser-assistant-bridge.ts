@@ -444,10 +444,11 @@ export class BrowserAssistantBridge {
             return
         }
 
-        const clientId = BROWSER_VOICE_METHODS.has(candidate.method)
+        const needsIdentity = BROWSER_VOICE_METHODS.has(candidate.method) || candidate.method === 'setThreadView'
+        const clientId = needsIdentity
             ? this.readBrowserClientId(candidate.clientId)
             : null
-        if (BROWSER_VOICE_METHODS.has(candidate.method) && !clientId) {
+        if (needsIdentity && !clientId) {
             this.writeJson(response, 400, { ok: false, error: 'Browser Voice client identity is invalid.' })
             return
         }
@@ -524,6 +525,7 @@ export class BrowserAssistantBridge {
             case 'createSession': return service.createSession(args[0] as any)
             case 'seedDevelopmentChatFixtures': return service.seedDevelopmentChatFixtures()
             case 'selectSession': return service.selectSession(args[0] as string)
+            case 'setThreadView': return service.setThreadView(`browser:${clientId}`, args[0] as { threadId: string; viewing: boolean }, 'browser')
             case 'selectThread': {
                 const input = args[0] as { sessionId: string; threadId: string }
                 return service.selectThread(input.sessionId, input.threadId)

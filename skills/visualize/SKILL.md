@@ -27,7 +27,7 @@ small { color: var(--viz-muted); }
 ```
 
 - Always include a concise title and a meaningful plain-text summary. Quote attribute values; escape double quotes as `&quot;` and ampersands as `&amp;`.
-- Optional height is a quoted pixel number between 160 and 640, default 320. The preview keeps this height. Its menu contains only Copy HTML and Download HTML.
+- Optional height is a quoted pixel maximum between 160 and 640, default 320. The preview fits short content and scrolls when it reaches this maximum. Its menu contains only Copy HTML and Download HTML.
 - Use self-contained HTML, CSS, and SVG only. No JavaScript, event handlers, external images, libraries, imports, fonts, iframes, forms, file access, or network requests. Native `<details>` can reveal supporting explanations.
 - Do not wrap a complete document in the tag. Supply body content and optional `<style>` rules.
 - Keep HTML under 64 KiB and responses under eight visualization blocks. Prefer one focused visual.
@@ -59,6 +59,8 @@ The current app UI font is the default for HTML and SVG text. Leave `font-family
 - Heatmaps need row/column labels, visible cell values and a stated scale. Use a monotonic color ramp, for example `color-mix(in srgb, var(--viz-heat-high) 70%, var(--viz-heat-low))` for 70 on a 0–100 scale. Keep numbers legible throughout the ramp; use plain text beside the grid if a cell cannot carry a readable label.
 - Prefer flat bars and tidy rectangular cells. Avoid decorative gradients, large rounded cards, shadows and duplicate headings. A gradient is useful when it expresses a continuous data scale.
 - Give SVG labels `fill="var(--viz-text)"` or `fill="var(--viz-muted)"` explicitly. SVG's default black text is unreadable on dark chat surfaces.
+- Label individual chart marks with `data-viz-tooltip="Window 3: 22 packets"` or a child SVG `<title>`. Zyra shows the value on hover and keyboard focus. Include visible units and values too.
+- Use `<figcaption>` for a short chart caption; the renderer supplies compact spacing. Avoid blank padding below short charts. Supporting `<details>` get full-width summaries and renderer-owned expand/collapse motion, respecting reduced motion.
 
 A compact category comparison, with explicitly illustrative values:
 

@@ -689,6 +689,27 @@ const handleEvent = (
     handleZyraEvent.handleZyraEvent(context, event, metadata)
 }
 
+// Isolated worker events prove canonical generic surface metadata cannot erase
+// the plugin identity or drop its request/result before renderer projection.
+const pluginRuntime = new ZyraRuntime()
+const pluginEvents: AssistantRuntimeEvent[] = []
+pluginRuntime.on('runtime', event => pluginEvents.push(event))
+const pluginContext = { ...context, toolArgsByCallId: new Map(), toolStartedAtByCallId: new Map(), pluginMcpSources: [{ pluginId: 'fixture-notion', name: 'Notion', slug: 'notion', servers: [] }] }
+const pluginArgs = { pluginId: 'fixture-notion', server: 'notion.workspace', action: 'call', tool: 'search-pages', arguments: { query: 'Weekly plan' } }
+const pluginResult = { details: { result: { results: [{ title: 'Weekly plan', url: 'https://example.test/plan' }] } } }
+const emitPlugin = (event: unknown) => (pluginRuntime as any).handleZyraEvent(pluginContext, event)
+emitPlugin({ type: 'tool_execution_start', toolCallId: 'fixture-plugin', toolName: 'plugin_mcp', args: pluginArgs })
+emitPlugin({ type: 'tool_execution_end', toolCallId: 'fixture-plugin', toolName: 'plugin_mcp', result: pluginResult, isError: false, surface: { version: 1, kind: 'tool', lifecycle: 'completed', toolName: 'plugin_mcp', toolKey: 'plugin mcp', primaryText: 'Notion', paths: [], summary: 'Used tool' } })
+const pluginActivity = pluginEvents.findLast(event => event.type === 'activity')
+assert.equal(pluginActivity?.type === 'activity' ? pluginActivity.payload.kind : null, 'plugin-mcp')
+if (pluginActivity?.type === 'activity') {
+    assert.equal(pluginActivity.payload.data?.pluginName, 'Notion')
+    assert.equal(pluginActivity.payload.data?.pluginSlug, 'notion')
+    assert.deepEqual(pluginActivity.payload.data?.args, pluginArgs)
+    assert.deepEqual(pluginActivity.payload.data?.result, pluginResult)
+    assert.equal((pluginActivity.payload.data?.surface as any)?.kind, 'plugin-mcp')
+}
+
 handleEvent({
     type: 'session_config',
     model: 'openai-codex/gpt-5.5',

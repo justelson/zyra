@@ -5,6 +5,7 @@ import os from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import electronPath from 'electron'
+import { visualizationFrameDocument } from './maint/visualization-frame-document.mjs'
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const directory = await mkdtemp(join(os.tmpdir(), 'zyra-visual-scroll-'))
@@ -15,6 +16,7 @@ try {
     const policy = shell.match(/<meta http-equiv="Content-Security-Policy"[\s\S]*?\/>/)?.[0]
     if (!policy) throw new Error('Real app CSP must be present')
     await writeFile(join(directory, 'fixture.js'), bundle.outputFiles[0].text)
+    await writeFile(join(directory, 'visualization-frame.html'), visualizationFrameDocument())
     await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${policy}<style>
     html,body,#root{height:100%;margin:0}:root{--color-bg:#101318;--color-card:#181c22;--color-text:#eef1f6;--color-text-muted:#a8b0bd;--accent-primary:#568cff;--surface-divider:#343b46}
     body{font:14px system-ui;background:var(--color-bg);color:var(--color-text)}.h-full{height:100%}.w-full{width:100%}.relative{position:relative}.absolute{position:absolute}.inset-0{inset:0}.pb-4{padding-bottom:16px}.my-3{margin:12px 0}.mb-2{margin-bottom:8px}.flex{display:flex}.items-center{align-items:center}iframe{display:block;width:100%;border:0}figure{margin:12px 0}p{margin:8px 0}header{height:26px}.min-w-0{min-width:0}.gap-1{gap:4px}.text-sparkle-text-muted{color:var(--color-text-muted)}

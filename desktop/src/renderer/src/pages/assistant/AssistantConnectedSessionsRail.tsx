@@ -1,8 +1,10 @@
 import { memo, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAssistantSessionsRailStore } from '@/lib/assistant/store'
+import { useAssistantSessionsRailStore, useAssistantStoreActions } from '@/lib/assistant/store'
+import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
+import type { AssistantSession } from '@shared/assistant/contracts'
 import { useSettings } from '@/lib/settings'
-import { useProjectCreation } from '@/lib/projects/project-creation'
+import { chooseProjectFolder, useProjectCreation } from '@/lib/projects/project-creation'
 import type { AssistantToastInput } from './AssistantPageHelpers'
 import { AssistantChatSessionsRail } from './AssistantChatSessionsRail'
 import type {
@@ -36,6 +38,7 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
 }) {
     const { collapsed, width, maxWidth, previewPinned, onWidthChange, onPreviewPinnedChange, onShowToast } = props
     const railController = useAssistantSessionsRailStore()
+    const actions = useAssistantStoreActions()
     const navigate = useNavigate()
     const { settings } = useSettings()
     const controlState = useAgentControlState()
@@ -49,6 +52,26 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
         : pending.principal.parentThreadId)), [controlState?.pendingActionApprovals, controlState?.pendingGrants])
     const creatingChatRef = useRef(false)
     const creatingProjectChatRef = useRef(false)
+    const choosingProjectRef = useRef(false)
+    const handleCreateThread = useCallback(async (sessionId: string) => {
+        const result = await actions.newThreadResult(sessionId)
+        if (!result.success) { onShowToast({ message: result.error || 'Could not create thread.', tone: 'error' }); return }
+        navigate(buildAssistantChatRoute(sessionId, result.threadId))
+    }, [actions, navigate, onShowToast])
+    const handleChooseSessionProject = useCallback(async (session: AssistantSession) => {
+        if (choosingProjectRef.current || railController.commandPending || isAssistantSessionProjectLocked(session)) return
+        choosingProjectRef.current = true
+        try {
+            const selection = await chooseProjectFolder(requestProjectCreation)
+            if (!selection) return
+            const result = await actions.setSessionProjectResult(session.id, { projectId: selection.project.id, workingRoot: selection.workingRoot })
+            if (!result.success) throw new Error(result.error)
+            await projectCatalogState.refresh()
+            onShowToast({ message: session.projectPath ? 'Project changed' : 'Project attached', tone: 'success' })
+        } catch (error) {
+            onShowToast({ message: error instanceof Error ? error.message : 'Could not update project.', tone: 'error' })
+        } finally { choosingProjectRef.current = false }
+    }, [actions, onShowToast, projectCatalogState, railController.commandPending, requestProjectCreation])
     const handleCreateChat = useCallback(async () => {
         if (creatingChatRef.current) return
 
@@ -135,6 +158,8 @@ export const ConnectedAssistantSessionsRail = memo(function ConnectedAssistantSe
             onCreateProjectChat={handleCreateProjectChat}
             onSelectSession={handleSelectSession}
             onSelectThread={handleSelectThread}
+            onCreateThread={handleCreateThread}
+            onChooseSessionProject={handleChooseSessionProject}
             onRenameSession={railController.renameSession}
             onArchiveSession={railController.archiveSession}
             onDeleteSession={railController.deleteSessionResult}

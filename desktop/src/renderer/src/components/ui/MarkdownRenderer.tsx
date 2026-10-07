@@ -214,6 +214,7 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
         props.codeBlockMaxLines || 0,
         props.lightweight || props.plainCodeBlocks ? 'plain' : 'highlight',
         props.deferCodeHighlighting ? 'defer' : 'sync',
+        props.transient ? 'streaming' : 'complete',
         props.visualTheme || 'dark',
         props.mediaMode || 'images'
     ].join('|')
@@ -227,6 +228,7 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
         codeBlockMaxLines: props.codeBlockMaxLines,
         plainCodeBlocks: props.lightweight || props.plainCodeBlocks,
         deferCodeHighlighting: props.deferCodeHighlighting,
+        streaming: props.transient,
         visualTheme: props.visualTheme,
         mediaMode: props.mediaMode || 'images'
     })

@@ -381,6 +381,7 @@ export class ZyraAgentServerClient extends EventEmitter {
       this.emit("catalog-changed", message);
       return;
     }
+    if (message?.type === 'chat.attention') { this.emit('chat-attention', message); return; }
     if (message?.type === "session.event") {
       this.emit("session-event", message);
       this.emit(`session-event:${message.sessionKey}`, message);

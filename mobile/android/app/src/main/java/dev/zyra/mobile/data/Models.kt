@@ -29,7 +29,7 @@ data class Pairing(val hostId: String, val name: String, val url: String, val fi
         }
     }
 }
-data class Chat(val id: String, val title: String, val project: String, val state: String, val attention: String?, val archived: Boolean, val machineId: String = "", val modifiedAt: String = "", val model: String = "", val lastTurnState: String = "", val tuiOpen: Boolean = false, val hasChanges: Boolean? = null, val hasWork: Boolean? = null, val activeTurnStartedAt: String = "", val lastTurnId: String = "", val lastTurnCompletedAt: String = "") {
+data class Chat(val id: String, val title: String, val project: String, val state: String, val attention: String?, val archived: Boolean, val machineId: String = "", val modifiedAt: String = "", val model: String = "", val lastTurnState: String = "", val tuiOpen: Boolean = false, val hasChanges: Boolean? = null, val hasWork: Boolean? = null, val activeTurnStartedAt: String = "", val lastTurnId: String = "", val lastTurnCompletedAt: String = "", val lastSeenCompletedTurnId: String = "", val viewed: Boolean = false) {
     val key get() = "$machineId:$id"
     val working get() = state == "running" || state == "background"
     val modelLabel get() = model.substringAfter('/').ifBlank { "Assistant" }
@@ -43,7 +43,7 @@ data class Chat(val id: String, val title: String, val project: String, val stat
             return Chat(v.getString("canonicalChatId"), BrowserContext.display(v.optString("title", "Untitled chat")), v.optString("project"),
                 presence?.optString("state") ?: "detached", presence?.optString("attention")?.takeUnless { it == "null" || it.isBlank() }, v.optBoolean("archived"), machineId, v.optString("modifiedAt"), chatModel(v.opt("model")),
                 presence?.optJSONObject("latestTurn")?.optString("state").orEmpty().takeUnless { it == "null" }.orEmpty(),
-                presence?.optJSONArray("clients")?.let { clients -> (0 until clients.length()).any { clients.optJSONObject(it)?.optString("surface") == "tui" } } ?: false, v.opt("hasChanges") as? Boolean, v.opt("hasWork") as? Boolean, startedAt, (turn?.opt("id") as? String).orEmpty(), (turn?.opt("completedAt") as? String).orEmpty())
+                presence?.optJSONArray("clients")?.let { clients -> (0 until clients.length()).any { clients.optJSONObject(it)?.optString("surface") == "tui" } } ?: false, v.opt("hasChanges") as? Boolean, v.opt("hasWork") as? Boolean, startedAt, (turn?.opt("id") as? String).orEmpty(), (turn?.opt("completedAt") as? String).orEmpty(), (v.opt("lastSeenCompletedTurnId") as? String).orEmpty(), (presence?.optJSONArray("viewers")?.length() ?: 0) > 0)
         }
     }
 }

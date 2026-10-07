@@ -25,6 +25,7 @@ const harness = `
 import React,{act,useRef,useState} from 'react'
 import {createRoot} from 'react-dom/client'
 import {ChatGptAccountPoolSection} from ${JSON.stringify(join(renderer, 'pages/settings/providers/ChatGptAccountPoolSection.tsx'))}
+import {useChatGptAccountPool} from ${JSON.stringify(join(renderer, 'pages/settings/providers/useChatGptAccountPool.ts'))}
 import {BrowserLinkHoverStatus} from ${JSON.stringify(join(renderer, 'pages/assistant/BrowserLinkHoverStatus.tsx'))}
 import {createMarkdownComponents} from ${JSON.stringify(join(renderer, 'components/ui/markdown/components.tsx'))}
 globalThis.IS_REACT_ACT_ENVIRONMENT=true
@@ -32,17 +33,21 @@ const check=(value,message)=>{if(!value)throw Error(message)}
 const tick=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
 const wait=async(predicate,label='UI')=>{for(let i=0;i<60&&!predicate();i++)await tick();check(predicate(),'Timed out waiting for '+label)}
 const connection={desktopHost:true,connectionBusy:false,connectionAction:null,connectionError:null,chatGptDeviceCode:null,chatGptDeviceCodeOpen:false,chatGptAuthenticationSuccessOpen:false,connectChatGpt:async()=>{},cancelChatGpt:async()=>{},dismissChatGptDeviceCode:()=>{},setChatGptAuthenticationSuccessOpen:()=>{}}
-function Harness(){const slot=useRef(null),[url,setUrl]=useState('');React.useEffect(()=>window.fixture.onHover(url=>{act(()=>setUrl(url))}),[]);const A=createMarkdownComponents('/fixture/readme.md').a;return <><ChatGptAccountPoolSection connection={connection}/><A href="https://openai.com/brand/">Website</A><div ref={slot} style={{position:'fixed',left:640,top:420,width:300,height:100}}/><BrowserLinkHoverStatus url={url} slot={slot}/></>}
+function Harness(){const pool=useChatGptAccountPool(),slot=useRef(null),[url,setUrl]=useState('');React.useEffect(()=>window.fixture.onHover(url=>{act(()=>setUrl(url))}),[]);const A=createMarkdownComponents('/fixture/readme.md').a;return <><ChatGptAccountPoolSection pool={pool}/><A href="https://openai.com/brand/">Website</A><div ref={slot} style={{position:'fixed',left:640,top:420,width:300,height:100}}/><BrowserLinkHoverStatus url={url} slot={slot}/></>}
 const root=createRoot(document.getElementById('root'))
 try{
  await act(async()=>root.render(<Harness/>));await wait(()=>document.querySelector('[aria-label="ChatGPT usage strategy"]'))
  check(document.body.textContent.includes('a@example.test')&&document.body.textContent.includes('b@example.test'),'separate account rows render')
- check(document.querySelectorAll('[role=meter]').length===4,'per-account short and long windows render')
+ check(document.querySelectorAll('[role=meter]').length===1&&document.querySelector('[role=meter]').getAttribute('aria-label')==='Weekly average remaining','one Weekly summary, with both individual windows below')
+ check(!document.body.textContent.includes('Add account')&&!document.body.textContent.includes('ChatGPT account'),'Limits does not contain account sign-in or the old primary account panel')
+ check(document.querySelectorAll('[data-chatgpt-usage-window]').length===4,'each reported usage window appears once')
+ check(document.querySelectorAll('[data-chatgpt-usage-account]').length===2,'two native usage windows share one row per account')
  const change=async(label,value)=>{await act(async()=>{const select=document.querySelector('[aria-label="'+label+'"]');select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))});await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)}
  await change('ChatGPT usage strategy','fill-first');check(document.querySelector('[aria-label="ChatGPT preferred account"]'),'drain-first reveals account preference')
  await change('ChatGPT preferred account',${JSON.stringify(ids[1])});check((await window.devscope.onboarding.getChatGptAccounts()).pool.policy.preferredAccountId===${JSON.stringify(ids[1])},'preference persists in native backend')
- await change('Allowed ChatGPT accounts','selected');check(document.querySelectorAll('input[type=checkbox]').length===2,'selected accounts have explicit toggles')
- await act(async()=>document.querySelector('input[type=checkbox]').click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
+ await change('Allowed ChatGPT accounts','selected');check(!document.querySelector('input[type=checkbox]'),'selected accounts do not create a duplicated list')
+ await act(async()=>document.querySelector('button[title="Usage options for a@example.test"]').click());await wait(()=>document.querySelector('[role=menu]'))
+ await act(async()=>[...document.querySelectorAll('[role^=menuitem]')].find(item=>item.textContent.includes('Exclude this account')).click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
  check((await window.devscope.onboarding.getChatGptAccounts()).pool.policy.accountIds.length===1,'selected-only change reaches the saved policy')
  await act(async()=>document.querySelector('[aria-label="Enable b@example.test"]').click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
  check((await window.devscope.onboarding.getChatGptAccounts()).pool.accounts.find(a=>a.email==='b@example.test').state==='paused','pause reaches saved account state')

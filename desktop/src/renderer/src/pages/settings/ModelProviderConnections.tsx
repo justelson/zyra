@@ -12,11 +12,13 @@ import { SettingsActionsMenu } from './SettingsActionsMenu'
 import { SettingsProviderIcon } from './SettingsProviderIcon'
 import { createSettingsRowTargetId } from './settings-search'
 import { ProviderAddPicker } from './providers/ProviderAddPicker'
+import { ProviderConnectionRow } from './providers/ProviderConnectionRow'
 import { availableProviderAddChoices, type ProviderAddKind } from './providers/provider-add-options'
-import { SettingsButton, SettingsDialog, SettingsNotice, SettingsRow, SettingsSection } from './settings-layout'
+import { SettingsButton, SettingsDialog, SettingsNotice, SettingsSection } from './settings-layout'
 
-export function ModelProviderConnections({ children, onRefresh, refreshDisabled = false, chatGptConfigured = false, openAiConfigured = false, onAddChatGpt, onAddOpenAiKey }: {
+export function ModelProviderConnections({ children, notices, onRefresh, refreshDisabled = false, chatGptConfigured = false, openAiConfigured = false, onAddChatGpt, onAddOpenAiKey }: {
     children?: ReactNode
+    notices?: ReactNode
     onRefresh?: () => Promise<void>
     refreshDisabled?: boolean
     chatGptConfigured?: boolean
@@ -135,9 +137,11 @@ export function ModelProviderConnections({ children, onRefresh, refreshDisabled 
     }
     return <>
         <SettingsSection title="Connections" headerAction={desktopHost ? <SettingsButton variant="ghost" onClick={() => void refreshConnections()} disabled={loading || busy || connecting || refreshDisabled}><RefreshCw size={13} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} />Refresh</SettingsButton> : undefined}>
+            {notices}
             {error ? <SettingsNotice tone="error">{error}<SettingsButton variant="ghost" onClick={() => { setError(''); void load().catch(() => setError('Could not refresh providers.')) }}>Retry</SettingsButton></SettingsNotice> : null}
             {loading ? <SettingsNotice>Checking provider connections…</SettingsNotice> : null}
-            {connections.map(connection => <SettingsRow key={connection.provider} title={connection.label} description=""
+            {children}
+            {connections.map(connection => <ProviderConnectionRow key={connection.provider} title={connection.label} description={connection.model}
                 icon={<SettingsProviderIcon provider={connection.provider === 'anthropic' ? 'claude' : connection.provider} />}
                 status={connection.verified ? 'Connected' : 'Needs attention'} statusTone={connection.verified ? 'ready' : 'warning'}
                 control={desktopHost ? <SettingsActionsMenu ariaLabel={`Manage ${connection.label}`} label="Manage" disabled={busy || connecting} items={[
@@ -145,7 +149,6 @@ export function ModelProviderConnections({ children, onRefresh, refreshDisabled 
                     { id: 'replace', label: 'Replace connection', icon: <Repeat2 size={13} />, onSelect: () => replaceProvider(connection.provider) },
                     { id: 'remove', label: 'Disconnect', icon: <Unplug size={13} />, danger: true, separatorBefore: true, onSelect: () => setRemoving(connection) }
                 ]} /> : undefined} />)}
-            {children}
             {desktopHost && addChoices.length > 0 ? <div data-settings-search-target={!chatGptConfigured ? createSettingsRowTargetId('OpenAI connections', 'ChatGPT subscription') : undefined} tabIndex={-1}>
                 <div data-settings-search-target={!openAiConfigured ? createSettingsRowTargetId('OpenAI connections', 'OpenAI API key') : undefined} tabIndex={-1}>
                 <button type="button" data-add-provider-row="true"

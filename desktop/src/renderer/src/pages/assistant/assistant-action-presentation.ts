@@ -1,4 +1,5 @@
 import type { AssistantActivity } from '@shared/assistant/contracts'
+import { describePluginActivity, isPluginActivity } from '@shared/assistant/plugin-activity-presentation'
 import { splitAssistantReadOutput } from '@shared/assistant/read-activity'
 import {
     getActivityCommand,
@@ -177,6 +178,7 @@ export function getAssistantActionTitle(
     activity: AssistantActivity,
     projectRootPath?: string | null
 ): string {
+    if (isPluginActivity(activity)) return describePluginActivity(activity).title
     if (getAssistantActivityToolName(activity) === 'tool_search') return 'Getting computer use tools'
     const family = getAssistantActionFamily(activity)
     const args = getAssistantActivityArgs(activity)

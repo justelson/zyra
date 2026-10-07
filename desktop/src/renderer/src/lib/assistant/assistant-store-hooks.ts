@@ -114,6 +114,7 @@ const assistantStoreActions = {
     approvePendingPlaygroundLabRequest: (input: AssistantApprovePendingPlaygroundLabRequestInput) => assistantStore.approvePendingPlaygroundLabRequest(input).then(() => undefined),
     declinePendingPlaygroundLabRequest: (input: AssistantDeclinePendingPlaygroundLabRequestInput) => assistantStore.declinePendingPlaygroundLabRequest(input).then(() => undefined),
     newThread: (sessionId?: string) => assistantStore.newThread(sessionId).then(() => undefined),
+    newThreadResult: (sessionId?: string) => assistantStore.newThread(sessionId),
     sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) => assistantStore.sendPrompt(prompt, options).then(() => undefined),
     sendPromptResult: (prompt: string, options?: AssistantSendPromptOptions) => assistantStore.sendPrompt(prompt, options),
     warmSelectedSessionConnection: (voicePreparation?: AssistantVoiceExecutionConfiguration) =>

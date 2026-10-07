@@ -22,6 +22,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     placement?: 'bottom' | 'center'
     paneRef?: RefObject<HTMLDivElement | null>
     newChatPrompt?: string | null
+    settled?: boolean
     pendingPlaygroundLabRequest: AssistantPlaygroundPendingLabRequest | null
     pendingApprovals: AssistantPendingApproval[]
     pendingControlActions: ControlPendingActionApproval[]
@@ -199,6 +200,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     {placement === 'center' ? (
                         <AssistantNewChatGreeting prompt={props.newChatPrompt} />
                     ) : null}
+                    {props.settled && placement === 'bottom' ? <div role="status" className="mx-3 -mb-2 rounded-t-xl border border-b-0 border-[var(--surface-divider)] bg-[var(--surface-hover)] px-4 pb-4 pt-2 text-center text-[11px] leading-4 text-sparkle-text-muted">Send a message to unsettle this thread</div> : null}
                     <AssistantComposer
                         sessionId={props.selectedSessionId}
                         configurationThreadId={props.configurationThreadId}

@@ -18,14 +18,13 @@ app.whenReady().then(async () => {
     } else await window.loadFile(path.join(directory, 'index.html'))
     const result = await window.webContents.executeJavaScript('window.visualizationCheck')
     assert(Array.isArray(result), 'fixture script must execute under the real app CSP: ' + JSON.stringify(diagnostics))
-    for (let i = 0; i < 100 && !window.webContents.mainFrame.frames.some(frame => frame.url === 'about:srcdoc'); i++) await new Promise(resolve => setTimeout(resolve, 25))
-    const frame = window.webContents.mainFrame.frames.find(frame => frame.url === 'about:srcdoc')
+    for (let i = 0; i < 100 && !window.webContents.mainFrame.frames.some(frame => frame.url.endsWith('/visualization-frame.html')); i++) await new Promise(resolve => setTimeout(resolve, 25))
+    const frame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
     assert(frame, 'srcdoc renders under the actual parent CSP: ' + JSON.stringify({ frames: window.webContents.mainFrame.frames.map(frame => frame.url), diagnostics }))
     const isolation = await window.webContents.executeJavaScript(`(()=>{const child=document.querySelector('iframe');try{void child.contentWindow.document;return false}catch{return child.contentDocument===null}})()`)
     assert.equal(isolation, true, 'sandbox has an opaque origin, not the app origin')
-    let scriptBlocked = false
-    try { await frame.executeJavaScript('1 + 1') } catch (error) { scriptBlocked = /Script not run/i.test(String(error)) }
-    assert.equal(scriptBlocked, true, 'even direct child script execution is blocked by the sandbox')
+    assert.equal(await frame.executeJavaScript('document.body.dataset.compromised || null'), null, 'authored script never executes')
+    assert.equal(await frame.executeJavaScript("document.querySelector('.zyra-chart-tooltip') !== null"), true, 'app-owned runtime loads under the actual parent CSP: ' + JSON.stringify(diagnostics))
     assert.equal(requests.length, 0, 'CSP blocks remote requests before the network layer')
     for (const check of result) console.log('PASS: ' + check)
     console.log('PASS: real renderer CSP, rendered srcdoc, opaque origin and zero external requests')
@@ -55,7 +54,7 @@ app.whenReady().then(async () => {
             // An opaque srcdoc can live in its own renderer process. Inspect
             // that DevTools target without granting script/same-origin access.
             const { targetInfos } = await cdp('Target.getTargets')
-            const target = targetInfos.find(target => target.type === 'iframe' && target.url === 'about:srcdoc')
+            const target = targetInfos.find(target => target.type === 'iframe' && (target.url === 'about:srcdoc' || target.url.endsWith('/visualization-frame.html')))
             assert(target, 'sandboxed srcdoc has an inspectable renderer target')
             const { sessionId } = await cdp('Target.attachToTarget', { targetId: target.targetId, flatten: true })
             chartSessionId = sessionId
@@ -77,12 +76,16 @@ app.whenReady().then(async () => {
             const expected = await window.webContents.executeJavaScript(`window.visualizationShowcase('${mode}',${width ?? 'undefined'})`)
             const parent = await window.webContents.executeJavaScript(`(()=>{const r=document.querySelector('iframe').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight}})()`)
             if (width) assert.equal(parent.width, width, 'narrow chart is rendered at 320px, not scaled down')
-            assert.equal(parent.height, 430, 'showcase keeps the requested compact height')
+            if (!(parent.height <= 430 && parent.height > 32)) {
+                const activeFrame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
+                console.error('Layout diagnostic', {parent, child:activeFrame && await activeFrame.executeJavaScript(`(()=>{const content=document.querySelector('.zyra-viz-content');const r=content?.getBoundingClientRect();return {title:document.title,text:document.body.innerText.slice(0,100),bounds:r?.toJSON(),hidden:document.hidden}})()`)})
+            }
+            assert(parent.height <= 430 && parent.height > 32, 'showcase fits its content within the authored maximum')
             const { child, chartCdp, chartSessionId } = await openChartDocument()
             // Flush the newly navigated frame's layout before measuring nodes.
             const { cssLayoutViewport } = await chartCdp('Page.getLayoutMetrics')
             if (chartSessionId) {
-                assert(Math.abs(cssLayoutViewport.clientWidth - parent.width) < 1, 'the measured frame matches the preview width')
+                assert(parent.width - cssLayoutViewport.clientWidth >= 0 && parent.width - cssLayoutViewport.clientWidth <= 16, `the viewport reserves the stable gutter within the frame width: ${cssLayoutViewport.clientWidth}/${parent.width}`)
                 assert.equal(cssLayoutViewport.clientHeight, parent.height, 'the measured frame matches the preview height')
             }
             const inspectNode = async (nodeId, label) => {
@@ -107,7 +110,7 @@ app.whenReady().then(async () => {
             const labels = await Promise.all(nodeIds.map(nodeId => inspectNode(nodeId, 'chart label')))
             for (const element of [...bars, ...tracks, ...cells, ...labels]) {
                 assert(element.box.x >= body.box.x - 0.5 && element.box.x + element.box.width <= body.box.x + parent.width + 0.5, `${mode}/${width || 'wide'}: content fits without horizontal clipping`)
-                assert(element.box.y + element.box.height <= body.box.y + parent.height + 0.5, `${mode}: content fits the frame height`)
+                assert(element.box.y + element.box.height <= body.box.y + parent.height + 0.5, `${mode}: content fits the frame height: ${JSON.stringify({ element: element.box, body: body.box, parent })}`)
             }
             for (const label of labels) assert(parseFloat(label.css['font-size']) >= 13, 'narrow labels keep readable font sizes')
             for (let index = 0; index < bars.length; index++) assert(Math.abs(bars[index].box.width / tracks[index].box.width * 100 - expected.snacks[index]) < 0.15, 'rendered bar geometry matches the visible value')
@@ -174,6 +177,31 @@ app.whenReady().then(async () => {
     await window.webContents.executeJavaScript('window.visualizationFontCleanup()')
     assert.equal(requests.length, 0, 'font inheritance never permits authored network requests')
     console.log('PASS: actual bundled/managed app fonts in inline HTML, SVG and exported HTML; overrides and one-read caching preserved')
+    const compactHeight = await window.webContents.executeJavaScript('window.visualizationInteractionCase()')
+    assert(compactHeight < 200, 'a short chart shrinks below its authored 320px maximum')
+    const interactive = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
+    window.webContents.focus()
+    const beforeExpansion = await interactive.executeJavaScript(`(()=>{const point=document.querySelector('circle');point.focus();return {point:point.outerHTML,focused:document.activeElement===point,width:document.body.clientWidth,gutter:getComputedStyle(document.documentElement).scrollbarGutter,tooltip:document.querySelector('[role=tooltip]').textContent,tooltipVisible:!document.querySelector('[role=tooltip]').hidden,summaryWidth:document.querySelector('summary').getBoundingClientRect().width}})()`)
+    assert.equal(beforeExpansion.gutter, 'stable')
+    assert.equal(beforeExpansion.tooltip, 'Sample: 84 units', JSON.stringify(beforeExpansion))
+    assert(beforeExpansion.tooltipVisible, 'data-point preview is also available through keyboard focus')
+    assert(beforeExpansion.summaryWidth >= beforeExpansion.width - 3, 'disclosure fills the content width')
+    const animating = await interactive.executeJavaScript(`(()=>{document.querySelector('summary').click();return document.getAnimations().length})()`)
+    assert(animating > 0, 'disclosure expansion animates')
+    await new Promise(resolve => setTimeout(resolve, 350))
+    const expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,overflow:document.documentElement.scrollHeight>document.documentElement.clientHeight})`)
+    assert(expanded.open && expanded.overflow, 'expanded data remains scrollable within the authored cap')
+    assert.equal(expanded.width, beforeExpansion.width, 'scrollbar appearance does not move content sideways')
+    for (let i = 0; i < 40 && await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') !== 320; i++) await new Promise(resolve => setTimeout(resolve, 25))
+    assert.equal(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height'), 320)
+    await interactive.executeJavaScript(`document.querySelector('summary').click()`)
+    for (let i = 0; i < 40 && await interactive.executeJavaScript('document.querySelector("details").open'); i++) await new Promise(resolve => setTimeout(resolve, 25))
+    assert.equal(await interactive.executeJavaScript('document.querySelector("details").open'), false, await interactive.executeJavaScript(`JSON.stringify({expanded:document.querySelector('summary').getAttribute('aria-expanded'),animations:document.getAnimations().map(a=>({state:a.playState,time:a.currentTime})),hidden:document.hidden})`))
+    for (let i = 0; i < 40 && await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') !== compactHeight; i++) await new Promise(resolve => setTimeout(resolve, 25))
+    assert.equal(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height'), compactHeight)
+    const hover = await interactive.executeJavaScript(`new Promise(resolve=>{const point=document.querySelector('circle');point.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:120,clientY:35}));dispatchEvent(new Event('resize'));requestAnimationFrame(()=>{const tip=document.querySelector('[role=tooltip]');resolve({visible:!tip.hidden,text:tip.textContent,right:tip.getBoundingClientRect().right,width:innerWidth})})})`)
+    assert(hover.visible && hover.text === 'Sample: 84 units' && hover.right <= hover.width, 'point hover produces a bounded floating value preview: ' + JSON.stringify(hover))
+    console.log('PASS: compact charts, animated full-width disclosures, stable overflow gutter, hover and keyboard point previews')
     window.webContents.debugger.detach()
     if (screenshots) {
         await window.webContents.executeJavaScript(`window.visualizationShowcase('dark')`)

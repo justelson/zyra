@@ -5,7 +5,7 @@ import { Check, ChevronRight, MoreVertical, Plus } from 'lucide-react'
 import { dismissTransientMenus, TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
 import { cn } from '@/lib/utils'
 import { FileActionsMenuSecondaryAction } from './FileActionsMenuSecondaryAction'
-import { resolveFileActionsMenuWidth } from './file-actions-menu-layout'
+import { resolveFileActionsMenuWidth, resolveFileActionsSubmenuPosition } from './file-actions-menu-layout'
 
 export interface FileActionsMenuChoice {
     id: string
@@ -24,6 +24,7 @@ export interface FileActionsMenuItem extends FileActionsMenuChoice {
     secondaryAction?: FileActionsMenuChoice
     choices?: FileActionsMenuChoice[]
     choicesLabel?: string
+    submenuOnly?: boolean
 }
 
 interface FileActionsMenuProps {
@@ -45,6 +46,9 @@ interface FileActionsMenuProps {
     selectionMode?: 'radio'
     containEscape?: boolean
     accentColor?: string
+    contextAnchor?: { x: number; y: number }
+    onDismiss?: () => void
+    revealSecondaryOnHover?: boolean
 }
 
 function initialMenuButton(element: HTMLDivElement | null, radioSelection: boolean): HTMLButtonElement | null | undefined {
@@ -70,9 +74,14 @@ export function FileActionsMenu({
     menuLabel,
     selectionMode,
     containEscape = false,
-    accentColor
+    accentColor,
+    contextAnchor,
+    onDismiss,
+    revealSecondaryOnHover = false
 }: FileActionsMenuProps) {
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(Boolean(contextAnchor))
+    const wasOpen = useRef(open)
+    const submenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const focusAfterOpen = useRef(false)
     const effectivePresentation = supportsNativeOverlay() ? 'portal' : presentation
     const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
@@ -80,6 +89,7 @@ export function FileActionsMenu({
     const buttonRef = useRef<HTMLButtonElement | null>(null)
     const menuRef = useRef<HTMLDivElement | null>(null)
     const submenuRef = useRef<HTMLDivElement | null>(null)
+    const focusAfterSubmenuMount = useRef(false)
     const [inlineDirection, setInlineDirection] = useState<'up' | 'down'>('down')
     const [menuPosition, setMenuPosition] = useState<{
         direction: 'up' | 'down'
@@ -110,8 +120,13 @@ export function FileActionsMenu({
         setOpen(true)
     }, [disabled, open])
     useLayoutEffect(() => {
-        closeMenu()
-    }, [closeMenu, disabled])
+        if (!contextAnchor || disabled) closeMenu()
+    }, [closeMenu, disabled, contextAnchor])
+    useEffect(() => {
+        if (wasOpen.current && !open) onDismiss?.()
+        wasOpen.current = open
+    }, [open, onDismiss])
+    useEffect(() => () => { if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current) }, [])
     const setMenuElement = useCallback((element: HTMLDivElement | null) => {
         menuRef.current = element
         if (element && focusAfterOpen.current) {
@@ -121,6 +136,15 @@ export function FileActionsMenu({
             first?.focus()
         }
     }, [radioSelection])
+    const setSubmenuElement = useCallback((element: HTMLDivElement | null) => {
+        submenuRef.current = element
+        if (element && focusAfterSubmenuMount.current) {
+            focusAfterSubmenuMount.current = false
+            const first = element.querySelector<HTMLButtonElement>('button:not(:disabled)')
+            first?.setAttribute('data-native-overlay-autofocus', '')
+            first?.focus()
+        }
+    }, [])
     const accentedMenuStyle = accentColor ? ({
         '--file-actions-menu-accent': accentColor,
         borderColor: `color-mix(in srgb, ${accentColor} 30%, var(--surface-divider))`,
@@ -136,7 +160,9 @@ export function FileActionsMenu({
         const gap = 6
         const separatorCount = items.filter((item) => item.separatorBefore).length
         const estimatedMenuHeight = Math.min(360, items.length * (compact ? 32 : 34) + separatorCount * 5 + 14 + (menuLabel ? 36 : 0))
-        const rect = button.getBoundingClientRect()
+        const rect = contextAnchor
+            ? { top: contextAnchor.y, bottom: contextAnchor.y, left: contextAnchor.x, right: contextAnchor.x + preferredWidth, width: 0 }
+            : button.getBoundingClientRect()
         const measuredWidth = resolveFileActionsMenuWidth(preferredWidth, rect.width, window.innerWidth, matchTriggerWidth)
         const spaceBelow = window.innerHeight - rect.bottom - viewportPadding
         const spaceAbove = rect.top - viewportPadding
@@ -189,7 +215,7 @@ export function FileActionsMenu({
             window.removeEventListener('resize', handleResize)
             observer?.disconnect()
         }
-    }, [compact, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef])
+    }, [compact, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef, contextAnchor])
 
     useEffect(() => {
         if (!open) {
@@ -228,6 +254,7 @@ export function FileActionsMenu({
                 event.preventDefault()
                 setExpandedItemId(null)
                 setSubmenuPosition(null)
+                Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[data-submenu-id]') || []).find(button => button.dataset.submenuId === expandedItemId)?.focus()
                 return
             }
             dismiss()
@@ -250,11 +277,39 @@ export function FileActionsMenu({
 
     if (items.length === 0) return null
 
+    const cancelSubmenuClose = () => {
+        if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current)
+        submenuCloseTimer.current = null
+    }
+    const scheduleSubmenuClose = () => {
+        cancelSubmenuClose()
+        submenuCloseTimer.current = setTimeout(() => { setExpandedItemId(null); setSubmenuPosition(null) }, 160)
+    }
+    const openSubmenu = (item: FileActionsMenuItem, element: HTMLElement, focus = false) => {
+        if (item.disabled || !item.choices?.length) return
+        cancelSubmenuClose()
+        focusAfterSubmenuMount.current = focus
+        setExpandedItemId(item.id)
+        setSubmenuPosition(resolveFileActionsSubmenuPosition(element.getBoundingClientRect(), 196, item.choices.length, 32, window.innerWidth, window.innerHeight))
+        if (focus && expandedItemId === item.id && submenuRef.current) {
+            focusAfterSubmenuMount.current = false
+            submenuRef.current.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+        }
+    }
+    const focusSubmenuParent = () => {
+        const parent = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[data-submenu-id]') || []).find(button => button.dataset.submenuId === expandedItemId)
+        setExpandedItemId(null)
+        setSubmenuPosition(null)
+        parent?.focus()
+    }
+
     const menuDirection = effectivePresentation === 'inline' ? inlineDirection : menuPosition?.direction
+    const hoverSubmenus = items.some(item => item.submenuOnly)
+    const expandedHoverSubmenu = items.some(item => item.id === expandedItemId && item.submenuOnly)
     const menuBody = (
         <div
             role="menu"
-            aria-label={radioSelection ? title : undefined}
+            aria-label={title}
             className={cn(
                 'relative overflow-y-auto overscroll-contain shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl',
                 compact
@@ -301,8 +356,14 @@ export function FileActionsMenu({
                 <div key={item.id}>
                     {item.separatorBefore ? <div className="mx-1 my-1 h-px bg-[var(--surface-divider)]" role="separator" /> : null}
                     <div
-                        className={cn('flex w-full items-stretch', !item.disabled && !item.danger && 'file-actions-menu-row')}
+                        className={cn('group/menu-row flex w-full items-stretch', !item.disabled && !item.danger && 'file-actions-menu-row')}
                         data-expanded={expandedItemId === item.id ? 'true' : undefined}
+                        onMouseEnter={hoverSubmenus ? event => {
+                            cancelSubmenuClose()
+                            if (item.submenuOnly) openSubmenu(item, event.currentTarget)
+                            else if (expandedItemId !== item.id) { setExpandedItemId(null); setSubmenuPosition(null) }
+                        } : undefined}
+                        onMouseLeave={item.submenuOnly ? scheduleSubmenuClose : undefined}
                     >
                         <button
                             type="button"
@@ -310,11 +371,20 @@ export function FileActionsMenu({
                             aria-checked={typeof item.checked === 'boolean' ? item.checked : undefined}
                             aria-label={item.ariaLabel}
                             title={item.ariaLabel}
+                            data-submenu-id={item.submenuOnly ? item.id : undefined}
+                            aria-haspopup={item.submenuOnly ? 'menu' : undefined}
+                            aria-expanded={item.submenuOnly ? expandedItemId === item.id : undefined}
                             disabled={item.disabled}
-                            onClick={() => {
+                            onClick={(event) => {
+                                if (item.submenuOnly) { openSubmenu(item, event.currentTarget.parentElement!, event.detail === 0); return }
                                 setOpen(false)
                                 if (radioSelection) buttonRef.current?.focus()
                                 void item.onSelect()
+                            }}
+                            onKeyDown={event => {
+                                if (item.submenuOnly && event.key === 'ArrowRight') {
+                                    event.preventDefault(); openSubmenu(item, event.currentTarget.parentElement!, true)
+                                }
                             }}
                             className={cn(
                                 'flex min-w-0 flex-1 items-center gap-2 text-left transition-colors',
@@ -335,9 +405,10 @@ export function FileActionsMenu({
                             <span className="min-w-0 flex-1 truncate">{item.label}</span>
                             {item.hint ? <span aria-hidden="true" className="shrink-0 rounded-full bg-[var(--settings-control-hover)] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-[var(--settings-text-muted)] opacity-70">{item.hint}</span> : null}
                             {item.checked ? <Check className="size-3.5 shrink-0 text-[var(--accent-primary)]" strokeWidth={2.2} /> : null}
+                            {item.submenuOnly ? <ChevronRight size={12} className="shrink-0 text-sparkle-text-muted" /> : null}
                         </button>
-                        {item.secondaryAction ? <FileActionsMenuSecondaryAction action={item.secondaryAction} onClose={() => setOpen(false)} /> : null}
-                        {item.choices?.length ? (
+                        {item.secondaryAction ? <FileActionsMenuSecondaryAction action={item.secondaryAction} onClose={() => setOpen(false)} revealOnHover={revealSecondaryOnHover} /> : null}
+                        {item.choices?.length && !item.submenuOnly ? (
                             <button
                                 type="button"
                                 role="menuitem"
@@ -351,24 +422,8 @@ export function FileActionsMenu({
                                         setSubmenuPosition(null)
                                         return
                                     }
-                                    const submenuWidth = 168
-                                    const viewportPadding = 8
-                                    const gap = 6
-                                    const rect = event.currentTarget.getBoundingClientRect()
-                                    const estimatedHeight = Math.min(280, (item.choices?.length || 0) * (compact ? 32 : 34) + 8)
-                                    const spaceRight = window.innerWidth - rect.right - viewportPadding
-                                    const side = spaceRight >= submenuWidth + gap || rect.left < submenuWidth + gap
-                                        ? 'right'
-                                        : 'left'
-                                    const left = side === 'right'
-                                        ? Math.min(window.innerWidth - submenuWidth - viewportPadding, rect.right + gap)
-                                        : Math.max(viewportPadding, rect.left - submenuWidth - gap)
-                                    const top = Math.max(
-                                        viewportPadding,
-                                        Math.min(rect.top - 4, window.innerHeight - estimatedHeight - viewportPadding)
-                                    )
                                     setExpandedItemId(item.id)
-                                    setSubmenuPosition({ top, left, side })
+                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(event.currentTarget.getBoundingClientRect(), 168, item.choices?.length || 0, compact ? 32 : 34, window.innerWidth, window.innerHeight))
                                 }}
                                 className={cn(
                                     'inline-flex w-7 shrink-0 items-center justify-center rounded-r-[4px] text-sparkle-text-muted transition-colors hover:text-sparkle-text',
@@ -418,6 +473,8 @@ export function FileActionsMenu({
                 data-state={open ? 'open' : 'closed'}
                 aria-haspopup="menu"
                 aria-expanded={open}
+                hidden={Boolean(contextAnchor)}
+                style={contextAnchor ? { display: 'none' } : undefined}
             >
                 {triggerIcon || <MoreVertical size={15} className="mx-auto" />}
             </button>
@@ -461,13 +518,16 @@ export function FileActionsMenu({
 
             {open && expandedItemId && submenuPosition && typeof document !== 'undefined' && createPortal(
                 <div
-                    ref={submenuRef}
+                    ref={setSubmenuElement}
                     role="menu"
                     aria-label={items.find((item) => item.id === expandedItemId)?.choicesLabel || 'Choose tab type'}
-                    className="file-actions-menu-flyout fixed z-[350] w-[168px] rounded-[7px] border border-[var(--surface-divider)] bg-[var(--surface-floating)] p-1 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur-xl"
-                    style={{ top: `${submenuPosition.top}px`, left: `${submenuPosition.left}px`, ...accentedMenuStyle }}
+                    className="file-actions-menu-flyout fixed z-[350] rounded-[7px] border border-[var(--surface-divider)] bg-[var(--surface-floating)] p-1 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur-xl"
+                    style={{ width: items.find(item => item.id === expandedItemId)?.submenuOnly ? '196px' : '168px', top: `${submenuPosition.top}px`, left: `${submenuPosition.left}px`, ...accentedMenuStyle }}
                     onClick={(event) => event.stopPropagation()}
+                    onMouseEnter={expandedHoverSubmenu ? cancelSubmenuClose : undefined}
+                    onMouseLeave={expandedHoverSubmenu ? scheduleSubmenuClose : undefined}
                     onKeyDown={(event) => {
+                        if (event.key === 'ArrowLeft' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); focusSubmenuParent(); return }
                         if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
                         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
                         if (buttons.length === 0) return

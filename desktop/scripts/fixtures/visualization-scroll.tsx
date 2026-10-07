@@ -80,11 +80,11 @@ const percentile = (values: number[], p: number) => [...values].sort((a, b) => a
 ;(window as any).visualizationScrollCheck = (async () => {
     const started = performance.now()
     render(rows)
-    await until(() => scrollRef.current && document.querySelector('iframe')?.srcdoc, 'Real virtualized previews must mount')
+    await until(() => scrollRef.current && document.querySelector('iframe'), 'Real virtualized previews must mount')
     await until(() => {
         const bottom = document.querySelector('[data-assistant-timeline-row-id="row-19"]')
         const frames = [...bottom?.querySelectorAll('iframe') || []]
-        return frames.length === 2 && frames.every(node => (loads.get(node) || 0) > 0)
+        return frames.length === 2 && frames.every(node => node.dataset.visualizationReady === 'true')
     }, 'The initial bottom previews must finish loading before measurements')
     await pause(200)
     const initial = { ...stats, mountMs: performance.now() - started }
@@ -130,7 +130,7 @@ const percentile = (values: number[], p: number) => [...values].sort((a, b) => a
     // Same-row content updates must still change the rendered document.
     const changed = rows.map((row, i) => i === 19 && row.kind === 'message' ? { ...row, message: { ...row.message, text: row.message.text.replace('Synthetic chart 39', 'Changed chart 39') } } : row)
     render(changed)
-    await until(() => [...document.querySelectorAll('iframe')].some(node => node.srcdoc.includes('Changed chart 39')), 'Changed source must not reuse stale content')
-    if ([...document.querySelectorAll('iframe')].some(node => node.getAttribute('sandbox') !== '')) throw new Error('Sandbox permissions changed')
-    return { workload: { rows: 20, chartsPerRow: 2, barsPerChart: 80, samples: 3, framesPerSample: 64, warmup: 'initial mount and six prompt update pairs' }, supportsAtomicMove: Boolean(moveBefore), initial, updates, updateTrace, samples, totals: stats, cache: getVisualizationDocumentCacheStats(), correctness: ['source changes invalidate', 'sandbox remains empty'] }
+    await until(() => { const current = [...document.querySelectorAll('iframe')].find(node => node.title === 'Chart 39'); return current && !bottomFrames.includes(current) && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
+    if ([...document.querySelectorAll('iframe')].some(node => node.getAttribute('sandbox') !== 'allow-scripts')) throw new Error('Sandbox permissions changed')
+    return { workload: { rows: 20, chartsPerRow: 2, barsPerChart: 80, samples: 3, framesPerSample: 64, warmup: 'initial mount and six prompt update pairs' }, supportsAtomicMove: Boolean(moveBefore), initial, updates, updateTrace, samples, totals: stats, cache: getVisualizationDocumentCacheStats(), correctness: ['source changes invalidate', 'trusted helper sandbox stays opaque'] }
 })()

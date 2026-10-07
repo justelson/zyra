@@ -34,26 +34,10 @@ import { getAssistantThreadLastMessageAt, isAssistantDraftSession, resolveAssist
 import { useAssistantRailContextMenu } from './useAssistantRailContextMenu'
 import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegeneration'
 
-const PINNED_SESSION_IDS_KEY = 'assistant:pinned-session-ids:v1'
+import { usePinnedSessionIds } from './assistant-pinned-sessions'
+import { useAssistantSettlementOverrides } from './assistant-settlement-store'
+import { copyChatThreadId, resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
 const EXPANDED_PROJECT_PATH_KEYS_KEY = 'assistant:expanded-project-path-keys:v1'
-
-function readPinnedSessionIds(): Set<string> {
-    try {
-        const parsed = JSON.parse(localStorage.getItem(PINNED_SESSION_IDS_KEY) || '[]') as unknown
-        if (!Array.isArray(parsed)) return new Set()
-        return new Set(parsed.filter((value): value is string => typeof value === 'string' && value.trim().length > 0))
-    } catch {
-        return new Set()
-    }
-}
-
-function writePinnedSessionIds(ids: Set<string>): void {
-    try {
-        localStorage.setItem(PINNED_SESSION_IDS_KEY, JSON.stringify(Array.from(ids)))
-    } catch {
-        // Keep pinning useful in-memory even when storage fails.
-    }
-}
 
 function getProjectExpansionKey(path: string): string {
     return String(path || '').trim().replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase()
@@ -206,6 +190,8 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     onCreateProjectChat: (projectPath?: string, projectId?: string) => Promise<void> | void
     onSelectSession: (sessionId: string) => Promise<void> | void
     onSelectThread: (input: { sessionId: string; threadId: string }) => Promise<void> | void
+    onCreateThread?: (sessionId: string) => Promise<void> | void
+    onChooseSessionProject?: (session: AssistantSession) => Promise<void> | void
     onRenameSession: (sessionId: string, title: string) => Promise<void> | void
     onArchiveSession: (sessionId: string, archived?: boolean) => Promise<void> | void
     onDeleteSession: (sessionId: string) => Promise<{ success: true } | { success: false; error: string }>
@@ -242,6 +228,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     const { open } = useCommandPalette()
     const { openContextMenu, contextMenuPortal } = useAssistantRailContextMenu()
     const regenerateTitle = useAssistantRailTitleRegeneration(onShowToast)
+    const [settlementOverrides] = useAssistantSettlementOverrides()
     const resizeStateRef = useRef<{ pointerId: number; startX: number; startWidth: number; width: number } | null>(null)
     const resizeFrameRef = useRef(0)
     const layoutShellRef = useRef<HTMLDivElement | null>(null)
@@ -264,7 +251,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     const [renameTarget, setRenameTarget] = useState<AssistantSession | null>(null)
     const [renameDraft, setRenameDraft] = useState('')
     const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
-    const [pinnedSessionIds, setPinnedSessionIds] = useState<Set<string>>(() => readPinnedSessionIds())
+    const pinnedSessionIds = usePinnedSessionIds()
     const [expandedProjectPathKeys, setExpandedProjectPathKeys] = useState<Set<string>>(() => readExpandedProjectPathKeys())
 
     const activeSessions = useMemo(() => (
@@ -459,15 +446,8 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
     }, [])
 
     const togglePinnedSession = (session: AssistantSession) => {
-        setPinnedSessionIds((current) => {
-            const next = new Set(current)
-            const pinned = next.has(session.id)
-            if (pinned) next.delete(session.id)
-            else next.add(session.id)
-            writePinnedSessionIds(next)
-            onShowToast({ message: pinned ? 'Unpinned chat' : 'Pinned chat' })
-            return next
-        })
+        const pinned = toggleChatPinned(session.id)
+        onShowToast({ message: pinned ? 'Pinned chat' : 'Unpinned chat' })
     }
 
     const renameSession = async (session: AssistantSession) => {
@@ -499,17 +479,24 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
         setPendingDeleteSession(session)
     }
 
-    const getSessionMenuItems = (session: AssistantSession): FileActionsMenuItem[] => (
-        createSessionActionMenuItems({
+    const getSessionMenuItems = (session: AssistantSession): FileActionsMenuItem[] => {
+        const pinned = pinnedSessionIds.has(session.id)
+        const settlement = resolveChatMenuSettlement(session, settlementOverrides, pinned, activeThreadId, session.threads.some(thread => pendingControlThreadIds.has(thread.id)))
+        return createSessionActionMenuItems({
             session,
-            pinned: pinnedSessionIds.has(session.id),
+            pinned, settled: settlement.settled, settlementDisabled: settlement.priority, disabled: commandPending,
+            threadId: session.id === activeSessionId ? activeThreadId : session.activeThreadId,
+            onCreateThread: props.onCreateThread,
+            onChooseProject: props.onChooseSessionProject,
+            onCopyThreadId: async id => { await copyChatThreadId(id, onShowToast) },
+            onToggleSettlement: () => { if (!settlement.priority) setChatSettlement(session, !settlement.settled) },
             onOpenRename: (target) => { void renameSession(target) },
             onRegenerateTitle: regenerateTitle,
             onTogglePinned: () => togglePinnedSession(session),
             onArchiveSession: () => { void archiveSession(session) },
             onDeleteRequest: (target) => { void deleteSession(target) }
         })
-    )
+    }
 
     const getProjectMenuItems = (group: ProjectGroup, expanded: boolean): FileActionsMenuItem[] => [
         {
@@ -1234,6 +1221,8 @@ function ChatRow(props: {
                         <FileActionsMenu
                             items={menuItems}
                             title="Chat actions"
+                            density="compact"
+                            revealSecondaryOnHover
                             triggerIcon={<MoreHorizontal size={13} />}
                             presentation="portal"
                             buttonClassName="h-5 w-5 rounded-md border-transparent bg-transparent p-0 text-sparkle-text-muted/55 hover:border-transparent hover:bg-[var(--surface-hover)] hover:text-sparkle-text"

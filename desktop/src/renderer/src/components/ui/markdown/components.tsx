@@ -242,6 +242,7 @@ export function createMarkdownComponents(
         codeBlockMaxLines?: number
         plainCodeBlocks?: boolean
         deferCodeHighlighting?: boolean
+        streaming?: boolean
         visualTheme?: 'light' | 'dark'
         onInternalLinkClick?: (href: string) => Promise<boolean | void> | boolean | void
         mediaMode?: MarkdownMediaMode
@@ -444,6 +445,7 @@ export function createMarkdownComponents(
                     theme={options?.visualTheme || 'dark'}
                     maxLines={options?.codeBlockMaxLines}
                     deferHighlighting={options?.deferCodeHighlighting}
+                    diagramStreaming={Boolean(options?.streaming && ((codeProps as Record<string, unknown>).dataCodeIncomplete ?? (codeProps as Record<string, unknown>)['data-code-incomplete']) === 'true')}
                 >
                     {String(children).replace(/\n$/, '')}
                 </CodeBlock>

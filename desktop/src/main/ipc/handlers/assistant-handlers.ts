@@ -53,6 +53,7 @@ import type {
     FleetOperationInput
 } from '../../../shared/assistant/contracts'
 import { getAssistantService } from '../../assistant'
+import { reportDesktopThreadView } from '../../assistant/thread-view-window'
 import { hasActiveBrowserAssistantClient } from '../../assistant/browser-client-lease'
 import { persistAssistantClipboardImage, resolveAssistantClipboardAttachment } from '../../assistant/clipboard-attachments'
 import { getCodexVoiceTranscriptionState } from '../../assistant/codex-voice-transcription'
@@ -331,6 +332,10 @@ export function handleAssistantSelectSession(_event: Electron.IpcMainInvokeEvent
 export function handleAssistantSelectThread(_event: Electron.IpcMainInvokeEvent, input: AssistantSelectThreadInput) {
     log.info('IPC: assistant:selectThread', { sessionId: input?.sessionId, threadId: input?.threadId })
     return withDesktopAssistantSelectionLease(() => getAssistantService().selectThread(input.sessionId, input.threadId))
+}
+
+export function handleAssistantSetThreadView(event: Electron.IpcMainInvokeEvent, input: import('../../../shared/assistant/contracts').AssistantThreadViewInput) {
+    return withAssistantResult(() => reportDesktopThreadView(event.sender, input, (id, report) => getAssistantService().setThreadView(id, report)))
 }
 
 export function handleAssistantGetThreadDetailBootstrap(_event: Electron.IpcMainInvokeEvent, threadId: string) {

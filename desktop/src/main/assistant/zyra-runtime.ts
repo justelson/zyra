@@ -913,7 +913,7 @@ export function classifyZyraToolActivity(input: {
             kind: 'plugin-mcp',
             summary: running ? 'Using Plugin' : failed ? 'Plugin action failed' : 'Used Plugin',
             detail: [server, target || action].filter(Boolean).join(' · '),
-            data: { status: state, toolName, category: 'plugin-mcp', pluginId, server, action, target }
+            data: { ...baseData, category: 'plugin-mcp', pluginId, server, action, target }
         }
     }
 
@@ -1634,6 +1634,10 @@ export class ZyraRuntime extends EventEmitter {
         const normalizedThreadId = String(threadId || '').trim()
         if (!normalizedThreadId) return
         await this.getAgentServerConnection(resolveZyraRoot()).updateCanonicalChat(normalizedThreadId, patch)
+    }
+
+    async reportCanonicalChatView(session: string, input: Record<string, unknown>): Promise<void> {
+        await this.getAgentServerConnection(resolveZyraRoot()).reportChatView(session, input)
     }
 
     async listModelsWithProvenance(forceRefresh = false, skipAvailability = false): Promise<{ models: AssistantModelInfo[]; authoritative: boolean; error?: string }> {
@@ -2511,6 +2515,7 @@ export class ZyraRuntime extends EventEmitter {
     private getAgentServerConnection(root: string): DesktopAgentServerConnection {
         if (!this.agentServerConnection) {
             this.agentServerConnection = new DesktopAgentServerConnection(root, {
+                onChatAttention: (notice) => this.emit('chat.attention', notice),
                 openDesktopWorkspace: async (request) => {
                     if (!this.desktopWorkspaceHandler) throw Object.assign(new Error('Desktop workspace routing is unavailable.'), { code: 'DESKTOP_WORKSPACE_UNAVAILABLE' })
                     return this.desktopWorkspaceHandler(request)
@@ -3681,6 +3686,7 @@ export class ZyraRuntime extends EventEmitter {
             if (source) {
                 classified.summary = `${state === 'running' ? 'Using' : state === 'error' ? 'Failed to use' : 'Used'} ${source.name}`
                 classified.data['pluginSlug'] = source.slug
+                classified.data['pluginName'] = source.name
             }
             const details = asRecord(resultRecord?.['details'])
             const view = asRecord(details?.['appView'])
@@ -3697,7 +3703,7 @@ export class ZyraRuntime extends EventEmitter {
                 }
             }
         }
-        const keepsSpecializedDesktopKind = classified.kind === 'command.checkpoint' || classified.kind.startsWith('subagent.')
+        const keepsSpecializedDesktopKind = classified.kind === 'plugin-mcp' || classified.kind === 'command.checkpoint' || classified.kind.startsWith('subagent.')
         if (agentSurface && !keepsSpecializedDesktopKind) {
             classified.kind = agentSurface.kind
             classified.summary = agentSurface.summary
@@ -3738,7 +3744,7 @@ export class ZyraRuntime extends EventEmitter {
                 || (state === 'error' ? 'failed' : state)
             classified.data['surface'] = {
                 ...agentSurface,
-                kind: keepsSpecializedDesktopKind ? agentSurface.kind : classified.kind,
+                kind: classified.kind === 'plugin-mcp' ? classified.kind : keepsSpecializedDesktopKind ? agentSurface.kind : classified.kind,
                 lifecycle: effectiveLifecycle,
                 summary: classified.summary
             }

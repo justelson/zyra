@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { buildMetadata, isPreviewDistribution } from '@shared/distribution-identity'
 import { ChevronDown, Download, RefreshCw, Rocket } from 'lucide-react'
 import { getUpdateActionLabel, useAppUpdates } from '@/lib/app-updates'
-import { formatDesktopVersion, resolveDesktopReleaseChannel } from '@/lib/release-build-metadata'
+import { formatDesktopVersion, resolveDesktopBuildChannel } from '@/lib/release-build-metadata'
 import { useWindowChrome } from '@/lib/useWindowChrome'
 import { getZyraPlatformLabel } from '@shared/platform-window-chrome'
 import { SettingsActionsMenu } from './SettingsActionsMenu'
@@ -54,7 +54,7 @@ export default function AboutSettings() {
     const checkedAtLabel = checkedAt && !Number.isNaN(checkedAt.getTime()) ? `Last checked ${checkedAt.toLocaleString()}` : 'Not checked in this session'
     const packageVersion = updateState?.currentVersion || runtime.appVersion || __ZYRA_DESKTOP_VERSION__
     const displayVersion = isPreviewDistribution() ? `v${packageVersion}` : updateState?.currentDisplayVersion || formatDesktopVersion(packageVersion)
-    const releaseChannel = updateState?.channel || resolveDesktopReleaseChannel(packageVersion)
+    const releaseChannel = resolveDesktopBuildChannel(packageVersion, isPreviewDistribution() || import.meta.env.DEV)
     const platformLabel = getZyraPlatformLabel(runtime.platform)
     const runtimeLabel = runtime.platform === 'browser'
         ? `Hosted by Zyra Desktop · ${runtime.architecture}`
@@ -74,7 +74,7 @@ export default function AboutSettings() {
             <div className="flex flex-col items-center px-1 pt-1 text-center">
                 <h1 className="sr-only">About Zyra</h1>
                 <pre role="img" aria-label="Zyra" className="select-none text-left font-mono text-[12px] leading-[1.15] text-[var(--accent-primary)]">{ZYRA_ASCII_LOGO.join('\n')}</pre>
-                <div className="mt-3 flex items-baseline justify-center gap-2">
+                <div className="mt-3 flex flex-col items-center justify-center gap-1">
                     <span className="text-[18px] font-medium text-[var(--settings-text)]">{isPreviewDistribution() ? 'Zyra Dev' : 'Zyra'}</span>
                     <span aria-label="App version" className="font-mono text-[11px] text-[var(--settings-text-muted)]">{displayVersion}</span>
                 </div>
@@ -116,7 +116,6 @@ export default function AboutSettings() {
                 <SettingsDetails label="Build details">
                     <SettingsKeyValueList label="Build details" items={[
                         { id: 'package', label: 'Package version', value: packageVersion, searchTargetId: createSettingsRowTargetId('About Zyra', 'Package version') },
-                        { id: 'distribution', label: 'Channel', value: isPreviewDistribution() || import.meta.env.DEV ? 'Dev' : 'Stable', searchTargetId: createSettingsRowTargetId('About Zyra', 'Distribution') },
                         ...(buildMetadata.sourceSha ? [{ id: 'source', label: 'Source commit', value: <span className="break-all font-mono">{buildMetadata.sourceSha}</span>, searchTargetId: createSettingsRowTargetId('About Zyra', 'Source commit') }] : []),
                         { id: 'channel', label: 'Release channel', value: releaseChannel, searchTargetId: createSettingsRowTargetId('About Zyra', 'Release channel') },
                         { id: 'platform', label: 'Platform', value: platformLabel, searchTargetId: createSettingsRowTargetId('About Zyra', 'Platform') },

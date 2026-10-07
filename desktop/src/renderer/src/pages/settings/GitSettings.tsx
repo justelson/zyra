@@ -17,6 +17,7 @@ import {
     SettingsTextarea
 } from './settings-layout'
 import { SettingsPageTabs } from './SettingsPageTabs'
+import { SettingsInfoTooltip } from './SettingsInfoTooltip'
 import { SensitiveSettingValue } from './SensitiveSettingValue'
 
 type GlobalGitAuthor = { name: string; email: string }
@@ -136,11 +137,10 @@ export default function GitSettings({ view = 'git' }: { view?: 'git' | 'pull-req
                 </>
             ) : (
                 <>
-            <SettingsSection title="Workflow">
+            <SettingsSection title="Workflow" titleAction={<SettingsInfoTooltip label="About PR workflow">The PR action pushes when needed, reuses an existing open PR, and otherwise creates one through an authenticated GitHub CLI (`gh`) session.</SettingsInfoTooltip>}>
                 <SettingsRow title="Auto-refresh on project open" description="Refresh status, history, remotes, and branches when a project opens." control={<SettingsSwitch checked={settings.gitAutoRefreshOnProjectOpen} onCheckedChange={(gitAutoRefreshOnProjectOpen) => updateSettings({ gitAutoRefreshOnProjectOpen })} label="Auto-refresh Git on project open" />} />
                 <SettingsRow title="Warn on author mismatch" description="Confirm before committing when repository ownership and Git author do not align." control={<SettingsSwitch checked={settings.gitWarnOnAuthorMismatch} onCheckedChange={(gitWarnOnAuthorMismatch) => updateSettings({ gitWarnOnAuthorMismatch })} label="Warn on Git author mismatch" />} />
                 <SettingsRow title="Auto-create working branch" description="Create a branch before the stacked PR flow when the current branch is also the target." control={<SettingsSwitch checked={settings.gitAutoCreateBranchWhenTargetMatches} onCheckedChange={(gitAutoCreateBranchWhenTargetMatches) => updateSettings({ gitAutoCreateBranchWhenTargetMatches })} label="Auto-create Git branch" />} />
-                <SettingsNotice>The PR action pushes when needed, reuses an existing open PR, and otherwise creates one through an authenticated GitHub CLI (`gh`) session.</SettingsNotice>
             </SettingsSection>
 
             <SettingsSection title="Repository defaults">

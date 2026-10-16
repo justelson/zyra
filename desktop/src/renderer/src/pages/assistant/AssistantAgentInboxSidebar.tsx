@@ -1,3 +1,5 @@
+import { setChatSettlement } from './assistant-chat-menu-state'
+import type { AssistantToastInput } from './AssistantPageHelpers'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener } from '@/components/ui/native-overlay-portal'
@@ -12,7 +14,7 @@ import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
 import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
-import { useAssistantSettlementOverrides } from './assistant-settlement-store'
+import { useAssistantSettlementOverrides, migrateCanonicalSettlementOverrides } from './assistant-settlement-store'
 import { createChatSettlementMenuItem } from './assistant-chat-actions-menu'
 import { AssistantTuiPresenceIndicator } from './AssistantTuiPresenceIndicator'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
@@ -62,6 +64,7 @@ type Props = {
     onCreateProjectChat: (projectPath?: string) => Promise<void> | void
     onSelectSession: (sessionId: string) => Promise<void> | void
     onRename: (session: AssistantSession) => Promise<void> | void
+    onShowToast?: (input: AssistantToastInput) => void
     getSessionMenuItems: (session: AssistantSession) => FileActionsMenuItem[]
     onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, session: AssistantSession, items: FileActionsMenuItem[]) => void
 }
@@ -283,6 +286,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             return next
         })
     }, [visibleSessions])
+    useEffect(() => { void migrateCanonicalSettlementOverrides(visibleSessions) }, [visibleSessions])
     const projectGroups = useMemo(() => groupSessionsByProject(visibleSessions, props.projectIconOverrides, props.projects), [props.projectIconOverrides, props.projects, visibleSessions])
     const projectQuery = projectSearch.trim().toLocaleLowerCase()
     const filteredProjectGroups = projectGroups.filter((group) => !projectQuery || [group.label, group.path].join(' ')
@@ -359,10 +363,11 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         const scroller = scrollRef.current
         const header = settledHeaderRef.current
         if (!scroller || !header) return
-        const scrollerBounds = scroller.getBoundingClientRect()
-        const headerBounds = header.getBoundingClientRect()
-        const headerContentBottom = headerBounds.bottom - scrollerBounds.top + scroller.scrollTop
-        const availableHeight = Math.max(0, scrollerBounds.height - headerContentBottom)
+        // Use layout coordinates within the positioned scroller. Visual rects
+        // include in-flight motion and scroll anchoring; feeding those back
+        // into the rendered row count can oscillate at a row boundary.
+        const headerContentBottom = header.offsetTop + header.offsetHeight
+        const availableHeight = Math.max(0, scroller.clientHeight - headerContentBottom)
         const nextCount = resolveAssistantAgentInboxSettledInitialCount(availableHeight)
         setSettledInitialCount((current) => current === nextCount ? current : nextCount)
     }, [])
@@ -461,10 +466,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const setSettlement = (item: SidebarItem, state: SettlementOverride['state']) => {
         if (item.pinned) return
         stableLayout.release()
-        setSettlementOverrides((current) => {
-            const next = { ...current, [item.session.id]: { state, activityAt: item.activityAt, activityKey: getSidebarSettlementActivityKey(item.session) } }
-            return next
-        })
+        void setChatSettlement(item.session, state === 'settled').catch(error => props.onShowToast?.({ message: error.message, tone: 'error' }))
     }
 
     return (
@@ -507,7 +509,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             </div>
             <div ref={scrollRef} onPointerEnter={stableLayout.hold} onPointerLeave={stableLayout.release}
                 onFocusCapture={stableLayout.hold} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) stableLayout.release() }}
-                className="assistant-chat-scrollbar assistant-sidebar-scrollbar min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5">
+                className="assistant-chat-scrollbar assistant-sidebar-scrollbar relative min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5">
                 <ul ref={listRef} role="list" className="flex flex-col gap-px">
                     {priorityItems.length > 0 ? (
                         <li className="list-none">

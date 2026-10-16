@@ -32,6 +32,7 @@ import { handleMemoryGetOverview, handleMemoryGetJobStatus, handleMemoryGetModel
 import {
     handleAssistantApprovePendingPlaygroundLabRequest,
     handleAssistantArchiveSession,
+    handleAssistantSettleSession,
     handleAssistantAssociateProjectFolder,
     handleAssistantAttachSessionToPlaygroundLab,
     handleAssistantAgentAction,
@@ -126,6 +127,8 @@ import {
 import { ASSISTANT_IPC } from '../../shared/assistant/contracts'
 import { resolveZyraWindowChromePolicy, type ZyraDesktopPlatform } from '../../shared/platform-window-chrome'
 import { peekAssistantService } from '../assistant'
+import { handleSearchProjectContents } from './handlers/project-content-search-handlers'
+import { registerDeveloperWorkflowHandlers } from './handlers/developer-workflow-handlers'
 import {
     handleCopyToClipboard,
     handleDiscoverLocalGitHubProjects,
@@ -484,6 +487,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.renameSession, requireCompletedSetup(handleAssistantRenameSession))
     ipcMain.handle(ASSISTANT_IPC.regenerateSessionTitle, requireCompletedSetup(handleAssistantRegenerateSessionTitle))
     ipcMain.handle(ASSISTANT_IPC.archiveSession, requireCompletedSetup(handleAssistantArchiveSession))
+    ipcMain.handle(ASSISTANT_IPC.settleSession, requireCompletedSetup(handleAssistantSettleSession))
     ipcMain.handle(ASSISTANT_IPC.deleteSession, requireCompletedSetup(handleAssistantDeleteSession))
     ipcMain.handle(ASSISTANT_IPC.deleteMessage, requireCompletedSetup(handleAssistantDeleteMessage))
     ipcMain.handle(ASSISTANT_IPC.clearLogs, requireCompletedSetup(handleAssistantClearLogs))
@@ -527,6 +531,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle('devscope:discoverLocalGitHubProjects', handleDiscoverLocalGitHubProjects)
     ipcMain.handle('devscope:indexAllFolders', handleIndexAllFolders)
     ipcMain.handle('devscope:searchIndexedPaths', handleSearchIndexedPaths)
+    ipcMain.handle('devscope:searchProjectContents', handleSearchProjectContents)
+    registerDeveloperWorkflowHandlers(ipcMain)
     ipcMain.handle('devscope:openInExplorer', handleOpenInExplorer)
     ipcMain.handle('devscope:openInTerminal', handleOpenInTerminal)
     ipcMain.handle('devscope:listInstalledIdes', handleListInstalledIdes)

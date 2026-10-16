@@ -226,8 +226,10 @@ export class OpenAIConnectionService {
                 }
             }
             const snapshot = await sdk.updateChatGptAccounts(input)
-            this.verifiedCache = null
-            await this.dependencies.onCredentialChanged?.('openai-codex')
+            if (input.action !== 'alias') {
+                this.verifiedCache = null
+                await this.dependencies.onCredentialChanged?.('openai-codex')
+            }
             return snapshot
         })()
         this.poolOperation = task

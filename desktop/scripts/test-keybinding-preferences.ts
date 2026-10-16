@@ -16,10 +16,10 @@ try {
     let snapshot = await service.get({ surface: 'desktop' })
     const changed: string[][] = []
     const unsubscribe = service.subscribe(event => changed.push(event.changedKeys))
-    snapshot = await service.update({ surface: 'desktop', expectedRevision: snapshot.revision, patch: { keyboardShortcuts: { 'app.search': ['Mod+J'], 'browser.reload': [] } } })
+    snapshot = await service.update({ surface: 'desktop', expectedRevision: snapshot.revision, patch: { keyboardShortcuts: { 'app.search': ['Mod+Alt+J'], 'browser.reload': [] } } })
     assert.deepEqual(changed, [['keyboardShortcuts']])
     assert.equal(resolveShortcut({ key: 'k', control: true }, 'win32', 'app'), null)
-    assert.equal(resolveShortcut({ key: 'j', control: true }, 'win32', 'app'), 'app.search')
+    assert.equal(resolveShortcut({ key: 'j', control: true, alt: true }, 'win32', 'app'), 'app.search')
     assert.equal(shortcutLabel('browser.reload', 'win32'), '')
     const reloaded = new DevicePreferencesService(file)
     const restored = await reloaded.get({ surface: 'desktop' })

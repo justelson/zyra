@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils'
 import { formatWorkingTimer } from './assistant-timeline-helpers'
 import {
     requestAssistantTimelineDisclosureAnchor,
-    resolveAssistantTimelineCompletionAnchor
+    resolveAssistantTimelineCompletionAnchor,
+    type AssistantActivityRevealRequest
 } from './assistant-timeline-scroll-events'
 
 const WORK_SUMMARY_MOTION_MS = 260
@@ -68,6 +69,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     actionCount = 0,
     hasWork = true,
     revealContent = false,
+    activityRevealRequest = null,
     statusLabel = null,
     interruptionLabel = 'Interrupted',
     renderChildren
@@ -81,6 +83,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     actionCount?: number
     hasWork?: boolean
     revealContent?: boolean
+    activityRevealRequest?: AssistantActivityRevealRequest | null
     statusLabel?: string | null
     interruptionLabel?: string
     renderChildren: () => ReactNode
@@ -170,6 +173,9 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     }, [activeCollapseLocked, expanded])
 
     const previousRevealContentRef = useRef(false)
+    useEffect(() => {
+        if (activityRevealRequest) setWorkExpanded(true, triggerRef.current)
+    }, [activityRevealRequest])
     useEffect(() => {
         const shouldReveal = revealContent && !previousRevealContentRef.current
         previousRevealContentRef.current = revealContent

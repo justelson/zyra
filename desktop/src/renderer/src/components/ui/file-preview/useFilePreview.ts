@@ -83,7 +83,8 @@ export function preloadPreviewRenderer(type: PreviewFile['type']): void {
 async function preparePreviewRenderer(type: PreviewFile['type']): Promise<void> {
     if (type === 'md') (await import('./FileMarkdownPreview')).warmFileMarkdownPreview()
     else if (type === 'csv') await import('./CsvPreviewTable')
-    else if (type === 'code' || type === 'text' || type === 'json') await import('./MonacoPreviewEditor')
+    // SyntaxPreview already renders readable text while its editor initializes.
+    // Publishing a cold file must not wait for the Monaco module to finish loading.
 }
 
 async function loadPreviewContentSnapshot(filePath: string): Promise<PreviewContentSnapshot> {
@@ -271,7 +272,8 @@ export function useFilePreview(): UseFilePreviewReturn {
             // Read and prepare the renderer together, then publish a complete tab.
             // Keep the current file visible until the replacement is ready.
             try {
-                const [snapshot] = await Promise.all([loadPreviewContentSnapshot(file.path), preparePreviewRenderer(previewTarget.type)])
+                preloadPreviewRenderer(previewTarget.type)
+                const snapshot = await loadPreviewContentSnapshot(file.path)
                 openingSnapshot = snapshot
             } catch (error) {
                 readError = error instanceof Error ? error.message : 'Could not open this file.'

@@ -151,6 +151,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     const [previewAttachment, setPreviewAttachment] = useState<ComposerContextFile | null>(null)
     const [removingAttachmentIds, setRemovingAttachmentIds] = useState<string[]>([])
     const [branches, setBranches] = useState<DevScopeGitBranchSummary[]>([])
+    const [startInNewWorktree, setStartInNewWorktree] = useState(false)
+    useEffect(() => setStartInNewWorktree(false), [projectPath, resetStateToken])
     const [isGitRepo, setIsGitRepo] = useState(false)
     const [branchesLoading, setBranchesLoading] = useState(false)
     const [projectNodes, setProjectNodes] = useState<MentionCandidate[]>([])
@@ -432,6 +434,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setBranches, setShowBranchDropdown, setBranchQuery, setActiveBranchIndex, setBranchRefreshToken
     })
     const handlers = createAssistantComposerHandlers({
+        startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree,
         disabled,
         disabledReason,
         allowEmptySubmit,
@@ -641,11 +644,14 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         showBranchDropdown,
         setShowBranchDropdown,
         showMentionMenu,
+        setShowMentionMenu,
         previewAttachment,
         setPreviewAttachment,
         removingAttachmentIds,
         branches,
         isGitRepo,
+        startInNewWorktree,
+        setStartInNewWorktree,
         branchesLoading,
         isSwitchingBranch,
         branchActionError,

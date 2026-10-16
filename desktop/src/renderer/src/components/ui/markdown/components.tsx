@@ -10,10 +10,12 @@ import { looksLikeMarkdownFileReference, resolveMarkdownPackageReference } from 
 import { resolveImageSrc, resolveImageSrcSet } from './paths'
 import { resolveMarkdownLinkTarget } from './linkNavigation'
 import { renderMarkdownLinkLabel } from './linkLabels'
+import { SkillReferenceChip } from '../SkillReferenceChip'
 
 type DivProps = HTMLAttributes<HTMLDivElement> & { align?: string }
 type SourceProps = HTMLAttributes<HTMLSourceElement> & { src?: string; srcSet?: string }
 type ParagraphProps = HTMLAttributes<HTMLParagraphElement> & { align?: string }
+type SpanProps = HTMLAttributes<HTMLSpanElement> & { 'data-skill-reference'?: string }
 type HeadingProps = HTMLAttributes<HTMLHeadingElement> & { align?: string }
 type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
 
@@ -266,6 +268,9 @@ export function createMarkdownComponents(
     }
 ): Components {
     const components: Components = {
+        span: ({ 'data-skill-reference': reference, children, ...props }: SpanProps) => reference
+            ? <SkillReferenceChip reference={reference} />
+            : <span {...props}>{children}</span>,
         h1: ({ children, className, align, id, ...props }: HeadingProps) => (
             <h1 id={id} className={cn('group/heading scroll-mt-20 mt-8 mb-4 border-b border-white/10 pb-2 text-2xl font-bold text-sparkle-text first:mt-0', getAlignmentClass(align), className)} {...props}>
                 {children}<HeadingPermalink id={id} />

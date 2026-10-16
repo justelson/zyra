@@ -77,6 +77,7 @@ export const BROWSER_ASSISTANT_BRIDGE_METHODS = [
     'renameSession',
     'regenerateSessionTitle',
     'archiveSession',
+    'settleSession',
     'deleteSession',
     'deleteMessage',
     'clearLogs',

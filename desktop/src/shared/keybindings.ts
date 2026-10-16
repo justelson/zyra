@@ -41,7 +41,8 @@ export const COMMANDS = [
     { id: 'app.toggleTerminal', label: 'Toggle Terminal panel', scope: 'app', group: 'panels', defaults: ['Mod+`'] },
     { id: 'app.toggleInspector', label: 'Toggle review panel', scope: 'app', group: 'panels', defaults: ['Mod+Alt+R'] },
     { id: 'app.findInChat', label: 'Find in chat', scope: 'app', defaults: ['Mod+F'] },
-    { id: 'app.searchFiles', label: 'Search files', scope: 'app', group: 'files', defaults: ['Mod+P'] },
+    { id: 'app.searchFiles', label: 'Quick Open file', scope: 'app', group: 'files', defaults: ['Mod+P'] },
+    { id: 'app.searchProjectContents', label: 'Search text in project files', scope: 'app', group: 'files', defaults: ['Mod+Shift+F'] },
     { id: 'app.saveFile', label: 'Save file', scope: 'app', group: 'files', defaults: ['Mod+S'] },
     { id: 'app.stopTurn', label: 'Stop the running turn', scope: 'app', defaults: ['Mod+.'] },
     { id: 'app.nextWorkspaceTab', label: 'Next workspace tab', scope: 'app', defaults: ['Mod+Alt+PageDown'] },
@@ -180,7 +181,7 @@ export const APP_NAVIGATION_COMMANDS = [
     'app.nextChat', 'app.previousChat', 'app.chat1', 'app.chat2', 'app.chat3', 'app.chat4', 'app.chat5', 'app.chat6', 'app.chat7', 'app.chat8', 'app.chat9',
     'app.files', 'app.browser', 'app.review', 'app.terminal', 'app.threadDetails', 'app.resources', 'app.agents',
     'app.toggleFiles', 'app.toggleBrowser', 'app.toggleTerminal', 'app.toggleInspector',
-    'app.findInChat', 'app.searchFiles', 'app.saveFile', 'app.stopTurn',
+    'app.findInChat', 'app.searchFiles', 'app.searchProjectContents', 'app.saveFile', 'app.stopTurn',
     'app.nextWorkspaceTab', 'app.previousWorkspaceTab', 'app.closeWorkspaceTab'
 ] as const satisfies readonly CommandId[]
 export type AppNavigationCommand = typeof APP_NAVIGATION_COMMANDS[number]

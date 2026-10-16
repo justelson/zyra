@@ -1,7 +1,6 @@
 import type { AssistantSession } from '@shared/assistant/contracts'
 import { getPrimarySessionThread, getSessionLastActivityAt, resolveAssistantSidebarRowStatus } from './assistant-sessions-rail-utils'
-import { getSidebarSettlementActivityKey, isAssistantChatSettled, type SettlementOverrides } from './assistant-sidebar-settlement'
-import { setAssistantSettlementOverrides } from './assistant-settlement-store'
+import { isAssistantChatSettled, type SettlementOverrides } from './assistant-sidebar-settlement'
 import { getPinnedSessionIds, writePinnedSessionIds } from './assistant-pinned-sessions'
 import { copyTextToClipboard } from '@/lib/copy-text'
 import type { AssistantToastInput } from './AssistantPageHelpers'
@@ -29,11 +28,11 @@ export function toggleChatPinned(sessionId: string) {
     return !wasPinned
 }
 
-export function setChatSettlement(session: AssistantSession, settled: boolean) {
-    setAssistantSettlementOverrides(current => ({
-        ...current,
-        [session.id]: { state: settled ? 'settled' : 'active', activityAt: getSessionLastActivityAt(session), activityKey: getSidebarSettlementActivityKey(session) }
-    }))
+export async function setChatSettlement(session: AssistantSession, settled: boolean, migrateLegacy = false) {
+    const result = await window.devscope.assistant.settleSession(session.id, settled, migrateLegacy)
+    if (!result.success) throw new Error(result.error || 'Could not update chat settlement.')
+    const { assistantStore } = await import('@/lib/assistant/assistant-store-core')
+    await assistantStore.refresh()
 }
 
 export async function copyChatThreadId(threadId: string | null, showToast?: (input: AssistantToastInput) => void) {

@@ -4,7 +4,6 @@ import { requestAssistantInspectorNavigation } from '../pages/assistant/assistan
 import { requestAssistantComposerFocus } from '../pages/assistant/assistant-composer-focus'
 import { cycleAssistantChat, selectAssistantChatAt } from '../pages/assistant/assistant-chat-cycling'
 import { requestAssistantConversationFind } from '../pages/assistant/assistant-conversation-find'
-import { requestAssistantFilesSearchFocus } from '../pages/assistant/assistant-files-search-focus'
 import { requestAssistantFileSave } from '../pages/assistant/assistant-file-save-requests'
 import { assistantStore } from './assistant/assistant-store-core'
 import { getActiveAssistantThread, getSelectedAssistantSession } from './assistant/selectors'
@@ -31,7 +30,7 @@ export function dispatchAppNavigation(command: AppNavigationCommand, navigate: N
         return
     }
     if (command === 'app.findInChat') { requestAssistantConversationFind(); return }
-    if (command === 'app.searchFiles') { requestAssistantInspectorNavigation({ workspace: 'explorer' }); requestAssistantFilesSearchFocus(); return }
+    if (command === 'app.searchFiles' || command === 'app.searchProjectContents') { window.dispatchEvent(new CustomEvent('zyra:quick-open', { detail: command === 'app.searchProjectContents' ? 'contents' : 'files' })); return }
     if (command === 'app.saveFile') { requestAssistantFileSave(); return }
     if (command === 'app.stopTurn') { stopActiveAssistantTurn(); return }
     if (command === 'app.toggleFiles' || command === 'app.toggleBrowser' || command === 'app.toggleTerminal' || command === 'app.toggleInspector') {

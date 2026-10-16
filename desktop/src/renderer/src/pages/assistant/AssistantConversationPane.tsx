@@ -196,7 +196,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         props.onShowToast?.(pinned ? 'Pinned chat' : 'Unpinned chat', 'success')
     }, [controller.selectedSession, props.onShowToast])
     const handleToggleChatSettlement = useCallback(() => {
-        if (controller.selectedSession && !settlementDisabled) setChatSettlement(controller.selectedSession, !chatSettled)
+        if (controller.selectedSession && !settlementDisabled) void setChatSettlement(controller.selectedSession, !chatSettled).catch(error => props.onShowToast?.(error.message, 'error'))
     }, [controller.selectedSession, settlementDisabled, chatSettled])
     const selectedSessionId = controller.selectedSession?.id || null
     const activeThreadId = controller.activeThread?.id || null
@@ -844,6 +844,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         const images = buildPromptImageInputs(contextFiles)
         const result = await actions.sendPromptResult(browserPrompt, {
             sessionId,
+            startInNewWorktree: options.startInNewWorktree,
             model: options.model,
             runtimeMode: options.runtimeMode,
             interactionMode: options.interactionMode,

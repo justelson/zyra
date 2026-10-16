@@ -1,6 +1,7 @@
+import { useComposerDrawerMotion } from './useComposerDrawerMotion'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { addOverlayEventListener, isOverlayEventInside } from '@/components/ui/native-overlay-portal'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction, type WheelEvent as ReactWheelEvent } from 'react'
+import { memo, useCallback, useEffect, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction, type WheelEvent as ReactWheelEvent } from 'react'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,8 @@ import { buildEffortSliderTicks } from './assistant-composer-controller-constant
 import { AssistantAttachmentPill, AssistantFileAttachmentCard, AssistantPastedTextCard } from './AssistantAttachmentCards'
 import { AssistantAttachmentImageCard } from './AssistantAttachmentImageCard'
 import { AssistantBrowserAnnotationCard } from './AssistantBrowserAnnotationCard'
+import { AssistantComposerMenuSurface, ComposerMenuContext } from './AssistantComposerMenuSurface'
+import { AssistantContextAttachment } from './AssistantContextAttachment'
 
 function getEffortTone(effort: string): { textClass: string } {
     return effort === 'off' || effort === 'none'
@@ -68,7 +71,7 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
     contextFiles: ComposerContextFile[]
     compact: boolean
     removingAttachmentIds: string[]
-    presentation?: 'compact' | 'compact-pills'
+    presentation?: 'compact' | 'cards' | 'pills' | 'compact-pills'
     onOpenAttachmentPreview?: (
         file: { name: string; path: string },
         ext: string,
@@ -151,7 +154,7 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
             onWheel={handleAttachmentShelfWheel}
             className={cn(
                 'custom-scrollbar pointer-events-auto flex max-h-[206px] flex-wrap items-start overflow-y-auto overscroll-contain pr-1',
-                compact ? 'gap-1.5 pb-1' : 'gap-2 pb-1.5'
+                presentation === 'cards' ? 'gap-3 pb-4' : presentation === 'pills' ? 'gap-2 pb-2' : compact ? 'gap-1.5 pb-1' : 'gap-2 pb-1.5'
             )}
         >
             {contextFiles.map((file) => {
@@ -164,6 +167,10 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                 const isPastedText = isPastedTextAttachment(file)
                 const cardWidthClass = isPastedText ? 'w-[92px]' : 'w-[116px]'
                 const handleOpenImagePreview = () => {
+                    if (presentation === 'cards') {
+                        onPreview(file)
+                        return
+                    }
                     if (onOpenAttachmentPreview) {
                         void onOpenAttachmentPreview({ name: meta.name, path: file.path }, meta.ext)
                         return
@@ -188,6 +195,8 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                                 onOpen={() => onPreview(file)}
                                 onRemove={() => onRemove(file.id)}
                             />
+                        ) : presentation === 'pills' || file.selection ? (
+                            <AssistantContextAttachment file={file} removing={isRemoving || isEntering} onOpen={() => onPreview(file)} onRemove={() => onRemove(file.id)} />
                         ) : browserAnnotation && file.previewDataUrl ? (
                             <AssistantBrowserAnnotationCard
                                 annotation={browserAnnotation}
@@ -200,8 +209,9 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                             <AssistantAttachmentImageCard
                                 name={meta.name}
                                 src={file.previewDataUrl || ''}
-                                widthClassName={cardWidthClass}
-                                heightClassName="h-[84px]"
+                                widthClassName={presentation === 'cards' ? 'w-[168px]' : cardWidthClass}
+                                heightClassName={presentation === 'cards' ? 'h-[112px]' : 'h-[84px]'}
+                                presentation={presentation === 'cards' ? 'card' : 'compact'}
                                 onClick={handleOpenImagePreview}
                                 onRemove={() => onRemove(file.id)}
                                 removable
@@ -260,45 +270,32 @@ export const ComposerMentionMenu = memo(({
     onScroll: (element: HTMLDivElement) => void
     onApplyMention: (candidate: MentionCandidate) => void
 }) => {
-    const [present, setPresent] = useState(isOpen)
-    const [animatedOpen, setAnimatedOpen] = useState(false)
-    const ready = useRef(false)
-    useEffect(() => {
-        if (isOpen) {
-            setPresent(true)
-            if (ready.current) setAnimatedOpen(true)
-            return
-        }
-        setAnimatedOpen(false)
-        const timer = window.setTimeout(() => { ready.current = false; setPresent(false) }, 220)
-        return () => window.clearTimeout(timer)
-    }, [isOpen])
-    return <AnchoredNativeOverlay enabled={present} autoFocus={false} onReady={container => {
-        container.getBoundingClientRect()
-        ready.current = true
-        if (isOpen) setAnimatedOpen(true)
-    }}><div className={cn('pointer-events-none absolute inset-x-0 bottom-full z-[170] mb-1 overflow-hidden', isOpen ? 'pointer-events-auto' : 'pointer-events-none')}>
-        <AnimatedHeight isOpen={animatedOpen} duration={220}>
-            <div className="overflow-hidden rounded-xl border border-white/10 bg-sparkle-card shadow-2xl shadow-black/70 backdrop-blur-xl">
+    const { below } = useContext(ComposerMenuContext)
+    const { present, open: animatedOpen } = useComposerDrawerMotion(isOpen)
+    if (!present) return null
+    return <div className={cn('pointer-events-none absolute inset-x-0 z-30 overflow-hidden', below ? 'top-full -mt-[17px]' : 'bottom-full -mb-[17px]')}>
+        <AnimatedHeight isOpen={animatedOpen} duration={220} contentClassName={`transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none ${animatedOpen ? 'opacity-100 translate-y-0' : below ? 'opacity-0 -translate-y-3' : 'opacity-0 translate-y-3'}`}>
+            <AssistantComposerMenuSurface title="Files & folders" detail={mentionLoading ? 'Searching…' : undefined}>
                 <div className="relative">
                     {mentionCanScrollUp ? <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-6 items-start justify-center before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-[150%] before:rounded-t-[10px] before:bg-gradient-to-b before:from-sparkle-card before:from-40% before:to-transparent"><ChevronUp size={11} className="relative mt-0.5 text-sparkle-text-muted/70" /></div> : null}
-                    <div ref={mentionListRef} onScroll={(event) => onScroll(event.currentTarget)} className="max-h-56 overflow-y-auto px-1.5 pb-6 pt-6">
+                    <div ref={mentionListRef} role="listbox" aria-label="Files and folders" onScroll={(event) => onScroll(event.currentTarget)} className="custom-scrollbar max-h-[min(18rem,36vh)] scroll-py-2 overflow-y-auto p-2 [scrollbar-gutter:stable]">
                         {mentionLoading ? (
                             <div className="flex items-center gap-2 px-2 py-3 text-[11px] text-sparkle-text-secondary"><Loader2 size={12} className="animate-spin" /><span>Indexing project files...</span></div>
                         ) : mentionCandidates.length === 0 ? (
                             <div className="px-2 py-3 text-[11px] text-sparkle-text-secondary">No matching files or folders.</div>
                         ) : mentionCandidates.map((candidate, index) => (
-                            <button key={candidate.path} type="button" data-mention-index={index} onClick={() => onApplyMention(candidate)} className={cn('flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors', index === activeMentionIndex ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]')}>
-                                <FileEntryIcon pathValue={candidate.relativePath || candidate.name} kind={candidate.type} theme={iconTheme} className="shrink-0" />
-                                <div className="min-w-0 flex-1 truncate"><span className="text-[13px] font-semibold text-sparkle-text">{candidate.name}</span><span className="ml-2 font-mono text-[11px] text-white/[0.12]">{candidate.relativePath}</span></div>
+                            <button key={candidate.path} type="button" role="option" aria-selected={index === activeMentionIndex} disabled={!isOpen} data-mention-index={index} onMouseDown={event => event.preventDefault()} onClick={() => onApplyMention(candidate)} className={cn('flex h-8 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors', index === activeMentionIndex ? 'bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)]' : 'hover:bg-white/[0.045]')}>
+                                <FileEntryIcon pathValue={candidate.relativePath || candidate.name} kind={candidate.type} theme={iconTheme} size={16} className="shrink-0" />
+                                <span className="min-w-0 max-w-[45%] shrink-0 truncate text-xs font-medium text-sparkle-text" title={candidate.name}>{candidate.name}</span>
+                                <span className="min-w-0 flex-1 truncate text-xs text-sparkle-text-muted/70" title={candidate.relativePath}>{candidate.relativePath.replace(/[\\/]?[^\\/]+$/, '') || 'Project root'}</span>
                             </button>
                         ))}
                     </div>
                     {mentionCanScrollDown ? <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-6 items-end justify-center before:pointer-events-none before:absolute before:inset-x-0 before:bottom-0 before:h-[150%] before:rounded-b-[10px] before:bg-gradient-to-t before:from-sparkle-card before:from-40% before:to-transparent"><ChevronDown size={11} className="relative mb-0.5 text-sparkle-text-muted/70" /></div> : null}
                 </div>
-            </div>
+            </AssistantComposerMenuSurface>
         </AnimatedHeight>
-    </div></AnchoredNativeOverlay>
+    </div>
 })
 
 export { ComposerSendButton } from './ComposerSendButton'

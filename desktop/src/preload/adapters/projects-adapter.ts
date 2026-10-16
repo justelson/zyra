@@ -45,6 +45,11 @@ export function createProjectsAdapter() {
     const PREVIEW_TERMINAL_EVENT_CHANNEL = 'devscope:previewTerminal:event'
 
     return {
+        getDeveloperWorkspace: (root: string) => ipcRenderer.invoke('devscope:developerWorkspace', root),
+        startDeveloperTask: (root: string, name: string) => ipcRenderer.invoke('devscope:startDeveloperTask', root, name),
+        stopDeveloperTask: (id: string) => ipcRenderer.invoke('devscope:stopDeveloperTask', id),
+        previewRecordedUndo: (root: string, patch: string) => ipcRenderer.invoke('devscope:previewRecordedUndo', root, patch),
+        applyRecordedUndo: (token: string) => ipcRenderer.invoke('devscope:applyRecordedUndo', token),
         selectFolder: () => ipcRenderer.invoke('devscope:selectFolder'),
         selectMarkdownFile: () => ipcRenderer.invoke('devscope:selectMarkdownFile'),
         selectProjectIconFile: () => ipcRenderer.invoke('devscope:selectProjectIconFile'),
@@ -408,6 +413,7 @@ export function createProjectsAdapter() {
             includeAncestors?: boolean
             showHidden?: boolean
         }) => ipcRenderer.invoke('devscope:searchIndexedPaths', input),
+        searchProjectContents: (input: import('../../shared/contracts/project-content-search').ProjectContentSearchInput) => ipcRenderer.invoke('devscope:searchProjectContents', input),
         getFileSystemRoots: () => ipcRenderer.invoke('devscope:getFileSystemRoots')
     }
 }

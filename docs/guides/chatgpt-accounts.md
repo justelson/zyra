@@ -15,3 +15,11 @@ If an account returns an authentication or quota error before any response conte
 **Sign in again** reconnects that exact account. A different identity is rejected and existing connections are preserved. **Disconnect account** removes only the selected sign-in; removing the primary promotes a remaining account. Disconnecting the last account uses the existing OpenAI disconnect flow and updates the default connection when needed.
 
 The existing identity and banked-reset sections below the account pool refer to the primary account. Pooling applies to subscription model requests. API-key connections and ChatGPT Voice keep their existing paths.
+
+## Usage page
+
+Open **Settings > Providers > Usage** for local activity across Zyra, Codex, Claude Code, OpenCode, Pi, DevScope, and Zyra CLI. Choose Cost or Tokens, a source, and 7/30/90 days, one year, or all time. The chart supports daily, weekly, and cumulative views; Tokens also has the activity view. The breakdown groups by model, day, tool, or provider.
+
+Cost combines recorded model costs and API-equivalent estimates; it is not a subscription bill. Counts refer to usage records. Unpriced and unmetered records stay visible, and an asterisk marks partial measurements. Source coverage and indexing details are in the source menu.
+
+The Limits tab keeps account quotas, routing, and banked resets together. Its toolbar refresh waits for account quotas and the primary account overview. Account names default to saved random aliases; use the pencil to rename one, or click the name to reveal its email temporarily.

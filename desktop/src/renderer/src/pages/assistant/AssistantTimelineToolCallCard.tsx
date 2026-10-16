@@ -751,6 +751,7 @@ export const TimelineToolCallCard = memo(({
                 </span>
             </button>
             <AnimatedHeight
+                unmountOnExit
                 isOpen={expanded && canExpandBody && (!isTerminalLikeTool || hasTerminalOutput || canonicalImagePaths.length > 0 || historyBodyLoading || Boolean(historyBodyError))}
                 duration={activity.kind === 'file-change' ? 220 : 240}
                 crispContent={activity.kind === 'file-change'}

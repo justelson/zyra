@@ -98,7 +98,8 @@ const duplicateFileItems = buildAssistantComposerFileSearchItems([
 ])
 assert.deepEqual(duplicateFileItems.map((item) => [item.rootLabel, item.showRootLabel]), [['Main', true], ['Docs', true]], 'duplicate filenames identify their Chat-scoped root')
 
-const command = buildAssistantComposerCommandItems(resources, 'rev')[0]
+assert.deepEqual(allItems.map(item => item.label), [...allItems.map(item => item.label)].sort((a, b) => a.slice(1).localeCompare(b.slice(1))), 'commands and skills share one alphabetical list')
+const command = buildAssistantComposerCommandItems(resources, 'rev').find(item => item.value === '/review')!
 assert.equal(command.value, '/review')
 assert.deepEqual(
     applyAssistantComposerCommandItem('/rev', token!, command),
@@ -184,7 +185,8 @@ const markup = renderToStaticMarkup(createElement(AssistantComposerCommandMenu, 
     onSelect: () => undefined
 }))
 assert.match(markup, /\/review/)
-assert.match(markup, /\/skill:release-check/)
+assert.match(markup, /Skill: release-check/)
+assert.doesNotMatch(markup, /\/skill:/, 'skill invocation syntax stays out of menu labels')
 assert.match(markup, /Commands and skills/)
 assert.match(markup, new RegExp(`id="${getAssistantComposerCommandOptionId(menuId, allItems[0]!.id)}"`))
 assert.match(markup, /role="listbox"/)
@@ -210,9 +212,10 @@ assert.doesNotMatch(commandMenuSource, /scrollIntoView|lookaheadItem/, 'command 
 assert.match(menuScrollSource, /bottomInset: 38[\s\S]*nextTop === null[\s\S]*scrollTo\(\{ top: nextTop, behavior:/, 'the menu stays still for safely visible rows and follows rows before the composer can cover them')
 assert.match(composerSource, /event\.repeat \? 'auto' : 'smooth'/, 'single-step navigation animates while held navigation keeps the selector visible')
 assert.match(commandMenuSource, /movementX === 0 && event\.movementY === 0/, 'scrolling beneath a stationary pointer cannot pull keyboard highlight backward')
-assert.match(commandMenuSource, /scroll-pb-10[\s\S]*pb-10/, 'the slash menu reserves a full row below its last option')
+// Drawer spacing and filename/path geometry are measured in test-composer-presentation.
+assert.match(commandMenuSource, /AssistantComposerMenuSurface/, 'command and file menus use the same tucked drawer')
 assert.match(fileMenuSource, /FileEntryIcon/, 'include results use the existing file icon language')
-assert.match(fileMenuSource, /item\.name[\s\S]*text-right[\s\S]*item\.displayPath/, 'include files stay in one thin row with the relative folder aligned right')
+assert.match(fileMenuSource, /AssistantComposerMenuSurface/, 'include uses the same tucked drawer')
 assert.match(fileMenuSource, /item\.showRootLabel/, 'conflicting filenames show their source folder')
 assert.match(fileSearchSource, /searchIndexedPaths\([\s\S]*roots:/, 'include search uses the indexed revisioned Chat roots')
 assert.match(conversationPaneSource, /selectedSession\?\.chatScope\?\.roots[\s\S]*projectRoots=\{composerProjectRoots\}/, 'existing Chats keep their captured folder revision in include search')

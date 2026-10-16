@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CanonicalChatCatalog } from "../src/agent-server/catalog.mjs";
 import { CanonicalChatIndex } from "../src/agent-server/chat-index.mjs";
-import { MAX_EAGER_HISTORY_TOOL_RESULT_BYTES, projectLoadedHistoryEntries } from "../src/agent-server/history-bodies.mjs";
+import { MAX_EAGER_HISTORY_TOOL_RESULT_BYTES, historyQuestionCallIds, projectLoadedHistoryEntries } from "../src/agent-server/history-bodies.mjs";
 import { getProjectSessionsDir } from "../src/project-paths.mjs";
 
 const catalogSource = readFileSync(new URL('../src/agent-server/catalog.mjs', import.meta.url), 'utf8');
@@ -161,6 +161,12 @@ try {
   const eagerHistory = index.history("canonical:test", { limit: 100 });
   const lazyHistory = index.history("canonical:test", { limit: 100, toolResultBodies: "lazy-v1" });
   const deferredEntries = lazyHistory.entries.filter((entry) => entry.historyBodyRef);
+  const onDemandHistory = index.history("canonical:test", { limit: 100, toolResultBodies: "lazy-desktop-v2" });
+  const onDemandResults = onDemandHistory.entries.filter(entry => entry.message?.role === "toolResult");
+  assert.equal(onDemandResults.length, 21);
+  assert.ok(onDemandResults.every(entry => entry.historyBodyRef && !("content" in entry.message)), "Desktop defers every saved output, including the newest results");
+  const onDemandLoaded = projectLoadedHistoryEntries(historicalToolEntries, 0, { toolResultBodies: "lazy-desktop-v2", canonicalChatId: "canonical:test" });
+  assert.ok(onDemandLoaded.filter(entry => entry.message?.role === "toolResult").every(entry => entry.historyBodyRef), "SDK-backed history uses the same on-demand policy");
   assert.equal(deferredEntries.length, 6, "only the latest 15 of 21 tool results should keep eager bodies");
   assert.equal("content" in deferredEntries[0].message, false, "deferred history must distinguish an omitted body from a canonical empty result");
   assert.equal(deferredEntries.some((entry) => entry.historyBodyRef.toolName === "edit"), true, "old mutation results follow the same lazy-body policy");
@@ -193,6 +199,43 @@ try {
     "body hydration must bind the reference to the exact canonical line"
   );
 
+  appendFileSync(sessionPath, `${[
+    { type: "message", id: "control-call", timestamp: "2026-07-01T01:00:00.000Z", message: { role: "assistant", content: [{ type: "toolCall", id: "question-call", name: "request_user_input", arguments: { questions: [] } }] } },
+    { type: "message", id: "control-result", timestamp: "2026-07-01T01:00:01.000Z", message: { role: "toolResult", toolCallId: "question-call", toolName: "request_user_input", details: { requestId: "owned-question", cancelled: true }, content: [] } },
+    { type: "message", id: "unnamed-control-call", timestamp: "2026-07-01T01:00:02.000Z", message: { role: "assistant", content: [{ type: "toolCall", id: "unnamed-question-call", name: "request_user_input", arguments: { questions: [] } }] } },
+    { type: "custom", id: "question-wait-note", timestamp: "2026-07-01T01:00:02.500Z", customType: "session-metadata", data: { waiting: true } },
+    { type: "message", id: "unnamed-control-result", timestamp: "2026-07-01T01:00:03.000Z", message: { role: "toolResult", toolCallId: "unnamed-question-call", details: { requestId: "owned-unnamed-question" }, content: [] } }
+  ].map(entry => JSON.stringify(entry)).join("\n")}\n`);
+  await index.listProjects([project]);
+  const controlHistory = index.history("canonical:test", { limit: 4, toolResultBodies: "lazy-desktop-v2" });
+  const controlResult = controlHistory.entries.find(entry => entry.id === "control-result");
+  assert.equal(controlResult.message.details.requestId, "owned-question", "indexed on-demand history preserves interactive request ownership");
+  assert.equal(controlResult.message.details.cancelled, true, "indexed history cannot revive cancelled question controls");
+  assert.equal(controlResult.historyBodyRef, undefined, "question control results remain available independently of output disclosure");
+  assert.equal(controlHistory.entries.find(entry => entry.id === "unnamed-control-result").message.details.requestId, "owned-unnamed-question", "indexed legacy control ownership follows its actual tool call");
+  const gapHistory = index.history("canonical:test", { limit: 2, toolResultBodies: "lazy-desktop-v2" });
+  assert.equal(gapHistory.entries.find(entry => entry.id === "unnamed-control-result")?.message.details?.requestId, "owned-unnamed-question", "a metadata-start page retains the owning question identity outside the page");
+  assert.equal(gapHistory.entries.length, 2, "question ownership does not widen the requested history page");
+  assert.equal(gapHistory.entries[1].message.toolName, "request_user_input", "an isolated legacy result identifies itself to receipt recovery");
+  assert.equal("questionCallIds" in gapHistory.chat, false, "private question index metadata stays out of catalog DTOs");
+  const reopened = new CanonicalChatIndex({ stateDirectory });
+  assert.equal(reopened.history("canonical:test", { limit: 2, toolResultBodies: "lazy-desktop-v2" }).entries[1].message.details.requestId, "owned-unnamed-question", "resolved identity survives a cold index reopen");
+  const oldIndex = JSON.parse(readFileSync(path.join(stateDirectory, "chat-index-v3.json"), "utf8"));
+  for (const chat of Object.values(oldIndex.chats)) {
+    delete chat.questionCallIds;
+    delete chat.questionIdentityScanOffset;
+    for (const result of chat.deferredToolResults) if (result.entryId === "unnamed-control-result") result.toolName = "tool";
+  }
+  writeFileSync(path.join(stateDirectory, "chat-index-v3.json"), JSON.stringify(oldIndex));
+  const legacyIndex = new CanonicalChatIndex({ stateDirectory });
+  assert.equal(legacyIndex.history("canonical:test", { limit: 2, toolResultBodies: "lazy-desktop-v2" }).entries[1].message.toolName, "request_user_input", "unchanged legacy indexes backfill identity when that chat opens");
+  const allEntries = readFileSync(sessionPath, "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(entry => entry.type !== "session");
+  const sdkStart = allEntries.length - 2;
+  const sdkPage = projectLoadedHistoryEntries(allEntries.slice(sdkStart), sdkStart, { toolResultBodies: "lazy-desktop-v2", canonicalChatId: "canonical:test", questionCallIds: historyQuestionCallIds(allEntries, sdkStart) });
+  assert.equal(sdkPage[1].message.details.requestId, "owned-unnamed-question", "SDK fallback preserves control ownership across page gaps");
+  assert.equal(sdkPage[1].message.toolName, "request_user_input");
+  const unnamedOutput = projectLoadedHistoryEntries([{ type: "message", id: "unnamed-output", message: { role: "toolResult", toolCallId: "ordinary-call", content: [{ type: "text", text: "large display output" }] } }], 0, { toolResultBodies: "lazy-desktop-v2", canonicalChatId: "canonical:test" });
+  assert.ok(unnamedOutput[0].historyBodyRef, "ordinary unnamed outputs remain on demand instead of making legacy history eager");
   process.stdout.write("zyra incremental chat index tests passed\n");
 } finally {
   rmSync(root, { recursive: true, force: true });

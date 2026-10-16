@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ListFilter, RefreshCw, UserRoundMinus, UserRoundPlus, Users } from 'lucide-react'
+import { ListFilter, RefreshCw, Star, UserRoundMinus, UserRoundPlus, Users } from 'lucide-react'
 import type { ChatGptAccountProfile, ChatGptAccountUsageWindow, ChatGptRoutingPolicy } from '@shared/onboarding/contracts'
 import { SettingsActionsMenu } from '../SettingsActionsMenu'
 import { SettingsStatusPill, SettingsSwitch } from '../settings-layout'
@@ -8,6 +8,7 @@ import { accountLabel, accountPlan, accountStates, saveRoutingPolicy } from './c
 import { currentUsedPercent } from './chatgpt-usage-groups'
 import { usageResetDate } from './ChatGptUsageSummary'
 import type { useChatGptAccountPool } from './useChatGptAccountPool'
+import { ChatGptAccountIdentity } from './ChatGptAccountIdentity'
 
 export function ChatGptUsageAccountRow({ account, windows, pool, mode, resetCredits }: {
     account: ChatGptAccountProfile
@@ -22,7 +23,7 @@ export function ChatGptUsageAccountRow({ account, windows, pool, mode, resetCred
     const save = (patch: Partial<ChatGptRoutingPolicy>) => saveRoutingPolicy(pool, patch)
     return <div data-chatgpt-usage-account={account.id} className={`chatgpt-usage-account ${windows.length === 2 ? 'chatgpt-usage-account-dual' : ''} border-b border-[var(--settings-row-divider)] px-4 py-3 last:border-b-0`}>
         <div className="chatgpt-usage-identity min-w-0">
-            <h4 title={label} className="truncate text-[12px] font-medium text-[var(--settings-text)]">{label}</h4>
+            <h4 className="min-w-0 text-[12px] font-medium text-[var(--settings-text)]"><ChatGptAccountIdentity account={account} disabled={pool.busy} onRename={alias => pool.update({ action: 'alias', accountId: account.id, alias })} /></h4>
             <div className="mt-1 flex flex-wrap items-center gap-1.5"><SettingsStatusPill label={accountPlan(account)} /><SettingsStatusPill label={accountStates[account.state]} tone={account.state === 'ready' ? 'ready' : account.state === 'limited' || account.state === 'needs-sign-in' ? 'warning' : 'muted'} />{!selected ? <SettingsStatusPill label="Excluded" /> : null}{account.primary && resetCredits ? <span data-chatgpt-reset-owner={account.id}>{resetCredits}</span> : null}</div>
         </div>
         {windows.map(({ key, label: period, window }) => {
@@ -37,6 +38,7 @@ export function ChatGptUsageAccountRow({ account, windows, pool, mode, resetCred
         })}
         <div className="chatgpt-usage-controls flex items-center justify-end gap-2">
             {account.state === 'needs-sign-in' ? <Link to="/settings/providers" className="chatgpt-usage-signin" aria-label={`Sign in again to ${label}`}><RefreshCw size={13} aria-hidden="true" />Sign in again</Link> : <SettingsActionsMenu ariaLabel={`Usage options for ${label}`} label="Options" disabled={pool.busy} items={[
+                ...(!account.primary ? [{ id: 'primary', label: 'Make primary', icon: <Star size={13} />, onSelect: () => pool.update({ action: 'primary', accountId: account.id }) }] : []),
                 ...(policy.accountMode === 'selected' ? [{ id: 'allowed', label: selected ? 'Exclude this account' : 'Include this account', icon: selected ? <UserRoundMinus size={13} /> : <UserRoundPlus size={13} />, onSelect: () => save({ accountIds: selected ? policy.accountIds.filter(id => id !== account.id) : [...policy.accountIds, account.id] }) }] : []),
                 { id: 'only', label: 'Use only this account', icon: <ListFilter size={13} />, checked: policy.accountMode === 'selected' && policy.accountIds.length === 1 && selected, onSelect: () => save({ accountMode: 'selected', accountIds: [account.id] }) },
                 { id: 'all', label: 'Use all enabled accounts', icon: <Users size={13} />, checked: policy.accountMode === 'all', onSelect: () => save({ accountMode: 'all', accountIds: [] }) }

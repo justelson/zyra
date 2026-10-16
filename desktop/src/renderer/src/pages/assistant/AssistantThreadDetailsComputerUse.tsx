@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
-import { ChevronDown, Globe2, Monitor, ShieldCheck } from 'lucide-react'
+import { useCallback, useId, useState } from 'react'
+import { ChevronDown, Globe2, Monitor, ShieldCheck, Square } from 'lucide-react'
+import chromeLogo from '@/assets/browser-logos/chrome.svg'
 import type { ControlStateSnapshot } from '@shared/agent-control/contracts'
 import { cn } from '@/lib/utils'
 import type { AssistantThreadControlSummary } from './assistant-thread-details'
@@ -24,6 +25,7 @@ export function AssistantThreadDetailsComputerUse({
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [advancedOpen, setAdvancedOpen] = useState(false)
+    const setupId = useId()
     const pendingAction = threadControl.pendingActionApprovals[0] || null
     const pendingGrant = threadControl.pendingGrants[0] || null
     const hasPendingApproval = Boolean(pendingAction || pendingGrant)
@@ -103,22 +105,25 @@ export function AssistantThreadDetailsComputerUse({
             <button
                 type="button"
                 onClick={() => setAdvancedOpen((current) => !current)}
-                className="mt-1.5 flex w-full items-center justify-between border-b border-white/[0.045] py-2 text-[8px] font-medium text-sparkle-text-muted/45 hover:text-sparkle-text-secondary"
+                className="mt-2 flex w-full items-center justify-between gap-2 rounded-md py-2 text-[10px] font-medium text-sparkle-text-muted transition-colors hover:text-sparkle-text-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent-primary)]"
                 aria-expanded={advancedOpen}
+                aria-controls={setupId}
             >
                 <span>Setup</span>
-                <ChevronDown size={10} className={cn('transition-transform', advancedOpen && 'rotate-180')} />
+                <ChevronDown size={12} className={cn('transition-transform duration-150 motion-reduce:transition-none', advancedOpen && 'rotate-180')} />
             </button>
             {advancedOpen ? (
-                <div className="mt-3 space-y-3 border-l border-white/[0.06] pl-3">
-                    <div className="flex flex-wrap gap-1.5">
-                        <button type="button" disabled={busy || controlState?.pairing.state === 'waiting'} onClick={() => void run(() => window.devscope.agentControl.startChromePairing())} className="h-7 border border-white/[0.07] px-2 text-[8px] text-sparkle-text-muted hover:bg-white/[0.03] disabled:opacity-40">Pair Chrome</button>
-                        {controlState?.active ? <button type="button" onClick={() => void run(() => window.devscope.agentControl.emergencyStop())} className="h-7 border border-red-400/15 px-2 text-[8px] text-red-200/65 hover:bg-red-400/[0.05]">Stop all computer use</button> : null}
+                <div id={setupId} className="space-y-2 pb-1">
+                    <div className="flex min-w-0 items-center gap-2.5 py-1">
+                        <img src={chromeLogo} width={16} height={16} alt="" className="shrink-0" />
+                        <span className="min-w-0 flex-1 text-[11px] font-medium text-sparkle-text-secondary">Chrome</span>
+                        <button type="button" disabled={busy || controlState?.pairing.state === 'waiting'} onClick={() => void run(() => window.devscope.agentControl.startChromePairing())} className="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-2.5 text-[10px] font-medium text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-active)] hover:text-sparkle-text focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent-primary)] disabled:cursor-default disabled:opacity-50">{controlState?.pairing.state === 'waiting' ? 'Waiting for Chrome' : 'Pair Chrome'}</button>
                     </div>
-                    {controlState?.pairing.state === 'waiting' ? <p className="font-mono text-[10px] text-sparkle-text-secondary">Chrome code {controlState.pairing.code} · port {controlState.pairing.port}</p> : null}
+                    {controlState?.pairing.state === 'waiting' ? <div role="status" className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-md bg-[var(--surface-hover)] px-2.5 py-2"><span className="text-[10px] text-sparkle-text-muted">Pairing code <span className="ml-1.5 select-all font-mono font-medium tracking-wider text-sparkle-text-secondary">{controlState.pairing.code}</span></span><span className="text-[9px] text-sparkle-text-muted">Port {controlState.pairing.port}</span></div> : null}
+                    {controlState?.active ? <button type="button" onClick={() => void run(() => window.devscope.agentControl.emergencyStop())} className="inline-flex min-h-7 items-center gap-1.5 rounded-md px-1 text-[10px] text-[var(--status-danger)] hover:bg-[color-mix(in_srgb,var(--status-danger)_8%,transparent)]"><Square size={11} />Stop all computer use</button> : null}
                 </div>
             ) : null}
-            {error ? <p className="mt-2 text-[8px] leading-3.5 text-red-200/65">{error}</p> : null}
+            {error ? <p role="alert" className="mt-2 text-[10px] leading-4 text-[var(--status-danger)]">{error}</p> : null}
         </section>
     )
 }

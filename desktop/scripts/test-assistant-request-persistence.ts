@@ -7,7 +7,7 @@ import { createAssistantThread } from '../src/main/assistant/service-state'
 import { createAssistantSessionRecord } from '../src/main/assistant/service-records'
 import { initializeAssistantPersistenceSchema } from '../src/main/assistant/persistence-utils'
 import { persistAssistantEvent, replaceAssistantSnapshot } from '../src/main/assistant/persistence-write'
-import { readAssistantTimelineProjectionRows } from '../src/main/assistant/persistence-read'
+import { readAssistantPendingUserInput, readAssistantTimelineProjectionRows } from '../src/main/assistant/persistence-read'
 import { openNativeAssistantDatabase } from '../src/main/assistant/native-sqlite-adapter'
 
 const at = '2026-10-01T19:00:00.000Z'
@@ -53,6 +53,12 @@ function checkPersistence(db: Database, backend: string) {
     assert.equal(readAssistantTimelineProjectionRows(db, thread.id).pendingUserInputs.length, 1, `${backend}: request identity still reconciles changed projection IDs`)
     write('thread.approval.updated', { ...approval, requestId: 'canonical-approval-request' })
     assert.equal(db.exec('SELECT request_id FROM assistant_pending_approvals WHERE id = ?', [approval.id])[0]!.values[0]![0], 'canonical-approval-request', `${backend}: approvals accept stable row ID updates`)
+    assert.equal(readAssistantPendingUserInput(db, recovered.requestId), null, `${backend}: resolved records never restore a pending form`)
+    const pending = { ...question, id: 'cold-pending', requestId: 'cold-request', status: 'pending' as const, answers: null, resolvedAt: null, responseMessageId: null }
+    write('thread.user-input.updated', pending)
+    assert.deepEqual(readAssistantPendingUserInput(db, pending.requestId), { threadId: thread.id, userInput: pending }, `${backend}: exact indexed lookup restores saved request ownership and schema`)
+    assert.equal(readAssistantPendingUserInput(db, 'missing-request'), null)
+    assert.equal(readAssistantPendingUserInput(db, "' OR 1=1 --"), null, `${backend}: request identity is bound, not interpreted as SQL`)
     console.log(`${backend}: stable IDs, request IDs, replay, and approval writes: ok`)
 
     for (const [type, original, table] of [

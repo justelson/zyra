@@ -46,7 +46,7 @@ export interface AssistantRuntimeBridge {
     ): Promise<{ success: boolean; text?: string; model?: string; error?: string }>
     updateCanonicalChat(
         threadId: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean }
+        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<void>
     sendPrompt(
         threadId: string,
@@ -59,6 +59,7 @@ export interface AssistantRuntimeBridge {
             effort?: AssistantReasoningEffort
             serviceTier?: 'fast'
             profile?: string
+            startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
@@ -86,6 +87,7 @@ export interface AssistantServiceActionDeps {
     ensureReady(): Promise<void>
     getSnapshot(): AssistantSnapshot
     hydrateSelectedSession(sessionId: string): Promise<void>
+    recoverPendingUserInput?(requestId: string): Promise<void>
     getFirstUserMessageText(sessionId: string): Promise<string | null>
     getNewChatExecutionDefaults(): Promise<AssistantNewChatExecutionDefaults>
     getNewChatPreparationModel?(): Promise<string | null>

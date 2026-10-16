@@ -1,6 +1,9 @@
 import { APP_NAVIGATION_COMMANDS, COMMANDS } from '@shared/keybindings'
 import type { AssistantAccountOverview, AssistantSession } from '@shared/assistant/contracts'
 import type { UsageSummary } from '@shared/assistant/usage-summary'
+import type { ChatGptPoolSnapshot } from '@shared/onboarding/contracts'
+import { buildAccountUsageResults } from './command-palette-account-usage'
+import { subscribeChatGptAccounts } from '@/lib/chatgpt-account-events'
 import { dispatchAppNavigation } from '@/lib/app-navigation'
 import { useShortcutLabel } from '@/lib/keybindings'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -66,6 +69,7 @@ export function CommandPalette() {
         return () => window.removeEventListener('zyra:palette-query', handler)
     }, [open])
     const [accountUsage, setAccountUsage] = useState<AssistantAccountOverview | null>(null)
+    const [accountPool, setAccountPool] = useState<ChatGptPoolSnapshot | null>(null)
     const [localUsage, setLocalUsage] = useState<UsageSummary | null>(null)
     const [usageLoading, setUsageLoading] = useState(false)
     const [usageError, setUsageError] = useState<string | null>(null)
@@ -128,22 +132,44 @@ export function CommandPalette() {
     useEffect(() => {
         if (!isOpen || !usageScoped) return
         let disposed = false
+        let accountRevision = 0
+        const unsubscribeAccounts = subscribeChatGptAccounts(pool => { ++accountRevision; setAccountPool(pool) })
         setUsageLoading(true)
         setUsageError(null)
+        setAccountPool(null)
+        setAccountUsage(null)
+        setLocalUsage(null)
         const localInput = { days: 7 as const, harness: 'zyra' as const, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-        void Promise.allSettled([
-            window.devscope.assistant.getAccountOverview(false),
-            fetchUsageSummary(localInput)
-        ]).then(([account, local]) => {
-            if (disposed) return
-            if (account.status === 'fulfilled' && account.value.success) setAccountUsage(account.value.overview)
-            else setAccountUsage(null)
-            if (local.status === 'fulfilled') setLocalUsage(local.value)
-            else setLocalUsage(null)
-            if (account.status === 'rejected' && local.status === 'rejected') setUsageError('Usage is unavailable right now.')
-            setUsageLoading(false)
+        const loadAccounts = async () => {
+            let hasPool = false
+            try {
+                for (const refreshUsage of [false, true]) {
+                    const revision = accountRevision
+                    const result = await window.devscope.onboarding.getChatGptAccounts({ refreshUsage })
+                    if (disposed) return
+                    if (!result.success) throw new Error(result.error)
+                    hasPool = true
+                    if (revision === accountRevision) setAccountPool(result.pool)
+                }
+            } catch {
+                if (disposed) return
+                setUsageError('Could not check all ChatGPT accounts. Open Limits to retry.')
+                if (hasPool) return
+                // Older bridges expose only the primary subscription overview.
+                try {
+                    const result = await window.devscope.assistant.getAccountOverview(false)
+                    if (!disposed && result.success) setAccountUsage(result.overview)
+                } catch { /* The unavailable row remains actionable. */ }
+            }
+        }
+        const loadLocal = async () => {
+            try { const summary = await fetchUsageSummary(localInput); if (!disposed) setLocalUsage(summary) }
+            catch { if (!disposed) setLocalUsage(null) }
+        }
+        void Promise.allSettled([loadAccounts(), loadLocal()]).then(() => {
+            if (!disposed) setUsageLoading(false)
         })
-        return () => { disposed = true }
+        return () => { disposed = true; unsubscribeAccounts() }
     }, [isOpen, usageScoped])
 
     const results = useMemo<Result[]>(() => {
@@ -180,7 +206,7 @@ export function CommandPalette() {
         }
         if (usageScoped) {
             const cards = buildRateLimitCards(accountUsage, 'remaining')
-            const accountResults: Result[] = cards.slice(0, 4).map(card => ({
+            const accountResults: Result[] = accountPool ? buildAccountUsageResults(accountPool, () => navigate('/settings/providers/limits')) : cards.slice(0, 4).map(card => ({
                 id: `usage-${card.id}`, title: `${card.bucketLabel} · ${card.durationLabel}`,
                 subtitle: card.resetSummary, badge: card.percentLabel,
                 detail: <span className="block h-1 w-full max-w-48 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-[var(--accent-primary)]" style={{ width: `${card.percent}%` }} /></span>,
@@ -198,7 +224,7 @@ export function CommandPalette() {
                 icon: <Activity size={14} />, group: 'Local activity',
                 action: () => navigate('/settings/providers/usage')
             }
-            return [...(accountResults.length ? accountResults : [{ id: 'usage-account-unavailable', title: usageLoading ? 'Checking subscription limits…' : accountUsage?.requiresOpenaiAuth ? 'Connect ChatGPT to view limits' : 'Subscription limits unavailable', icon: <Activity size={14} />, group: 'Subscription limits', action: () => navigate('/settings/providers/limits') }]), localResult,
+            return [...(accountResults.length ? accountResults : [{ id: 'usage-account-unavailable', title: usageLoading ? 'Checking subscription limits…' : accountPool?.accounts.length === 0 || accountUsage?.requiresOpenaiAuth ? 'Connect ChatGPT to view limits' : 'Subscription limits unavailable', icon: <Activity size={14} />, group: 'ChatGPT accounts', action: () => navigate('/settings/providers/limits') }]), localResult,
                 { id: 'usage-details', title: 'Open usage details', subtitle: usageError || 'Full activity and limits', icon: <Settings size={14} />, group: 'Actions', action: () => navigate('/settings/providers/usage') }]
         }
         if (/^theme$/i.test(query.trim())) return [{ id: 'theme-scope', title: 'Choose theme', subtitle: 'Type a space, then a theme name', icon: <Palette size={14} />, group: 'Actions', keepOpen: true, action: () => setQuery('theme ') }]
@@ -325,7 +351,7 @@ export function CommandPalette() {
         return deferredSearchTerm
             ? [...localChats, ...contentChats, ...settingsResults, ...actions]
             : [...localChats, ...actions]
-    }, [isOpen, accountUsage, actionScoped, actionTerm, assistantActions, assistantSessions, chatSearch.matches, chatSearch.query, chatSearch.scope, deferredSearchTerm, localSearchTerm, localUsage, navigate, newChatShortcut, query, settings, settingsShortcut, shortcut, themeScoped, themeTerm, updateSettings, usageError, usageLoading, usageScoped, location.pathname])
+    }, [isOpen, accountUsage, accountPool, actionScoped, actionTerm, assistantActions, assistantSessions, chatSearch.matches, chatSearch.query, chatSearch.scope, deferredSearchTerm, localSearchTerm, localUsage, navigate, newChatShortcut, query, settings, settingsShortcut, shortcut, themeScoped, themeTerm, updateSettings, usageError, usageLoading, usageScoped, location.pathname])
 
     useEffect(() => {
         setSelectedIndex(0)

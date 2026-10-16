@@ -21,8 +21,10 @@ export type AssistantComposerHandlersArgs = {
     isSending: boolean
     isThinking: boolean
     busyMessageMode: AssistantBusyMessageMode
+    startInNewWorktree?: boolean
     onStop?: () => Promise<void> | void
     onSend: (prompt: string, contextFiles: ComposerContextFile[], options: {
+        startInNewWorktree?: boolean
         model?: string
         runtimeMode: AssistantRuntimeMode
         interactionMode: AssistantInteractionMode

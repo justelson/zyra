@@ -256,7 +256,7 @@ try {
   const sdkSource = readFileSync(new URL('../src/zyra-sdk.mjs', import.meta.url), 'utf8')
   const desktopRuntimeSource = readFileSync(new URL('../desktop/src/main/assistant/zyra-runtime.ts', import.meta.url), 'utf8')
   assert.match(bridgeSource, /handlePrompt[\s\S]*sdk\.runZyraPrompt\(runtime, payload\.prompt/u, 'the app-server bridge sends Desktop prompts through Zyra prompt expansion')
-  assert.match(sdkSource, /runZyraPrompt[\s\S]{0,180}expandZyraPromptResource\(runtime, prompt\)/u, 'Pi-backed prompts expand custom commands and explicit skills before provider dispatch')
+  // Real dispatch and hidden skill context are exercised in test-zyra-prompt-errors.mjs.
   assert.match(desktopRuntimeSource, /async sendPrompt\([\s\S]*worker\.request\('prompt'/u, 'Desktop direct and attached worker routes use the same prompt bridge')
   assert.match(sdkSource, /reload: async \(\) => \{[\s\S]*options\.loadSkills/u, 'soft resource reload refreshes the skill manifest instead of retaining startup state')
   assert.match(sdkSource, /createZyraResourceLoader\(project[\s\S]*pluginSkillSources: Array\.isArray\(options\.pluginSkillSources\)/u, 'runtime startup passes exact scoped Plugin Skill sources into the shared loader')

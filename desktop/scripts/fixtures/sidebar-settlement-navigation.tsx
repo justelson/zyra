@@ -20,6 +20,11 @@ const hydratedThread = {
 const hydrated = { id: 'settled', title: 'Settled chat', createdAt: now, updatedAt: now, projectPath: null,
     threads: [hydratedThread], activeThreadId: hydratedThread.id, threadIds: [hydratedThread.id], archived: false } as AssistantSession
 let sessions = [hydrated]
+;(window as any).devscope = { assistant: { settleSession: async (id: string, settled: boolean) => {
+    for (const session of [hydrated, ...sessions]) if (session.id === id) Object.assign(session, { settled, settlementManual: true })
+    return { success: true }
+} } }
+;(window as any).settlementRefresh = async () => render()
 let selected: string | null = 'settled'
 function render(mounted = true) {
     flushSync(() => root.render(mounted ? <div className="flex h-full w-[300px] flex-col p-2">
@@ -62,6 +67,7 @@ async function run() {
     check(!isSettled() && Boolean(row()?.textContent?.includes('Working')), 'A new projected turn revives the chat as Working')
 
     render(false)
+    delete shell.settled; delete shell.settlementManual; delete hydrated.settled; delete hydrated.settlementManual
     localStorage.setItem('assistant:agent-inbox-settled-overrides:v1', JSON.stringify({ settled: { state: 'settled', activityAt: messageAt } }))
     sessions = [shell]; render(); await sleep()
     check(isSettled(), 'Legacy timestamp-only settlement is retained on first catalog load')

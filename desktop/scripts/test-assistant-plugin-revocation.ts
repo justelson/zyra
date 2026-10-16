@@ -96,11 +96,12 @@ try {
     const runtime = new ZyraRuntime()
     ;(runtime as any).agentServerConnection = connection
     runtime.checkAvailability = async () => ({ available: true, reason: null })
-    const session = { id: 'session:affected', mode: 'default', workingRoot: fixture, threads: [{ id: 'thread:affected', providerThreadId: 'chat:affected', runtimeMode: 'approval-required' }] }
+    const session = { id: 'session:affected', mode: 'default', workingRoot: fixture, threads: [{ id: 'thread:affected', providerThreadId: 'chat:affected', runtimeMode: 'approval-required', activities: [] }] }
+    const compactionReadThreads: string[] = []
     const service = Object.create(AssistantService.prototype) as any
     Object.assign(service, { options: {}, readyPromise: Promise.resolve(), pluginRegistry: registry, runtime,
         pluginAuthorityMutations: new PluginAuthorityMutations(), state: { snapshot: { sessions: [session] } },
-        persistence: { isInternalProjectPath: () => false } })
+        persistence: { isInternalProjectPath: () => false, readCompactionActivities: async (threadId: string) => { compactionReadThreads.push(threadId); return [] } } })
     const issueGrant = (principal: ControlPrincipal) => grants.issue({ principal, targetId: 'fixture-target', capabilities: [],
         expiresAt: new Date(Date.now() + 60000).toISOString(), maxActions: 10, issuedBy: 'user' })
     const rootGrant = issueGrant({ type: 'root', threadId: 'thread:affected', turnId: 'turn:affected' })
@@ -153,6 +154,7 @@ try {
     await service.refreshChatPluginScope({ sessionId: session.id })
     assert.deepEqual(await service.getSessionPluginSkillSources(session), [], 'refresh removes disabled Skills from next-turn sources')
     await service.connectSessionRuntime(session, session.threads[0])
+    assert.deepEqual(compactionReadThreads, ['thread:affected'], 'cold revocation reconnect reads the affected local thread history')
     assert.equal(workers.length, 3, 'explicit empty-scope refresh creates a clean worker')
     assert.deepEqual(workers[2].connectPayload?.pluginSkillSources, [], 'the next runtime receives no revoked Skill sources')
     workers[1].activePrompt?.()

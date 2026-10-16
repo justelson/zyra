@@ -124,15 +124,16 @@ export interface AgentOptions {
 }
 
 class PendingMessageQueue {
-	private messages: AgentMessage[] = [];
+	private messages: AgentMessage[][] = [];
 	public mode: QueueMode;
 
 	constructor(mode: QueueMode) {
 		this.mode = mode;
 	}
 
-	enqueue(message: AgentMessage): void {
-		this.messages.push(message);
+	enqueue(message: AgentMessage | AgentMessage[]): void {
+		const batch = Array.isArray(message) ? [...message] : [message];
+		if (batch.length) this.messages.push(batch);
 	}
 
 	hasItems(): boolean {
@@ -141,7 +142,7 @@ class PendingMessageQueue {
 
 	drain(): AgentMessage[] {
 		if (this.mode === "all") {
-			const drained = this.messages.slice();
+			const drained = this.messages.flat();
 			this.messages = [];
 			return drained;
 		}
@@ -151,7 +152,7 @@ class PendingMessageQueue {
 			return [];
 		}
 		this.messages = this.messages.slice(1);
-		return [first];
+		return first;
 	}
 
 	clear(): void {
@@ -281,12 +282,12 @@ export class Agent {
 	}
 
 	/** Queue a message to be injected after the current assistant turn finishes. */
-	steer(message: AgentMessage): void {
+	steer(message: AgentMessage | AgentMessage[]): void {
 		this.steeringQueue.enqueue(message);
 	}
 
 	/** Queue a message to run only after the agent would otherwise stop. */
-	followUp(message: AgentMessage): void {
+	followUp(message: AgentMessage | AgentMessage[]): void {
 		this.followUpQueue.enqueue(message);
 	}
 

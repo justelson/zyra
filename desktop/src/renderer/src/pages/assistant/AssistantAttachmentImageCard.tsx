@@ -10,6 +10,7 @@ type AssistantAttachmentImageCardProps = {
     onRemove?: () => void
     removable?: boolean
     removing?: boolean
+    presentation?: 'compact' | 'card'
 }
 
 export function AssistantAttachmentImageCard({
@@ -20,8 +21,24 @@ export function AssistantAttachmentImageCard({
     onClick,
     onRemove,
     removable = false,
-    removing = false
+    removing = false,
+    presentation = 'compact'
 }: AssistantAttachmentImageCardProps) {
+    const image = (
+        <>
+            <div className={presentation === 'card' ? 'p-2 pb-0' : 'p-[3px]'}>
+                <div className={presentation === 'card' ? undefined : 'overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/20 p-0.5'}>
+                    <img
+                        src={src}
+                        alt={name}
+                        className={cn('w-full', presentation === 'card' ? 'rounded-md bg-black/20 object-contain' : 'rounded-[8px] object-cover', heightClassName)}
+                        loading="lazy"
+                    />
+                </div>
+            </div>
+            {presentation === 'card' ? <div className="truncate px-3 py-2 text-xs text-sparkle-text-secondary" title={name}>{name}</div> : null}
+        </>
+    )
     return (
         <article
             data-composer-attachment-item="true"
@@ -44,29 +61,11 @@ export function AssistantAttachmentImageCard({
                     title="Open file preview"
                     aria-label={`Open preview for ${name}`}
                 >
-                    <div className="p-[3px]">
-                        <div className={cn('overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/20 p-0.5')}>
-                            <img
-                                src={src}
-                                alt={name}
-                                className={cn('w-full rounded-[8px] object-cover', heightClassName)}
-                                loading="lazy"
-                            />
-                        </div>
-                    </div>
+                    {image}
                 </button>
             ) : (
                 <div className="relative block w-full text-left">
-                    <div className="p-[3px]">
-                        <div className={cn('overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/20 p-0.5')}>
-                            <img
-                                src={src}
-                                alt={name}
-                                className={cn('w-full rounded-[8px] object-cover', heightClassName)}
-                                loading="lazy"
-                            />
-                        </div>
-                    </div>
+                    {image}
                 </div>
             )}
             {removable ? (
@@ -77,7 +76,10 @@ export function AssistantAttachmentImageCard({
                         event.stopPropagation()
                         onRemove?.()
                     }}
-                    className="absolute right-0 top-0 z-20 inline-flex size-8 shrink-0 items-center justify-center rounded-bl-xl text-sparkle-text-muted transition-colors hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/45 disabled:pointer-events-none"
+                    className={cn(
+                        'absolute right-0 top-0 z-20 inline-flex size-8 shrink-0 items-center justify-center rounded-bl-xl text-sparkle-text-muted transition-[color,opacity] hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/45 disabled:pointer-events-none',
+                        presentation === 'card' && 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100'
+                    )}
                     disabled={removing}
                     title={`Remove ${name}`}
                     aria-label={`Remove ${name}`}

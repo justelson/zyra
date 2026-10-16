@@ -162,6 +162,7 @@ export default function SettingsShell() {
         const openingDetails: HTMLDetailsElement[] = []
         let clearTimer = 0
         let observer: MutationObserver | null = null
+        let headerObserver: ResizeObserver | null = null
         let highlighted: HTMLElement | null = null
         let previousScrollMarginTop: string | null = null
 
@@ -190,7 +191,21 @@ export default function SettingsShell() {
             if (sectionTarget) {
                 previousScrollMarginTop = target.style.scrollMarginTop
                 const navigation = scrollContainer.querySelector<HTMLElement>('nav[aria-label="On this page"]')
-                target.style.scrollMarginTop = `${(navigation?.getBoundingClientRect().height || 0) + 12}px`
+                const header = target.closest('[data-settings-page-content]')?.querySelector<HTMLElement>(':scope > header.usage-toolbar')
+                const updateOffset = () => {
+                    target.style.scrollMarginTop = `${(navigation?.getBoundingClientRect().height || 0) + (header?.getBoundingClientRect().height || 0) + 12}px`
+                }
+                updateOffset()
+                if (header && typeof ResizeObserver !== 'undefined') {
+                    headerObserver = new ResizeObserver(() => {
+                        const previous = target.style.scrollMarginTop
+                        updateOffset()
+                        if (previous !== target.style.scrollMarginTop && target.classList.contains('zyra-settings-search-target')) {
+                            target.scrollIntoView({ block: 'start', behavior: settings.accessibilityReduceMotion ? 'auto' : 'smooth' })
+                        }
+                    })
+                    headerObserver.observe(header)
+                }
             }
             target.focus({ preventScroll: true })
             target.scrollIntoView({
@@ -212,6 +227,7 @@ export default function SettingsShell() {
             openingDetails.forEach(details => details.removeAttribute('data-settings-search-opening'))
             window.clearTimeout(clearTimer)
             observer?.disconnect()
+            headerObserver?.disconnect()
             highlighted?.classList.remove('zyra-settings-search-target')
             if (highlighted && previousScrollMarginTop !== null) highlighted.style.scrollMarginTop = previousScrollMarginTop
         }

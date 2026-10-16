@@ -48,7 +48,7 @@ try {
             runtime: {
                 readCanonicalChatHistory: async (id: string, cwd: string, options: unknown) => {
                     prefixReads++; assert.equal(id, 'canonical-title'); assert.equal(cwd, directory)
-                    assert.deepEqual(options, { before: '128', limit: 128, toolResultBodies: 'lazy-v1' })
+                    assert.deepEqual(options, { before: '128', limit: 128, toolResultBodies: 'lazy-desktop-v2' })
                     return history
                 },
                 generateText: async (prompt: string) => {

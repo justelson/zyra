@@ -18,6 +18,9 @@ import { AssistantFileChangeStatusPill, resolveAssistantFileChangeStatus } from 
 import { AssistantReviewPromptAttachments } from './AssistantReviewPromptAttachments'
 import { AssistantReviewTurnStatusBadge } from './AssistantReviewTurnStatusBadge'
 import type { AssistantDiffTarget, AssistantDiffTurn } from './assistant-diff-types'
+import { useAssistantStoreSelector } from '@/lib/assistant/assistant-store-hooks'
+import { getSelectedAssistantSession } from '@/lib/assistant/selectors'
+import { RecordedChangeUndo } from './RecordedChangeUndo'
 
 const INITIAL_VISIBLE_FILES = 12
 const INITIAL_RENDERED_CHANGES = 4
@@ -174,6 +177,10 @@ export const AssistantTurnReview = memo(function AssistantTurnReview({
     onLoadingChange?: (loading: boolean) => void
 }) {
     const { settings } = useSettings()
+    const workspaceRoot = useAssistantStoreSelector(state => {
+        const session = getSelectedAssistantSession(state.snapshot)
+        return session?.workingRoot || session?.chatScope?.workingRoot || session?.projectPath || undefined
+    })
     const iconTheme = settings.appearanceResolvedMode
     const rootRef = useRef<HTMLElement | null>(null)
     const diffSurfaceRef = useRef<HTMLElement | null>(null)
@@ -569,6 +576,7 @@ export const AssistantTurnReview = memo(function AssistantTurnReview({
 
     const renderDiffHeaderActions = () => displayedSelectedDiff ? (
         <div className="assistant-turn-review__diff-header-actions flex items-center gap-1.5">
+            <RecordedChangeUndo key={`${displayedSelectedDiff.activityId}:${displayedSelectedDiff.filePath}`} target={{ ...displayedSelectedDiff, patch: buildTargetFilePatch(displayedSelectedDiff) }} root={workspaceRoot} disabled={turn.state === 'running'} />
             {renderCopyPathAction(displayedSelectedDiff)}
         </div>
     ) : null
@@ -680,6 +688,7 @@ export const AssistantTurnReview = memo(function AssistantTurnReview({
                     <PatchDiffViewer
                         key={`all:${turn.id}`}
                         fileDiffs={parsedRecordedChangeEntries.map((entry) => entry.fileDiff)}
+                        workspaceRoot={workspaceRoot}
                         mode={effectiveRenderMode}
                         flush
                         hideChangeIcon
@@ -723,6 +732,7 @@ export const AssistantTurnReview = memo(function AssistantTurnReview({
                 <PatchDiffViewer
                     key={`${turn.id}:${normalizeReviewFilePath(preparedSelectedDiff.filePath)}:history:${selectedFileChanges.length}`}
                     fileDiffs={parsedRecordedChangeEntries.map((entry) => entry.fileDiff)}
+                    workspaceRoot={workspaceRoot}
                     mode={effectiveRenderMode}
                     flush
                     hideChangeIcon
@@ -741,6 +751,7 @@ export const AssistantTurnReview = memo(function AssistantTurnReview({
                 <PatchDiffViewer
                     key={`${preparedSelectedDiff.activityId}:${preparedSelectedDiff.filePath}:parsed`}
                     fileDiff={resolvedFileDiff}
+                    workspaceRoot={workspaceRoot}
                     mode={effectiveRenderMode}
                     flush
                     headerPrefix={selectedFileStatus ? <AssistantFileChangeStatusPill status={selectedFileStatus} /> : null}

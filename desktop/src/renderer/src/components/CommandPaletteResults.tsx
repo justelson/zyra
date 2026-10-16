@@ -43,6 +43,7 @@ export function CommandPaletteResults({
                     {results.map((result, index) => {
                         const isSelected = index === selectedIndex
                         const showGroupLabel = index === 0 || results[index - 1]?.group !== result.group
+                        const ResultElement = result.titleContent ? 'div' : 'button'
 
                         return (
                             <div key={result.id} role="presentation">
@@ -52,7 +53,7 @@ export function CommandPaletteResults({
                                     </div>
                                 ) : null}
 
-                                <button
+                                <ResultElement
                                     id={`command-palette-result-${index}`}
                                     role="option"
                                     aria-selected={isSelected}
@@ -60,18 +61,19 @@ export function CommandPaletteResults({
                                     onClick={() => selectResult(result)}
                                     onMouseMove={() => setSelectedIndex(index)}
                                     className={cn(
-                                        'group grid w-full grid-cols-[18px_minmax(0,1fr)_auto_auto] items-center gap-2.5 rounded-[10px] px-3 py-1.5 text-left outline-none transition-colors',
+                                        'group grid w-full items-center gap-2.5 rounded-[10px] px-3 py-1.5 text-left outline-none transition-colors',
+                                        result.trailing ? 'grid-cols-[18px_minmax(0,1fr)_auto]' : 'grid-cols-[18px_minmax(0,1fr)_auto_auto]',
                                         isSelected
                                             ? 'bg-sparkle-card-hover text-sparkle-text'
                                             : 'bg-transparent text-sparkle-text-secondary hover:bg-white/[0.045] hover:text-sparkle-text'
                                     )}
                                 >
-                                    <span className={cn('flex h-[18px] w-[18px] items-center justify-center text-sparkle-text-muted/55', isSelected && 'text-sparkle-text-secondary')}>
-                                        {result.icon || <span className="h-1.5 w-1.5 rounded-full bg-sparkle-text-muted/60" />}
+                                    <span aria-hidden="true" data-command-palette-icon className={cn('flex h-[18px] w-[18px] items-center justify-center transition-colors', isSelected ? 'text-[var(--accent-primary)]' : 'text-sparkle-text-secondary group-hover:text-[var(--accent-primary)] group-focus-within:text-[var(--accent-primary)]')}>
+                                        {result.icon || <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />}
                                     </span>
                                     <span className="min-w-0">
-                                        <span className="block truncate text-[14px] font-normal leading-5">
-                                            {result.title}
+                                        <span data-command-palette-title className={cn('block truncate text-[14px] font-normal leading-5 transition-colors', isSelected ? 'text-[var(--accent-primary)]' : 'text-sparkle-text-secondary group-hover:text-[var(--accent-primary)] group-focus-within:text-[var(--accent-primary)]')}>
+                                            {result.titleContent || result.title}
                                         </span>
                                         {result.contentMatch ? (
                                             <span className="block truncate text-[12px] leading-4 text-sparkle-text-muted/70">
@@ -83,6 +85,7 @@ export function CommandPaletteResults({
                                         ) : null}
                                         {result.detail ? <span className="mt-1 block text-[11px] leading-4 text-sparkle-text-muted/75">{result.detail}</span> : null}
                                     </span>
+                                    {result.trailing}
                                     {result.subtitle ? (
                                         <span className="hidden max-w-[132px] truncate text-[13px] leading-5 text-sparkle-text-muted/55 sm:block">
                                             {result.subtitle}
@@ -93,7 +96,7 @@ export function CommandPaletteResults({
                                             {result.badge.replace(/^\/\/\s*/, '').replace(/^\/\s*/, '')}
                                         </span>
                                     ) : null}
-                                </button>
+                                </ResultElement>
                             </div>
                         )
                     })}

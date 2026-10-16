@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { FileCode2, X } from 'lucide-react'
 import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
 import { resolvePreviewType } from '@/components/ui/file-preview/utils'
+import { PreviewLoadingStatus } from '@/components/ui/file-preview/PreviewLoadingStatus'
 import { parseQuickPreviewFilePath } from '@shared/file-preview-route'
 import QuickPreviewTitleBar from './QuickPreviewTitleBar'
 
@@ -77,6 +78,7 @@ export default function QuickOpen() {
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-sparkle-bg text-sparkle-text">
             {!previewFile && <QuickPreviewTitleBar title={filePath ? splitFileNameAndExtension(filePath).fileName : undefined} />}
+            {!previewFile && !loadError && <PreviewLoadingStatus />}
             {!loadingPreview && !previewFile && loadError && (
                 <div className="flex flex-1 items-center justify-center p-6">
                     <div className="max-w-xl w-full rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6">
@@ -98,7 +100,7 @@ export default function QuickOpen() {
 
             {previewFile && (
                 <Suspense
-                    fallback={<QuickPreviewTitleBar title={previewFile.name} />}
+                    fallback={<><QuickPreviewTitleBar title={previewFile.name} /><PreviewLoadingStatus label="Loading preview..." /></>}
                 >
                     <FilePreviewModal
                         file={previewFile}

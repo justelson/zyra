@@ -32,7 +32,7 @@ mock.module('electron', () => ({
 const { projectCanonicalTimeline } = await import('../src/main/assistant/service')
 const createdAt = '2026-09-04T16:00:00.000Z'
 const timestamp = Date.parse(createdAt)
-const projection = projectCanonicalTimeline([
+const entries = [
     {
         type: 'message', id: 'entry:batch-user', timestamp: createdAt,
         message: {
@@ -70,7 +70,13 @@ const projection = projectCanonicalTimeline([
             content: [{ type: 'text', text: 'timeline source' }]
         }
     }
-], 'canonical-action-batch', 'action-batch', createdAt, 0, 'C:/fixture')
+]
+const projectEntries = (sourceEntries: unknown[]) => projectCanonicalTimeline(sourceEntries, 'canonical-action-batch', 'action-batch', createdAt, 0, 'C:/fixture')
+const projection = projectEntries(entries)
+const { projectLoadedHistoryEntries } = await import('../../src/agent-server/history-bodies.mjs')
+const lazyProjection = projectEntries(projectLoadedHistoryEntries(entries, 0, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'canonical-action-batch' }))
+assert.deepEqual(lazyProjection.activities.map(activity => activity.id), ['zyra-tool-batch-read-call'], 'lazy result bodies do not expose hidden batch markers')
+assert.equal(lazyProjection.activities[0]?.payload?.actionBatchIntent, 'Reviewing timeline behavior', 'on-demand bodies preserve the top-level batch preview')
 
 assert.deepEqual(projection.activities.map((activity) => activity.id), ['zyra-tool-batch-read-call'], 'the presentation marker never becomes a visible Action')
 assert.equal(projection.activities[0]?.payload?.actionBatchIntent, 'Reviewing timeline behavior', 'the declared intent persists on the following Action for replay')

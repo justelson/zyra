@@ -10,6 +10,7 @@ import { PreviewExpandedPreviewArea } from './PreviewExpandedPreviewArea'
 import type { PreviewModalLayoutProps } from './previewModalLayout.types'
 import { PreviewTreeSkeleton } from './PreviewLoadingSkeleton'
 import { resolveMarkdownSourceLineAtViewport } from './markdownPreviewModeLocation'
+import { PreviewCodeSelection } from './PreviewCodeSelection'
 
 const PreviewNavigationSidebar = lazy(async () => ({
     default: (await import('./PreviewNavigationSidebar')).PreviewNavigationSidebar
@@ -31,6 +32,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
     const pendingMarkdownModeLocationRef = useRef<{ filePath: string; targetMode: 'preview' | 'edit'; sourceLine: number } | null>(null)
     const activeFilePathRef = useRef(props.file.path)
     const [previewEditor, setPreviewEditor] = useState<MonacoEditor.IStandaloneCodeEditor | null>(null)
+    const [previewEditorPath, setPreviewEditorPath] = useState('')
 
     // A navigator should never take space away from the file preview in a compact window.
     // Users can still reopen it from the existing header control when they need it.
@@ -46,6 +48,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
 
     const handlePreviewEditorMount = useCallback((editor: MonacoEditor.IStandaloneCodeEditor | null) => {
         setPreviewEditor(editor)
+        setPreviewEditorPath(props.file.path)
         if (!editor) return
         const pendingLocation = pendingMarkdownModeLocationRef.current
         if (pendingLocation?.filePath !== props.file.path || pendingLocation.targetMode !== 'edit') return
@@ -223,6 +226,7 @@ export function PreviewModalLayout(props: PreviewModalLayoutProps) {
         }
         return (
             <PreviewErrorBoundary resetKey={previewResetKey}>
+                <PreviewCodeSelection editor={previewEditorPath === file.path ? previewEditor : null} filePath={file.path} workspaceRoot={projectPath} onAttached={props.handleCloseRequest} />
                 <PreviewBody
                     file={file}
                     content={sourceContent}

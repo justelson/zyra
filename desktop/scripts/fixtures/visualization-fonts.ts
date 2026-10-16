@@ -28,13 +28,14 @@ export function installVisualizationFontChecks(render: (content: string, streami
         const resource = getAppearanceFontResource(document, family)
         if (!resource) throw new Error('The selected appearance font must have a trusted resource')
         await until(() => document.querySelector('iframe'))
-        const frame = document.querySelector('iframe')!
-        await waitForFrame(frame)
         const button = document.querySelector('[aria-label="Options for App font"]') as HTMLButtonElement
         button.click()
         await until(() => document.querySelector('[role="menuitem"]'))
         ;(document.querySelector('[role="menuitem"]') as HTMLButtonElement).click()
         await until(() => exported.includes(resource.css))
+        // Copy uses the committed theme. Only now is the font-specific iframe
+        // current; an earlier ready marker can belong to the previous font.
+        await waitForFrame(document.querySelector('iframe')!)
         if (/Authored Forbidden|Nested Forbidden/.test(exported)) throw new Error('Authored font-loading rules must be removed, including nested rules')
         if (!exported.includes('font-src data:') || !exported.includes("connect-src 'none'")) throw new Error('Only trusted data fonts are allowed')
         if (!exported.includes('font-family: serif') || !exported.includes("script-src 'none'")) throw new Error('Export must preserve explicit family choices and script blocking')

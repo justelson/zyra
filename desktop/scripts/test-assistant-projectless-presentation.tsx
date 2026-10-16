@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import './fixtures/unused-diff-worker'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SettingsProvider } from '../src/renderer/src/lib/settings'
@@ -6,12 +7,12 @@ import type { AssistantProject, AssistantSession, AssistantThread } from '../src
 import { AssistantAgentInboxSidebar } from '../src/renderer/src/pages/assistant/AssistantAgentInboxSidebar'
 import { AssistantNewChatProjectChip } from '../src/renderer/src/pages/assistant/AssistantNewChatProjectChip'
 import { AssistantNewChatGreeting } from '../src/renderer/src/pages/assistant/AssistantNewChatGreeting'
-import { AssistantConversationHeader } from '../src/renderer/src/pages/assistant/AssistantConversationHeader'
 import { ProjectsStep } from '../src/renderer/src/onboarding/OnboardingSteps'
 import { getAssistantNewChatGreeting } from '../src/renderer/src/pages/assistant/assistant-new-chat-greeting'
 import { resolveAssistantProjectLabel } from '../src/renderer/src/pages/assistant/assistant-project-label'
 import { groupSessionsByProject, resolveSessionProjectPath } from '../src/renderer/src/pages/assistant/assistant-sessions-rail-utils'
 
+const { AssistantConversationHeader } = await import('../src/renderer/src/pages/assistant/AssistantConversationHeader')
 const cwd = 'C:/Users/test/Documents/Implicit work folder'
 const render = (node: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(createElement(SettingsProvider, null, node))
 const now = new Date().toISOString()

@@ -25,6 +25,14 @@ try {
   await auth.loginOAuth('openai-codex', credential('a'));
   await auth.loginOAuth('openai-codex', credential('b'));
   assert.equal((await pool.list()).length, 2, 'Adding a sign-in preserves the existing account.');
+  const beforePromotion = store.read('openai-codex');
+  await updateChatGptAccount(store, idB, { primary: true });
+  assert.equal(store.read('openai-codex').access, credential('b').access, 'Primary selection swaps the actual credential.');
+  assert.equal((await pool.list()).length, 2, 'Promotion preserves both identities.');
+  assert.equal((await pool.list()).find(account => account.primary).id, idB);
+  await updateChatGptAccount(store, idA, { primary: true });
+  assert.equal(store.read('openai-codex').access, beforePromotion.access, 'Promoting back retains original credentials.');
+
   await auth.loginOAuth('openai-codex', credential('a', 2));
   assert.equal((await pool.list()).length, 2, 'Same-account login updates rather than duplicates.');
   await assert.rejects(auth.loginOAuth('openai-codex', credential('b'), { accountId: idA }), /same ChatGPT account/);

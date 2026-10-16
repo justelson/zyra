@@ -26,6 +26,7 @@ import { useMarkdownVisualTheme } from './markdown/markdownTheme'
 import { parseMarkdownToHast } from './markdown/markdownPipeline'
 import { createMarkdownHeadingSlug } from './markdown/markdownHeadingIds'
 import { StreamingMarkdownSpan, wrapStreamingText } from './markdown/StreamingText'
+import { enhanceSkillReferenceChips } from './markdown/skillReferences'
 
 export type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
 
@@ -53,6 +54,8 @@ export interface MarkdownRendererProps {
     onLinkNotice?: MarkdownLinkNoticeHandler
     visualTheme?: 'light' | 'dark'
     mediaMode?: MarkdownMediaMode
+    /** Sent user prompts retain raw skill references while displaying inline pills. */
+    skillReferenceChips?: boolean
 }
 
 type CompiledMarkdownEntry = {
@@ -97,7 +100,8 @@ function resolveCompiledKey(props: MarkdownRendererProps): string {
         props.plainCodeBlocks ? 'plain-code' : 'highlight-code',
         props.deferCodeHighlighting ? 'defer-highlight' : 'sync-highlight',
         props.visualTheme || 'dark',
-        props.mediaMode || 'images'
+        props.mediaMode || 'images',
+        props.skillReferenceChips ? 'skill-chips' : 'literal-skills'
     ].join('|')
 }
 
@@ -244,8 +248,9 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
 function compileMarkdown(props: MarkdownRendererProps): ReactNode {
     const startedAt = performance.now()
     markdownCompilationCount += 1
-    const preparedTree = props.fadeStreamingText && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
+    const preparedTree = (props.fadeStreamingText || props.skillReferenceChips) && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
     const tree = preparedTree || parseMarkdownToHast(props.content, !props.lightweight)
+    if (props.skillReferenceChips) enhanceSkillReferenceChips(tree)
     prepareMarkdownTree(tree)
     const baseComponents = getMarkdownComponents(props)
     if (props.fadeStreamingText) wrapStreamingText(tree, Boolean(props.animateInitialText))
@@ -335,14 +340,15 @@ export function MarkdownContentRenderer(props: MarkdownRendererProps) {
     const activeVisualTheme = useMarkdownVisualTheme()
     const documentRef = useRef<HTMLDivElement | null>(null)
     const visualTheme = props.visualTheme || activeVisualTheme
+    const skillReferenceChips = props.skillReferenceChips === true
     const committed = useRef<{ content: string; cacheKey?: string } | null>(null)
     const animateInitialText = Boolean(fadeStreamingText && committed.current && committed.current.cacheKey === cacheKey && committed.current.content !== content)
     useLayoutEffect(() => { committed.current = { content, cacheKey } }, [content, cacheKey])
     const markdownProps = useMemo(
-        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, fadeStreamingText, animateInitialText, visualTheme, mediaMode }),
-        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, fadeStreamingText, animateInitialText, visualTheme]
+        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, fadeStreamingText, animateInitialText, visualTheme, mediaMode, skillReferenceChips }),
+        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, fadeStreamingText, animateInitialText, visualTheme, skillReferenceChips]
     )
-    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme])
+    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme, skillReferenceChips])
     const shouldDeferCompilation = !transient && content.length >= DEFERRED_MARKDOWN_LENGTH
     const [preparedIdentity, setPreparedIdentity] = useState<object | null>(null)
 

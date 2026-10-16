@@ -8,7 +8,7 @@ const resetAt = new Date(Date.now() + 7 * 86400000).toISOString()
 const primary = (usedPercent: number) => ({ usedPercent, resetAt: dual ? new Date(Date.now() + 5 * 3600000).toISOString() : resetAt, windowSeconds: dual ? 18000 : 604800 })
 let pool: ChatGptPoolSnapshot = {
     accounts: scenario === 'empty' ? [] : ['alex@example.test', 'sam@example.test'].map((email, index) => ({
-        id: `review-${index}`, email, plan: index ? 'prolite' : 'plus', primary: index === 0,
+        id: `review-${index}`, alias: index ? 'Silver Otter 456' : 'Quiet Comet 123', email, plan: index ? 'prolite' : 'plus', primary: index === 0,
         enabled: true, state: scenario === 'signin' && index === 1 ? 'needs-sign-in' : 'ready',
         resetAt: null, lastUsedAt: null, requestCount: 0, tokenExpiresAt: null,
         usage: { primary: primary(index ? 35 : 15), secondary: dual && !(scenario === 'dual-missing' && index === 1) ? { usedPercent: index ? 10 : 45, resetAt, windowSeconds: 604800 } : null, updatedAt: new Date().toISOString() }
@@ -38,6 +38,7 @@ export function installProvidersReviewFixture() {
             getChatGptAccounts: async () => scenario === 'error' ? ({ success: false, error: 'Test: account usage unavailable. Refresh to retry.' }) : ({ success: true, pool: structuredClone(pool) }),
             updateChatGptAccounts: async (input: any) => {
                 if (input.action === 'policy') pool.policy = input.policy
+                if (input.action === 'alias') pool.accounts = pool.accounts.map(account => account.id === input.accountId ? { ...account, alias: input.alias } : account)
                 if (input.action === 'enabled') pool.accounts = pool.accounts.map(a => a.id === input.accountId ? { ...a, enabled: input.enabled, state: input.enabled ? 'ready' : 'paused' } : a)
                 if (input.action === 'remove') { pool.accounts = pool.accounts.filter(a => a.id !== input.accountId); if (!pool.accounts.some(a => a.primary) && pool.accounts.length) pool.accounts[0].primary = true; overview = { ...overview, account: pool.accounts[0] ? { type: 'chatgpt', email: pool.accounts[0].email, planType: 'plus' } : null, accountId: pool.accounts[0]?.id || null } }
                 return { success: true, pool: structuredClone(pool) }

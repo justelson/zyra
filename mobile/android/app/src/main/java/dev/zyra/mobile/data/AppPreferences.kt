@@ -21,6 +21,7 @@ class AppPreferences(context: Context) {
     }
     fun setChatSettled(chat: Chat, settled: Boolean) = saveSettlements(ChatSettlement.update(settledMutable.value, chat, settled))
     fun reconcileSettlements(chats: List<Chat>) = saveSettlements(ChatSettlement.reconcile(settledMutable.value, chats))
+    fun forgetSettlement(key: String) = saveSettlements(settledMutable.value - key)
 
     private val voiceMutable = MutableStateFlow(dev.zyra.mobile.voice.VoiceChoice.resolve(prefs.getString("voice", "cove")).id)
     val voice = voiceMutable.asStateFlow()

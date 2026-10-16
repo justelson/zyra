@@ -2,6 +2,7 @@ import { ZyraCredentialStore, resolveZyraAuthPath } from './zyra-auth-store.mjs'
 import { getChatGptAccountPool, updateChatGptAccount } from './chatgpt-account-pool.mjs';
 import { readChatGptRouting, saveChatGptRouting } from './chatgpt-routing-policy.mjs';
 import { fetchCodexUsageStats } from './chatgpt-account.mjs';
+import { getChatGptAccountAliases, saveChatGptAccountAlias } from './chatgpt-account-aliases.mjs';
 
 function poolFor(options) {
   const store = options.credentialStore ?? new ZyraCredentialStore({ authPath: options.authPath ?? resolveZyraAuthPath(options) });
@@ -35,7 +36,9 @@ export async function getChatGptAccounts(options = {}) {
     }
     await refreshing.get(key);
   }
-  return { accounts: await pool.list(), policy: await readChatGptRouting(pool.store.authPath), checkedAt: new Date(pool.now()).toISOString() };
+  const accounts = await pool.list();
+  const aliases = await getChatGptAccountAliases(pool.store.authPath, accounts.map(account => account.id));
+  return { accounts: accounts.map(account => ({ ...account, alias: aliases[account.id] })), policy: await readChatGptRouting(pool.store.authPath), checkedAt: new Date(pool.now()).toISOString() };
 }
 
 export async function updateChatGptAccounts(input, options = {}) {
@@ -46,6 +49,11 @@ export async function updateChatGptAccounts(input, options = {}) {
     const ids = new Set(accounts.map(account => account.id));
     if (input.policy?.accountIds?.some(id => !ids.has(id)) || (input.policy?.preferredAccountId && !ids.has(input.policy.preferredAccountId))) throw new Error('Choose accounts that are still connected.');
     await saveChatGptRouting(pool.store.authPath, input.policy);
+  } else if (input.action === 'alias') {
+    if (!(await pool.list()).some(account => account.id === input.accountId)) throw new Error('This ChatGPT account is no longer connected.');
+    await saveChatGptAccountAlias(pool.store.authPath, input.accountId, input.alias);
+  } else if (input.action === 'primary') {
+    await updateChatGptAccount(pool.store, input.accountId, { primary: true });
   } else if (input.action === 'enabled') {
     await updateChatGptAccount(pool.store, input.accountId, { enabled: input.enabled });
   } else if (input.action === 'remove' && input.confirmed === true) {

@@ -191,6 +191,9 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "scripts/test-runtime-schema-paths.mjs",
+  "scripts/test-chat-settlement.mjs",
+  "scripts/test-chatgpt-account-aliases.mjs",
   "scripts/test-ci-relay.mjs",
   "scripts/test-agent-conversation-kind.mjs",
   "scripts/test-agent-conversations.mjs",
@@ -341,6 +344,10 @@ const serialCoreTests = new Set([
 ]);
 
 const desktopTasks = [
+  { label: "desktop:test:developer-workflow", bunArgs: ["run", "--cwd", "desktop", "test:developer-workflow"] },
+  { label: "desktop:test:usage", bunArgs: ["run", "--cwd", "desktop", "test:usage"] },
+  { label: "desktop:test:skill-context-presentation", bunArgs: ["run", "--cwd", "desktop", "test:skill-context-presentation"] },
+  { label: "desktop:test:browser-new-tab-layout", bunArgs: ["run", "--cwd", "desktop", "test:browser-new-tab-layout"] },
   { label: "desktop:test:startup-imports", bunArgs: ["run", "--cwd", "desktop", "test:startup-imports"] },
   { label: "desktop:test:plugin-app-view", bunArgs: ["run", "--cwd", "desktop", "test:plugin-app-view"] },
   { label: "desktop:test:performance-contracts", bunArgs: ["run", "--cwd", "desktop", "test:performance-contracts"] },

@@ -1,5 +1,6 @@
 import type { AssistantShellSnapshot, AssistantSnapshot, AssistantThread, AssistantThreadShell } from '../../shared/assistant/contracts'
 import { preserveAssistantMessagePhases } from '../../shared/assistant/message-phase'
+import { latestAssistantMessageAt } from '../../shared/assistant/message-recency'
 
 export type AssistantHydratedThreadData = Pick<
     AssistantThread,
@@ -27,6 +28,7 @@ export function toAssistantThreadShell(thread: AssistantThread): AssistantThread
         model: thread.model,
         cwd: thread.cwd,
         messageCount: thread.messageCount,
+        lastMessageAt: latestAssistantMessageAt(thread.messages, thread.lastMessageAt),
         activityCount: thread.activityCount,
         proposedPlanCount: thread.proposedPlanCount,
         lastSeenCompletedTurnId: thread.lastSeenCompletedTurnId,
@@ -71,6 +73,7 @@ export function toAssistantShellSnapshot(snapshot: AssistantSnapshot): Assistant
 export function summarizeThread(thread: AssistantThread): AssistantThread {
     return {
         ...thread,
+        lastMessageAt: latestAssistantMessageAt(thread.messages, thread.lastMessageAt),
         activePlan: null,
         messages: [],
         proposedPlans: [],

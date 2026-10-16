@@ -8,6 +8,9 @@ const directory = await mkdtemp(join(tmpdir(), 'zyra-file-opening-'))
 const harness = `
 import React, {act} from 'react'
 import {createRoot} from 'react-dom/client'
+import {renderToStaticMarkup} from 'react-dom/server'
+import {MemoryRouter} from 'react-router-dom'
+import QuickOpen from ${JSON.stringify(resolve(import.meta.dir, '../src/renderer/src/pages/QuickOpen.tsx'))}
 import {useFilePreview} from ${JSON.stringify(resolve(import.meta.dir, '../src/renderer/src/components/ui/file-preview/useFilePreview.ts'))}
 import {useFilePreviewEditSession} from ${JSON.stringify(resolve(import.meta.dir, '../src/renderer/src/components/ui/file-preview/useFilePreviewEditSession.ts'))}
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -22,7 +25,22 @@ const root=createRoot(document.getElementById('root'))
 const begin=(name,mode='replace')=>{let request;act(()=>{request=(mode==='replace'?preview.openPreview:preview.openPreviewInNewTab)({name,path:'/project/'+name},'txt')});return request}
 const settle=async(index,content)=>act(async()=>reads[index].resolve({success:true,content,size:content.length,modifiedAt:1}))
 try {
+ const route='/quick-open?file='+encodeURIComponent('/project/shell-cold.txt')
+ const shell=()=> <MemoryRouter initialEntries={[route]}><QuickOpen/></MemoryRouter>
+ const initialMarkup=renderToStaticMarkup(shell())
+ check(!initialMarkup.includes('Unable to preview this file'),'a shell window must not announce failure before its opening effect')
+ check(initialMarkup.includes('Loading file...'),'the first shell frame uses a plain loading label')
+ await act(async()=>root.render(shell()))
+ check(document.body.textContent.includes('Loading file...')&&!document.body.textContent.includes('Unable to preview this file'),'a delayed shell read stays pending, not failed')
+ const status=document.querySelector('[role="status"]')
+ check(status&&!/rounded|border|shadow|bg-/.test(status.className),'shell loading text has no card, pill, border or background')
+ await settle(0,'shell content')
+ check(document.body.textContent.includes('shell content')&&!document.querySelector('[role="status"]'),'ready shell content replaces the loading label')
+ await act(async()=>root.render(<MemoryRouter key="unsupported" initialEntries={['/quick-open?file='+encodeURIComponent('/project/unsupported.fixture')]}><QuickOpen/></MemoryRouter>))
+ check(document.body.textContent.includes('Unable to preview this file')&&document.body.textContent.includes('not supported'),'a genuinely unsupported shell file still displays its error')
+ check(!document.querySelector('[role="status"]'),'a real shell error replaces pending text')
  await act(async()=>root.render(<Harness/>))
+ reads.length=0
  const first=begin('first.txt');check(!preview.previewFile,'cold read does not publish an empty editor');await settle(0,'first');await act(async()=>first)
  check(preview.previewContent==='first'&&!preview.loadingPreview,'first commit contains complete content')
  const slow=begin('slow.txt');check(preview.previewFile.name==='first.txt'&&preview.previewContent==='first','replacement keeps the current content readable')
@@ -50,6 +68,11 @@ try {
  check(editing.draftContent==='my unsaved edits','later refresh preserves unsaved edits')
  await act(async()=>root.render(<EditHarness path="/project/other.txt" content="other file"/>))
  check(editing.draftContent==='other file','switching files binds the editor to the new content')
+ await act(async()=>root.render(<Harness/>));reads.length=0
+ let markdown;await act(async()=>{markdown=preview.openPreview({name:'cold.md',path:'/project/cold.md'},'md')})
+ await settle(0,'# Readable immediately')
+ await act(async()=>Promise.race([markdown,new Promise((_,reject)=>setTimeout(()=>reject(Error('Markdown read waited for renderer warming')),800))]))
+ check(preview.previewContent==='# Readable immediately'&&!preview.loadingPreview,'Markdown content commits before renderer warming finishes')
  await act(async()=>root.unmount());console.log('FILE_OPENING_PASS')
 }catch(error){console.error('FILE_OPENING_FAIL '+error.stack)}
 `
@@ -57,8 +80,14 @@ try {
     const build = await Bun.build({entrypoints:['file-opening-harness'],target:'browser',plugins:[{name:'isolated-file-opening',setup(builder){
         builder.onResolve({filter:/^file-opening-harness$/},()=>({path:'harness',namespace:'fixture'}))
         builder.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:harness,loader:'tsx',resolveDir:resolve(import.meta.dir,'..')}))
-        builder.onResolve({filter:/^@\/lib\/product-analytics$|^\.\/(?:FileMarkdownPreview|CsvPreviewTable|MonacoPreviewEditor)$/},args=>({path:args.path,namespace:'mock'}))
+        builder.onResolve({filter:/^\.\/FileMarkdownPreview$/},()=>({path:'markdown-warming',namespace:'deferred'}))
+        builder.onLoad({filter:/.*/,namespace:'deferred'},()=>({contents:'await new Promise(()=>{});export const warmFileMarkdownPreview=()=>{};export default ()=>null;',loader:'js'}))
+        builder.onResolve({filter:/^@\/lib\/product-analytics$|^\.\/(?:CsvPreviewTable|MonacoPreviewEditor)$/},args=>({path:args.path,namespace:'mock'}))
         builder.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const captureProductEvent=()=>{};export const warmFileMarkdownPreview=()=>{};export default ()=>null;',loader:'js'}))
+        builder.onResolve({filter:/^\.\/QuickPreviewTitleBar$/},()=>({path:'title',namespace:'chrome'}))
+        builder.onLoad({filter:/.*/,namespace:'chrome'},()=>({contents:'export default ()=>null;',loader:'js'}))
+        builder.onResolve({filter:/^@\/components\/ui\/FilePreviewModal$/},()=>({path:'modal',namespace:'preview'}))
+        builder.onLoad({filter:/.*/,namespace:'preview'},()=>({contents:'export default ({content,file})=><div>{file.readError || content}</div>;',loader:'tsx'}))
     }}]})
     if(!build.success) throw Error(build.logs.join('\n'))
     await writeFile(join(directory,'harness.js'),await build.outputs[0].text())

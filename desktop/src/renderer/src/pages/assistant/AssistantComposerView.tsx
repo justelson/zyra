@@ -1,4 +1,7 @@
 // @refresh reset
+import { useComposerDrawerMotion } from './useComposerDrawerMotion'
+import { ComposerTextInput } from './ComposerTextInput'
+import { NewChatGitDrawer } from './NewChatGitDrawer'
 import { ASSISTANT_COMPOSER_FOCUS_CLASS_NAME, subscribeAssistantComposerFocus } from './assistant-composer-focus'
 import { useNonPassiveWheel } from '@/lib/useNonPassiveWheel'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
@@ -63,6 +66,8 @@ import {
     type AssistantComposerFileSearchItem
 } from './assistant-composer-file-search'
 import { useAssistantComposerFileSearch } from './useAssistantComposerFileSearch'
+import { ComposerMenuContext } from './AssistantComposerMenuSurface'
+import { addOverlayEventListener, isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 
 const PROMPT_RESOURCE_CACHE_TTL_MS = 30_000
 const PROMPT_RESOURCE_CACHE_MAX_PROJECTS = 24
@@ -143,12 +148,11 @@ export function AssistantComposerView({
     const [activeCommandIndex, setActiveCommandIndex] = useState(0)
     const [menuScrollBehavior, setMenuScrollBehavior] = useState<ScrollBehavior>('smooth')
     const [slashMenuDismissed, setSlashMenuDismissed] = useState(false)
-    const [slashMenuPresent, setSlashMenuPresent] = useState(false)
-    const [slashMenuAnimatedOpen, setSlashMenuAnimatedOpen] = useState(false)
-    const slashMenuPortalReadyRef = useRef(false)
+    const slashMenuPortalReadyRef = useRef(true)
+    const drawerRef = useRef<HTMLDivElement | null>(null)
     const attachmentShelfRef = useRef<HTMLDivElement | null>(null)
     const commandActivationPendingRef = useRef(false)
-    const hasFloatingShelf = controller.queuedMessages.length > 0 || controller.contextFiles.length > 0
+    const hasFloatingShelf = controller.queuedMessages.length > 0 || (controller.placement !== 'center' && controller.contextFiles.length > 0)
     const hasInlineMentionOverlay = controller.text.length > 0 && controller.inlineMentionTags.length > 0
     const {
         iconTheme,
@@ -230,6 +234,7 @@ export function AssistantComposerView({
         && !showCodexRecorder
         && !capabilities.inputDisabled
     )
+    const { present: slashMenuPresent, open: slashMenuAnimatedOpen } = useComposerDrawerMotion(showSlashMenu)
     const showTopShelf = slashMenuPresent || hasFloatingShelf
 
     useEffect(() => {
@@ -257,6 +262,16 @@ export function AssistantComposerView({
     }, [controller.text])
 
     useEffect(() => {
+        if (!showSlashMenu) return
+        const dismiss = () => setSlashMenuDismissed(true)
+        const pointer = addOverlayEventListener('pointerdown', (event: PointerEvent) => {
+            if (!isOverlayEventInside(event, drawerRef.current) && !isOverlayEventInside(event, controller.composerRootRef.current)) dismiss()
+        })
+        const keyboard = addOverlayEventListener('keydown', (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss() })
+        return () => { pointer(); keyboard() }
+    }, [showSlashMenu, controller.composerRootRef])
+
+    useEffect(() => {
         commandActivationPendingRef.current = false
         setActiveCommandIndex(0)
     }, [fileMenuActive, includeToken?.query, slashToken?.query])
@@ -268,19 +283,6 @@ export function AssistantComposerView({
         }
         setActiveCommandIndex((current) => Math.min(current, activeMenuItemCount - 1))
     }, [activeMenuItemCount])
-
-    useEffect(() => {
-        if (showSlashMenu) {
-            setSlashMenuPresent(true)
-            if (!slashMenuPortalReadyRef.current) return
-            const frameId = window.requestAnimationFrame(() => setSlashMenuAnimatedOpen(true))
-            return () => window.cancelAnimationFrame(frameId)
-        }
-        setSlashMenuAnimatedOpen(false)
-        const timerId = window.setTimeout(() => { slashMenuPortalReadyRef.current = false; setSlashMenuPresent(false) }, 300)
-        return () => window.clearTimeout(timerId)
-    }, [showSlashMenu])
-
 
     useLayoutEffect(() => {
         const host = attachmentShelfRef.current
@@ -336,7 +338,8 @@ export function AssistantComposerView({
         controller.contextFiles.length,
         controller.onAttachmentShelfBoundsChange,
         controller.placement,
-        controller.queuedMessages.length
+        controller.queuedMessages.length,
+        slashMenuPresent
     ])
 
     const syncTextareaScroll = useCallback((element: HTMLTextAreaElement | null) => {
@@ -402,7 +405,7 @@ export function AssistantComposerView({
         commandActivationPendingRef.current = true
         try {
             const next = applyAssistantComposerCommandItem(controller.text, slashToken, item)
-            controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
+            controller.setInlineMentionTags((current) => [...reconcileInlineMentionTags(controller.text, next.text, current), { id: `${item.id}:${slashToken.start}`, path: item.value, relativePath: item.value, label: item.label.replace(/^\/skill:/, '').replace(/^\//, ''), kind: item.kind, start: slashToken.start, end: slashToken.start + item.value.length }])
             controller.setText(next.text)
             controller.setComposerCursor(next.cursor)
             if (controller.historyCursor != null) controller.setHistoryCursor(null)
@@ -418,7 +421,7 @@ export function AssistantComposerView({
     }, [controller, slashToken])
 
     const selectFileItem = useCallback((item: AssistantComposerFileSearchItem) => {
-        if (!includeToken || commandActivationPendingRef.current) return
+        if (!includeToken || fileSearch.loading || fileSearch.error || commandActivationPendingRef.current) return
         commandActivationPendingRef.current = true
         const meta = getContextFileMeta({ path: item.path, name: item.name })
         controller.upsertAttachment({
@@ -439,7 +442,7 @@ export function AssistantComposerView({
             textarea?.focus()
             textarea?.setSelectionRange(next.cursor, next.cursor)
         })
-    }, [controller, includeToken])
+    }, [controller, includeToken, fileSearch.loading, fileSearch.error])
 
     const handleMenuPointerActiveIndex = useCallback((index: number) => {
         setMenuScrollBehavior('smooth')
@@ -489,26 +492,38 @@ export function AssistantComposerView({
 
     return (
         <>
-            <div className="relative flex pointer-events-none flex-col gap-0">
+            {controller.placement === 'center' ? (
+                <div ref={attachmentShelfRef} data-new-chat-attachments="true" className="px-1">
+                    <ComposerAttachmentsShelf
+                        contextFiles={controller.contextFiles}
+                        compact={controller.compact}
+                        presentation="pills"
+                        removingAttachmentIds={controller.removingAttachmentIds}
+                        onPreview={controller.setPreviewAttachment}
+                        onRemove={controller.removeAttachment}
+                    />
+                </div>
+            ) : null}
+            <ComposerMenuContext.Provider value={{ below: controller.placement === 'center', close: () => { setSlashMenuDismissed(true); controller.setShowMentionMenu(false) } }}><div ref={controller.mentionMenuRef} className="relative isolate flex pointer-events-none flex-col gap-0">
                 {showTopShelf ? (
-                    <AnchoredNativeOverlay enabled={slashMenuPresent} autoFocus={false} onReady={container => { container.getBoundingClientRect(); slashMenuPortalReadyRef.current = true; if (showSlashMenu) setSlashMenuAnimatedOpen(true) }}><div
-                        ref={attachmentShelfRef}
+                    <div
+                        ref={slashMenuPresent ? drawerRef : controller.placement === 'center' ? undefined : attachmentShelfRef}
                         className={cn(
-                            'pointer-events-none absolute inset-x-0 bottom-full',
-                            slashMenuPresent ? 'z-30 mb-[-13px]' : 'z-50 mb-[-2px]'
+                            'pointer-events-none absolute inset-x-0',
+                            slashMenuPresent && controller.placement === 'center' ? 'top-full z-30 -mt-[17px]' : 'bottom-full',
+                            slashMenuPresent ? 'z-30 -mb-[17px]' : 'z-50 mb-[-2px]'
                         )}
                     >
                         <div className="flex flex-col gap-1" ref={shelfWheelRef}>
                             {slashMenuPresent ? (
                                 <AnimatedHeight
                                     isOpen={slashMenuAnimatedOpen}
-                                    duration={300}
-                                    unmountOnExit
+                                    duration={220}
                                     contentClassName={cn(
-                                        'origin-bottom transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                                        'transition-[transform,opacity] duration-[220ms] ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none',
                                         slashMenuAnimatedOpen
                                             ? 'translate-y-0 opacity-100 blur-0'
-                                            : 'translate-y-4 opacity-0 blur-[1px]'
+                                            : controller.placement === 'center' ? '-translate-y-3 opacity-0' : 'translate-y-3 opacity-0'
                                     )}
                                 >
                                     {fileMenuActive ? (
@@ -690,19 +705,32 @@ export function AssistantComposerView({
                                     </div>
                                 </div>
                             </AnimatedHeight>
-                            <ComposerAttachmentsShelf
+                            {controller.placement !== 'center' ? <ComposerAttachmentsShelf
                                 contextFiles={controller.contextFiles}
                                 compact={controller.compact}
                                 removingAttachmentIds={controller.removingAttachmentIds}
                                 onOpenAttachmentPreview={controller.onOpenAttachmentPreview}
                                 onPreview={controller.setPreviewAttachment}
                                 onRemove={controller.removeAttachment}
-                            />
+                            /> : null}
                                 </>
                             )}
                         </div>
-                    </div></AnchoredNativeOverlay>
+                    </div>
                 ) : null}
+                                            <ComposerMentionMenu
+                                isOpen={controller.showMentionMenu}
+                                mentionCanScrollUp={controller.mentionCanScrollUp}
+                                mentionCanScrollDown={controller.mentionCanScrollDown}
+                                mentionLoading={controller.mentionLoading}
+                                mentionCandidates={controller.mentionCandidates}
+                                activeMentionIndex={controller.activeMentionIndex}
+                                mentionListRef={controller.mentionListRef}
+                                iconTheme={iconTheme}
+                                onScroll={(element) => controller.syncScrollAffordance(element, controller.setMentionCanScrollUp, controller.setMentionCanScrollDown)}
+                                onApplyMention={controller.applyMentionCandidate}
+                            />
+                {controller.placement === 'center' && controller.isGitRepo && !slashMenuPresent && !controller.showMentionMenu && <NewChatGitDrawer branch={controller.branches.find(branch => branch.current)?.name || ''} selected={controller.startInNewWorktree} onChange={controller.setStartInNewWorktree} />}
                 <div ref={controller.composerRootRef} className="pointer-events-auto relative z-40">
                     {controller.placement === 'center' && controller.onSelectProject && controller.onCreateProject ? (
                         <AssistantNewChatProjectChip
@@ -765,19 +793,8 @@ export function AssistantComposerView({
                                 showCodexRecorder ? 'translate-y-1 opacity-0' : 'translate-y-0 opacity-100'
                             )}
                         >
-                            <div ref={controller.mentionMenuRef} className="relative px-3 pb-1.5 pt-2.5 sm:px-3.5 sm:pt-3">
-                            <ComposerMentionMenu
-                                isOpen={controller.showMentionMenu}
-                                mentionCanScrollUp={controller.mentionCanScrollUp}
-                                mentionCanScrollDown={controller.mentionCanScrollDown}
-                                mentionLoading={controller.mentionLoading}
-                                mentionCandidates={controller.mentionCandidates}
-                                activeMentionIndex={controller.activeMentionIndex}
-                                mentionListRef={controller.mentionListRef}
-                                iconTheme={iconTheme}
-                                onScroll={(element) => controller.syncScrollAffordance(element, controller.setMentionCanScrollUp, controller.setMentionCanScrollDown)}
-                                onApplyMention={controller.applyMentionCandidate}
-                            />
+                            <div className="relative px-3 pb-1.5 pt-2.5 sm:px-3.5 sm:pt-3">
+
 
                             <div className="flex min-h-[50px] items-start gap-2">
                                 <button
@@ -792,30 +809,17 @@ export function AssistantComposerView({
                                     <Plus size={15} />
                                 </button>
                                 <div className="relative min-w-0 flex-1">
-                                    {hasInlineMentionOverlay ? (
-                                        <div
-                                            aria-hidden="true"
-                                            className="pointer-events-none absolute inset-0 overflow-hidden"
-                                        >
-                                            <div
-                                                className={cn(
-                                                    'whitespace-pre-wrap break-words pl-[3px] pr-2 text-sparkle-text',
-                                                    controller.compact ? 'min-h-[44px] text-[13.5px] leading-[1.35rem]' : 'min-h-[50px] text-[14.5px] leading-[1.4rem]'
-                                                )}
-                                                style={{ transform: `translateY(-${textareaScrollTop}px)` }}
-                                            >
-                                                {renderInlineMentionOverlay(controller.text, controller.inlineMentionTags, (tag, rawToken) => (
-                                                    <span
-                                                        key={tag.id}
-                                                        className="rounded-md bg-[var(--accent-primary)]/12 px-1 py-0.5 text-[var(--accent-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent-primary)_18%,transparent)] [box-decoration-break:clone]"
-                                                    >
-                                                        {rawToken}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                    <textarea
+                                    <ComposerTextInput
+                                        tags={controller.inlineMentionTags}
+                                        theme={iconTheme}
+                                        onTagsChange={controller.setInlineMentionTags}
+                                        onRemoveTag={tag => {
+                                            const nextText = controller.text.slice(0, tag.start) + controller.text.slice(tag.end)
+                                            controller.setInlineMentionTags(current => reconcileInlineMentionTags(controller.text, nextText, current.filter(item => item.id !== tag.id)))
+                                            controller.setText(nextText)
+                                            controller.setComposerCursor(tag.start)
+                                            requestAnimationFrame(() => { controller.textareaRef.current?.focus(); controller.textareaRef.current?.setSelectionRange(tag.start, tag.start) })
+                                        }}
                                         ref={textareaWheelRef}
                                         rows={3}
                                         value={controller.text}
@@ -855,9 +859,9 @@ export function AssistantComposerView({
                                             : undefined}
                                         spellCheck={!hasInlineMentionOverlay}
                                         className={cn(
-                                            'relative max-h-[120px] w-full resize-none overflow-y-auto bg-transparent pl-[3px] pr-2 font-normal tracking-normal [letter-spacing:0] caret-sparkle-text outline-none placeholder:font-normal placeholder:tracking-normal placeholder:[letter-spacing:0] placeholder:text-sparkle-text-muted/70 selection:bg-sparkle-card-hover',
+                                            'relative max-h-[120px] w-full resize-none overflow-y-auto bg-transparent pl-[3px] pr-2 font-normal tracking-normal [letter-spacing:0] caret-sparkle-text outline-none placeholder:font-normal placeholder:tracking-normal placeholder:[letter-spacing:0] placeholder:text-sparkle-text-muted placeholder:opacity-80 selection:bg-sparkle-card-hover',
                                             controller.compact ? 'min-h-[44px] text-[13.5px] leading-[1.35rem]' : 'min-h-[50px] text-[14.5px] leading-[1.4rem]',
-                                            hasInlineMentionOverlay ? 'text-transparent' : 'text-sparkle-text'
+                                            'text-sparkle-text'
                                         )}
                                         placeholder={composerPlaceholder}
                                         disabled={capabilities.inputDisabled || (voiceBusy && settings.assistantTranscriptionEngine !== 'browser')}
@@ -1043,7 +1047,7 @@ export function AssistantComposerView({
                     onUpdatePastedText={controller.updateContextFileText}
                     onClose={() => controller.setPreviewAttachment(null)}
                 />
-            </div>
+            </div></ComposerMenuContext.Provider>
 
         </>
     )

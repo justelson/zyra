@@ -565,8 +565,15 @@ try {
     assert.match(serviceSource, /async getThreadDetailBootstrap[\s\S]{0,500}await this\.ensureCanonicalHistoryLoaded[\s\S]{0,300}readThreadDetail/, 'detail bootstrap refreshes canonical history before reading persisted rows')
     assert.equal(agentInboxSource.includes('props.commandPending && !isThreadBusy'), false, 'Agent Inbox selection pending cannot masquerade as active work')
     assert.equal(agentInboxSource.includes('if (item.active || item.status !== \'ready\') return false'), false, 'opening a settled chat cannot remove it from Settled without new activity')
-    assert.equal(agentInboxSource.includes("settle ? 'Settle chat' : 'Un-settle chat'"), true, 'Agent Inbox menus expose the local settlement action, including the pinned-chat guard')
-    assert.equal(agentInboxSource.includes('...props.getSessionMenuItems(item.session)'), true, 'Agent Inbox menus retain the shared pin, rename, archive, and delete actions')
+    assert.match(agentInboxSource, /createChatSettlementMenuItem\(\{ pinned: item.pinned, settled: item.settled, settlementDisabled: isPriorityItem\(item\)/, 'Agent Inbox delegates settlement to the shared menu with its Priority guard')
+    const { createChatSettlementMenuItem } = await import('../src/renderer/src/pages/assistant/assistant-chat-actions-menu')
+    for (const settled of [false, true]) {
+        const action = createChatSettlementMenuItem({ settled, onToggleSettlement: () => {} })
+        assert.equal(action.id, settled ? 'unsettle' : 'settle')
+        assert.equal(action.label, settled ? 'Un-settle chat' : 'Settle chat')
+    }
+    assert.equal(createChatSettlementMenuItem({ pinned: true, settlementDisabled: true, onToggleSettlement: () => {} }).disabled, true, 'Priority and pinned chats retain the settlement guard')
+    assert.match(agentInboxSource, /const actions = props\.getSessionMenuItems\(item\.session\)[\s\S]{0,300}actions\.map\([\s\S]{0,200}: \[settlement, \.\.\.actions\]/, 'Agent Inbox retains the shared actions when replacing or adding its settlement action')
     assert.equal(agentInboxSource.includes('<FileActionsMenu'), true, 'Agent Inbox rows expose their complete action set from a visible dropdown')
     assert.equal(legacyRailSource.includes('getSessionMenuItems(session, !agentInboxEnabled)'), false, 'Agent Inbox no longer strips pinning from the shared action menu')
     assert.equal(legacyRailSource.includes('commandPending && !isThreadBusy'), false, 'legacy sidebar selection pending cannot masquerade as active work')

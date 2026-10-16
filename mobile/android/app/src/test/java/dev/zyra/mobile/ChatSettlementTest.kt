@@ -7,7 +7,7 @@ import org.junit.Test
 import java.time.Instant
 
 class ChatSettlementTest {
-    private val finished = Chat("one", "Ready for review", "/project", "ready", null, false, "pc", lastTurnState = "completed", lastTurnId = "turn-1", lastTurnCompletedAt = "2026-09-17T10:00:00Z")
+    private val finished = Chat("one", "Ready for review", "/project", "ready", null, false, "pc", lastTurnState = "completed", lastTurnId = "turn-1", lastTurnCompletedAt = Instant.now().toString())
     @Test fun settlingIsExplicitAndMachineAndTurnScoped() {
         assertFalse(ChatSettlement.isSettled(finished, emptyMap()))
         val values = ChatSettlement.update(emptyMap(), finished, true)

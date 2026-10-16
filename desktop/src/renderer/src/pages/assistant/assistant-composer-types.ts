@@ -30,6 +30,7 @@ export type AssistantElementBounds = {
 }
 
 export type AssistantComposerSendOptions = {
+    startInNewWorktree?: boolean
     model?: string
     runtimeMode: AssistantRuntimeMode
     interactionMode: AssistantInteractionMode

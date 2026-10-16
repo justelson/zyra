@@ -1410,6 +1410,8 @@ export class ZyraRuntime extends EventEmitter {
     private readonly sessions = new Map<string, ZyraSessionContext>()
     private readonly aliases = new Map<string, string>()
     private readonly navigationBackgroundedThreadIds = new Set<string>()
+    private readonly sessionConnectPromises = new Map<string, Promise<void>>()
+    private readonly sessionConnectTokens = new Map<string, symbol>()
     private warmWorker: ZyraWorker | null = null
     private warmPromise: Promise<AssistantModelInfo[]> | null = null
     private warmWorkerKey: string | null = null
@@ -1628,9 +1630,13 @@ export class ZyraRuntime extends EventEmitter {
         )
     }
 
+    async setCanonicalChatSettlement(threadId: string, settled: boolean, migrateLegacy: boolean): Promise<CanonicalAgentChat | null> {
+        return this.getAgentServerConnection(resolveZyraRoot()).updateCanonicalChat(threadId, { settled, settlementIfAbsent: migrateLegacy })
+    }
+
     async updateCanonicalChat(
         threadId: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean }
+        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<void> {
         const normalizedThreadId = String(threadId || '').trim()
         if (!normalizedThreadId) return
@@ -1745,6 +1751,48 @@ export class ZyraRuntime extends EventEmitter {
         pluginSkillSources: AssistantPluginSkillSource[] = [],
         pluginMcpSources: AssistantPluginMcpSource[] = []
     ): Promise<void> {
+        const keys = [...new Set([thread.id, thread.providerThreadId].filter((value): value is string => Boolean(value)))]
+        const existingKey = keys.find((key) => this.sessionConnectPromises.has(key))
+        const existing = existingKey ? this.sessionConnectPromises.get(existingKey) : undefined
+        if (existing) {
+            const existingToken = this.sessionConnectTokens.get(existingKey!)
+            if (existingToken) {
+                for (const key of keys) {
+                    this.sessionConnectPromises.set(key, existing)
+                    this.sessionConnectTokens.set(key, existingToken)
+                }
+            }
+            await existing
+            const context = this.getSessionContext(thread.id)
+                || (thread.providerThreadId ? this.getSessionContext(thread.providerThreadId) : null)
+            if (context && !context.activeTurnId
+                && (JSON.stringify(context.pluginSkillSources) !== JSON.stringify(pluginSkillSources)
+                    || JSON.stringify(context.pluginMcpSources) !== JSON.stringify(pluginMcpSources))) {
+                return this.connect(thread, cwd, filesystemScope, pluginSkillSources, pluginMcpSources)
+            }
+            return
+        }
+        const token = Symbol(thread.id)
+        for (const key of keys) this.sessionConnectTokens.set(key, token)
+        const pending = this.connectSession(thread, cwd, token, keys, filesystemScope, pluginSkillSources, pluginMcpSources)
+        for (const key of keys) this.sessionConnectPromises.set(key, pending)
+        try {
+            await pending
+        } finally {
+            for (const [key, candidateToken] of this.sessionConnectTokens) {
+                if (candidateToken !== token) continue
+                this.sessionConnectTokens.delete(key)
+                if (this.sessionConnectPromises.get(key) === pending) this.sessionConnectPromises.delete(key)
+            }
+        }
+    }
+
+    private async connectSession(
+        thread: AssistantThread, cwd: string, token: symbol, keys: string[],
+        filesystemScope?: AssistantChatScope | null,
+        pluginSkillSources: AssistantPluginSkillSource[] = [],
+        pluginMcpSources: AssistantPluginMcpSource[] = []
+    ): Promise<void> {
         let existingContext = this.getSessionContext(thread.id)
             || (thread.providerThreadId ? this.getSessionContext(thread.providerThreadId) : null)
         if (existingContext && !existingContext.activeTurnId
@@ -1769,6 +1817,7 @@ export class ZyraRuntime extends EventEmitter {
         if (!availability.available) {
             throw new Error(availability.reason || 'Zyra runtime is unavailable.')
         }
+        if (keys.some((key) => this.sessionConnectTokens.get(key) !== token)) return
 
         const root = resolveZyraRoot()
         // The registry has verified these installed release pins. Publish the
@@ -1776,6 +1825,7 @@ export class ZyraRuntime extends EventEmitter {
         await this.getAgentServerConnection(root).updatePluginAuthority({ chats: [{
             sessionKey: getAssistantCanonicalThreadId(thread), sources: pluginSkillSources
         }] })
+        if (keys.some((key) => this.sessionConnectTokens.get(key) !== token)) return
         const worker = this.getAgentServerConnection(root).createWorker(
             cwd,
             thread.canonicalPresence?.latestSequence || 0
@@ -1985,6 +2035,7 @@ export class ZyraRuntime extends EventEmitter {
             effort?: AssistantReasoningEffort
             serviceTier?: 'fast'
             profile?: string
+            startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
@@ -2475,6 +2526,18 @@ export class ZyraRuntime extends EventEmitter {
 
     disconnect(threadId: string, options?: { preserveThreadState?: boolean }): void {
         const context = this.getSessionContext(threadId)
+        const token = this.sessionConnectTokens.get(context?.localThreadId || threadId)
+            || this.sessionConnectTokens.get(threadId)
+        if (token) {
+            for (const [key, candidate] of this.sessionConnectTokens) {
+                if (candidate !== token) continue
+                this.sessionConnectTokens.delete(key)
+                this.sessionConnectPromises.delete(key)
+            }
+        } else {
+            this.sessionConnectPromises.delete(threadId)
+            this.sessionConnectTokens.delete(threadId)
+        }
         if (!context) {
             this.navigationBackgroundedThreadIds.delete(threadId)
             return
@@ -2498,6 +2561,8 @@ export class ZyraRuntime extends EventEmitter {
     }
 
     dispose(): void {
+        this.sessionConnectPromises.clear()
+        this.sessionConnectTokens.clear()
         this.disposePreparedPrivateVoiceTask()
         for (const worker of this.privateVoiceWorkers.values()) worker.dispose()
         this.privateVoiceWorkers.clear()
@@ -2597,6 +2662,7 @@ export class ZyraRuntime extends EventEmitter {
         options?: {
             effort?: AssistantReasoningEffort
             serviceTier?: 'fast'
+            startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
@@ -2615,6 +2681,7 @@ export class ZyraRuntime extends EventEmitter {
                 runtimeMode: context.runtimeMode,
                 webSearch: context.webSearch ?? undefined,
                 webFetch: context.webFetch ?? undefined,
+                startInNewWorktree: options?.startInNewWorktree,
                 images: options?.images,
                 reasoningSummary: options?.reasoningSummary,
                 contextCompactionThresholdTokens: options?.contextCompactionThresholdTokens,
@@ -2812,7 +2879,9 @@ export class ZyraRuntime extends EventEmitter {
                 createdAt: nowIso(),
                 threadId: context.localThreadId,
                 providerThreadId,
-                payload: { providerThreadId, cwd: context.cwd, state: agentServerActiveTurnId ? 'running' : 'ready' }
+                payload: { providerThreadId, cwd: context.cwd, state: agentServerActiveTurnId ? 'running' : 'ready',
+                    activeCompactions: Array.isArray(result['agentServerPendingCompactions'])
+                        ? result['agentServerPendingCompactions'] as Array<{ sequence?: number; occurredAt?: string }> : undefined }
             })
             if (agentServerOrphanedTurnId && !context.completedTurnIds.has(agentServerOrphanedTurnId)) {
                 markTurnCompleted(context, agentServerOrphanedTurnId)
@@ -3391,40 +3460,51 @@ export class ZyraRuntime extends EventEmitter {
                 turnId
             }
             context.activeCompaction = lifecycle
-            this.emitRuntime({
-                eventId: randomUUID(),
-                type: 'activity',
-                createdAt: startedAt,
-                threadId: context.localThreadId,
-                providerThreadId: context.providerThreadId,
-                turnId: turnId || undefined,
-                payload: {
-                    activityId: lifecycle.activityId,
-                    kind: 'context.compaction',
-                    summary: 'AUTO-COMPACTING',
-                    detail: 'Conversation context is being compacted.',
-                    tone: 'tool',
-                    data: {
-                        category: 'context-compaction',
-                        sourceMethod: 'pi-sdk',
-                        status: 'running',
-                        replay: metadata?.replay === true,
-                        sourceSequence: metadata?.sequence,
-                        startedSequence: lifecycle.startedSequence,
-                        reason,
-                        startedAt
+            const emitStart = (): void => {
+                if (context.activeCompaction !== lifecycle) return
+                this.emitRuntime({
+                    eventId: randomUUID(),
+                    type: 'activity',
+                    createdAt: startedAt,
+                    threadId: context.localThreadId,
+                    providerThreadId: context.providerThreadId,
+                    turnId: turnId || undefined,
+                    payload: {
+                        activityId: lifecycle.activityId,
+                        kind: 'context.compaction',
+                        summary: 'AUTO-COMPACTING',
+                        detail: 'Conversation context is being compacted.',
+                        tone: 'tool',
+                        data: {
+                            category: 'context-compaction',
+                            sourceMethod: 'pi-sdk',
+                            status: 'running',
+                            replay: metadata?.replay === true,
+                            sourceSequence: metadata?.sequence,
+                            startedSequence: lifecycle.startedSequence,
+                            reason,
+                            startedAt
+                        }
                     }
-                }
-            })
+                })
+            }
+            // Snapshot replay is synchronous. A paired historical end clears the
+            // lifecycle before this callback, so reopening cannot flash a spinner.
+            if (metadata?.replay === true) queueMicrotask(emitStart)
+            else emitStart()
             return
         }
 
         if (type === 'compaction_end') {
             const completedAt = metadata?.occurredAt || nowIso()
             const reason = asString(event['reason']) || context.activeCompaction?.reason || 'threshold'
-            const lifecycle = context.activeCompaction || {
+            const matchingLifecycle = event['recoveredAfterRestart'] === true && context.activeCompaction?.startedSequence !== metadata?.sequence
+                ? null : context.activeCompaction
+            const lifecycle = matchingLifecycle || {
                 activityId: `zyra-context-compaction-${randomUUID()}`,
-                startedAt: completedAt,
+                startedSequence: typeof event['startedSequence'] === 'number' ? event['startedSequence']
+                    : event['recoveredAfterRestart'] === true ? metadata?.sequence : undefined,
+                startedAt: asString(event['startedAt']) || completedAt,
                 reason,
                 turnId
             }
@@ -3461,6 +3541,7 @@ export class ZyraRuntime extends EventEmitter {
                         sourceMethod: 'pi-sdk',
                         status,
                         replay: metadata?.replay === true,
+                        recoveredAfterRestart: event['recoveredAfterRestart'] === true,
                         sourceSequence: metadata?.sequence,
                         startedSequence: 'startedSequence' in lifecycle ? lifecycle.startedSequence : undefined,
                         reason,
@@ -3499,7 +3580,7 @@ export class ZyraRuntime extends EventEmitter {
                     })
                 }
             }
-            context.activeCompaction = null
+            if (context.activeCompaction === matchingLifecycle) context.activeCompaction = null
             return
         }
     }

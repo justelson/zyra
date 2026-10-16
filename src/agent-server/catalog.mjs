@@ -10,10 +10,13 @@ import { CanonicalChatIndex } from "./chat-index.mjs";
 import { getAgentServerPaths } from "./paths.mjs";
 import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./canonical-message-ledger.mjs";
 import { ZyraSessionManager } from "./zyra-session-manager.mjs";
+import { projectChatSettlement, automaticSettlementDeadline, currentChatSettlementChoice } from './chat-settlement.mjs';
 import {
   EAGER_HISTORY_TOOL_RESULTS,
   HISTORY_TOOL_RESULT_BODY_POLICY,
+  HISTORY_ON_DEMAND_BODY_POLICY,
   inspectToolResultEntry,
+  historyQuestionCallIds,
   projectLoadedHistoryEntries,
   toolResultMatches,
   validateHistoryBodyRef
@@ -69,6 +72,10 @@ export class CanonicalChatCatalog {
   }
 
   projectPaths() { return this.record.projects.map(entry => entry.path); }
+
+  nextSettlementDeadline(chat) {
+    return automaticSettlementDeadline(chat, this.record.metadata[chat.canonicalChatId] || {});
+  }
 
   async list(options = {}) {
     const requestedProject = options.project ? this.registerProject(options.project) : null;
@@ -142,7 +149,7 @@ export class CanonicalChatCatalog {
       const limit = Math.max(1, Math.min(2000, Number(options.limit) || 500));
       const end = options.before == null ? entries.length : Math.max(0, Math.min(entries.length, Number(options.before) || 0));
       let start = Math.max(0, end - limit);
-      if (options.toolResultBodies === HISTORY_TOOL_RESULT_BODY_POLICY) {
+      if ([HISTORY_TOOL_RESULT_BODY_POLICY, HISTORY_ON_DEMAND_BODY_POLICY].includes(options.toolResultBodies)) {
         while (start > 0 && entries[start]?.type === "message" && entries[start].message?.role === "toolResult") start -= 1;
       }
       if (options.toolResultBodies === "lazy-mobile-v1" && options.before == null) {
@@ -160,6 +167,7 @@ export class CanonicalChatCatalog {
       const projected = projectLoadedHistoryEntries(entries.slice(start, end), start, {
         ...options,
         canonicalChatId: chat.canonicalChatId,
+        questionCallIds: options.toolResultBodies === HISTORY_ON_DEMAND_BODY_POLICY ? historyQuestionCallIds(entries, start) : [],
         toolResultEntryIndexes
       });
       return {
@@ -284,10 +292,15 @@ export class CanonicalChatCatalog {
   async updateChat(selector, patch = {}) {
     const canonicalChatId = this.resolveAlias(selector);
     const chat = await this.find(canonicalChatId, { allProjects: true, includeDeleted: true });
+    if (patch.settled !== undefined && typeof patch.settled !== 'boolean') throw new TypeError('Choose whether to settle this chat.');
+    if (patch.settled !== undefined && !chat) throw new Error('Chat not found.');
     if (patch.project !== undefined) this.registerProject(patch.project);
     const existing = this.record.metadata[canonicalChatId] || {};
     const next = {
       ...existing,
+      ...(patch.settled !== undefined && !(patch.settlementIfAbsent && currentChatSettlementChoice(chat, existing)) ? { settlement: {
+        state: patch.settled ? 'settled' : 'active', messageCount: Math.max(0, Number(chat.messageCount) || 0), changedAt: new Date().toISOString()
+      } } : {}),
       ...(patch.title !== undefined ? { title: normalizeTitle(patch.title) } : {}),
       ...(patch.agentCreatedBy !== undefined ? { agentCreatedBy: String(patch.agentCreatedBy).slice(0, 192) } : {}),
       ...(patch.agentLabel !== undefined ? { agentLabel: String(patch.agentLabel).slice(0, 120) } : {}),
@@ -313,6 +326,14 @@ export class CanonicalChatCatalog {
 
   snapshot() {
     return structuredClone(this.record);
+  }
+
+  markSettlementActive(canonicalChatId) {
+    const existing = this.record.metadata[canonicalChatId];
+    if (existing?.settlement?.state !== 'settled') return false;
+    this.record.metadata[canonicalChatId] = { ...existing, settlement: { ...existing.settlement, state: 'active', changedAt: new Date().toISOString() } };
+    this.persist();
+    return true;
   }
 
   markCompletionSeen(canonicalChatId, turnId, completedAt) {
@@ -371,6 +392,8 @@ function applyMetadata(chat, metadata = {}, record = {}) {
     project: metadata.project || chat.project || chat.storageProject || chat.cwd,
     cwd: metadata.cwd || metadata.project || chat.cwd || chat.project,
     archived: metadata.archived === true,
+    settled: projectChatSettlement(chat, metadata),
+    settlementManual: Boolean(currentChatSettlementChoice(chat, metadata)),
     archivedAt: metadata.archivedAt || null,
     deleted: metadata.deleted === true,
     deletedAt: metadata.deletedAt || null,

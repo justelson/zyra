@@ -3,12 +3,25 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+
+async function replaceProviderFile(temporary, file) {
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(temporary, file); return; }
+    catch (error) {
+      // Windows readers/scanners can briefly deny replacement despite our writer
+      // lock. Retry the same atomic rename; never delete or overwrite the old file.
+      if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(error.code) || attempt >= 10) throw error;
+      await delay(Math.min(50 * (attempt + 1), 250));
+    }
+  }
+}
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 export async function writeProviderJson(file, value) {
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  try { await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 }); await rename(temporary, file); }
+  try { await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 }); await replaceProviderFile(temporary, file); }
   finally { await rm(temporary, { force: true }).catch(() => {}); }
 }
 

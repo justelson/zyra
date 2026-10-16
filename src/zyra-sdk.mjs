@@ -1,5 +1,6 @@
 import { runtimeModelCost } from './model-pricing/index.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
+import { prepareSkillPromptContext } from './skill-prompt-context.mjs';
 import { refreshSavedProviderModels, registerSavedProviders, resolveHarnessModelSelection } from "./provider-connections.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -1825,31 +1826,44 @@ function memoryRunner(root = defaults.dataRoot) {
 }
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
-  prepareZyraBrowserToolsForPrompt(runtime, prompt);
-  prepareZyraComputerToolsForPrompt(runtime, prompt);
-  const promptResource = expandZyraPromptResource(runtime, prompt);
-  const expanded = expandFileMentions(runtime, promptResource);
-  const layeredMemoryPrompt = injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
-  const additionalContextTokens = layeredMemoryPrompt
-    ? estimateMessageTokens({
-        role: "system",
-        content: [{ type: "text", text: layeredMemoryPrompt }],
-        timestamp: Date.now(),
-      })
-    : 0;
-  await compactZyraContextBeforePrompt(runtime, expanded.text, {
-    images: options.images,
-    thresholdTokens: options.contextCompactionThresholdTokens,
-    additionalContextTokens,
-  });
-  const beforeEntryCount = sessionEntries(runtime).length;
+  if (options.startInNewWorktree !== undefined && typeof options.startInNewWorktree !== 'boolean') throw new Error('Invalid worktree choice.');
+  removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
+  if (options.startInNewWorktree) upsertSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE', [
+    'The user selected Start in a new worktree for this new chat.',
+    'Before changing source files, inspect the current repository and branch and create a new isolated Git worktree from that branch. Work in that worktree for this task.',
+    'Preserve existing changes and worktrees. Do not reset, clean, force, merge, or publish the existing checkout. Respect workspace permissions. If creation fails, explain the failure and ask before editing the original checkout.',
+    'Report the actual worktree path and branch once created. This setup preference is application context; do not repeat it as part of the user message.'
+  ].join('\n'));
   try {
-    await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images });
+    prepareZyraBrowserToolsForPrompt(runtime, prompt);
+    prepareZyraComputerToolsForPrompt(runtime, prompt);
+    const promptResource = expandZyraPromptResource(runtime, prompt);
+    const skillContext = prepareSkillPromptContext(prompt, promptResource);
+    const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
+    const layeredMemoryPrompt = injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
+    const additionalContextTokens = layeredMemoryPrompt
+      ? estimateMessageTokens({
+          role: "system",
+          content: [{ type: "text", text: layeredMemoryPrompt }],
+          timestamp: Date.now(),
+        })
+      : 0;
+    await compactZyraContextBeforePrompt(runtime, expanded.text, {
+      images: options.images,
+      thresholdTokens: options.contextCompactionThresholdTokens,
+      additionalContextTokens: additionalContextTokens + (skillContext ? estimateMessageTokens({ role: 'user', content: [{ type: 'text', text: skillContext.content }], timestamp: Date.now() }) : 0),
+    });
+    const beforeEntryCount = sessionEntries(runtime).length;
+    try {
+      await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images, ...(skillContext ? { expandPromptTemplates: false, contextMessages: [skillContext] } : {}) });
+    } finally {
+      markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
+    }
+    const lastMessage = assertFinalAssistantMessageSucceeded(runtime);
+    await compactZyraContextAfterTurn(runtime, lastMessage);
   } finally {
-    markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
+    removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
   }
-  const lastMessage = assertFinalAssistantMessageSucceeded(runtime);
-  await compactZyraContextAfterTurn(runtime, lastMessage);
 }
 
 export function setZyraMemoryEnabled(runtime, enabled) {
@@ -1873,9 +1887,12 @@ export async function queueZyraMidRunInput(runtime, prompt, options = {}) {
   prepareZyraComputerToolsForPrompt(runtime, prompt);
   const mode = normalizeInterruptModePreference(options.mode) ?? runtime.interruptMode ?? "steer";
   const promptResource = expandZyraPromptResource(runtime, prompt);
-  const expanded = expandFileMentions(runtime, promptResource);
+  const skillContext = prepareSkillPromptContext(prompt, promptResource);
+  const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
   injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
-  if (mode === "queue") {
+  if (skillContext) {
+    await runtime.session.prompt(expanded.text, { source: 'interactive', images: options.images, expandPromptTemplates: false, contextMessages: [skillContext], streamingBehavior: mode === 'queue' ? 'followUp' : 'steer' });
+  } else if (mode === "queue") {
     await runtime.session.followUp(expanded.text, options.images);
   } else {
     await runtime.session.steer(expanded.text, options.images);
@@ -1922,11 +1939,17 @@ export async function runZyraHarnessBackgroundTextPrompt(modelSelector, prompt, 
 export async function runZyraPrintPrompt(runtime, prompt, options = {}) {
   const beforeEntryCount = sessionEntries(runtime).length;
   const promptResource = expandZyraPromptResource(runtime, prompt);
-  const expanded = expandFileMentions(runtime, promptResource);
+  const skillContext = prepareSkillPromptContext(prompt, promptResource);
+  const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
   injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
+  if (skillContext) await compactZyraContextBeforePrompt(runtime, expanded.text, {
+    images: options.images, thresholdTokens: options.contextCompactionThresholdTokens,
+    additionalContextTokens: estimateMessageTokens({ role: 'user', content: [{ type: 'text', text: skillContext.content }], timestamp: Date.now() }),
+  });
   try {
-    await runtime.session.prompt(expanded.text, { source: "print", images: options.images });
+    await runtime.session.prompt(expanded.text, { source: "print", images: options.images, ...(skillContext ? { expandPromptTemplates: false, contextMessages: [skillContext] } : {}) });
   } finally {
+    removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
     markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
   }
   const lastMessage = assertFinalAssistantMessageSucceeded(runtime);

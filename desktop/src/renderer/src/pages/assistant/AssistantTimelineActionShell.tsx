@@ -74,7 +74,7 @@ export function AssistantTimelineActionShell(props: {
                     <ChevronDown size={11} className={cn('shrink-0 text-sparkle-text-muted transition-transform duration-200', props.expanded && 'rotate-180')} />
                 ) : <span className="w-[11px] shrink-0" />}
             </button>
-            <AnimatedHeight isOpen={Boolean(props.expanded && canToggle)} duration={220}>
+            <AnimatedHeight isOpen={Boolean(props.expanded && canToggle)} duration={220} unmountOnExit>
                 <div className="pb-2 pl-6 pr-1 pt-1">
                     {!settings.assistantShowActionStats && meta ? <div className="mb-2 font-mono text-[9px] tabular-nums text-sparkle-text-muted/70">{meta}</div> : null}
                     {props.children}

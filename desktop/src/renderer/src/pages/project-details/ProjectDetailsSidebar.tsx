@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Command, HelpCircle, Package, Play, Search } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Command, HelpCircle, Package, Search } from 'lucide-react'
+import { ScriptPlayIcon } from '@/components/ui/ScriptPlayIcon'
 import { cn } from '@/lib/utils'
 import {
     SCRIPT_INTENT_BADGE_CLASSES,
@@ -124,7 +125,7 @@ export function ProjectDetailsSidebar({
                                         className="p-2.5 rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] group-hover:bg-[var(--accent-primary)] group-hover:text-white transition-all shrink-0"
                                         title="Run Script"
                                     >
-                                        <Play size={16} />
+                                        <ScriptPlayIcon size={16} />
                                     </button>
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center justify-between gap-2">

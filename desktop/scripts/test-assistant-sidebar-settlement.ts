@@ -32,4 +32,6 @@ assert(isAssistantChatSettled(session, { chat: override }, { ...presentation, no
 assert(!isAssistantChatSettled(session, { chat: override }, { ...presentation, priority: true }), 'Sending, active work, approval or pinning suppresses the settled state')
 assert(!isAssistantChatSettled(changed({ messageCount: 5 }), { chat: override }, { ...presentation, now: Date.parse(completedAt) }), 'New messages invalidate a settled indicator without a navigation or hydration timestamp')
 assert(!isAssistantChatSettled(session, { chat: { ...override, state: 'active' } }, presentation), 'Explicitly unsettled chats remain active')
+assert(!isAssistantChatSettled({ ...session, settled: false }, { chat: override }, presentation), 'Canonical active wins over automatic and saved local settlement')
+assert(isAssistantChatSettled({ ...session, settled: true }, { chat: { ...override, state: 'active' } }, { ...presentation, now: Date.parse(completedAt) }), 'Canonical settled wins over a conflicting local choice')
 console.log('Sidebar settlement metadata, legacy choices, new activity, and hydration regressions passed.')

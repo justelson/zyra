@@ -5,8 +5,8 @@
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
   "scripts": {
-    "test:visualization-resources": "node scripts/test-visualization-resources.mjs",
-    "test:chatgpt-accounts": "node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs",
+    "test:runtime-schema-paths": "node scripts/test-runtime-schema-paths.mjs",
+    "test:chatgpt-accounts": "node scripts/test-chatgpt-account-aliases.mjs && node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs",
     "test:startup-performance": "node scripts/test-agent-server-cold-start.mjs && node scripts/test-session-engine-imports.mjs && node scripts/test-provider-refresh-batching.mjs",
     "test:openai-model-catalog": "node scripts/test-openai-model-catalog.mjs",
     "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs",
@@ -66,6 +66,7 @@
     "test:permissions:gate": "node scripts/test-zyra-permission-gate.mjs",
     "test:permissions:reviewer": "node scripts/test-zyra-permission-reviewer.mjs && node scripts/test-zyra-permission-reviewer-runtime.mjs",
     "test:visualizations": "node scripts/test-visualization-blocks.mjs && node scripts/test-visualization-terminal.mjs && node scripts/test-visualization-skill.mjs",
+    "test:visualization-resources": "node scripts/test-visualization-resources.mjs",
     "test:permissions:access": "node scripts/test-zyra-filesystem-access.mjs",
     "test:permissions": "node scripts/test-permission-approval-lifecycle.mjs && node scripts/test-permission-command-policy.mjs && node scripts/test-zyra-permission-paths.mjs && node scripts/test-zyra-filesystem-scope-runtime.mjs && node scripts/test-zyra-filesystem-access.mjs && node scripts/test-zyra-permission-gate.mjs && node scripts/test-zyra-permission-reviewer.mjs && node scripts/test-zyra-permission-reviewer-runtime.mjs && node scripts/test-zyra-cli-permissions.mjs",
     "test:plugins": "node scripts/test-zyra-plugin-mcp-config.mjs && node scripts/test-zyra-plugin-mcp-pool.mjs && node scripts/test-zyra-plugin-mcp-only.mjs && node scripts/test-zyra-plugin-system.mjs && node scripts/test-zyra-plugin-availability.mjs && node scripts/test-zyra-plugin-download.mjs && node scripts/test-zyra-plugin-logos.mjs && node scripts/test-zyra-plugin-runtime.mjs && node scripts/test-zyra-plugin-revocation-runtime.mjs && node scripts/test-zyra-plugin-revocation-bridge.mjs && node scripts/test-zyra-prompt-resources.mjs && bun run --cwd desktop test:assistant-plugins",

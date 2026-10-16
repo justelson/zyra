@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { SettlementOverrides } from './assistant-sidebar-settlement'
+import { isSidebarSettlementCurrent } from './assistant-sidebar-settlement'
+import type { AssistantSession } from '@shared/assistant/contracts'
 
 const KEY = 'assistant:agent-inbox-settled-overrides:v1'
 const listeners = new Set<() => void>()
@@ -39,4 +41,37 @@ export function setAssistantSettlementOverrides(update: SettlementOverrides | ((
 }
 export function useAssistantSettlementOverrides() {
     return [useSyncExternalStore(subscribe, getSnapshot, getSnapshot), setAssistantSettlementOverrides] as const
+}
+
+let migration: Promise<void> | null = null
+let latestSessions: AssistantSession[] = []
+const retryAfter = new Map<string, number>()
+export function migrateCanonicalSettlementOverrides(sessions: AssistantSession[]) {
+    latestSessions = sessions
+    if (migration) return migration
+    migration = migrateChoices().finally(() => { migration = null })
+    return migration
+}
+
+async function migrateChoices() {
+    let changed = false
+    // One catalog mutation at a time, including calls from repeated snapshots.
+    for (const candidate of latestSessions) {
+        const session = latestSessions.find(entry => entry.id === candidate.id)
+        const choice = snapshot[candidate.id]
+        if (!session || !choice || typeof session.settled !== 'boolean') continue
+        if (!session.settlementManual && (!isSidebarSettlementCurrent(session, choice) || (retryAfter.get(session.id) || 0) > Date.now())) continue
+        try {
+            if (!session.settlementManual) {
+                const result = await window.devscope.assistant.settleSession(session.id, choice.state === 'settled', true)
+                if (!result.success) throw new Error(result.error)
+            }
+            retryAfter.delete(session.id)
+            setAssistantSettlementOverrides(current => { const next = { ...current }; delete next[session.id]; return next })
+            changed = true
+        } catch {
+            retryAfter.set(session.id, Date.now() + 60_000)
+        }
+    }
+    if (changed) { const { assistantStore } = await import('@/lib/assistant/assistant-store-core'); await assistantStore.refresh() }
 }

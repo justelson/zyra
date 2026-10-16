@@ -495,6 +495,16 @@ export class AssistantService {
             hydrateSelectedSession: async (sessionId: string) => {
                 this.state.snapshot = await this.persistence.hydrateSelectedSession(this.state.snapshot, sessionId)
             },
+            recoverPendingUserInput: async (requestId: string) => {
+                const stored = await this.persistence.readPendingUserInput(requestId)
+                if (!stored) return
+                const record = findThreadRecord(this.state.snapshot, stored.threadId)
+                // A live resolution wins over the older persisted read.
+                if (!record || record.thread.pendingUserInputs.some(input => input.requestId === requestId)) return
+                this.appendEvent('thread.user-input.updated', nowIso(), {
+                    threadId: record.thread.id, userInput: stored.userInput
+                }, record.session.id, record.thread.id)
+            },
             getFirstUserMessageText: (sessionId: string) => this.persistence.readFirstUserMessageText(sessionId),
             getNewChatExecutionDefaults: () => this.options.getNewChatExecutionDefaults?.()
                 || Promise.resolve({ webSearch: true, webFetch: true }),
@@ -1223,20 +1233,43 @@ export class AssistantService {
         if (!pluginSelection) await this.stopCanonicalVoiceForNavigation()
         const plannedSessionId = createAssistantId('assistant-session')
         let sessionCreated = false
+        let rollbackWorkspace: (() => Promise<void>) | undefined
         try {
-            const requestedPath = String(input?.workingRoot || input?.projectPath || '').trim()
+            let requestedPath = String(input?.workingRoot || input?.projectPath || '').trim()
             const project = input?.projectId || input?.mode === 'playground'
                 ? null
                 : requestedPath ? await this.persistence.ensureProjectForFolder(requestedPath) : null
             const projectId = String(input?.projectId || project?.id || '').trim()
-            const chatScope = projectId
+            if (input?.workspace) {
+                if (!projectId || !requestedPath || input.mode === 'playground') throw new Error('Worktrees require a project chat.')
+                const { prepareChatWorktree } = await import('../services/developer-worktrees')
+                const workspace = await prepareChatWorktree(requestedPath, input.workspace)
+                requestedPath = workspace.path
+                rollbackWorkspace = workspace.rollback
+                const associated = await this.persistence.associateProjectFolder({ projectId, path: requestedPath, access: 'read-write' })
+                if (workspace.rollback) {
+                    const folder = associated.folders.find(folder => folder.path.replace(/\\/g, '/').toLowerCase() === requestedPath.replace(/\\/g, '/').toLowerCase())
+                    rollbackWorkspace = async () => {
+                        await workspace.rollback!()
+                        if (folder) await this.persistence.removeProjectFolder({ projectId, folderId: folder.folderId })
+                    }
+                }
+            }
+            let chatScope = projectId
                 ? await this.persistence.createProjectChatScope(projectId, requestedPath || null)
                 : null
+            if (input?.workspace && chatScope) {
+                // A worktree chat writes only its selected tree; the original project
+                // and other worktrees remain available as read-only reference roots.
+                const { scopeChatWorktree } = await import('../services/developer-worktrees')
+                chatScope = scopeChatWorktree(chatScope, requestedPath)
+            }
             await this.pluginRegistry.createChatScope(plannedSessionId, projectId || null, input?.mode !== 'playground', pluginSelection)
             if (input?.mode !== 'playground') await this.pluginRegistry.ensureAvailableChatScope(plannedSessionId, projectId || null)
             if (pluginSelection) await this.stopCanonicalVoiceForNavigation()
             const result = await createAssistantSessionAction(this.actionDeps, {
                 ...input,
+                ...(input?.workspace ? { workingRoot: requestedPath, projectPath: requestedPath } : {}),
                 ...(chatScope ? { projectPath: chatScope.workingRoot } : {})
             }, { sessionId: plannedSessionId })
             sessionCreated = true
@@ -1256,7 +1289,11 @@ export class AssistantService {
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'completed' } })
             return result
         } catch (error) {
-            if (!sessionCreated) await this.pluginRegistry.removeChatScope(plannedSessionId).catch(() => undefined)
+            sessionCreated ||= this.state.snapshot.sessions.some(session => session.id === plannedSessionId)
+            if (!sessionCreated) {
+                await this.pluginRegistry.removeChatScope(plannedSessionId).catch(() => undefined)
+                await rollbackWorkspace?.().catch(cleanupError => log.warn('[Assistant] Failed chat workspace cleanup:', cleanupError))
+            }
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
             throw error
         }
@@ -1358,7 +1395,7 @@ export class AssistantService {
                 try {
                     const history = await this.runtime.readCanonicalChatHistory(refreshedRecord.thread.providerThreadId!, this.getSessionRuntimeCwd(refreshedRecord.session, refreshedRecord.thread), {
                         limit: CANONICAL_CHAT_HISTORY_PAGE_LIMIT,
-                        toolResultBodies: 'lazy-v1'
+                        toolResultBodies: 'lazy-desktop-v2'
                     })
                     return history?.entries || null
                 } catch (error) {
@@ -1579,6 +1616,24 @@ export class AssistantService {
     async archiveSession(sessionId: string, archived = true) {
         if (archived && this.activeCanonicalVoice?.sessionId === sessionId) await this.stopCanonicalVoiceForNavigation()
         return archiveAssistantSessionAction(this.actionDeps, sessionId, archived)
+    }
+
+    async setSessionSettled(sessionId: string, settled: boolean, migrateLegacy = false) {
+        await this.ensureReady()
+        if (typeof settled !== 'boolean') throw new Error('Choose whether to settle this chat.')
+        const session = this.state.snapshot.sessions.find(entry => entry.id === sessionId)
+        const thread = session?.threads.find(entry => entry.id === session.activeThreadId) || session?.threads[0]
+        if (!session || !thread) throw new Error('Chat not found.')
+        if (settled && session.threads.some(entry => entry.latestTurn?.state === 'running' || entry.hasPendingApprovals || entry.hasPendingUserInputs)) throw new Error('Finish the current turn before settling this chat.')
+        if (!thread.providerThreadId) await this.connectSessionRuntime(session, thread)
+        const canonicalId = findThreadRecord(this.state.snapshot, thread.id)?.thread.providerThreadId
+        if (!canonicalId) throw new Error('Connect this chat before settling it.')
+        const chat = await this.runtime.setCanonicalChatSettlement(canonicalId, settled, migrateLegacy)
+        if (typeof chat?.settled !== 'boolean') throw new Error('Update the background service to change chat settlement.')
+        this.appendEvent('session.updated', new Date().toISOString(), {
+            sessionId, patch: { settled: chat.settled, settlementManual: chat.settlementManual === true }
+        }, sessionId, thread.id)
+        return { success: true as const }
     }
 
     async deleteSession(sessionId: string) {
@@ -3038,6 +3093,16 @@ export class AssistantService {
                     sessionPatch['projectPath'] = canonicalProjectPath
                 }
                 if (chat.archived !== existing.session.archived) sessionPatch['archived'] = chat.archived
+                if (typeof chat.settled === 'boolean') {
+                    if (chat.settled !== existing.session.settled) sessionPatch['settled'] = chat.settled
+                    const manual = chat.settlementManual === true
+                    if (manual !== existing.session.settlementManual) sessionPatch['settlementManual'] = manual
+                } else if (existing.session.settled !== undefined || existing.session.settlementManual !== undefined) {
+                    // Explicit null survives durable event serialization; the
+                    // projector removes these optional fields for legacy fallback.
+                    sessionPatch['settled'] = null
+                    sessionPatch['settlementManual'] = null
+                }
                 if (Object.keys(sessionPatch).length > 0) {
                     sessionPatch['updatedAt'] = updatedAt
                     this.appendEvent('session.updated', updatedAt, {
@@ -3142,6 +3207,8 @@ export class AssistantService {
             })
             session.workingRoot = canonicalRuntimeCwd
             session.archived = chat.archived === true
+            session.settled = chat.settled
+            session.settlementManual = chat.settlementManual
             session.updatedAt = updatedAt
             this.appendEvent('session.created', createdAt, { session }, sessionId, threadId)
         }
@@ -3232,7 +3299,7 @@ export class AssistantService {
             const history = await this.runtime.readCanonicalChatHistory(input.canonicalChatId, input.project, {
                 before: input.before,
                 limit: CANONICAL_CHAT_HISTORY_PAGE_LIMIT,
-                toolResultBodies: 'lazy-v1'
+                toolResultBodies: 'lazy-desktop-v2'
             })
             if (!history) return false
             let canonicalEntries = history.entries || []
@@ -3265,7 +3332,7 @@ export class AssistantService {
                 const older = await this.runtime.readCanonicalChatHistory(input.canonicalChatId, input.project, {
                     before: canonicalOldestCursor,
                     limit: CANONICAL_CHAT_HISTORY_PAGE_LIMIT,
-                    toolResultBodies: 'lazy-v1'
+                    toolResultBodies: 'lazy-desktop-v2'
                 })
                 if (!older) break
                 canonicalEntries = [...(older.entries || []), ...canonicalEntries]
@@ -3388,7 +3455,7 @@ export class AssistantService {
         const project = this.getSessionRuntimeCwd(session, thread)
         const latest = await this.runtime.readCanonicalChatHistory(canonicalChatId, project, {
             limit: 2_000,
-            toolResultBodies: 'lazy-v1'
+            toolResultBodies: 'lazy-desktop-v2'
         })
         if (!latest) return
 
@@ -3425,7 +3492,7 @@ export class AssistantService {
                 const older = await this.runtime.readCanonicalChatHistory(canonicalChatId, project, {
                     before,
                     limit: 2_000,
-                    toolResultBodies: 'lazy-v1'
+                    toolResultBodies: 'lazy-desktop-v2'
                 })
                 if (!older) break
                 pages.push(older.entries || [])
@@ -3576,7 +3643,7 @@ export class AssistantService {
         let firstUserMessage: string | null
         if (thread.providerThreadId && !this.canonicalReviewHistoryState.has(thread.providerThreadId)) {
             const prefix = await this.runtime.readCanonicalChatHistory(thread.providerThreadId, this.getSessionRuntimeCwd(session, thread), {
-                before: '128', limit: 128, toolResultBodies: 'lazy-v1'
+                before: '128', limit: 128, toolResultBodies: 'lazy-desktop-v2'
             })
             if (!prefix || prefix.pageInfo?.startCursor !== '0') return false
             firstUserMessage = projectCanonicalTimeline(prefix.entries, thread.providerThreadId, thread.id,
@@ -3641,6 +3708,16 @@ export class AssistantService {
             connect: async ({ session: currentSession, thread: currentThread, pluginSkillSources, pluginMcpSources }) => {
                 const cwd = this.getSessionRuntimeCwd(currentSession, currentThread)
                 await prepareDefaultChatWorkspace(cwd, this.options.getDefaultProjectsFolder?.())
+                // Startup shells omit activities. Reconcile against the exact saved
+                // compaction rows before the runtime emits its attachment snapshot.
+                if (!this.runtime.hasSession(getAssistantCanonicalThreadId(currentThread))) {
+                    const saved = await this.persistence.readCompactionActivities(currentThread.id)
+                    const resident = findThreadRecord(this.state.snapshot, currentThread.id)?.thread
+                    if (!resident) throw new Error('Assistant thread no longer exists.')
+                    const residentIds = new Set(resident.activities.map(activity => activity.id))
+                    resident.activities = [...saved.filter(activity => !residentIds.has(activity.id)), ...resident.activities]
+                    return this.runtime.connect(resident, cwd, currentSession.chatScope, pluginSkillSources, pluginMcpSources)
+                }
                 return this.runtime.connect(currentThread, cwd, currentSession.chatScope, pluginSkillSources, pluginMcpSources)
             },
             disconnect: ({ thread: currentThread }) => this.runtime.disconnect(getAssistantCanonicalThreadId(currentThread))

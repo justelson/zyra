@@ -118,9 +118,9 @@ const webSearch = activity({
 assert.equal(getAssistantActionFamily(webSearch), 'web-search')
 assert.equal(getAssistantWebEvidence(webSearch).length, 2)
 const webMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [webSearch] }))
-assert.match(webMarkup, /data-assistant-web-results="structured"/)
+assert.doesNotMatch(webMarkup, /data-assistant-web-results="structured"/, 'closed web actions defer their captured result list')
 assert.match(webMarkup, /Pi SDK/)
-assert.match(webMarkup, /docs\.example\.org\/favicon\.ico/, 'site pills resolve page-specific favicon candidates')
+assert.match(webMarkup, /example\.com\/favicon\.ico/, 'the collapsed preview retains its site icon')
 assert.doesNotMatch(webMarkup, /Web search results for:/, 'web evidence is not rendered as terminal output')
 const webPreviewMarkup = renderToStaticMarkup(createElement(AssistantWebResultPreviewCard, {
     item: getAssistantWebEvidence(webSearch)[0]!
@@ -235,9 +235,9 @@ assert.deepEqual(inspectorRequests, ['agent:run:42'], 'opening an agent run is r
 
 const browser = activity({ id: 'action:browser', kind: 'browser-control', payload: { toolName: 'browser_observe', operation: 'observe', url: 'https://example.com/page', status: 'completed' } })
 const computer = activity({ id: 'action:computer', kind: 'computer-control', payload: { toolName: 'computer_control', operation: 'click', targetId: 'save-button', status: 'completed' } })
-const controlMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [browser, computer] }))
+const controlMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [browser] }))
 assert.match(controlMarkup, /example\.com\/favicon\.ico/)
-assert.match(controlMarkup, /save-button/)
+assert.match(renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [computer] })), /save-button/)
 
 assert.equal(areActivitiesEquivalent(command, {
     ...command,
@@ -254,7 +254,7 @@ assert.match(allMarkup, /data-assistant-action-batch="true"/, 'consecutive Actio
 assert.match(allMarkup, /data-state="closed"/, 'the Action batch starts collapsed rather than leaking a last-five preview')
 assert.match(allMarkup, /data-settled-action-intent="Reviewing timeline behavior"/, 'a settled Action batch uses the agent-declared block intent')
 assert.match(allMarkup, /Reviewing timeline behavior/, 'the settled block title describes the shared intent')
-assert.equal((allMarkup.match(/data-assistant-(?:tool-call|typed-action)=/g) || []).length, 7, 'expanding the batch reveals every real Action without a last-five slice')
+assert.equal((allMarkup.match(/data-assistant-(?:tool-call|typed-action)=/g) || []).length, 0, 'closed batches defer every child Action until native expansion')
 const runningBatchMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
     { ...command, payload: { ...(command.payload || {}), actionBatchIntent: 'Reviewing timeline behavior' } },
     activity({
@@ -273,15 +273,15 @@ assert.equal(mixedEntries.length, 1, 'checks, computer use, and agent actions st
 assert.deepEqual(mixedEntries[0]?.type === 'activity-group' ? mixedEntries[0].activities.map((entry) => entry.id) : [], mixedActions.map((entry) => entry.id))
 const drawingActions = [1, 2, 3].map((index) => activity({ id: `drawing:${index}`, kind: 'computer-control', payload: { actionBatchIntent: 'Drawing an owl in Paint', status: index === 3 ? 'running' : 'completed' } }))
 const drawingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [webSearch, ...drawingActions] }))
-assert.equal((drawingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 1, 'repeated computer calls become one collapsed intent row inside Actions')
+assert.equal((drawingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 0, 'closed outer groups defer nested computer-run previews')
 assert.match(drawingMarkup, /Drawing an owl in Paint/)
-assert.equal((drawingMarkup.match(/data-assistant-typed-action="drawing:/g) || []).length, 3, 'individual calls remain available within the disclosure')
+assert.equal((drawingMarkup.match(/data-assistant-typed-action="drawing:/g) || []).length, 0, 'closed groups defer individual computer actions')
 assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, command, drawingActions[1]!]).map((run) => run.length), [1, 1, 1], 'unrelated actions cannot be moved inside a computer run')
 assert.deepEqual(groupAssistantControlActionRuns([drawingActions[0]!, { ...drawingActions[1]!, payload: { actionBatchIntent: 'Saving the drawing' } }, { ...drawingActions[2]!, turnId: 'next-turn' }]).map((run) => run.length), [1, 1, 1], 'a new purpose or turn starts its own computer run')
 const browsingActions = [1, 2, 3].map(index => activity({ id: `browsing:${index}`, kind: 'browser-control', payload: { toolName: index === 1 ? 'browser_observe' : 'browser_perform', actionBatchIntent: 'Drawing a fish in the browser', status: 'completed' } }))
 const browsingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [webSearch, ...browsingActions] }))
-assert.equal((browsingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 1, 'browser observations and input share a collapsed intent row')
-assert.equal((browsingMarkup.match(/data-assistant-typed-action="browsing:/g) || []).length, 3, 'all individual browser actions remain accessible')
+assert.equal((browsingMarkup.match(/data-assistant-control-run="true"/g) || []).length, 0, 'closed outer groups defer nested browser-run previews')
+assert.equal((browsingMarkup.match(/data-assistant-typed-action="browsing:/g) || []).length, 0, 'closed groups defer individual browser actions')
 assert.deepEqual(groupAssistantControlActionRuns([browsingActions[0]!, drawingActions[0]!, browsingActions[1]!]).map(run => run.length), [1, 1, 1], 'different surfaces do not merge across each other')
 assert.doesNotMatch(browsingMarkup.split('data-assistant-action-batch-trigger="true"')[1]?.split('</button>')[0] || '', /3 actions|tabular-nums/, 'aggregate stats are hidden by default')
 const onlyDrawingMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: drawingActions }))
@@ -309,7 +309,7 @@ const repeatedEditMarkup = renderToStaticMarkup(createElement(TimelineToolCallLi
     activity({ id: 'action:edit-one', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], patch: '@@ -1 +1 @@\n-a\n+b', status: 'completed' } }),
     activity({ id: 'action:edit-two', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], patch: '@@ -1 +1 @@\n-b\n+c', status: 'completed' } })
 ] }))
-assert.equal((repeatedEditMarkup.match(/data-assistant-tool-call=/g) || []).length, 2, 'two real edits to the same file remain two actions')
+assert.equal((repeatedEditMarkup.match(/data-assistant-tool-call=/g) || []).length, 0, 'closed edit batches defer both real edits')
 const runningEditMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, { activities: [
     activity({ id: 'action:edit-running', kind: 'file-change', payload: { paths: ['C:/workspace/src/app.ts'], status: 'running' } })
 ] }))

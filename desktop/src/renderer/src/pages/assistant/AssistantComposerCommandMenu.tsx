@@ -1,3 +1,4 @@
+import { ComposerSourceBadge } from './ComposerSourceBadge'
 import { useRef } from 'react'
 import { BookOpenText, SquareTerminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -8,6 +9,7 @@ import {
 } from './assistant-composer-command-menu'
 import { useAssistantComposerMenuActiveScroll } from './assistant-composer-menu-scroll'
 import { AssistantComposerMenuHighlight } from './AssistantComposerMenuHighlight'
+import { AssistantComposerMenuSurface } from './AssistantComposerMenuSurface'
 import { PluginSkillIcon, shortSkillDescription } from '../plugins/plugin-presentation'
 
 export function AssistantComposerCommandMenu({
@@ -35,11 +37,11 @@ export function AssistantComposerCommandMenu({
     useAssistantComposerMenuActiveScroll(listRef, activeIndex, activeItemId, scrollBehavior)
 
     return (
-        <div className="pointer-events-auto mx-auto w-[calc(100%-1rem)] overflow-hidden rounded-t-[14px] rounded-b-[8px] border border-b-0 border-white/[0.075] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_-14px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:w-[calc(100%-2.25rem)]">
+        <AssistantComposerMenuSurface title="Commands & skills" detail={loading ? 'Loading…' : undefined}>
             <div
                 id={menuId}
                 ref={listRef}
-                className="custom-scrollbar relative max-h-[min(12.5rem,32vh)] scroll-pb-10 overflow-y-auto px-1.5 pb-10 pt-1.5"
+                className="custom-scrollbar relative max-h-[min(18rem,36vh)] scroll-py-2 overflow-y-auto p-2 [scrollbar-gutter:stable]"
                 role="listbox"
                 aria-label="Commands and skills"
             >
@@ -56,6 +58,7 @@ export function AssistantComposerCommandMenu({
                     </div>
                 ) : items.map((item, index) => {
                     const active = index === activeIndex
+                    const displayLabel = item.kind === 'skill' ? item.label.replace(/^\/(?:skill:)?/, '') : item.label
                     const ResourceIcon = item.kind === 'skill' ? BookOpenText : SquareTerminal
                     return (
                         <button
@@ -64,6 +67,7 @@ export function AssistantComposerCommandMenu({
                             type="button"
                             role="option"
                             aria-selected={active}
+                            aria-label={`${item.kind === 'skill' ? 'Skill' : 'Command'}: ${displayLabel} · ${item.sourceLabel || formatAssistantPromptResourceScope(item.scope)}`}
                             data-command-active={active ? 'true' : 'false'}
                             onPointerMove={(event) => {
                                 if (event.movementX === 0 && event.movementY === 0) return
@@ -72,7 +76,7 @@ export function AssistantComposerCommandMenu({
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelect(item)}
                             className={cn(
-                                'relative z-[1] flex w-full items-center gap-2.5 rounded-[7px] px-3 py-1.5 text-left transition-colors duration-100',
+                                'relative z-[1] flex h-8 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors duration-100',
                                 active ? 'text-sparkle-text' : 'text-sparkle-text-secondary hover:bg-white/[0.045]'
                             )}
                         >
@@ -83,17 +87,16 @@ export function AssistantComposerCommandMenu({
                             />}
                             <div className="min-w-0 flex-1">
                                 <div className="flex min-w-0 items-baseline gap-2">
-                                    <span className="shrink-0 font-mono text-[12px] font-medium text-sparkle-text">{item.label}</span>
+                                    <span className="min-w-0 max-w-[45%] shrink-0 truncate text-[12px] font-medium text-sparkle-text" title={displayLabel}>{displayLabel}</span>
                                     <span className="min-w-0 truncate text-[11.5px] text-sparkle-text-muted/75" title={item.description}>{item.kind === 'skill' ? shortSkillDescription(item.description) : item.description}</span>
                                 </div>
                             </div>
-                            <span className="shrink-0 rounded-md bg-white/[0.045] px-1.5 py-0.5 text-[9px] font-medium text-white/38">
-                                {formatAssistantPromptResourceScope(item.scope)}
-                            </span>
+                            {item.kind === 'skill' && <span data-composer-resource-kind="skill" className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--surface-divider)] bg-[var(--surface-active)] px-2 text-[10px] font-medium leading-none text-sparkle-text-secondary">Skill</span>}
+                            <ComposerSourceBadge item={item} />
                         </button>
                     )
                 })}
             </div>
-        </div>
+        </AssistantComposerMenuSurface>
     )
 }

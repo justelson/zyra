@@ -1,6 +1,7 @@
 import { NativeOverlayPortal } from '@/components/ui/native-overlay-portal'
 import { useMemo, useState } from 'react'
-import { Command, Play, Search, X } from 'lucide-react'
+import { Command, Search, X } from 'lucide-react'
+import { ScriptPlayIcon } from '@/components/ui/ScriptPlayIcon'
 
 type ProjectScriptCatalogModalProps = {
     projectName?: string
@@ -69,7 +70,7 @@ export function ProjectScriptCatalogModal({
                                             className="shrink-0 rounded-full bg-[var(--accent-primary)]/12 p-2.5 text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white"
                                             title={`Run ${name}`}
                                         >
-                                            <Play size={15} />
+                                            <ScriptPlayIcon size={15} />
                                         </button>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2">

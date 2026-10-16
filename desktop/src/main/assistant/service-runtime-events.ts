@@ -1,4 +1,4 @@
-import { findReplayedCompaction } from './compaction-reconciliation'
+import { findInactiveRuntimeCompactions, reconcileRuntimeCompaction } from './compaction-reconciliation'
 import { reconcileAssistantUserInputResponseMessageIds } from '../../shared/assistant/user-input-continuation'
 import { remoteAssistantPromptMessageId } from './canonical-message-identity'
 import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
@@ -636,21 +636,6 @@ function assistantTextBufferKey(threadId: string, messageId: string): string {
     return `${threadId}:${messageId}`
 }
 
-function findContextCompactionReconciliation(
-    activities: AssistantActivity[]
-): { target: AssistantActivity | null; duplicateIds: string[] } {
-    const running = activities
-        .filter((activity) => (
-            (activity.kind === 'context.compaction' || readRuntimePayloadString(activity.payload?.['category']) === 'context-compaction')
-            && normalizeRuntimeCompactionStatus(activity.payload?.['status'], activity.tone) === 'running'
-        ))
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
-    return {
-        target: running[0] || null,
-        duplicateIds: running.slice(1).map((activity) => activity.id)
-    }
-}
-
 export function findFileChangeReconciliationTarget(
     activities: AssistantActivity[],
     turnId: string | null,
@@ -829,6 +814,18 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         if (!eventSession && !existing) return
 
         const targetThreadId = existing?.thread.id || event.threadId
+        if (existing && Array.isArray(event.payload.activeCompactions)) {
+            for (const activity of findInactiveRuntimeCompactions(existing.thread.activities, event.payload.activeCompactions)) {
+                deps.appendEvent('thread.activity.appended', event.createdAt, {
+                    threadId: targetThreadId,
+                    updateOnly: true,
+                    activity: { ...activity, summary: 'COMPACTION INTERRUPTED', tone: 'warning',
+                        detail: 'Previous context compaction is no longer active.',
+                        payload: { ...activity.payload, status: 'cancelled',
+                            completedAt: activity.payload?.startedAt || activity.createdAt, recoveredAt: event.createdAt, recoveredAfterRestart: true } }
+                }, existing.session.id, targetThreadId)
+            }
+        }
         deps.appendEvent('thread.updated', event.createdAt, {
             threadId: targetThreadId,
             patch: {
@@ -1403,20 +1400,11 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
             : null
         const isContextCompaction = event.payload.kind === 'context.compaction'
             || readRuntimePayloadString(payload['category']) === 'context-compaction'
-        const replayedCompaction = isContextCompaction ? findReplayedCompaction(existingThread.activities, payload) : null
-        // An old replayed start cannot turn a completed operation back into a spinner.
-        if (replayedCompaction && payload.status === 'running'
-            && normalizeRuntimeCompactionStatus(replayedCompaction.payload?.status, replayedCompaction.tone) !== 'running') return
         const contextCompactionReconciliation = isContextCompaction
-            ? findContextCompactionReconciliation(existingThread.activities) : null
-        if (replayedCompaction && contextCompactionReconciliation) {
-            const replayedStart = existingThread.activities.find(activity => activity.id === event.payload.activityId
-                && activity.id !== replayedCompaction.id && activity.payload?.status === 'running')
-            contextCompactionReconciliation.target = replayedCompaction
-            if (replayedStart && !contextCompactionReconciliation.duplicateIds.includes(replayedStart.id)) contextCompactionReconciliation.duplicateIds.push(replayedStart.id)
-            if (replayedCompaction.payload?.startedAt) payload.startedAt = replayedCompaction.payload.startedAt
-            if (replayedCompaction.payload?.startedSequence) payload.startedSequence = replayedCompaction.payload.startedSequence
-        }
+            ? reconcileRuntimeCompaction(existingThread.activities, payload, event.payload.activityId, turnId) : null
+        const compactionTarget = contextCompactionReconciliation?.target
+        if (compactionTarget?.payload?.startedAt) payload.startedAt = compactionTarget.payload.startedAt
+        if (compactionTarget?.payload?.startedSequence) payload.startedSequence = compactionTarget.payload.startedSequence
         if (turnDiffTargetActivity) {
             payload['category'] = readRuntimePayloadString(turnDiffTargetActivity.payload?.['category']) || 'file-change'
         }
@@ -1429,6 +1417,9 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 removedActivityIds: contextCompactionReconciliation.duplicateIds
             }, eventSession.id, eventThreadId)
         }
+        // Remove stale copies even when a settled result makes this replayed start a no-op.
+        if (compactionTarget && payload.replay === true && (payload.status === 'running' || payload.recoveredAfterRestart === true)
+            && (compactionTarget.payload?.canonicalEntry || normalizeRuntimeCompactionStatus(compactionTarget.payload?.status, compactionTarget.tone) !== 'running')) return
         const targetActivityId = turnDiffTargetActivity?.id
             || contextCompactionReconciliation?.target?.id
             || event.payload.activityId
@@ -1442,12 +1433,19 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 activityId: targetActivityId,
                 data: payload
             },
-            replayedCompaction ? replayedCompaction.turnId || null : turnId,
+            compactionTarget ? compactionTarget.turnId || null : turnId,
             event.createdAt
         )
+        if (compactionTarget?.payload?.canonicalEntry) {
+            activity.kind = compactionTarget.kind
+            activity.summary = compactionTarget.summary
+            activity.detail = compactionTarget.detail
+            activity.tone = compactionTarget.tone
+        }
         deps.appendEvent('thread.activity.appended', event.createdAt, {
             threadId: eventThreadId,
-            activity
+            activity,
+            ...(compactionTarget ? { updateOnly: true } : {})
         }, eventSession.id, eventThreadId)
     }
 }

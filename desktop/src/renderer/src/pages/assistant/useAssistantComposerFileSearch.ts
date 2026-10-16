@@ -22,6 +22,9 @@ export function useAssistantComposerFileSearch(input: {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const requestSequenceRef = useRef(0)
+    const previousRootsRef = useRef(rootsSignature)
+    const queryKey = `${rootsSignature}\0${input.query}`
+    const [resolvedQueryKey, setResolvedQueryKey] = useState('')
 
     useEffect(() => {
         const requestId = ++requestSequenceRef.current
@@ -38,7 +41,8 @@ export function useAssistantComposerFileSearch(input: {
             return
         }
 
-        setItems([])
+        if (previousRootsRef.current !== rootsSignature) setItems([])
+        previousRootsRef.current = rootsSignature
         setLoading(true)
         setError(null)
         const timer = window.setTimeout(() => {
@@ -53,22 +57,24 @@ export function useAssistantComposerFileSearch(input: {
             }).then((result) => {
                 if (requestSequenceRef.current !== requestId) return
                 if (!result.success) {
+                    setItems([])
                     setError(result.error || 'File search failed.')
                     return
                 }
                 setItems(buildAssistantComposerFileSearchItems(result.entries || [], roots))
             }).catch((searchError: unknown) => {
                 if (requestSequenceRef.current !== requestId) return
+                setItems([])
                 setError(searchError instanceof Error ? searchError.message : 'File search failed.')
             }).finally(() => {
-                if (requestSequenceRef.current === requestId) setLoading(false)
+                if (requestSequenceRef.current === requestId) { setLoading(false); setResolvedQueryKey(queryKey) }
             })
         }, input.query.trim() ? 180 : 0)
 
-        return () => window.clearTimeout(timer)
+        return () => { window.clearTimeout(timer); requestSequenceRef.current++ }
     }, [input.active, input.query, rootsSignature])
 
-    return { items, loading, error }
+    return { items, loading: loading || input.active && roots.length > 0 && resolvedQueryKey !== queryKey, error }
 }
 
 function dedupeRoots(roots: AssistantComposerProjectRoot[]): AssistantComposerProjectRoot[] {

@@ -185,7 +185,7 @@ export default function AssistantAttachmentPreviewModal({
                 >
                     {isImagePreview ? (
                         <ImagePreviewContent
-                            filePath={file.path}
+                            filePath={(!file.path || file.path.startsWith('clipboard://')) && file.previewDataUrl?.startsWith('data:image/') ? file.previewDataUrl : file.path}
                             fileName={meta.name}
                             isExpanded
                         />

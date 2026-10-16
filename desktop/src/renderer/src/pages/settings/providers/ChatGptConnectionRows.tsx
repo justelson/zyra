@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquarePlus, MonitorSmartphone, RefreshCw, Unplug } from 'lucide-react'
+import { MessageSquarePlus, MonitorSmartphone, RefreshCw, Star, Unplug } from 'lucide-react'
 import type { ChatGptAccountProfile } from '@shared/onboarding/contracts'
 import { SettingsActionsMenu } from '../SettingsActionsMenu'
 import { SettingsProviderIcon } from '../SettingsProviderIcon'
@@ -7,6 +7,7 @@ import { SettingsButton, SettingsDialog } from '../settings-layout'
 import { ProviderConnectionRow } from './ProviderConnectionRow'
 import { createSettingsRowTargetId } from '../settings-search'
 import { accountLabel, accountPlan } from './chatgpt-account-presentation'
+import { ChatGptAccountIdentity } from './ChatGptAccountIdentity'
 import type { useChatGptAccountPool } from './useChatGptAccountPool'
 import type { useOpenAIAccountSettings } from './useOpenAIAccountSettings'
 
@@ -21,7 +22,8 @@ export function ChatGptConnectionRows({ connection, pool }: { connection: Return
         setRemove(null)
     }
     return <>
-            {pool.snapshot?.accounts.map(account => <ProviderConnectionRow key={account.id} data-chatgpt-connection-account={account.id} icon={<SettingsProviderIcon provider="chatgpt" />} title={`ChatGPT · ${accountLabel(account)}`} description={`${accountPlan(account)}${account.primary ? ' · Primary' : ''}`} info={account.primary ? 'This account also provides Voice and reset credits.' : undefined} status={account.state === 'needs-sign-in' ? 'Sign in again' : 'Connected'} statusTone={account.state === 'needs-sign-in' ? 'warning' : 'ready'} searchTargetId={account.primary ? createSettingsRowTargetId('OpenAI connections', 'ChatGPT subscription') : undefined} control={connection.desktopHost ? <SettingsActionsMenu disabled={busy} ariaLabel={`Manage ${accountLabel(account)}`} items={[
+            {pool.snapshot?.accounts.map(account => <ProviderConnectionRow key={account.id} data-chatgpt-connection-account={account.id} icon={<SettingsProviderIcon provider="chatgpt" />} title={<span className="inline-flex max-w-full min-w-0 items-center gap-1.5"><span className="shrink-0">ChatGPT ·</span><ChatGptAccountIdentity account={account} disabled={pool.busy} onRename={alias => pool.update({ action: 'alias', accountId: account.id, alias })} /></span>} description={`${accountPlan(account)}${account.primary ? ' · Primary' : ''}`} info={account.primary ? 'This account also provides Voice and reset credits.' : undefined} status={account.state === 'needs-sign-in' ? 'Sign in again' : 'Connected'} statusTone={account.state === 'needs-sign-in' ? 'warning' : 'ready'} searchTargetId={createSettingsRowTargetId('OpenAI connections', account.primary ? 'ChatGPT subscription' : `ChatGPT ${accountLabel(account)}`)} control={connection.desktopHost ? <SettingsActionsMenu disabled={busy} ariaLabel={`Manage ${accountLabel(account)}`} items={[
+                ...(!account.primary ? [{ id: 'primary', label: 'Make primary', icon: <Star size={13} />, onSelect: () => void pool.update({ action: 'primary', accountId: account.id }).then(() => connection.refreshAll()) }] : []),
                 { id: 'reconnect', label: 'Sign in again', icon: <RefreshCw size={13} />, onSelect: () => void connect(account.id) },
                 { id: 'device', label: 'Reconnect with device code', icon: <MonitorSmartphone size={13} />, onSelect: () => void connect(account.id, true) },
                 ...(account.primary && connection.chatGptConnection?.verified ? [{ id: 'default', label: 'Use for new chats', icon: <MessageSquarePlus size={13} />, checked: connection.activeDefaultMethod === 'chatgpt', disabled: connection.activeDefaultMethod === 'chatgpt', onSelect: () => void connection.switchDefaultConnection('chatgpt') }] : []),

@@ -52,9 +52,13 @@ const SQL = await initSqlJs()
 const db = new SQL.Database()
 initializeAssistantPersistenceSchema(db)
 replaceAssistantSnapshot(db, snapshot)
+assert.equal(readAssistantThreadDetail(db, thread.id).history.messages.at(-1)?.phase, 'final_answer', 'current SQLite history retains the saved provider phase')
+// Older saved rows have no phase. Exercise that actual SQL shape explicitly
+// while retaining the current writer/reader contract check above.
+db.run('UPDATE assistant_messages SET phase = NULL')
 const detail = readAssistantThreadDetail(db, thread.id)
 db.close()
-assert.equal(detail.history.messages.at(-1)?.phase, undefined, 'the real SQLite history reader omits phase; this fixture reproduces its actual shape')
+assert.equal(detail.history.messages.at(-1)?.phase, undefined, 'legacy SQL rows remain unknown until metadata is recovered')
 const explicit = [{ ...thread.messages[1]!, phase: 'commentary' as const }]
 assert.equal(preserveAssistantMessagePhases(thread.messages, explicit), explicit, 'explicit incoming provider phase remains authoritative')
 const unrelated = [{ ...withoutPhase(thread.messages[1]!), id: 'another-message' }]
@@ -101,6 +105,7 @@ assert.equal(detail.history.messages.at(-1)?.phase, undefined, 'phase-less persi
 // backfill history merely to recover message metadata.
 const coldSource = structuredClone(snapshot)
 const coldSourceThread = coldSource.sessions[0]!.threads[0]!
+coldSourceThread.messages = coldSourceThread.messages.map(withoutPhase)
 coldSourceThread.providerThreadId = 'cold-phase-chat'
 coldSourceThread.canonicalHistoryModifiedAt = at
 coldSourceThread.canonicalHistoryEntryCount = 10_000
@@ -124,7 +129,7 @@ const coldService = Object.assign(Object.create(AssistantService.prototype), {
     runtime: { listCanonicalChats: async () => [canonicalChat], releaseNavigationBackgroundedThread: noop,
         readCanonicalChatHistory: async (_id: string, _cwd: string, options: Record<string, unknown>) => {
             metadataReads += 1
-            assert.deepEqual(options, { limit: 160, toolResultBodies: 'lazy-v1' }, 'metadata recovery reads only one bounded latest page')
+            assert.deepEqual(options, { limit: 160, toolResultBodies: 'lazy-desktop-v2' }, 'metadata recovery reads only one bounded latest page')
             return { chat: canonicalChat, entries: [{ type: 'message', id: 'entry-final', message: { id: 'history-final', role: 'assistant',
                 content: [{ type: 'text', text: 'The final answer', textSignature: signature }] } }],
                 pageInfo: { startCursor: '9999', oldestCursor: '9999', hasOlder: true, totalEntries: 10_000 } }
@@ -149,7 +154,7 @@ check('bounded cold lookup', () => assert.equal(metadataReads, 1))
 assert.equal(coldService.state.snapshot.sessions[0]!.threads[0]!.messages.at(-1)?.phase, 'final_answer', 'cold metadata also enriches resident rows before later selection hydration')
 await Promise.all([coldService.getThreadDetailBootstrap(thread.id), coldService.getThreadDetailBootstrap(thread.id)])
 assert.equal(metadataReads, 1, 'repeated detail hydration does not poll canonical history')
-assert.equal(readAssistantThreadDetail(coldDb, thread.id).history.messages.at(-1)?.phase, undefined, 'phase recovery never changes the SQL persistence contract')
+assert.equal(readAssistantThreadDetail(coldDb, thread.id).history.messages.at(-1)?.phase, undefined, 'metadata recovery does not rewrite legacy SQL rows')
 
 // A fresh service can also discover an already-running external turn through
 // the canonical catalog. The stored shell has no turn ledger for it yet.

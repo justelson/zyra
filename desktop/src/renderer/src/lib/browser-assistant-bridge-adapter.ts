@@ -375,6 +375,7 @@ export function createBrowserAssistantBridgeAdapter(): DevScopeApi['assistant'] 
         renameSession: remoteAssistantMethod('renameSession'),
         regenerateSessionTitle: remoteAssistantMethod('regenerateSessionTitle'),
         archiveSession: remoteAssistantMethod('archiveSession'),
+        settleSession: remoteAssistantMethod('settleSession'),
         deleteSession: remoteAssistantMethod('deleteSession'),
         deleteMessage: remoteAssistantMethod('deleteMessage'),
         clearLogs: remoteAssistantMethod('clearLogs'),

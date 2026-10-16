@@ -81,9 +81,9 @@ export declare class Agent {
     set followUpMode(mode: QueueMode);
     get followUpMode(): QueueMode;
     /** Queue a message to be injected after the current assistant turn finishes. */
-    steer(message: AgentMessage): void;
+    steer(message: AgentMessage | AgentMessage[]): void;
     /** Queue a message to run only after the agent would otherwise stop. */
-    followUp(message: AgentMessage): void;
+    followUp(message: AgentMessage | AgentMessage[]): void;
     /** Remove all queued steering messages. */
     clearSteeringQueue(): void;
     /** Remove all queued follow-up messages. */

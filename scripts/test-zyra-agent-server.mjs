@@ -726,8 +726,31 @@ try {
   assert.equal(server.state().sessions[0].latestTurn.completedAt, stoppedAt, 'terminal turn time remains immutable');
   workers[0].emit('event', { type: 'auto_retry_end', success: false, finalError: 'late retry failure' });
   assert.equal(server.state().sessions[0].latestTurn.state, 'interrupted', 'late retry cleanup cannot rewrite a confirmed Stop as a failure');
+  const workspaceRunBoundaries = [];
+  const originalWorkspaceStart = server.notifyDesktopWorkspaceTurn;
+  const originalWorkspaceEnd = server.notifyDesktopWorkspaceTurnEnded;
+  server.notifyDesktopWorkspaceTurn = (chatId, turnId) => workspaceRunBoundaries.push({ kind: 'start', chatId, turnId });
+  server.notifyDesktopWorkspaceTurnEnded = (chatId, turnId) => workspaceRunBoundaries.push({ kind: 'end', chatId, turnId });
+  workers[0].emit('event', { type: 'agent_start' });
+  const restartedTurnId = server.sessions.get('chat:test').activeRequestContext?.turnId;
+  assert.ok(restartedTurnId && restartedTurnId !== 'turn:stop-with-server', 'A resumed worker run needs a fresh canonical turn identity');
+  const restartedPresence = (await reconnect.request('catalog.list', {})).chats[0].presence;
+  assert.equal(restartedPresence.state, 'running', 'A resumed run must remain visible and stoppable');
+  assert.equal(restartedPresence.activeTurnId, restartedTurnId);
+  workers[0].emit('event', { type: 'agent_end', willRetry: false });
   workers[0].finishPrompt({});
   await stoppedPrompt;
+  assert.equal(server.sessions.get('chat:test').activeRequestContext, null, 'The original request releases ownership after its restarted run settles');
+  workers[0].emit('event', { type: 'agent_start' });
+  const autonomousTurnId = server.sessionPresence('chat:test').activeTurnId;
+  assert.ok(autonomousTurnId && autonomousTurnId !== restartedTurnId, 'A worker run without a foreground request is still tracked');
+  workers[0].emit('event', { type: 'agent_end', willRetry: false });
+  assert.equal(server.sessions.get('chat:test').activeRequestContext, null);
+  for (const turnId of [restartedTurnId, autonomousTurnId]) {
+    assert.deepEqual(workspaceRunBoundaries.filter(boundary => boundary.turnId === turnId).map(boundary => boundary.kind), ['start', 'end'], 'Workspace ownership follows each fresh run through completion');
+  }
+  server.notifyDesktopWorkspaceTurn = originalWorkspaceStart;
+  server.notifyDesktopWorkspaceTurnEnded = originalWorkspaceEnd;
   assert.equal(workers[0].disposed, false, 'Stop turn must retain the worker owning a server');
   workers[0].emit('event', { type: 'managed_bash_job_update', jobId: 'cmd:retained-server', status: 'stopped', background: true });
 

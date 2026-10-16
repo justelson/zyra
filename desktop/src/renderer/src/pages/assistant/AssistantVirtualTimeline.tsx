@@ -12,7 +12,8 @@ import {
     ASSISTANT_TIMELINE_DISCLOSURE_TOGGLE_EVENT,
     ASSISTANT_TIMELINE_FOLLOW_END_EVENT,
     didAssistantTimelineWorkComplete,
-    type AssistantTimelineDisclosureToggleDetail
+    type AssistantTimelineDisclosureToggleDetail,
+    type AssistantActivityRevealRequest
 } from './assistant-timeline-scroll-events'
 import {
     resolveAssistantTimelineModeAfterScroll,
@@ -55,6 +56,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     rows: TimelineDisplayRow[]
     windowKey: string
     focusMessageId?: string | null
+    activityRevealRequest?: AssistantActivityRevealRequest | null
     followLatestRequestKey?: string | null
     listRef: RefObject<LegendListRef | null>
     scrollContainerRef?: RefObject<HTMLDivElement | null>
@@ -78,6 +80,10 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const reducedMotion = usePresentationReducedMotion()
     const textStreaming = props.rows.some(row => row.kind === 'message' && row.message.streaming)
     const renderRowRef = useRef(props.renderRow)
+    const rowDisclosureState = useMemo(() => ({
+        activityRevealRequest: props.activityRevealRequest,
+        focusMessageId: props.focusMessageId
+    }), [props.activityRevealRequest, props.focusMessageId])
     const disclosureTimerRef = useRef(0)
     const completionFollowTimerRef = useRef(0)
     const endAlignmentFrameRef = useRef<number | null>(null)
@@ -825,6 +831,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             ref={props.listRef}
             refScrollView={assignScrollViewRef}
             data={props.rows}
+            extraData={rowDisclosureState}
             dataKey={props.windowKey}
             keyExtractor={keyExtractor}
             getItemType={getItemType}

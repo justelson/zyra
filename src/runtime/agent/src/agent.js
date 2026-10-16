@@ -58,14 +58,15 @@ class PendingMessageQueue {
     this.mode = mode;
   }
   enqueue(message) {
-    this.messages.push(message);
+    const batch = Array.isArray(message) ? [...message] : [message];
+    if (batch.length) this.messages.push(batch);
   }
   hasItems() {
     return this.messages.length > 0;
   }
   drain() {
     if (this.mode === "all") {
-      const drained = this.messages.slice();
+      const drained = this.messages.flat();
       this.messages = [];
       return drained;
     }
@@ -74,7 +75,7 @@ class PendingMessageQueue {
       return [];
     }
     this.messages = this.messages.slice(1);
-    return [first];
+    return first;
   }
   clear() {
     this.messages = [];

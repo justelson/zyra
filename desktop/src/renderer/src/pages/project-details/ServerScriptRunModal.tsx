@@ -1,5 +1,6 @@
 import { NativeOverlayPortal } from '@/components/ui/native-overlay-portal'
-import { ChevronDown, Play, X } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
+import { ScriptPlayIcon } from '@/components/ui/ScriptPlayIcon'
 import { cn } from '@/lib/utils'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { SCRIPT_INTENT_BADGE_CLASSES, SCRIPT_INTENT_LABELS, type PackageScriptRunner } from './scriptRun'
@@ -50,7 +51,7 @@ export function ServerScriptRunModal({
             >
                 <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-white/[0.03]">
                     <div className="flex items-center gap-2 text-white/90 font-medium">
-                        <Play size={16} className="text-[var(--accent-primary)]" />
+                        <ScriptPlayIcon size={16} className="text-[var(--accent-primary)]" />
                         <span>Run Server Script</span>
                     </div>
                     <button

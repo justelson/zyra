@@ -148,6 +148,12 @@ function readActivities(db: SqlDatabase, threadId: string, lower: AssistantTimel
     return descending ? records.reverse() : records
 }
 
+/** Bounded metadata hydration for cold runtime attachment, without reading messages or tools. */
+export function readAssistantCompactionActivities(db: SqlDatabase, threadId: string): AssistantActivity[] {
+    const rows = db.exec(`SELECT id, kind, tone, summary, detail, turn_id, ${assistantActivityTerminalOutcomeColumn()}, timeline_sequence, created_at, ${assistantActivityPayloadColumns()} FROM assistant_activities WHERE thread_id = ? AND kind IN (?, ?) ORDER BY created_at DESC, COALESCE(timeline_sequence, -1) DESC, id DESC LIMIT ?`, [threadId, 'context.compaction', 'context-compaction', 256])[0]?.values || []
+    return rows.map(mapActivity).reverse()
+}
+
 export function readAssistantActivity(db: SqlDatabase, threadId: string, activityId: string): AssistantActivity | null {
     const row = db.exec(`SELECT id, kind, tone, summary, detail, turn_id, ${assistantActivityTerminalOutcomeColumn()}, timeline_sequence, created_at, ${assistantActivityPayloadColumns()} FROM assistant_activities WHERE thread_id = ? AND id = ? LIMIT 1`, [threadId, activityId])[0]?.values?.[0]
     return row ? mapActivity(row) : null

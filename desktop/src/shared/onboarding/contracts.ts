@@ -124,6 +124,7 @@ export type ChatGptRoutingPolicy = {
 export type ChatGptAccountUsageWindow = { usedPercent: number; resetAt: string | null; windowSeconds: number | null }
 export type ChatGptAccountProfile = {
     id: string; email: string | null; plan: string | null; primary: boolean; enabled: boolean
+    alias?: string
     state: 'ready' | 'limited' | 'paused' | 'needs-sign-in'; resetAt: string | null
     lastUsedAt: string | null; requestCount: number
     tokenExpiresAt: string | null
@@ -132,6 +133,8 @@ export type ChatGptAccountProfile = {
 export type ChatGptPoolSnapshot = { accounts: ChatGptAccountProfile[]; policy: ChatGptRoutingPolicy; checkedAt: string }
 export type ChatGptAccountsUpdate =
     | { action: 'policy'; policy: ChatGptRoutingPolicy }
+    | { action: 'alias'; accountId: string; alias: string }
+    | { action: 'primary'; accountId: string }
     | { action: 'enabled'; accountId: string; enabled: boolean }
     | { action: 'remove'; accountId: string; confirmed: true }
 

@@ -89,6 +89,7 @@ export const ASSISTANT_IPC = {
     renameSession: 'devscope:assistant:renameSession',
     regenerateSessionTitle: 'devscope:assistant:regenerateSessionTitle',
     archiveSession: 'devscope:assistant:archiveSession',
+    settleSession: 'devscope:assistant:settleSession',
     deleteSession: 'devscope:assistant:deleteSession',
     deleteMessage: 'devscope:assistant:deleteMessage',
     clearLogs: 'devscope:assistant:clearLogs',
@@ -305,6 +306,7 @@ export interface AssistantUpdateSessionConfigurationInput {
 }
 
 export interface AssistantSendPromptOptions {
+    startInNewWorktree?: boolean
     sessionId?: string
     model?: string
     runtimeMode?: AssistantRuntimeMode
@@ -328,6 +330,7 @@ export interface AssistantDeleteMessageInput {
 }
 
 export interface AssistantCreateSessionInput {
+    workspace?: import('../../contracts/developer-workflow').ChatWorkspaceChoice
     title?: string
     projectPath?: string
     projectId?: string

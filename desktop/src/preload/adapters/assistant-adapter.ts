@@ -141,6 +141,7 @@ export function createAssistantAdapter() {
             renameSession: (sessionId: string, title: string) => ipcRenderer.invoke(ASSISTANT_IPC.renameSession, sessionId, title),
             regenerateSessionTitle: (sessionId: string) => ipcRenderer.invoke(ASSISTANT_IPC.regenerateSessionTitle, sessionId),
             archiveSession: (sessionId: string, archived = true) => ipcRenderer.invoke(ASSISTANT_IPC.archiveSession, sessionId, archived),
+            settleSession: (sessionId: string, settled: boolean, migrateLegacy = false) => ipcRenderer.invoke(ASSISTANT_IPC.settleSession, sessionId, settled, migrateLegacy),
             deleteSession: (sessionId: string) => ipcRenderer.invoke(ASSISTANT_IPC.deleteSession, sessionId),
             deleteMessage: (input: AssistantDeleteMessageInput) => ipcRenderer.invoke(ASSISTANT_IPC.deleteMessage, input),
             clearLogs: (input?: AssistantClearLogsInput) => ipcRenderer.invoke(ASSISTANT_IPC.clearLogs, input),

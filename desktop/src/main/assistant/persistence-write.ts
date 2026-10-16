@@ -78,6 +78,7 @@ export function persistAssistantEvent(db: SqlDatabase, event: AssistantDomainEve
                 break
             case 'session.deleted':
                 db.run('DELETE FROM assistant_sessions WHERE id = ?', [event.payload['sessionId'] as SqlValue])
+                db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${event.payload['sessionId']}`])
                 break
             case 'thread.created':
                 if (session && thread) {
@@ -222,6 +223,7 @@ export function replaceAssistantSnapshot(db: SqlDatabase, snapshot: AssistantSna
         db.run('DELETE FROM assistant_messages')
         db.run('DELETE FROM assistant_threads')
         db.run('DELETE FROM assistant_sessions')
+        db.run("DELETE FROM assistant_meta WHERE key LIKE 'canonicalSettlement:%'")
         db.run('DELETE FROM assistant_playground_labs')
 
         persistAssistantSnapshotMeta(db, snapshot)
@@ -293,6 +295,9 @@ function upsertAssistantSession(db: SqlDatabase, session: AssistantSession): voi
         session.activeThreadId
     ])
     if (session.chatScope !== undefined) upsertAssistantChatScope(db, session.id, session.chatScope)
+    // This is a cached server projection, never a local settlement decision.
+    if (typeof session.settled === 'boolean') upsertAssistantMeta(db, `canonicalSettlement:${session.id}`, jsonStringify({ settled: session.settled, settlementManual: session.settlementManual === true }))
+    else db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${session.id}`])
 }
 
 function replaceAssistantPlaygroundLabs(db: SqlDatabase, labs: AssistantPlaygroundLab[]): void {

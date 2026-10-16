@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
+import { createElement, type ReactNode } from 'react'
+import { renderToStaticMarkup as renderMarkup } from 'react-dom/server'
+import { SettingsProvider } from '../src/renderer/src/lib/settings'
+const renderToStaticMarkup = (node: ReactNode) => renderMarkup(createElement(SettingsProvider, null, node))
 import type { AssistantActivity, AssistantMessage } from '../src/shared/assistant/contracts'
 import { TimelineMessage } from '../src/renderer/src/pages/assistant/AssistantTimelineRows'
 import { TimelineToolCallList } from '../src/renderer/src/pages/assistant/AssistantTimelineToolCalls'
@@ -53,14 +55,14 @@ const minimalToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallLi
 
 assert.match(detailedToolsMarkup, /data-assistant-tool-call-list="detailed"/)
 assert.doesNotMatch(detailedToolsMarkup, /Tool Calls/, 'Detailed actions no longer sit inside a generic tool-call wrapper')
-assert.equal((detailedToolsMarkup.match(/data-assistant-tool-call="detailed"/g) || []).length, 2, 'Detailed renders one row per action')
+assert.equal((detailedToolsMarkup.match(/data-assistant-tool-call="detailed"/g) || []).length, 0, 'Detailed batches defer action rows until expanded')
 assert.match(minimalToolsMarkup, /data-assistant-tool-call-list="minimal"/)
 assert.doesNotMatch(minimalToolsMarkup, />2 actions</, 'the outer work summary owns the only action count')
 assert.doesNotMatch(minimalToolsMarkup, /Tool Calls/, 'Minimal removes tool-centric group headings')
-assert.match(minimalToolsMarkup, /data-assistant-tool-call="minimal"/, 'Minimal reaches each collapsed activity row')
+assert.doesNotMatch(minimalToolsMarkup, /data-assistant-tool-call="minimal"/, 'Minimal batches defer their collapsed activity rows')
 assert.match(minimalToolsMarkup, /min-h-7/, 'Minimal activity rows retain a compact 28px interaction target')
-assert.match(minimalToolsMarkup, /display-mode-output-one/, 'Minimal preserves expanded command output')
-assert.match(detailedToolsMarkup, /display-mode-output-one/, 'Detailed preserves expanded command output')
+assert.doesNotMatch(minimalToolsMarkup, /display-mode-output-one/, 'Minimal defers nested output')
+assert.doesNotMatch(detailedToolsMarkup, /display-mode-output-one/, 'Detailed defers nested output')
 
 const minimalWorkMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSummary, {
     startedAt: createdAt,
@@ -80,8 +82,10 @@ const detailedWorkMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSu
 }))
 
 assert.match(minimalWorkMarkup, /data-assistant-work-summary-display="minimal"/)
-assert.match(minimalWorkMarkup, /Worked for 4s · 2 actions/, 'Minimal uses the same one-line work summary contract')
-assert.match(detailedWorkMarkup, /Worked for 4s · 2 actions/, 'Detailed uses the same summary-only action count contract')
+assert.match(minimalWorkMarkup, /Worked for 4s/, 'Minimal uses the same one-line work summary contract')
+assert.match(detailedWorkMarkup, /Worked for 4s/, 'Detailed uses the same summary-only action count contract')
+assert.doesNotMatch(minimalWorkMarkup, /2 actions/, 'Minimal hides action statistics by default')
+assert.doesNotMatch(detailedWorkMarkup, /2 actions/, 'Detailed hides action statistics by default')
 
 const minimalExpandedWorkMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSummary, {
     startedAt: createdAt,

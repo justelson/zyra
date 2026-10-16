@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import './fixtures/unused-diff-worker'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MobileVoicePresence } from '../src/main/assistant/mobile-voice-presence'
 import { MobileVoiceSession } from '../../mobile/gateway/src/voice-session.mjs'
@@ -7,9 +8,9 @@ import { createAssistantSessionRecord } from '../src/main/assistant/service-reco
 import { createDefaultAssistantSnapshot, applyAssistantDomainEvent } from '../src/shared/assistant/projector'
 import { recoverPersistedSnapshot } from '../src/main/assistant/projector'
 import { toAssistantShellSnapshot } from '../src/main/assistant/persistence-snapshot'
-import { AssistantConversationHeader } from '../src/renderer/src/pages/assistant/AssistantConversationHeader'
 import { areAssistantConversationSelectionsEqual } from '../src/renderer/src/lib/assistant/assistant-store-selection-helpers'
 
+const { AssistantConversationHeader } = await import('../src/renderer/src/pages/assistant/AssistantConversationHeader')
 const now = '2026-09-16T00:00:00Z'
 const thread = createAssistantThread(now)
 thread.providerThreadId = 'canonical-chat'

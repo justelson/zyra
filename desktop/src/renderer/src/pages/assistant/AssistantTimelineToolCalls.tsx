@@ -25,6 +25,7 @@ import { TimelineToolCallCard } from './AssistantTimelineToolCallCard'
 import { PluginToolCallCard } from './PluginToolCallCard'
 import { isPluginActivity } from '@shared/assistant/plugin-activity-presentation'
 import { AssistantTimelineThreadMessage } from './AssistantTimelineThreadMessage'
+import type { AssistantActivityRevealRequest } from './assistant-timeline-scroll-events'
 
 function normalizeTimelineFilePath(value: string): string {
     return value.trim().replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase()
@@ -93,7 +94,8 @@ export const TimelineToolCallList = memo(({
     onOpenFilePath,
     onOpenUrl,
     onViewDiff,
-    onRevealActivity
+    onRevealActivity,
+    revealActivityRequest = null
 }: {
     activities: AssistantActivity[]
     displayMode?: AssistantChatDisplayMode
@@ -104,6 +106,7 @@ export const TimelineToolCallList = memo(({
     onOpenUrl?: (url: string) => Promise<boolean | void> | boolean | void
     onViewDiff?: (target: AssistantDiffTarget) => void
     onRevealActivity?: (activityId: string) => void
+    revealActivityRequest?: AssistantActivityRevealRequest | null
 }) => {
     const displayActivities = useMemo(() => buildDisplayActivityList(activities), [activities])
     const localRunningCommandCount = useMemo(() => countRunningCommandActivities(displayActivities), [displayActivities])
@@ -148,19 +151,19 @@ export const TimelineToolCallList = memo(({
         )
     }
     const actionRuns = groupAssistantControlActionRuns(displayActivities)
-    const actionRows = actionRuns.map((run) => run.length > 1 ? (
-        <AssistantTimelineActionBatch key={run[0]!.id} activities={run} projectRootPath={projectRootPath} controlRun>
-            {run.map(renderActivity)}
+    const renderActionRows = () => actionRuns.map((run) => run.length > 1 ? (
+        <AssistantTimelineActionBatch key={run[0]!.id} activities={run} projectRootPath={projectRootPath} controlRun revealActivityRequest={revealActivityRequest}>
+            {() => run.map(renderActivity)}
         </AssistantTimelineActionBatch>
     ) : renderActivity(run[0]!))
 
     return (
         <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
             {actionRuns.length > 1 && !displayActivities.some(activity => activity.kind === 'thread-message' || activity.kind === 'thread-collaboration') ? (
-                <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath}>
-                    {actionRows}
+                <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
+                    {renderActionRows}
                 </AssistantTimelineActionBatch>
-            ) : actionRows}
+            ) : renderActionRows()}
         </div>
     )
 }, (prev, next) => {
@@ -172,5 +175,6 @@ export const TimelineToolCallList = memo(({
         && prev.onOpenUrl === next.onOpenUrl
         && prev.onViewDiff === next.onViewDiff
         && prev.onRevealActivity === next.onRevealActivity
+        && prev.revealActivityRequest === next.revealActivityRequest
         && areActivityListsEqual(prev.activities, next.activities)
 })

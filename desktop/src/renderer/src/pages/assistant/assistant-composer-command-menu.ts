@@ -13,6 +13,8 @@ export type AssistantComposerCommandItem = {
     kind: 'command' | 'skill'
     scope: AssistantPromptResourceScope
     placement: 'start' | 'anywhere'
+    sourceId?: string
+    sourceLabel?: string
     pluginName?: string
 }
 
@@ -68,7 +70,7 @@ export function buildAssistantComposerCommandItems(
     for (const command of resources?.commands || []) {
         if (!commandsByName.has(command.name)) commandsByName.set(command.name, command)
     }
-    const commands = [...commandsByName.values()].map((command) => ({
+    const commands: AssistantComposerCommandItem[] = [...commandsByName.values()].map((command) => ({
         id: `command:${command.scope}:${command.name}`,
         value: `/${command.name}`,
         label: `/${command.name}`,
@@ -77,11 +79,13 @@ export function buildAssistantComposerCommandItems(
         scope: command.scope,
         placement: START_ONLY_DESKTOP_COMMANDS.has(command.name) ? 'start' as const : 'anywhere' as const
     }))
-    const skills = (resources?.skills || []).map((skill) => ({
+    const skills: AssistantComposerCommandItem[] = (resources?.skills || []).map((skill) => ({
         id: `skill:${skill.scope}:${skill.name}`,
         value: `/skill:${skill.name}`,
         label: `/skill:${skill.name}`,
         description: skill.description,
+        sourceId: skill.pluginId ? `plugin:${skill.pluginId}` : skill.sourceId,
+        sourceLabel: skill.sourceLabel,
         pluginName: skill.pluginId ? skill.sourceLabel?.toLowerCase().replace(/[^a-z0-9]+/gu, '-') : undefined,
         kind: 'skill' as const,
         scope: skill.scope,
@@ -92,16 +96,10 @@ export function buildAssistantComposerCommandItems(
         .filter((item) => {
             if (options.allowStartOnlyCommands === false && item.placement === 'start') return false
             if (!normalizedQuery) return true
-            const haystack = `${item.label.slice(1)} ${item.description} ${item.scope}`.toLowerCase()
+            const haystack = `${item.label.slice(1)} ${item.description} ${item.scope} ${item.sourceLabel || ""}`.toLowerCase()
             return normalizedQuery.split(/\s+/).every((part) => haystack.includes(part))
         })
-        .sort((left, right) => {
-            const leftPrefix = left.label.slice(1).startsWith(normalizedQuery) ? 0 : 1
-            const rightPrefix = right.label.slice(1).startsWith(normalizedQuery) ? 0 : 1
-            if (leftPrefix !== rightPrefix) return leftPrefix - rightPrefix
-            if (left.kind !== right.kind) return left.kind === 'command' ? -1 : 1
-            return left.label.localeCompare(right.label)
-        })
+        .sort((left, right) => left.label.slice(1).localeCompare(right.label.slice(1)))
 }
 
 export function applyAssistantComposerCommandItem(

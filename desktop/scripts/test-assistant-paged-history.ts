@@ -258,6 +258,7 @@ const recoveredBootstrap = readAssistantThreadDetail(recoveredDb, recoveredThrea
 const recoveredTurnDetail = readAssistantTurnDetail(recoveredDb, recoveredThread.id, recoveredTurnId)
 const recoveredDirect = readAssistantActivity(recoveredDb, recoveredThread.id, recoveredErrorActivityId)
 const recoveredShell = readAssistantPersistenceRecord(recoveredDb).snapshot
+assert.equal(recoveredShell.sessions[0]!.threads[0]!.lastMessageAt, recoveredMessages.at(-1)!.createdAt, 'cold lightweight snapshots derive latest message time from persisted history')
 const recoveredHydrated = readHydratedThreadDetails(recoveredDb, recoveredShell, recoveredSession.id).get(recoveredThread.id)
 for (const [reader, recoveredError] of [
     ['page', recoveredPage.activities.find((activity) => activity.id === recoveredErrorActivityId)],

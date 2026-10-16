@@ -7,6 +7,7 @@ export const AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000
 
 export function isAssistantChatSettled(session: AssistantSession, overrides: SettlementOverrides, { priority, ready, activityAt, now = Date.now() }: { priority: boolean; ready: boolean; activityAt: string; now?: number }): boolean {
     if (priority) return false
+    if (typeof session.settled === 'boolean') return session.settled
     const override = overrides[session.id]
     if (override && isSidebarSettlementCurrent(session, override)) return override.state === 'settled'
     const activity = Date.parse(activityAt)

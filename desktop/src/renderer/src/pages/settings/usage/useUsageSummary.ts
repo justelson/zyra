@@ -24,13 +24,14 @@ export async function fetchUsageSummary(input: UsageSummaryInput, force = false)
     pending.set(key, request)
     return request
 }
-export function useUsageSummary(days: UsageRange, harness: UsageSummaryInput['harness'] = 'zyra') {
+export function useUsageSummary(days: UsageRange, harness: UsageSummaryInput['harness'] = 'zyra', active = true) {
     const [summary, setSummary] = useState<UsageSummary | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [revision, setRevision] = useState(0)
     const refresh = useCallback(() => setRevision(value => value + 1), [])
     useEffect(() => {
+        if (!active) { setLoading(false); return }
         let disposed = false
         let running = false
         let lastLoadedAt = 0
@@ -50,6 +51,6 @@ export function useUsageSummary(days: UsageRange, harness: UsageSummaryInput['ha
         window.addEventListener('focus', visible)
         document.addEventListener('visibilitychange', visible)
         return () => { disposed = true; clearInterval(interval); window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible) }
-    }, [days, harness, revision])
+    }, [days, harness, revision, active])
     return { summary, loading, error, refresh }
 }

@@ -20,6 +20,7 @@ import { registerIpcHandlers } from './ipc'
 import { ipcMain, registerTrustedIpcSender } from './ipc/trusted-ipc'
 import { configurePreviewTerminalWorkspaceAuthorizer, disposePreviewTerminalRuntime } from './ipc/handlers/preview-terminal-handlers'
 import { configureProjectOpenAnalytics } from './ipc/handlers/project-details-handlers'
+import { disposeDeveloperWorkflowTasks } from './ipc/handlers/developer-workflow-handlers'
 import { configureAssistantService, disposeAssistantService, getAssistantService } from './assistant'
 import { AssistantUtilityWindowManager, type ResolvedUtilityChat, type UtilityWindowCreationOptions } from './assistant/assistant-utility-window-manager'
 import { persistAssistantClipboardImage, resolveAssistantClipboardAttachment } from './assistant/clipboard-attachments'
@@ -1373,6 +1374,7 @@ app.on('before-quit', (event) => {
         await Promise.all([
             browserRuntime?.stop().catch((error) => log.warn('[Shutdown] Browser runtime cleanup failed', error)),
             assistantUtilityWindowManager.dispose(),
+            disposeDeveloperWorkflowTasks(),
             setupServices.auth.dispose().catch((error) => log.warn('[Shutdown] OpenAI auth worker cleanup failed', error)),
             disposeAgentControlBroker().catch((error) => log.warn('[Shutdown] Agent Control cleanup failed', error)),
             disposeBrowserThreatProtectionService().catch((error) => log.warn('[Shutdown] Browser phishing protection cleanup failed', error)),

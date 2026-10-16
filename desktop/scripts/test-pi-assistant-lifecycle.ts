@@ -53,6 +53,7 @@ mock.module('electron', () => ({
     globalShortcut: { register: () => true, unregisterAll: electronNoop }
 }))
 const { ZyraRuntime, buildArgumentPreviewPatch, buildLiveAssistantTurnUsage, classifyZyraToolActivity, completeAssistantTurnUsage, mergeAssistantTurnUsage, resolveAssistantUsageMessageIdentity, shouldAccountAssistantMessageUsage } = await import('../src/main/assistant/zyra-runtime')
+const { DesktopAgentServerConnection } = await import('../src/main/assistant/zyra-agent-server-worker')
 const { resolveLiveContextUsage } = await import('../../src/live-context-usage.mjs')
 const { ZyraAccountService } = await import('../src/main/assistant/zyra-account-service')
 
@@ -200,6 +201,448 @@ assert.match(structuredEditPreview || '', /-export \{ oldValue \}[\s\S]*\+export
 const zyraRuntimeSource = readFileSync(new URL('../src/main/assistant/zyra-runtime.ts', import.meta.url), 'utf8')
 assert.match(zyraRuntimeSource, /sessionUsage && metadata\?\.replay !== true/, 'historical replay cannot replace the current cumulative session-cost snapshot')
 const { deleteAssistantSessionAction, interruptAssistantTurnAction, selectAssistantSessionAction } = await import('../src/main/assistant/service-session-actions')
+
+const concurrentConnectRuntime = new ZyraRuntime()
+const concurrentConnectInternals = concurrentConnectRuntime as any
+let releaseConcurrentAvailability!: () => void
+const concurrentAvailabilityGate = new Promise<void>((resolve) => { releaseConcurrentAvailability = resolve })
+let concurrentAvailabilityCalls = 0
+let concurrentWorkerCount = 0
+concurrentConnectInternals.checkAvailability = async () => {
+    concurrentAvailabilityCalls += 1
+    await concurrentAvailabilityGate
+    return { available: true, reason: null }
+}
+concurrentConnectInternals.getAgentServerConnection = () => ({
+    updatePluginAuthority: async () => undefined,
+    createWorker: () => {
+        concurrentWorkerCount += 1
+        return {
+            serverOwnedLifecycle: true,
+            onEvent: () => () => undefined,
+            setControlRequestHandler: () => undefined,
+            isAlive: () => true,
+            request: async (type: string) => {
+                assert.equal(type, 'connect')
+                return {
+                    threadId: 'provider-concurrent-connect',
+                    providerThreadId: 'provider-concurrent-connect',
+                    model: 'openai-codex/gpt-5.6-sol',
+                    thinking: 'xhigh',
+                    profile: 'default',
+                    runtimeMode: 'approval-required'
+                }
+            },
+            flushReplay: () => undefined,
+            dispose: () => undefined
+        }
+    }
+})
+const concurrentThread = {
+    id: 'thread-concurrent-connect',
+    providerThreadId: null,
+    model: 'openai-codex/gpt-5.6-sol',
+    thinking: 'xhigh',
+    runtimeMode: 'approval-required',
+    profile: 'default',
+    webSearch: false,
+    webFetch: false,
+    state: 'idle',
+    latestTurn: null,
+    canonicalPresence: null
+} as unknown as AssistantThread
+const concurrentConnects = [concurrentConnectRuntime.connect(concurrentThread, process.cwd())]
+while (concurrentAvailabilityCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+for (let index = 1; index < 5; index += 1) {
+    concurrentConnects.push(concurrentConnectRuntime.connect(concurrentThread, process.cwd()))
+}
+await Promise.resolve()
+releaseConcurrentAvailability()
+await Promise.all(concurrentConnects)
+assert.equal(concurrentWorkerCount, 1, 'five simultaneous Desktop connect IPC calls must share one runtime worker for the new thread')
+concurrentConnectRuntime.dispose()
+
+const canonicalCancelRuntime = new ZyraRuntime()
+const canonicalCancelInternals = canonicalCancelRuntime as any
+let releaseCanonicalCancelAvailability!: () => void
+const canonicalCancelAvailabilityGate = new Promise<void>((resolve) => { releaseCanonicalCancelAvailability = resolve })
+let canonicalCancelAvailabilityCalls = 0
+let canonicalCancelWorkerCount = 0
+canonicalCancelInternals.checkAvailability = async () => {
+    canonicalCancelAvailabilityCalls += 1
+    await canonicalCancelAvailabilityGate
+    return { available: true, reason: null }
+}
+canonicalCancelInternals.getAgentServerConnection = () => ({
+    updatePluginAuthority: async () => undefined,
+    createWorker: () => {
+        canonicalCancelWorkerCount += 1
+        return {
+            serverOwnedLifecycle: true,
+            onEvent: () => () => undefined,
+            setControlRequestHandler: () => undefined,
+            isAlive: () => true,
+            request: async () => ({
+                threadId: 'provider-canonical-cancel',
+                providerThreadId: 'provider-canonical-cancel',
+                model: 'openai-codex/gpt-5.6-sol',
+                thinking: 'xhigh',
+                profile: 'default',
+                runtimeMode: 'approval-required'
+            }),
+            flushReplay: () => undefined,
+            dispose: () => undefined
+        }
+    }
+})
+const localOnlyCanonicalCancelThread = {
+    ...concurrentThread,
+    id: 'thread-canonical-cancel',
+    providerThreadId: null
+} as AssistantThread
+const canonicalCancelThread = {
+    ...localOnlyCanonicalCancelThread,
+    providerThreadId: 'provider-canonical-cancel'
+} as AssistantThread
+const cancelledBeforeContext = canonicalCancelRuntime.connect(localOnlyCanonicalCancelThread, process.cwd())
+while (canonicalCancelAvailabilityCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+const joinedAfterCanonicalDiscovery = canonicalCancelRuntime.connect(canonicalCancelThread, process.cwd())
+canonicalCancelRuntime.disconnect(canonicalCancelThread.providerThreadId!)
+const replacementBeforeContext = canonicalCancelRuntime.connect(canonicalCancelThread, process.cwd())
+const canonicalCancelReconnectDeadline = Date.now() + 250
+while (canonicalCancelAvailabilityCalls < 2 && Date.now() < canonicalCancelReconnectDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(canonicalCancelAvailabilityCalls, 2, 'canonical-id disconnect must invalidate a pre-context local-thread connection')
+releaseCanonicalCancelAvailability()
+await Promise.all([cancelledBeforeContext, joinedAfterCanonicalDiscovery, replacementBeforeContext])
+assert.equal(canonicalCancelWorkerCount, 1, 'only the post-cancellation connection may create a worker')
+canonicalCancelRuntime.dispose()
+
+const cancelledAttachRuntime = new ZyraRuntime()
+const cancelledAttachInternals = cancelledAttachRuntime as any
+const cancelledAttachConnection = new DesktopAgentServerConnection(process.cwd())
+let cancelledAttachCalls = 0
+let cancelledAttachDetachCalls = 0
+let resolveCancelledAttach!: (result: Record<string, unknown>) => void
+const cancelledAttachGate = new Promise<Record<string, unknown>>((resolve) => { resolveCancelledAttach = resolve })
+const connectedAttachResult = {
+    sessionKey: 'provider-cancelled-attach',
+    canonicalChatId: 'provider-cancelled-attach',
+    connected: {
+        threadId: 'provider-cancelled-attach',
+        providerThreadId: 'provider-cancelled-attach',
+        model: 'openai-codex/gpt-5.6-sol',
+        thinking: 'xhigh',
+        profile: 'default',
+        runtimeMode: 'approval-required'
+    }
+}
+const cancelledAttachClient = {
+    request: async () => ({}),
+    attach: async () => {
+        cancelledAttachCalls += 1
+        return cancelledAttachCalls === 1 ? cancelledAttachGate : connectedAttachResult
+    },
+    detach: async () => { cancelledAttachDetachCalls += 1 },
+    close: () => undefined
+}
+;(cancelledAttachConnection as any).clientPromise = Promise.resolve(cancelledAttachClient)
+cancelledAttachInternals.checkAvailability = async () => ({ available: true, reason: null })
+cancelledAttachInternals.getAgentServerConnection = () => cancelledAttachConnection
+const cancelledAttachThread = {
+    ...concurrentThread,
+    id: 'thread-cancelled-attach'
+} as AssistantThread
+const firstCancelledAttach = cancelledAttachRuntime.connect(cancelledAttachThread, process.cwd())
+while (cancelledAttachCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+cancelledAttachRuntime.disconnect(cancelledAttachThread.id)
+const reconnectedAfterCancelledAttach = cancelledAttachRuntime.connect(cancelledAttachThread, process.cwd())
+const cancelledAttachReconnectDeadline = Date.now() + 250
+while (cancelledAttachCalls < 2 && Date.now() < cancelledAttachReconnectDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(cancelledAttachCalls, 2, 'reconnecting after disconnect must not join the cancelled attachment')
+await reconnectedAfterCancelledAttach
+resolveCancelledAttach(connectedAttachResult)
+await firstCancelledAttach
+assert.equal(cancelledAttachRuntime.hasSession(cancelledAttachThread.id), true, 'the replacement attachment remains the active runtime session')
+assert.equal(
+    (cancelledAttachConnection as any).workers.get('provider-cancelled-attach')?.size,
+    1,
+    'a disposed worker cannot register itself after its delayed server attachment completes'
+)
+assert.equal(cancelledAttachDetachCalls, 0, 'discarding a stale attachment cannot remotely detach its active replacement')
+cancelledAttachRuntime.dispose()
+
+const pendingReplacementConnection = new DesktopAgentServerConnection(process.cwd())
+let pendingReplacementAttachCalls = 0
+let pendingReplacementDetachCalls = 0
+let resolvePendingReplacement!: (result: Record<string, unknown>) => void
+const pendingReplacementGate = new Promise<Record<string, unknown>>((resolve) => { resolvePendingReplacement = resolve })
+const pendingReplacementResult = {
+    ...connectedAttachResult,
+    sessionKey: 'provider-pending-replacement',
+    canonicalChatId: 'provider-pending-replacement'
+}
+const pendingReplacementClient = {
+    attach: async () => {
+        pendingReplacementAttachCalls += 1
+        return pendingReplacementAttachCalls === 1 ? pendingReplacementResult : pendingReplacementGate
+    },
+    detach: async () => { pendingReplacementDetachCalls += 1 },
+    close: () => undefined
+}
+;(pendingReplacementConnection as any).clientPromise = Promise.resolve(pendingReplacementClient)
+const replacedWorker = pendingReplacementConnection.createWorker(process.cwd())
+await replacedWorker.request('connect', {
+    threadId: 'provider-pending-replacement',
+    localThreadId: 'thread-pending-replacement',
+    cwd: process.cwd()
+})
+const pendingReplacementWorker = pendingReplacementConnection.createWorker(process.cwd())
+const pendingReplacementAttach = pendingReplacementWorker.request('connect', {
+    threadId: 'provider-pending-replacement',
+    localThreadId: 'thread-pending-replacement',
+    cwd: process.cwd()
+})
+while (pendingReplacementAttachCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0))
+replacedWorker.dispose()
+await new Promise((resolve) => setTimeout(resolve, 0))
+assert.equal(pendingReplacementDetachCalls, 0, 'disposing an attached worker cannot remotely detach its pending replacement')
+resolvePendingReplacement(pendingReplacementResult)
+await pendingReplacementAttach
+assert.equal(pendingReplacementDetachCalls, 0)
+pendingReplacementWorker.dispose()
+const pendingReplacementDetachDeadline = Date.now() + 250
+while (pendingReplacementDetachCalls < 1 && Date.now() < pendingReplacementDetachDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(pendingReplacementDetachCalls, 1, 'the final worker release detaches the shared remote session once')
+pendingReplacementConnection.close()
+
+const failedReplacementConnection = new DesktopAgentServerConnection(process.cwd())
+let failedReplacementAttachCalls = 0
+let failedReplacementDetachCalls = 0
+let rejectFailedReplacement!: (error: Error) => void
+const failedReplacementGate = new Promise<Record<string, unknown>>((_, reject) => { rejectFailedReplacement = reject })
+const failedReplacementResult = {
+    ...connectedAttachResult,
+    sessionKey: 'provider-failed-replacement',
+    canonicalChatId: 'provider-failed-replacement'
+}
+const failedReplacementClient = {
+    attach: async () => {
+        failedReplacementAttachCalls += 1
+        return failedReplacementAttachCalls === 1 ? failedReplacementResult : failedReplacementGate
+    },
+    detach: async () => { failedReplacementDetachCalls += 1 },
+    close: () => undefined
+}
+;(failedReplacementConnection as any).clientPromise = Promise.resolve(failedReplacementClient)
+const failedReplacementSourceWorker = failedReplacementConnection.createWorker(process.cwd())
+await failedReplacementSourceWorker.request('connect', {
+    threadId: 'provider-failed-replacement',
+    localThreadId: 'thread-failed-replacement',
+    cwd: process.cwd()
+})
+const failedReplacementWorker = failedReplacementConnection.createWorker(process.cwd())
+const failedReplacementAttach = failedReplacementWorker.request('connect', {
+    threadId: 'provider-failed-replacement',
+    localThreadId: 'thread-failed-replacement',
+    cwd: process.cwd()
+})
+while (failedReplacementAttachCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0))
+failedReplacementSourceWorker.dispose()
+await new Promise((resolve) => setTimeout(resolve, 0))
+assert.equal(failedReplacementDetachCalls, 0)
+rejectFailedReplacement(new Error('replacement attach failed'))
+await assert.rejects(failedReplacementAttach, /replacement attach failed/)
+const failedReplacementDetachDeadline = Date.now() + 250
+while (failedReplacementDetachCalls < 1 && Date.now() < failedReplacementDetachDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(failedReplacementDetachCalls, 1, 'failed replacement attachment inherits and releases the stale remote lease')
+failedReplacementWorker.dispose()
+failedReplacementConnection.close()
+
+const disposedReplacementConnection = new DesktopAgentServerConnection(process.cwd())
+let disposedReplacementAttachCalls = 0
+let disposedReplacementDetachCalls = 0
+let resolveDisposedReplacement!: (result: Record<string, unknown>) => void
+const disposedReplacementGate = new Promise<Record<string, unknown>>((resolve) => { resolveDisposedReplacement = resolve })
+const disposedReplacementResult = {
+    ...connectedAttachResult,
+    sessionKey: 'provider-disposed-replacement',
+    canonicalChatId: 'provider-disposed-replacement'
+}
+const disposedReplacementClient = {
+    attach: async () => {
+        disposedReplacementAttachCalls += 1
+        return disposedReplacementAttachCalls === 1 ? disposedReplacementResult : disposedReplacementGate
+    },
+    detach: async () => { disposedReplacementDetachCalls += 1 },
+    close: () => undefined
+}
+;(disposedReplacementConnection as any).clientPromise = Promise.resolve(disposedReplacementClient)
+const disposedReplacementSourceWorker = disposedReplacementConnection.createWorker(process.cwd())
+await disposedReplacementSourceWorker.request('connect', {
+    threadId: 'provider-disposed-replacement',
+    localThreadId: 'thread-disposed-replacement',
+    cwd: process.cwd()
+})
+const disposedReplacementWorker = disposedReplacementConnection.createWorker(process.cwd())
+const disposedReplacementAttach = disposedReplacementWorker.request('connect', {
+    threadId: 'provider-disposed-replacement',
+    localThreadId: 'thread-disposed-replacement',
+    cwd: process.cwd()
+})
+while (disposedReplacementAttachCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0))
+disposedReplacementSourceWorker.dispose()
+await new Promise((resolve) => setTimeout(resolve, 0))
+assert.equal(disposedReplacementDetachCalls, 0)
+disposedReplacementWorker.dispose()
+const disposedReplacementDetachDeadline = Date.now() + 250
+while (disposedReplacementDetachCalls < 1 && Date.now() < disposedReplacementDetachDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(disposedReplacementDetachCalls, 1, 'disposing a pending replacement wakes the inherited remote-lease cleanup')
+resolveDisposedReplacement(disposedReplacementResult)
+await assert.rejects(disposedReplacementAttach, /worker is detached/)
+const disposedReplacementLateDetachDeadline = Date.now() + 250
+while (disposedReplacementDetachCalls < 2 && Date.now() < disposedReplacementLateDetachDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+assert.equal(disposedReplacementDetachCalls, 2, 'the late disposed attachment also releases its returned remote lease')
+disposedReplacementConnection.close()
+
+const orphanedAttachConnection = new DesktopAgentServerConnection(process.cwd())
+let orphanedAttachCalls = 0
+let orphanedAttachDetachCalls = 0
+const orphanedAttachDetachTimes: number[] = []
+let resolveOrphanedAttach!: (result: Record<string, unknown>) => void
+const orphanedAttachGate = new Promise<Record<string, unknown>>((resolve) => { resolveOrphanedAttach = resolve })
+const orphanedAttachClient = {
+    attach: async () => {
+        orphanedAttachCalls += 1
+        if (orphanedAttachCalls === 1) return orphanedAttachGate
+        return {
+            ...connectedAttachResult,
+            sessionKey: 'provider-unrelated-attach',
+            canonicalChatId: 'provider-unrelated-attach'
+        }
+    },
+    detach: async (sessionKey: string) => {
+        if (sessionKey !== 'provider-orphaned-attach') return
+        orphanedAttachDetachCalls += 1
+        orphanedAttachDetachTimes.push(Date.now())
+        if (orphanedAttachDetachCalls === 1) throw new Error('transient detach failure')
+    },
+    close: () => undefined
+}
+;(orphanedAttachConnection as any).clientPromise = Promise.resolve(orphanedAttachClient)
+const orphanedWorker = orphanedAttachConnection.createWorker(process.cwd())
+const orphanedAttach = orphanedWorker.request('connect', {
+    localThreadId: 'thread-orphaned-attach',
+    cwd: process.cwd()
+})
+while (orphanedAttachCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+orphanedWorker.dispose()
+resolveOrphanedAttach({
+    ...connectedAttachResult,
+    sessionKey: 'provider-orphaned-attach',
+    canonicalChatId: 'provider-orphaned-attach'
+})
+await assert.rejects(orphanedAttach, /worker is detached/)
+while (orphanedAttachDetachCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+const unrelatedWorker = orphanedAttachConnection.createWorker(process.cwd())
+await unrelatedWorker.request('connect', {
+    localThreadId: 'thread-unrelated-attach',
+    cwd: process.cwd()
+})
+const orphanedAttachDetachDeadline = Date.now() + 1_000
+while (
+    (orphanedAttachDetachCalls < 2 || (orphanedAttachConnection as any).orphanedRemoteAttachments.size > 0)
+    && Date.now() < orphanedAttachDetachDeadline
+) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+}
+assert.equal(orphanedAttachDetachCalls, 2, 'a transient detach failure retries while retaining the orphaned remote lease')
+assert.ok(
+    (orphanedAttachDetachTimes[1] || 0) - (orphanedAttachDetachTimes[0] || 0) >= 80,
+    'unrelated attachment completion cannot bypass the orphan-specific detach backoff'
+)
+assert.equal((orphanedAttachConnection as any).orphanedRemoteAttachments.size, 0)
+unrelatedWorker.dispose()
+orphanedAttachConnection.close()
+
+const disconnectDuringDetachConnection = new DesktopAgentServerConnection(process.cwd())
+let disconnectDuringDetachCalls = 0
+let rejectDisconnectDuringDetach!: (error: Error) => void
+const disconnectDuringDetachGate = new Promise<void>((_, reject) => { rejectDisconnectDuringDetach = reject })
+const disconnectDuringDetachClient = {
+    attach: async () => ({
+        ...connectedAttachResult,
+        sessionKey: 'provider-disconnect-during-detach',
+        canonicalChatId: 'provider-disconnect-during-detach'
+    }),
+    detach: async () => {
+        disconnectDuringDetachCalls += 1
+        await disconnectDuringDetachGate
+    },
+    close: () => undefined
+}
+;(disconnectDuringDetachConnection as any).clientPromise = Promise.resolve(disconnectDuringDetachClient)
+const disconnectDuringDetachWorker = disconnectDuringDetachConnection.createWorker(process.cwd())
+await disconnectDuringDetachWorker.request('connect', {
+    threadId: 'provider-disconnect-during-detach',
+    localThreadId: 'thread-disconnect-during-detach',
+    cwd: process.cwd()
+})
+disconnectDuringDetachWorker.dispose()
+while (disconnectDuringDetachCalls < 1) await new Promise((resolve) => setTimeout(resolve, 0))
+;(disconnectDuringDetachConnection as any).handleClientDisconnect()
+rejectDisconnectDuringDetach(new Error('client disconnected during detach'))
+await new Promise((resolve) => setTimeout(resolve, 150))
+assert.equal(disconnectDuringDetachCalls, 1, 'client disconnect cannot resurrect a cleared orphan detach retry')
+assert.equal((disconnectDuringDetachConnection as any).orphanedRemoteAttachments.size, 0)
+assert.equal((disconnectDuringDetachConnection as any).attachmentReconcileRetryAt.size, 0)
+assert.equal((disconnectDuringDetachConnection as any).attachmentReconcileRetryTimer, null)
+disconnectDuringDetachConnection.close()
+
+const absentRemoteConnection = new DesktopAgentServerConnection(process.cwd())
+let absentRemoteDetachCalls = 0
+const absentRemoteClient = {
+    attach: async () => ({
+        ...connectedAttachResult,
+        sessionKey: 'provider-absent-remote',
+        canonicalChatId: 'provider-absent-remote'
+    }),
+    detach: async () => {
+        absentRemoteDetachCalls += 1
+        throw Object.assign(new Error('Agent-server session was not found.'), { code: 'AGENT_SERVER_SESSION_NOT_FOUND' })
+    },
+    close: () => undefined
+}
+;(absentRemoteConnection as any).clientPromise = Promise.resolve(absentRemoteClient)
+const absentRemoteWorker = absentRemoteConnection.createWorker(process.cwd())
+await absentRemoteWorker.request('connect', {
+    threadId: 'provider-absent-remote',
+    localThreadId: 'thread-absent-remote',
+    cwd: process.cwd()
+})
+absentRemoteWorker.dispose()
+const absentRemoteDeadline = Date.now() + 250
+while ((absentRemoteConnection as any).orphanedRemoteAttachments.size > 0 && Date.now() < absentRemoteDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+}
+await new Promise((resolve) => setTimeout(resolve, 150))
+assert.equal(absentRemoteDetachCalls, 1, 'server-confirmed attachment absence is terminal and cannot enter retry backoff')
+assert.equal((absentRemoteConnection as any).orphanedRemoteAttachments.size, 0)
+assert.equal((absentRemoteConnection as any).attachmentReconcileRetryAt.size, 0)
+assert.equal((absentRemoteConnection as any).attachmentReconcileRetryTimer, null)
+absentRemoteConnection.close()
+
 const {
     findDuplicateProjectedActivityIds,
     findDuplicateProjectedMessageIds,
@@ -1048,6 +1491,19 @@ assert.equal(liveAbortedCompletion?.itemId, `zyra-message:assistant:${liveAborte
 assert.equal(liveAbortedCompletion?.type === 'turn.completed' ? liveAbortedCompletion.payload.errorMessage : null, 'Request was aborted')
 assert.equal(replayGuardContext.activeTurnId, null)
 
+const restartEventStart = replayGuardEvents.length
+replayGuardHandler.handleZyraEvent(replayGuardContext, { type: 'agent_start' }, {
+    turnId: 'turn-peer-restart', replay: false
+})
+assert.equal(replayGuardContext.activeTurnId, 'turn-peer-restart', 'A fresh canonical restart remains controllable after Stop')
+assert.equal(replayGuardContext.completedTurnIds.has('turn-live-aborted'), true, 'The interrupted turn retains its completion identity')
+replayGuardHandler.handleZyraEvent(replayGuardContext, { type: 'agent_end', outcome: 'interrupted' }, {
+    turnId: 'turn-peer-restart', replay: false
+})
+const peerRestartEvents = replayGuardEvents.slice(restartEventStart)
+assert.equal(peerRestartEvents.filter(event => event.type === 'turn.started').length, 1)
+assert.equal(peerRestartEvents.filter(event => event.type === 'turn.completed').length, 1)
+
 replayGuardEvents.length = 0
 replayGuardContext.completedTurnIds.clear()
 replayGuardHandler.handleZyraEvent(replayGuardContext, {
@@ -1679,6 +2135,13 @@ const liveInterruptedActivities = findProjectedRecord(projectedThread.id)?.threa
 assert.equal(liveInterruptedActivities.length, 1, 'live interrupted completion projects one authoritative terminal activity')
 assert.equal(liveInterruptedActivities[0]?.id, `shared-error:zyra-message:assistant:${liveAbortedTimestamp}`)
 
+handleAssistantRuntimeEvent(peerRestartEvents.find(event => event.type === 'turn.started')!, projectedDeps)
+assert.equal(findProjectedRecord(projectedThread.id)?.thread.latestTurn?.id, 'turn-peer-restart')
+assert.equal(findProjectedRecord(projectedThread.id)?.thread.latestTurn?.state, 'running', 'The UI projection exposes restarted work after an interrupted turn')
+assert.equal(findProjectedRecord(projectedThread.id)?.thread.state, 'running')
+handleAssistantRuntimeEvent(peerRestartEvents.find(event => event.type === 'turn.completed')!, projectedDeps)
+assert.equal(findProjectedRecord(projectedThread.id)?.thread.state, 'ready')
+
 const recoveredTurnEvents = replayGuardEvents.filter((event) => event.turnId === 'turn-live-recovered')
 const recoveredTurnCompletionIndex = recoveredTurnEvents.findIndex((event) => event.type === 'turn.completed')
 assert.ok(recoveredTurnCompletionIndex > 0)
@@ -1824,6 +2287,109 @@ if (completedCompactionEvent?.type === 'activity') {
     } })
     for (const live of runtimeEvents.slice(offset).filter(event => event.type === 'activity')) handleAssistantRuntimeEvent(live, projectedDeps)
     assert.equal(findProjectedRecord(context.localThreadId)?.thread.activities.filter(activity => activity.kind === 'context.compaction').length, 2, 'a genuine new compaction remains separate even with equal metrics')
+}
+
+// Reopening can hydrate the canonical row before replaying a completed lifecycle.
+{
+    const savedSnapshot = projectedSnapshot
+    const completion = completedCompactionEvent.payload.data || {}
+    const canonical = {
+        id: 'shared-activity:canonical-reopen', kind: 'context-compaction', tone: 'info', summary: 'Context compacted',
+        turnId: 'original-canonical-turn', createdAt: completedCompactionEvent.createdAt,
+        payload: { canonicalEntry: { type: 'compaction', firstKeptEntryId: completion.firstKeptEntryId, tokensBefore: completion.tokensBefore } }
+    } as AssistantThread['activities'][number]
+    projectedSnapshot = structuredClone(savedSnapshot)
+    const thread = findProjectedRecord(context.localThreadId)!.thread
+    thread.activities = [canonical]
+    thread.activityCount = 1
+    for (let visit = 0; visit < 4; visit++) {
+        const offset = runtimeEvents.length
+        handleEvent({ type: 'compaction_start', reason: 'threshold' }, { replay: true, sequence: 199, occurredAt: runningCompactionEvent!.createdAt, turnId: 'reopened-alias' })
+        handleEvent({ type: 'compaction_end', reason: 'threshold', result: { firstKeptEntryId: completion.firstKeptEntryId, tokensBefore: completion.tokensBefore } }, { replay: true, sequence: 200, occurredAt: completedCompactionEvent.createdAt, turnId: 'reopened-alias' })
+        await Promise.resolve()
+        assert.equal(runtimeEvents.slice(offset).some(event => event.type === 'activity' && event.payload.data?.status === 'running'), false, 'completed replay cannot flash active compaction or block sending')
+        for (const event of runtimeEvents.slice(offset).filter(event => event.type === 'activity')) handleAssistantRuntimeEvent(event, projectedDeps)
+        const rows = findProjectedRecord(context.localThreadId)!.thread.activities
+        assert.equal(rows.length, 1, 'canonical hydration followed by replay must retain one compaction')
+        assert.equal(rows[0].id, canonical.id)
+        assert.equal(rows[0].kind, 'context-compaction', 'replay preserves the canonical row kind')
+        assert.equal(rows[0].turnId, canonical.turnId)
+    }
+    projectedSnapshot = savedSnapshot
+}
+
+// Recovery of an older missing end must not consume current live maintenance.
+{
+    handleEvent({ type: 'compaction_start', reason: 'manual' }, { sequence: 600, turnId: 'current-maintenance' })
+    const active = context.activeCompaction
+    handleEvent({ type: 'compaction_end', reason: 'threshold', aborted: true, recoveredAfterRestart: true }, { replay: true, sequence: 500, turnId: 'old-maintenance' })
+    assert.equal(context.activeCompaction, active, 'settling abandoned history preserves the current lifecycle')
+    handleEvent({ type: 'compaction_end', reason: 'manual', aborted: true }, { sequence: 601, turnId: 'current-maintenance' })
+    assert.equal(context.activeCompaction, null)
+}
+
+// A saved running row can outlive both its worker and the bounded journal.
+{
+    const savedSnapshot = projectedSnapshot
+    projectedSnapshot = structuredClone(savedSnapshot)
+    const thread = findProjectedRecord(context.localThreadId)!.thread
+    const stale = { ...projectedCompactionActivities[0], id: 'saved-orphan', payload: { status: 'running', sourceSequence: 50, startedSequence: 50 } }
+    const active = { ...stale, id: 'still-maintaining', payload: { status: 'running', sourceSequence: 60, startedSequence: 60 } }
+    thread.activities = [stale, active]
+    thread.activityCount = 2
+    const { default: initSqlJs } = await import('sql.js/dist/sql-asm.js')
+    const { initializeAssistantPersistenceSchema } = await import('../src/main/assistant/persistence-utils')
+    const { replaceAssistantSnapshot, persistAssistantEvent } = await import('../src/main/assistant/persistence-write')
+    const { readAssistantTimelineProjectionRows } = await import('../src/main/assistant/persistence-read')
+    const { hasActiveAssistantCompaction } = await import('../src/shared/assistant/compaction-state')
+    const SQL = await initSqlJs()
+    const db = new SQL.Database()
+    initializeAssistantPersistenceSchema(db)
+    replaceAssistantSnapshot(db, projectedSnapshot)
+    const append = projectedDeps.appendEvent
+    projectedDeps.appendEvent = (...args: Parameters<typeof append>) => {
+        append(...args)
+        persistAssistantEvent(db, { sequence: projectedSequence, eventId: `compaction-db-${projectedSequence}`, type: args[0], occurredAt: args[1], payload: args[2], sessionId: args[3], threadId: args[4] }, projectedSnapshot)
+    }
+    handleAssistantRuntimeEvent({ eventId: 'authoritative-attachment', type: 'thread.started', createdAt: '2026-07-10T18:00:00Z', threadId: context.localThreadId,
+        payload: { providerThreadId: context.providerThreadId, activeCompactions: [{ sequence: 60 }] } } as AssistantRuntimeEvent, projectedDeps)
+    const rows = findProjectedRecord(context.localThreadId)!.thread.activities
+    assert.equal(rows.find(row => row.id === stale.id)?.payload?.status, 'cancelled', 'authoritative attach settles cached maintenance absent from the server')
+    assert.equal(rows.find(row => row.id === active.id)?.payload?.status, 'running', 'genuine active maintenance remains visible')
+    assert.equal(hasActiveAssistantCompaction(rows), true, 'the composer still waits for real maintenance')
+    handleAssistantRuntimeEvent({ eventId: 'maintenance-ended-while-away', type: 'thread.started', createdAt: '2026-07-10T18:01:00Z', threadId: context.localThreadId,
+        payload: { providerThreadId: context.providerThreadId, activeCompactions: [] } }, projectedDeps)
+    const reopened = new SQL.Database(db.export())
+    const persisted = readAssistantTimelineProjectionRows(reopened, context.localThreadId)
+    const { readAssistantActivity } = await import('../src/main/assistant/persistence-history')
+    persisted.activities = persisted.activities.map(activity => readAssistantActivity(reopened, context.localThreadId, activity.id)!)
+    assert.ok(persisted.activities.every(activity => activity.payload?.status === 'cancelled'), 'the actual persisted payloads are settled')
+    assert.equal(persisted.activities.length, 2, 'restart reconciliation preserves both historical attempts')
+    assert.equal(persisted.messages.length, thread.messages.length, 'compaction recovery preserves the transcript')
+    assert.equal(hasActiveAssistantCompaction(persisted.activities), false, 'a second database reopen cannot block sending on abandoned maintenance')
+    reopened.close()
+    db.close()
+    projectedDeps.appendEvent = append
+    projectedSnapshot = savedSnapshot
+}
+
+// A missed end from an older run must not absorb a distinct later operation.
+{
+    const savedSnapshot = projectedSnapshot
+    projectedSnapshot = structuredClone(savedSnapshot)
+    const thread = findProjectedRecord(context.localThreadId)!.thread
+    const stale = { ...projectedCompactionActivities[0], id: 'old-unfinished', payload: { status: 'running', sourceSequence: 50, startedSequence: 50 } }
+    thread.activities = [stale]
+    thread.activityCount = 1
+    const offset = runtimeEvents.length
+    handleEvent({ type: 'compaction_start', reason: 'manual' }, { sequence: 300, occurredAt: '2026-07-10T17:00:00Z', turnId: 'new-operation-turn' })
+    handleEvent({ type: 'compaction_end', reason: 'manual', aborted: true }, { sequence: 301, occurredAt: '2026-07-10T17:00:01Z', turnId: 'new-operation-turn' })
+    for (const event of runtimeEvents.slice(offset).filter(event => event.type === 'activity')) handleAssistantRuntimeEvent(event, projectedDeps)
+    const rows = findProjectedRecord(context.localThreadId)!.thread.activities
+    assert.equal(rows.length, 2, 'distinct sequence identities retain distinct attempts')
+    assert.equal(rows.find(row => row.id === stale.id)?.payload?.status, 'running', 'the older attempt must not be rewritten by the newer result')
+    assert.equal(rows.find(row => row.id !== stale.id)?.payload?.status, 'cancelled')
+    projectedSnapshot = savedSnapshot
 }
 
 handleAssistantRuntimeEvent(observedRunningCommand, projectedDeps)

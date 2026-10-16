@@ -311,7 +311,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
                 return
             }
         }
-        const inlineMentionFiles: ComposerContextFile[] = inlineMentionTags.map((tag) => {
+        const inlineMentionFiles: ComposerContextFile[] = inlineMentionTags.filter(tag => tag.kind === 'file' || tag.kind === 'directory').map((tag) => {
             const meta = getContextFileMeta({ path: tag.path, name: tag.label })
             return {
                 id: `mention_${tag.id}`,
@@ -346,6 +346,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         onOptimisticSendClear?.()
         restoreComposerFocus()
         const success = await onSend(prompt, contextFilesForSend, {
+            startInNewWorktree: args.startInNewWorktree || undefined,
             model: selectedModel || undefined,
             runtimeMode: runtimeModeForSend,
             interactionMode: selectedInteractionMode,

@@ -1,4 +1,4 @@
-import { recoverAttachmentReplay } from './agent-server-attachment-recovery'
+import { recoverAttachmentReplay, type ReplayEntry } from './agent-server-attachment-recovery'
 import { selectDesktopControlWorker } from './external-tool-routing'
 import { resolveDesktopAgentServerNamespace } from './agent-server-namespace'
 export { resolveDesktopAgentServerNamespace } from './agent-server-namespace'
@@ -49,13 +49,6 @@ type AgentServerClient = EventEmitter & {
     close(): void
 }
 
-type ReplayEntry = {
-    sequence?: number
-    occurredAt?: string
-    event?: unknown
-    requestContext?: { turnId?: string; localThreadId?: string } | null
-}
-
 export type CanonicalAgentChatPresence = {
     state: 'detached' | 'ready' | 'running' | 'background'
     activeTurnId: string | null
@@ -75,6 +68,8 @@ export type CanonicalAgentChatPresence = {
 }
 
 export type CanonicalAgentChat = {
+    settled?: boolean
+    settlementManual?: boolean
     agentConversationKind?: 'thread' | 'subagent' | null
     agentCreatedBy?: string | null
     agentLabel?: string | null
@@ -103,7 +98,7 @@ export type CanonicalAgentChat = {
 export type CanonicalAgentChatHistoryOptions = {
     before?: string | null
     limit?: number
-    toolResultBodies?: 'lazy-v1'
+    toolResultBodies?: 'lazy-v1' | 'lazy-desktop-v2'
 }
 
 export type CanonicalAgentChatHistory = {
@@ -134,6 +129,15 @@ type DesktopAgentServerConnectionOptions = {
 export class DesktopAgentServerConnection {
     private clientPromise: Promise<AgentServerClient> | null = null
     private readonly workers = new Map<string, Set<ZyraAgentServerWorker>>()
+    private readonly pendingAttachments = new Map<ZyraAgentServerWorker, Set<string>>()
+    private readonly attachedWorkerKeys = new Map<ZyraAgentServerWorker, Set<string>>()
+    private readonly orphanedRemoteAttachments = new Map<string, Set<string>>()
+    private attachmentReconcilePromise: Promise<void> | null = null
+    private attachmentReconcileRequested = false
+    private attachmentReconcileRetryTimer: ReturnType<typeof setTimeout> | null = null
+    private attachmentReconcileRetryTimerAt = 0
+    private readonly attachmentReconcileRetryAt = new Map<string, number>()
+    private readonly attachmentReconcileRetryDelayMs = new Map<string, number>()
     private readonly controlWorkers = new Map<string, ZyraAgentServerWorker>()
     private readonly detachedControlAbortControllers = new Map<string, AbortController>()
     private readonly pendingEvents = new Map<string, ReplayEntry[]>()
@@ -264,7 +268,7 @@ export class DesktopAgentServerConnection {
 
     async updateCanonicalChat(
         session: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean }
+        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<CanonicalAgentChat | null> {
         const client = await this.getClient()
         const result = await client.request('catalog.update', { session, ...patch }, { timeoutMs: 5_000 })
@@ -272,54 +276,73 @@ export class DesktopAgentServerConnection {
     }
 
     async attach(worker: ZyraAgentServerWorker, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const client = await this.getClient()
-        const result = await client.attach({
-            project: payload['cwd'],
-            cwd: payload['cwd'],
-            filesystemScope: payload['filesystemScope'],
-            pluginSkillSources: payload['pluginSkillSources'],
-            session: payload['threadId'] || payload['providerThreadId'],
-            localThreadId: payload['localThreadId'],
-            model: payload['model'],
-            thinking: payload['thinking'],
-            profile: payload['profile'],
-            runtimeMode: payload['runtimeMode'],
-            webSearch: payload['webSearch'],
-            webFetch: payload['webFetch'],
-            noSession: payload['noSession'],
-            lastSequence: worker.latestSequence
-        })
-        const sessionKey = String(result['sessionKey'] || result['canonicalChatId'] || '')
-        if (!sessionKey) throw new Error('Zyra agent server did not return a canonical chat id.')
-        worker.bindSession(sessionKey, payload)
-        const attachedWorkers = this.workers.get(sessionKey) || new Set<ZyraAgentServerWorker>()
-        attachedWorkers.add(worker)
-        this.workers.set(sessionKey, attachedWorkers)
-        const recovery = recoverAttachmentReplay(result, worker.latestSequence)
-        if (recovery.resetWatermark) worker.latestSequence = 0
-        const replay = [
-            ...this.takePendingEvents(sessionKey),
-            ...recovery.entries
-        ]
-        worker.queueReplay(replay)
-        const connected = asRecord(result['connected']) || {}
-        const activeRequestContext = asRecord(result['activeRequestContext'])
-        const presence = asRecord(result['presence'])
-        const presenceLatestTurn = asRecord(presence?.['latestTurn'])
-        const orphanedTurnId = !activeRequestContext
-            && presence?.['state'] === 'ready'
-            && presenceLatestTurn?.['state'] === 'running'
-            ? String(presenceLatestTurn['id'] || '') || null
-            : null
-        return {
-            ...connected,
-            threadId: String(result['canonicalChatId'] || connected['threadId'] || sessionKey),
-            providerThreadId: String(connected['providerThreadId'] || result['canonicalChatId'] || sessionKey),
-            agentServerActiveTurnId: activeRequestContext?.['turnId'],
-            agentServerLatestTurnId: presenceLatestTurn?.['id'],
-            agentServerLatestTurnState: presenceLatestTurn?.['state'],
-            agentServerLatestTurnCompletedAt: presenceLatestTurn?.['completedAt'],
-            agentServerOrphanedTurnId: orphanedTurnId || undefined
+        if (worker.isDisposed()) throw new Error('Zyra agent-server worker is detached.')
+        const attachmentKeys = new Set(
+            [payload['threadId'], payload['providerThreadId'], payload['localThreadId']]
+                .map((value) => String(value || '').trim()).filter(Boolean)
+        )
+        this.pendingAttachments.set(worker, attachmentKeys)
+        try {
+            const client = await this.getClient()
+            if (worker.isDisposed()) throw new Error('Zyra agent-server worker is detached.')
+            const result = await client.attach({
+                project: payload['cwd'],
+                cwd: payload['cwd'],
+                filesystemScope: payload['filesystemScope'],
+                pluginSkillSources: payload['pluginSkillSources'],
+                session: payload['threadId'] || payload['providerThreadId'],
+                localThreadId: payload['localThreadId'],
+                model: payload['model'],
+                thinking: payload['thinking'],
+                profile: payload['profile'],
+                runtimeMode: payload['runtimeMode'],
+                webSearch: payload['webSearch'],
+                webFetch: payload['webFetch'],
+                noSession: payload['noSession'],
+                lastSequence: worker.latestSequence
+            })
+            const sessionKey = String(result['sessionKey'] || result['canonicalChatId'] || '')
+            if (!sessionKey) throw new Error('Zyra agent server did not return a canonical chat id.')
+            if (worker.isDisposed()) {
+                this.markOrphanedRemoteAttachment(sessionKey, attachmentKeys)
+                throw new Error('Zyra agent-server worker is detached.')
+            }
+            worker.bindSession(sessionKey, payload)
+            const attachedWorkers = this.workers.get(sessionKey) || new Set<ZyraAgentServerWorker>()
+            attachedWorkers.add(worker)
+            this.workers.set(sessionKey, attachedWorkers)
+            this.attachedWorkerKeys.set(worker, attachmentKeys)
+            this.orphanedRemoteAttachments.delete(sessionKey)
+            this.clearAttachmentReconciliationRetry(sessionKey)
+            const recovery = recoverAttachmentReplay(result, worker.latestSequence)
+            if (recovery.resetWatermark) worker.latestSequence = 0
+            const replay = [...this.takePendingEvents(sessionKey), ...recovery.entries]
+            worker.queueReplay(replay)
+            const connected = asRecord(result['connected']) || {}
+            const activeRequestContext = asRecord(result['activeRequestContext'])
+            const presence = asRecord(result['presence'])
+            const presenceLatestTurn = asRecord(presence?.['latestTurn'])
+            const orphanedTurnId = !activeRequestContext
+                && presence?.['state'] === 'ready'
+                && presenceLatestTurn?.['state'] === 'running'
+                ? String(presenceLatestTurn['id'] || '') || null
+                : null
+            return {
+                ...connected,
+                threadId: String(result['canonicalChatId'] || connected['threadId'] || sessionKey),
+                providerThreadId: String(connected['providerThreadId'] || result['canonicalChatId'] || sessionKey),
+                agentServerPendingCompactions: Array.isArray(result['pendingOperations'])
+                    ? (result['pendingOperations'] as ReplayEntry[]).filter(entry => asRecord(entry.event)?.type === 'compaction_start').map(entry => ({ sequence: entry.sequence, occurredAt: entry.occurredAt }))
+                    : undefined,
+                agentServerActiveTurnId: activeRequestContext?.['turnId'],
+                agentServerLatestTurnId: presenceLatestTurn?.['id'],
+                agentServerLatestTurnState: presenceLatestTurn?.['state'],
+                agentServerLatestTurnCompletedAt: presenceLatestTurn?.['completedAt'],
+                agentServerOrphanedTurnId: orphanedTurnId || undefined
+            }
+        } finally {
+            this.pendingAttachments.delete(worker)
+            this.scheduleAttachmentReconciliation()
         }
     }
 
@@ -348,19 +371,18 @@ export class DesktopAgentServerConnection {
     }
 
     detach(worker: ZyraAgentServerWorker): void {
-        let detachRemote = false
-        if (worker.sessionKey) {
-            const attachedWorkers = this.workers.get(worker.sessionKey)
-            attachedWorkers?.delete(worker)
-            if (!attachedWorkers || attachedWorkers.size === 0) {
-                this.workers.delete(worker.sessionKey)
-                detachRemote = true
-            }
+        const sessionKey = worker.sessionKey
+        const attachmentKeys = this.attachedWorkerKeys.get(worker) || new Set(sessionKey ? [sessionKey] : [])
+        this.attachedWorkerKeys.delete(worker)
+        if (!sessionKey) {
+            if (this.pendingAttachments.has(worker)) this.scheduleAttachmentReconciliation()
+            return
         }
-        if (!detachRemote) return
-        void this.clientPromise?.then((client) => worker.sessionKey
-            ? client.detach(worker.sessionKey).catch(() => undefined)
-            : undefined)
+        const attachedWorkers = this.workers.get(sessionKey)
+        attachedWorkers?.delete(worker)
+        if (attachedWorkers && attachedWorkers.size > 0) return
+        this.workers.delete(sessionKey)
+        this.markOrphanedRemoteAttachment(sessionKey, attachmentKeys)
     }
 
     close(): void {
@@ -369,11 +391,147 @@ export class DesktopAgentServerConnection {
         void this.clientPromise?.then((client) => client.close())
         this.clientPromise = null
         this.workers.clear()
+        this.pendingAttachments.clear()
+        this.attachedWorkerKeys.clear()
+        this.orphanedRemoteAttachments.clear()
+        this.attachmentReconcileRequested = false
+        if (this.attachmentReconcileRetryTimer) clearTimeout(this.attachmentReconcileRetryTimer)
+        this.attachmentReconcileRetryTimer = null
+        this.attachmentReconcileRetryTimerAt = 0
+        this.attachmentReconcileRetryAt.clear()
+        this.attachmentReconcileRetryDelayMs.clear()
         this.controlWorkers.clear()
         for (const controller of this.detachedControlAbortControllers.values()) controller.abort(new Error('Desktop control connection closed.'))
         this.detachedControlAbortControllers.clear()
         this.pendingEvents.clear()
         this.catalogChangedListeners.clear()
+    }
+
+    private markOrphanedRemoteAttachment(sessionKey: string, attachmentKeys: Set<string>): void {
+        const keys = this.orphanedRemoteAttachments.get(sessionKey) || new Set<string>()
+        keys.add(sessionKey)
+        for (const key of attachmentKeys) keys.add(key)
+        this.orphanedRemoteAttachments.set(sessionKey, keys)
+        this.scheduleAttachmentReconciliation()
+    }
+
+    private scheduleAttachmentReconciliation(): void {
+        if (this.disposed) return
+        this.attachmentReconcileRequested = true
+        if (this.attachmentReconcilePromise) return
+        const pending = (async () => {
+            while (this.attachmentReconcileRequested && !this.disposed) {
+                this.attachmentReconcileRequested = false
+                await this.reconcileOrphanedRemoteAttachments()
+            }
+        })()
+        this.attachmentReconcilePromise = pending
+        void pending.then(
+            () => this.finishAttachmentReconciliation(pending),
+            () => this.finishAttachmentReconciliation(pending)
+        )
+    }
+
+    private finishAttachmentReconciliation(pending: Promise<void>): void {
+        if (this.attachmentReconcilePromise !== pending) return
+        this.attachmentReconcilePromise = null
+        if (this.attachmentReconcileRequested) this.scheduleAttachmentReconciliation()
+    }
+
+    private scheduleAttachmentReconciliationRetry(sessionKey: string): void {
+        if (this.disposed) return
+        const delayMs = this.attachmentReconcileRetryDelayMs.get(sessionKey) || 100
+        this.attachmentReconcileRetryDelayMs.set(sessionKey, Math.min(5_000, delayMs * 2))
+        this.attachmentReconcileRetryAt.set(sessionKey, Date.now() + delayMs)
+        this.scheduleAttachmentReconciliationRetryTimer()
+    }
+
+    private clearAttachmentReconciliationRetry(sessionKey: string): void {
+        this.attachmentReconcileRetryAt.delete(sessionKey)
+        this.attachmentReconcileRetryDelayMs.delete(sessionKey)
+        this.scheduleAttachmentReconciliationRetryTimer()
+    }
+
+    private scheduleAttachmentReconciliationRetryTimer(): void {
+        if (this.disposed) return
+        for (const sessionKey of this.attachmentReconcileRetryAt.keys()) {
+            if (this.orphanedRemoteAttachments.has(sessionKey)) continue
+            this.attachmentReconcileRetryAt.delete(sessionKey)
+            this.attachmentReconcileRetryDelayMs.delete(sessionKey)
+        }
+        const nextRetryAt = Math.min(...this.attachmentReconcileRetryAt.values())
+        if (!Number.isFinite(nextRetryAt)) {
+            if (this.attachmentReconcileRetryTimer) clearTimeout(this.attachmentReconcileRetryTimer)
+            this.attachmentReconcileRetryTimer = null
+            this.attachmentReconcileRetryTimerAt = 0
+            return
+        }
+        if (this.attachmentReconcileRetryTimer && this.attachmentReconcileRetryTimerAt <= nextRetryAt) return
+        if (this.attachmentReconcileRetryTimer) clearTimeout(this.attachmentReconcileRetryTimer)
+        this.attachmentReconcileRetryTimerAt = nextRetryAt
+        this.attachmentReconcileRetryTimer = setTimeout(() => {
+            this.attachmentReconcileRetryTimer = null
+            this.attachmentReconcileRetryTimerAt = 0
+            this.scheduleAttachmentReconciliation()
+        }, Math.max(0, nextRetryAt - Date.now()))
+        this.attachmentReconcileRetryTimer.unref?.()
+    }
+
+    private async reconcileOrphanedRemoteAttachments(): Promise<void> {
+        const clientPromise = this.clientPromise
+        if (!clientPromise) return
+        let client: AgentServerClient
+        try {
+            client = await clientPromise
+        } catch {
+            return
+        }
+        for (const [sessionKey, attachmentKeys] of [...this.orphanedRemoteAttachments]) {
+            if (this.disposed) return
+            if (this.orphanedRemoteAttachments.get(sessionKey) !== attachmentKeys) continue
+            const hasAttachedWorker = [...(this.workers.get(sessionKey) || [])]
+                .some((candidate) => !candidate.isDisposed())
+            if (hasAttachedWorker) {
+                this.orphanedRemoteAttachments.delete(sessionKey)
+                this.clearAttachmentReconciliationRetry(sessionKey)
+                continue
+            }
+            const hasPendingReplacement = [...this.pendingAttachments.entries()].some(([candidate, candidateKeys]) => {
+                if (candidate.isDisposed()) return false
+                if (candidateKeys.has(sessionKey)) return true
+                return [...candidateKeys].some((key) => attachmentKeys.has(key))
+            })
+            if (hasPendingReplacement) {
+                this.clearAttachmentReconciliationRetry(sessionKey)
+                continue
+            }
+            const retryAt = this.attachmentReconcileRetryAt.get(sessionKey) || 0
+            if (retryAt > Date.now()) continue
+            try {
+                await client.detach(sessionKey)
+                if (this.orphanedRemoteAttachments.get(sessionKey) === attachmentKeys) {
+                    this.orphanedRemoteAttachments.delete(sessionKey)
+                }
+                this.clearAttachmentReconciliationRetry(sessionKey)
+            } catch (error: any) {
+                const remoteAttachmentAbsent = [
+                    'AGENT_SERVER_SESSION_NOT_FOUND',
+                    'AGENT_SERVER_AUTH_FAILED',
+                    'AGENT_SERVER_DISCONNECTED'
+                ].includes(String(error?.code || ''))
+                if (remoteAttachmentAbsent) {
+                    if (this.orphanedRemoteAttachments.get(sessionKey) === attachmentKeys) {
+                        this.orphanedRemoteAttachments.delete(sessionKey)
+                    }
+                    this.clearAttachmentReconciliationRetry(sessionKey)
+                } else if (this.orphanedRemoteAttachments.get(sessionKey) === attachmentKeys) {
+                    this.scheduleAttachmentReconciliationRetry(sessionKey)
+                } else {
+                    this.clearAttachmentReconciliationRetry(sessionKey)
+                }
+            }
+        }
+        this.scheduleAttachmentReconciliationRetryTimer()
     }
 
     private async ensureAttached(worker: ZyraAgentServerWorker): Promise<void> {
@@ -387,6 +545,7 @@ export class DesktopAgentServerConnection {
 
     private markWorkerRemoteDetached(worker: ZyraAgentServerWorker): void {
         if (worker.sessionKey) this.workers.get(worker.sessionKey)?.delete(worker)
+        this.attachedWorkerKeys.delete(worker)
         worker.markRemoteDetached()
     }
 
@@ -395,6 +554,13 @@ export class DesktopAgentServerConnection {
             for (const worker of workers) worker.markRemoteDetached()
         }
         this.workers.clear()
+        this.attachedWorkerKeys.clear()
+        this.orphanedRemoteAttachments.clear()
+        if (this.attachmentReconcileRetryTimer) clearTimeout(this.attachmentReconcileRetryTimer)
+        this.attachmentReconcileRetryTimer = null
+        this.attachmentReconcileRetryTimerAt = 0
+        this.attachmentReconcileRetryAt.clear()
+        this.attachmentReconcileRetryDelayMs.clear()
         this.controlWorkers.clear()
         for (const controller of this.detachedControlAbortControllers.values()) controller.abort(new Error('Desktop control connection disconnected.'))
         this.detachedControlAbortControllers.clear()
@@ -546,6 +712,10 @@ export class ZyraAgentServerWorker implements ZyraWorkerLike {
         return !this.disposed && Boolean(this.sessionKey)
     }
 
+    isDisposed(): boolean {
+        return this.disposed
+    }
+
     async request(type: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
         if (this.disposed) throw new Error('Zyra agent-server worker is detached.')
         if (type === 'connect') return this.connection.attach(this, payload)
@@ -586,8 +756,8 @@ export class ZyraAgentServerWorker implements ZyraWorkerLike {
 
     receive(entry: ReplayEntry, replay: boolean): void {
         const sequence = Number(entry.sequence) || 0
-        if (sequence && sequence <= this.latestSequence) return
-        if (sequence) this.latestSequence = sequence
+        if (sequence && sequence <= this.latestSequence && !entry.recovery) return
+        if (sequence) this.latestSequence = Math.max(this.latestSequence, sequence)
         const metadata: ZyraWorkerEventMetadata = {
             ...(sequence ? { sequence } : {}),
             ...(entry.occurredAt ? { occurredAt: entry.occurredAt } : {}),

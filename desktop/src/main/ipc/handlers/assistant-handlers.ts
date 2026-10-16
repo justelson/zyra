@@ -402,6 +402,10 @@ export function handleAssistantArchiveSession(_event: Electron.IpcMainInvokeEven
     return withAssistantResult(() => getAssistantService().archiveSession(sessionId, archived))
 }
 
+export function handleAssistantSettleSession(_event: Electron.IpcMainInvokeEvent, sessionId: string, settled: boolean, migrateLegacy?: boolean) {
+    return withAssistantResult(() => getAssistantService().setSessionSettled(sessionId, settled, migrateLegacy))
+}
+
 export function handleAssistantDeleteSession(_event: Electron.IpcMainInvokeEvent, sessionId: string) {
     log.info('IPC: assistant:deleteSession', { sessionId })
     return withAssistantResult(() => getAssistantService().deleteSession(sessionId))

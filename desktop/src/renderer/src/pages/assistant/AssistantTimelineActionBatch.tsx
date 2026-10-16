@@ -12,18 +12,28 @@ import { getActivityDiffStats, getActivityElapsed, getActivityStatus, isAssistan
 import { InlineDiffStats } from './AssistantInlineDiffStats'
 import { AssistantActionBatchScroll } from './AssistantActionBatchScroll'
 import { ASSISTANT_ACTION_ICON_CLASS, ASSISTANT_ACTION_ROW_CLASS } from './assistant-action-row-layout'
-import { requestAssistantTimelineDisclosureAnchor } from './assistant-timeline-scroll-events'
+import { requestAssistantTimelineDisclosureAnchor, type AssistantActivityRevealRequest } from './assistant-timeline-scroll-events'
 
 const ACTION_BATCH_MOTION_MS = 220
+
+function ActionBatchContent({ children }: { children: ReactNode | (() => ReactNode) }) {
+    return <>{typeof children === 'function' ? children() : children}</>
+}
 
 export function AssistantTimelineActionBatch(props: {
     activities: AssistantActivity[]
     projectRootPath?: string | null
     controlRun?: boolean
-    children: ReactNode
+    revealActivityRequest?: AssistantActivityRevealRequest | null
+    children: ReactNode | (() => ReactNode)
 }) {
     const { settings } = useSettings()
-    const [expanded, setExpanded] = useState(false)
+    const revealActivityId = props.revealActivityRequest?.activityId
+    const containsRevealTarget = Boolean(revealActivityId && props.activities.some(activity => activity.id === revealActivityId))
+    const [expanded, setExpanded] = useState(containsRevealTarget)
+    useEffect(() => {
+        if (containsRevealTarget) setExpanded(true)
+    }, [props.revealActivityRequest, containsRevealTarget])
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const [nowIso, setNowIso] = useState(() => new Date().toISOString())
     const isRunning = (activity: AssistantActivity) => getActivityStatus(activity) === 'running'
@@ -111,9 +121,9 @@ export function AssistantTimelineActionBatch(props: {
                     aria-hidden="true"
                 />
             </button>
-            <AnimatedHeight isOpen={expanded} duration={ACTION_BATCH_MOTION_MS} crispContent>
+            <AnimatedHeight isOpen={expanded} duration={ACTION_BATCH_MOTION_MS} crispContent unmountOnExit>
                 <AssistantActionBatchScroll expanded={expanded}>
-                    {props.children}
+                    <ActionBatchContent>{props.children}</ActionBatchContent>
                 </AssistantActionBatchScroll>
             </AnimatedHeight>
         </div>

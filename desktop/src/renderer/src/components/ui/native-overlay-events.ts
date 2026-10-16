@@ -2,6 +2,15 @@ const documents = new Set<Document>()
 const changes = new Set<() => void>()
 const anchors = new Map<Element, Element>()
 
+/** DOM boxes in a cropped native document still need owner-window coordinates. */
+export function getOverlayOwnerRect(element: HTMLElement): DOMRect {
+    const rect = element.getBoundingClientRect()
+    const root = element.ownerDocument.getElementById('zyra-native-overlay-root')
+    if (!root) return rect
+    const origin = root.getBoundingClientRect()
+    return new DOMRect(rect.left - origin.left, rect.top - origin.top, rect.width, rect.height)
+}
+
 export function registerOverlayAnchor(anchor: Element, portalRoot: Element): () => void {
     anchors.set(portalRoot, anchor)
     return () => { if (anchors.get(portalRoot) === anchor) anchors.delete(portalRoot) }

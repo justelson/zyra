@@ -161,6 +161,8 @@ export interface AssistantThreadShell {
     profile?: string | null
     cwd: string | null
     messageCount: number
+    /** Latest known message creation time, retained when history is unloaded. */
+    lastMessageAt?: string | null
     activityCount: number
     proposedPlanCount: number
     lastSeenCompletedTurnId: string | null
@@ -394,6 +396,9 @@ export interface AssistantSession {
     id: string
     title: string
     titleGenerating?: boolean
+    /** Authoritative agent-server catalog state; absent for an unattached/legacy chat. */
+    settled?: boolean
+    settlementManual?: boolean
     mode: AssistantSessionMode
     /** Compatibility projection of workingRoot for legacy runtime and canonical-chat integrations. */
     projectPath: string | null

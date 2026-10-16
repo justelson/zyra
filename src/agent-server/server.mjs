@@ -82,6 +82,9 @@ export class ZyraAgentServer extends EventEmitter {
     this.catalog.index?.on?.("modelsChanged", change => this.broadcastCatalogChanged(change));
     this.clients = new Map();
     this.sessions = new Map();
+    this.settlementTimer = null;
+    this.settlementDeadline = null;
+    this.settlementStopping = false;
     this.threads = new AgentThreadCoordinator(this);
     this.pluginAuthority = new ServerPluginAuthority();
     this.utilityWorker = null;
@@ -109,6 +112,7 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   async start() {
+    this.settlementStopping = false;
     if (this.server) return this.descriptor();
     mkdirSync(this.paths.stateDirectory, { recursive: true });
     this.assertNoIncompatibleServer();
@@ -141,6 +145,10 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   async stop(reason = "Agent server stopped.") {
+    this.settlementStopping = true;
+    clearTimeout(this.settlementTimer);
+    this.settlementTimer = null;
+    this.settlementDeadline = null;
     this.sessionWorkerPool?.dispose(reason);
     this.externalTools.dispose();
     this.memoryQueue.dispose();
@@ -418,7 +426,14 @@ export class ZyraAgentServer extends EventEmitter {
       });
     }
     if (method === "catalog.update") {
+      if (params.settled !== undefined) {
+        if (typeof params.settled !== 'boolean') throw new AgentServerProtocolError('Choose whether to settle this chat.');
+        const active = this.sessions.get(this.catalog.resolveAlias(params.session));
+        const presence = this.sessionPresence(this.catalog.resolveAlias(params.session));
+        if (params.settled && (active?.latestTurn?.state === 'running' || active?.foregroundPromptRequests > 0 || presence.state === 'background' || presence.attention)) throw new AgentServerProtocolError('Finish the current turn before settling this chat.');
+      }
       const chat = await this.catalog.updateChat(params.session, {
+        ...(params.settled !== undefined ? { settled: params.settled, settlementIfAbsent: params.settlementIfAbsent === true } : {}),
         ...(params.title !== undefined ? { title: params.title } : {}),
         ...(params.project !== undefined ? { project: params.project } : {}),
         ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
@@ -623,11 +638,28 @@ export class ZyraAgentServer extends EventEmitter {
     }
   }
 
+  scheduleSettlementDeadline(deadline) {
+    if (!this.server || this.settlementStopping || !Number.isFinite(deadline) || deadline <= Date.now()) return;
+    if (this.settlementDeadline !== null && this.settlementDeadline <= deadline) return;
+    clearTimeout(this.settlementTimer);
+    this.settlementDeadline = deadline;
+    this.settlementTimer = setTimeout(() => {
+      this.settlementTimer = null;
+      this.settlementDeadline = null;
+      if (!this.server) return;
+      if (Date.now() < deadline) { this.scheduleSettlementDeadline(deadline); return; }
+      this.broadcastCatalogChanged({ settlementDue: true });
+    }, Math.min(2_147_483_647, Math.max(1, deadline - Date.now())));
+    this.settlementTimer.unref?.();
+  }
+
   projectCatalogChat(chat) {
+    if (!chat.archived) this.scheduleSettlementDeadline(this.catalog.nextSettlementDeadline?.(chat));
     const connected = this.sessions.get(chat.canonicalChatId)?.connectedResult;
     if (!connected && chat.model == null) this.catalog.index?.queueModelPresentations?.([chat.canonicalChatId]);
-    return { ...chat, model: normalizeChatModel(connected?.config?.model || connected?.model) || normalizeChatModel(chat.model),
-      presence: this.sessionPresence(chat.canonicalChatId) };
+    const presence = this.sessionPresence(chat.canonicalChatId);
+    return { ...chat, settled: ['running', 'background'].includes(presence.state) || presence.attention ? false : chat.settled,
+      model: normalizeChatModel(connected?.config?.model || connected?.model) || normalizeChatModel(chat.model), presence };
   }
   sessionPresence(sessionKeyValue) {
     const sessionKey = String(sessionKeyValue || "").trim();
@@ -1284,7 +1316,11 @@ class ServerOwnedSession {
       if (ownsTurn) this.foregroundPromptRequests = Math.max(0, this.foregroundPromptRequests - 1);
       this.syncMemoryQueue();
       if (ownsTurn) this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, requestContext.turnId);
-      if (ownsTurn && this.activeRequestContext === requestContext) {
+      if (ownsTurn && (this.activeRequestContext === requestContext
+        || this.foregroundPromptRequests === 0 && this.isTurnTerminal(this.activeRequestContext?.turnId))) {
+        if (this.activeRequestContext?.turnId && this.activeRequestContext.turnId !== requestContext.turnId) {
+          this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, this.activeRequestContext.turnId);
+        }
         this.activeRequestContext = null;
         this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey });
       }
@@ -1314,7 +1350,16 @@ class ServerOwnedSession {
 
   publish(event) {
     if (event?.type === 'zyra_agent_interruption') this.pendingAgentInterruption = event.interruption;
-    if (event?.type === 'agent_start') this.pendingAgentInterruption = null;
+    if (event?.type === 'agent_start') {
+      this.pendingAgentInterruption = null;
+      // A queued continuation can begin after agent_end but before its owning
+      // request returns. Completed IDs are immutable on every client: reuse
+      // would hide the new run and make Stop target a completed turn.
+      if (!this.activeRequestContext || this.isTurnTerminal(this.activeRequestContext.turnId)) {
+        this.activeRequestContext = { ...this.activeRequestContext, turnId: `agent-turn-${randomUUID()}` };
+        this.server.notifyDesktopWorkspaceTurn(this.sessionKey, this.activeRequestContext.turnId);
+      }
+    }
     if (event?.type === 'agent_end' && this.pendingAgentInterruption) {
       event = { ...event, outcome: 'interrupted', interruption: this.pendingAgentInterruption };
       this.pendingAgentInterruption = null;
@@ -1343,6 +1388,7 @@ class ServerOwnedSession {
     const previousBackgroundWork = this.hasBackgroundWork();
     this.updateBackgroundWork(event);
     this.updateRuntimeSummary(event, publishedRequestContext, occurredAt);
+    if (event?.type === 'agent_start') this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, presence: true });
     if (event?.type === "session_config") {
       const config = {
         model: event.model ?? this.connectedResult?.config?.model ?? this.connectedResult?.model,
@@ -1368,6 +1414,10 @@ class ServerOwnedSession {
         this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, title: true });
       });
     }
+    if (event?.type === 'compaction_end') {
+      const start = this.pendingOperationEvents.get('compaction');
+      if (start) event = { ...event, startedSequence: start.sequence, startedAt: start.occurredAt };
+    }
     const entry = {
       sequence: ++this.sequence,
       occurredAt,
@@ -1392,7 +1442,10 @@ class ServerOwnedSession {
     ) {
       // Keep attribution and serialization until the worker finishes post-turn
       // maintenance. Presence already reflects the completed answer above.
-      if (this.foregroundPromptRequests === 0) this.activeRequestContext = null;
+      if (this.foregroundPromptRequests === 0) {
+        this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, publishedRequestContext.turnId);
+        this.activeRequestContext = null;
+      }
       this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, presence: true });
       this.releaseUserInputContinuations();
     }
@@ -1548,7 +1601,17 @@ class ServerOwnedSession {
   }
 
   replay(afterSequence) {
-    return this.events.filter((entry) => entry.sequence > afterSequence);
+    let compactionStart = null;
+    return this.events.map((entry) => {
+      if (entry.event?.type === 'compaction_start') compactionStart = entry;
+      if (entry.event?.type !== 'compaction_end') return entry;
+      const start = compactionStart;
+      compactionStart = null;
+      // Old journal terminals can still recover exact identity when their start
+      // remains retained, even if the client's cursor already passed that start.
+      return start && entry.event.startedSequence == null
+        ? { ...entry, event: { ...entry.event, startedSequence: start.sequence, startedAt: start.occurredAt } } : entry;
+    }).filter((entry) => entry.sequence > afterSequence);
   }
 
   summary() {

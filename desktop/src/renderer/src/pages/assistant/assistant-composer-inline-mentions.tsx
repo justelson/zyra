@@ -18,7 +18,7 @@ export type InlineMentionTag = {
     path: string
     relativePath: string
     label: string
-    kind: 'file' | 'directory'
+    kind: 'file' | 'directory' | 'skill' | 'command'
     start: number
     end: number
 }
@@ -60,6 +60,7 @@ export function replaceInlineMentionTokensWithLabels(text: string, tags: InlineM
     const sortedTags = sortInlineMentionTags(tags)
     for (let index = sortedTags.length - 1; index >= 0; index -= 1) {
         const tag = sortedTags[index]
+        if (tag.kind === 'skill' || tag.kind === 'command') continue
         result = `${result.slice(0, tag.start)}${tag.label}${result.slice(tag.end)}`
     }
     return result

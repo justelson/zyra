@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zyra Browser",
-  "version": "1.1.1",
+  "version": "1.1.3",
   "description": "Chat with Zyra beside your current tab. Use your connected browser from Zyra Desktop.",
   "permissions": [
     "debugger",

@@ -76,6 +76,7 @@ class AgentSession {
   _unsubscribeAgent;
   _eventListeners = [];
   _isAgentRunActive = false;
+  _agentRunAbortEpoch = 0;
   _idleWaitPromise;
   _resolveIdleWait;
   /** Tracks pending steering messages for UI display. Removed when delivered. */
@@ -502,6 +503,7 @@ class AgentSession {
    * Call this when completely done with the session.
    */
   dispose() {
+    this._agentRunAbortEpoch++;
     try {
       this.abortRetry();
       this.abortCompaction();
@@ -683,10 +685,12 @@ class AgentSession {
   // Prompting
   // =========================================================================
   async _runAgentPrompt(messages) {
+    const abortEpoch = this._agentRunAbortEpoch;
     this._isAgentRunActive = true;
     try {
       await this.agent.prompt(messages);
-      while (await this._handlePostAgentRun()) {
+      while (abortEpoch === this._agentRunAbortEpoch && await this._handlePostAgentRun()) {
+        if (abortEpoch !== this._agentRunAbortEpoch) break;
         await this.agent.continue();
       }
     } finally {
@@ -698,7 +702,7 @@ class AgentSession {
   async _handlePostAgentRun() {
     const msg = this._lastAssistantMessage;
     this._lastAssistantMessage = void 0;
-    if (!msg) {
+    if (!msg || msg.stopReason === "aborted") {
       return false;
     }
     if (this._isRetryableError(msg) && await this._prepareRetry(msg)) {
@@ -767,6 +771,14 @@ class AgentSession {
         expandedText = this._expandSkillCommand(expandedText);
         expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
       }
+      const contextMessages = (options?.contextMessages ?? []).map((message) => ({
+        role: "custom",
+        customType: message.customType,
+        content: message.content ?? [],
+        display: message.display,
+        details: message.details,
+        timestamp: Date.now()
+      }));
       if (this.isStreaming) {
         if (!options?.streamingBehavior) {
           throw new Error(
@@ -774,9 +786,9 @@ class AgentSession {
           );
         }
         if (options.streamingBehavior === "followUp") {
-          await this._queueFollowUp(expandedText, currentImages);
+          this._queueFollowUp(expandedText, currentImages, contextMessages);
         } else {
-          await this._queueSteer(expandedText, currentImages);
+          this._queueSteer(expandedText, currentImages, contextMessages);
         }
         preflightResult?.(true);
         return;
@@ -809,6 +821,7 @@ class AgentSession {
         content: userContent,
         timestamp: Date.now()
       });
+      messages.push(...contextMessages);
       for (const msg of this._pendingNextTurnMessages) {
         messages.push(msg);
       }
@@ -937,34 +950,28 @@ ${args}` : skillBlock;
   /**
    * Internal: Queue a steering message (already expanded, no extension command check).
    */
-  async _queueSteer(text, images) {
+  _queueSteer(text, images, contextMessages = []) {
     this._steeringMessages.push(text);
     this._emitQueueUpdate();
     const content = [{ type: "text", text }];
     if (images) {
       content.push(...images);
     }
-    this.agent.steer({
-      role: "user",
-      content,
-      timestamp: Date.now()
-    });
+    const message = { role: "user", content, timestamp: Date.now() };
+    this.agent.steer(contextMessages.length ? [message, ...contextMessages] : message);
   }
   /**
    * Internal: Queue a follow-up message (already expanded, no extension command check).
    */
-  async _queueFollowUp(text, images) {
+  _queueFollowUp(text, images, contextMessages = []) {
     this._followUpMessages.push(text);
     this._emitQueueUpdate();
     const content = [{ type: "text", text }];
     if (images) {
       content.push(...images);
     }
-    this.agent.followUp({
-      role: "user",
-      content,
-      timestamp: Date.now()
-    });
+    const message = { role: "user", content, timestamp: Date.now() };
+    this.agent.followUp(contextMessages.length ? [message, ...contextMessages] : message);
   }
   /**
    * Throw an error if the text is an extension command.
@@ -1089,6 +1096,7 @@ ${args}` : skillBlock;
    * Abort current operation and wait for agent to become idle.
    */
   async abort() {
+    this._agentRunAbortEpoch++;
     this.abortRetry();
     this.agent.abort();
     await this.waitForIdle();

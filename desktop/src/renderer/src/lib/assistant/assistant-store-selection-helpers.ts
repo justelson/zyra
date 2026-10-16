@@ -96,6 +96,7 @@ function areAssistantThreadsEqual(
         && left.profile === right.profile
         && left.cwd === right.cwd
         && left.messageCount === right.messageCount
+        && left.lastMessageAt === right.lastMessageAt
         && left.activityCount === right.activityCount
         && left.proposedPlanCount === right.proposedPlanCount
         && left.lastSeenCompletedTurnId === right.lastSeenCompletedTurnId
@@ -281,6 +282,7 @@ function getRailThreadSignature(thread: AssistantSnapshot['sessions'][number]['t
         thread.agentRole || '',
         thread.state,
         thread.updatedAt,
+        thread.lastMessageAt || '',
         thread.latestTurn?.id || '',
         thread.latestTurn?.state || '',
         thread.hasPendingApprovals ? '1' : '0',

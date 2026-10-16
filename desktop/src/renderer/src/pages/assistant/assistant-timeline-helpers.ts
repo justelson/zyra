@@ -1,4 +1,5 @@
 import { stripSidebarBrowserContext } from '@shared/assistant/browser-context'
+import { visibleSkillContextMessages } from '@shared/assistant/skill-context-presentation'
 import { buildRenderableFileChangePatch } from '@shared/assistant/contracts/file-change'
 import { parseAgentSurfaceDescriptor } from '@shared/assistant/contracts'
 import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan } from '@shared/assistant/contracts'
@@ -794,7 +795,7 @@ export function getTimelineEntries(
     proposedPlans: AssistantProposedPlan[] = [],
     userInputs: AssistantPendingUserInput[] = []
 ): TimelineEntry[] {
-    const renderedMessages = messages.filter(shouldRenderMessage)
+    const renderedMessages = visibleSkillContextMessages(messages).filter(shouldRenderMessage)
     const renderedActivities = activities.filter(shouldRenderActivity)
     const chronologicalActivities = [...renderedActivities].reverse()
     const visibleMessageIds = new Set(renderedMessages.map((message) => message.id))

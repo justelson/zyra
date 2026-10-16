@@ -43,6 +43,7 @@ export class CanonicalChatAttention {
   }
   observe(session, event) {
     const id = session.sessionKey;
+    if (event?.type === 'agent_start' && this.server.catalog.markSettlementActive?.(id)) this.server.broadcastCatalogChanged({ canonicalChatId: id, metadata: true });
     const turn = session.latestTurn;
     const ended = ['agent_end', 'zyra_server_turn_completed'].includes(event?.type) && event.willRetry !== true;
     if (ended && turn && ['completed', 'interrupted'].includes(turn.state) && this.isViewed(id)) this.acknowledge(id, turn.id, turn.completedAt);

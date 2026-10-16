@@ -16,6 +16,7 @@ import { SettingsProvider, useSettings } from './lib/settings'
 import { ZYRA_THEME_CHANGED_EVENT } from './lib/theme-events'
 import { CommandPaletteProvider } from './lib/commandPalette'
 import CommandPalette from './components/CommandPalette'
+import QuickOpenDialog from './components/QuickOpenDialog'
 import LinkHoverStatus from './components/ui/LinkHoverStatus'
 import { DesktopLinkHost } from './components/ui/DesktopLinkHost'
 import { UpdatePromptCenter } from './components/updates/UpdatePromptCenter'
@@ -338,6 +339,7 @@ function NormalDesktopApp() {
                                 <ShortcutHints />
                                 <AppContent />
                                 <CommandPalette />
+                                <QuickOpenDialog />
                                 <UpdatePromptCenter />
             <RuntimeActivationNotice />
                             </ProjectCreationProvider>

@@ -29,6 +29,13 @@ providers retain local baseline metadata and their direct transport discovery.
 An optional catalog overlay requires an explicitly configured
 `ZYRA_MODEL_CATALOG_URL`; no upstream Pi catalog service is contacted.
 
+Prompt-scoped hidden context uses `PromptOptions.contextMessages`. The engine
+accepts it with its original user message only after prompt preflight; failed
+authentication, compaction or input handling must not leave an orphan custom
+entry. Streaming delivery queues the user and context as one message batch,
+including in one-at-a-time mode. Agent steering/follow-up APIs still accept a
+single message, or an array that must be consumed together. Ordinary `sendCustomMessage` retains its existing semantics.
+
 Extensions can import `@zyra/engine`, `@zyra/agent`, `@zyra/providers`, and
 `@zyra/terminal` through the local extension loader. Historical Pi import names
 are virtual aliases to these same local implementations for existing extensions.

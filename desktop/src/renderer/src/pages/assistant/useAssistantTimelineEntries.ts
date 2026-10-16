@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react'
+import { visibleSkillContextMessages } from '@shared/assistant/skill-context-presentation'
 import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan } from '@shared/assistant/contracts'
 import {
     getAssistantTimelineMessageEntryId,
@@ -90,11 +91,12 @@ export function replaceAssistantTimelineActivityEntry(
 }
 
 export function useAssistantTimelineEntries(
-    messages: AssistantMessage[],
+    inputMessages: AssistantMessage[],
     activities: AssistantActivity[],
     proposedPlans: AssistantProposedPlan[] = [],
     userInputs: AssistantPendingUserInput[] = []
 ): TimelineEntry[] {
+    const messages = useMemo(() => visibleSkillContextMessages(inputMessages), [inputMessages])
     const cacheRef = useRef<TimelineEntriesCache | null>(null)
 
     return useMemo(() => {

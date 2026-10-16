@@ -440,6 +440,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         val chats = (if (append) previous?.chats.orEmpty() else emptyList()) + parseChats(response, machine.id)
         catalogPages[machine.id] = ChatPage(chats.distinctBy { it.key }, response.optJSONObject("nextCursor")?.toString(), query)
         publishCatalog()
+        migrateSettlements(machine, connection, chats)
         refreshCatalogMetadata(machine, connection, query, params, response)
         chats.map { it.project }.distinct().filterNot(::isPersonalChat).forEach { project -> loadProjectArtwork(machine, connection, project) }
         if (query.trim().length >= 2 && !append) {
@@ -452,6 +453,32 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         if (query.isBlank() && !append) withContext(Dispatchers.IO) { cache.put("chats:${machine.id}:list", response.toString()) }
     }
     private val catalogMetadataJobs = linkedMapOf<String, Job>()
+    private val settlementMigrations = mutableSetOf<String>()
+    private fun migrateSettlements(machine: Machine, connection: HostConnection, chats: List<Chat>) {
+        val candidates = chats.filter { it.settled != null && preferences.settlements.value.containsKey(it.key) &&
+            (it.settlementManual == true || ChatSettlement.legacyChoice(it, preferences.settlements.value) != null) }
+        if (candidates.isEmpty() || !settlementMigrations.add(machine.id)) return
+        scope.launch {
+            var changed = false
+            try {
+                for (chat in candidates) {
+                    if (pool.links.value[machine.id]?.connection !== connection) break
+                    if (chat.settlementManual != true) {
+                        val choice = ChatSettlement.legacyChoice(chat, preferences.settlements.value) ?: continue
+                        try { connection.request("catalog.update", JSONObject().put("session", chat.id).put("settled", choice).put("settlementIfAbsent", true)) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { continue } // Retain the saved choice for retry on the next catalog.
+                    }
+                    preferences.forgetSettlement(chat.key); changed = true
+                }
+            } finally { settlementMigrations.remove(machine.id) }
+            if (changed && pool.links.value[machine.id]?.connection === connection) {
+                try { fetchCatalog(machine, connection) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* The next catalog event/reconnect will recover. */ }
+            }
+        }
+    }
     private fun refreshCatalogMetadata(machine: Machine, connection: HostConnection, query: String, params: JSONObject, response: JSONObject) {
         if (!response.optBoolean("metadataPending")) return
         val request = JSONObject(params.toString())
@@ -1021,10 +1048,12 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
             finally { mutable.update { it.copy(regeneratingTitles = it.regeneratingTitles - key) } }
         }
     }
-    fun updateChat(chat: Chat, title: String? = null, archived: Boolean? = null) = scope.launch {
+    fun settleChat(chat: Chat, settled: Boolean) { updateChat(chat, settled = settled) }
+    fun updateChat(chat: Chat, title: String? = null, archived: Boolean? = null, settled: Boolean? = null) = scope.launch {
         try {
             val params = JSONObject().put("session", chat.id)
             title?.let { params.put("title", it) }; archived?.let { params.put("archived", it) }
+            settled?.let { params.put("settled", it) }
             val machine = machinesFor(chat.machineId) ?: mutable.value.machine ?: return@launch
             val connection = pool.links.value[machine.id]?.connection ?: throw IllegalStateException("Connect to ${machine.name} to change this chat.")
             connection.request("catalog.update", params); fetchCatalog(machine, connection)

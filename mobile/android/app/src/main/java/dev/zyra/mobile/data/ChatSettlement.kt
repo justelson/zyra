@@ -15,9 +15,16 @@ object ChatSettlement {
 
     private fun activity(chat: Chat) = chat.modifiedAt.ifBlank { chat.lastTurnCompletedAt }
     private fun activeMarker(chat: Chat) = "active:" + (marker(chat) ?: activity(chat))
+    fun legacyChoice(chat: Chat, values: Map<String, String>): Boolean? {
+        if (chat.working || chat.attention != null) return null
+        val saved = values[chat.key] ?: return null
+        if (saved == activeMarker(chat)) return false
+        return if (marker(chat) == saved) true else null
+    }
     fun isSettled(chat: Chat, values: Map<String, String>) = isSettled(chat, values, System.currentTimeMillis())
     fun isSettled(chat: Chat, values: Map<String, String>, now: Long): Boolean {
         if (chat.working || chat.attention != null) return false
+        chat.settled?.let { return it }
         if (values[chat.key] == activeMarker(chat)) return false
         if (marker(chat)?.let { values[chat.key] == it } == true) return true
         if (chat.lastTurnState in setOf("failed", "error", "interrupted") || chat.state in setOf("failed", "error")) return false

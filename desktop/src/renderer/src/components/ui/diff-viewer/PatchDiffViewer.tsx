@@ -1,6 +1,8 @@
 import { defaultThemeTokens } from '@shared/preferences/default-theme-tokens'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, MessageSquare } from 'lucide-react'
+import { diffCodeSelection } from './diff-code-selection'
+import { requestCodeContext, type CodeSelectionSnapshot } from '@/pages/assistant/assistant-code-context'
 import { FileDiff, PatchDiff } from '@pierre/diffs/react'
 import type { FileDiffMetadata } from '@pierre/diffs/react'
 import { resolveDiffThemeName, resolveDiffThemeType } from '@/lib/diffRendering'
@@ -9,6 +11,7 @@ import { DiffWorkerPoolProvider } from './DiffWorkerPoolProvider'
 import { ensureDiffContainerStyles } from './ensureDiffContainerStyles'
 
 type DiffRenderMode = 'stacked' | 'split'
+const EMPTY_FILE_DIFFS: FileDiffMetadata[] = []
 
 interface PatchDiffViewerProps {
     fileDiff?: FileDiffMetadata | null
@@ -25,6 +28,7 @@ interface PatchDiffViewerProps {
     activeFileDiffIndex?: number | null
     activeFileDiffScrollKey?: string | number | null
     onRenderingChange?: (rendering: boolean) => void
+    workspaceRoot?: string
 }
 
 function buildDiffViewerUnsafeCss(
@@ -199,7 +203,7 @@ function hasRenderedDiffContent(container: HTMLDivElement | null): boolean {
 
 export default function PatchDiffViewer({
     fileDiff,
-    fileDiffs = [],
+    fileDiffs = EMPTY_FILE_DIFFS,
     patch,
     mode,
     flush = false,
@@ -211,10 +215,13 @@ export default function PatchDiffViewer({
     renderFileHeaderMetadata,
     activeFileDiffIndex = null,
     activeFileDiffScrollKey = null,
-    onRenderingChange
+    onRenderingChange,
+    workspaceRoot
 }: PatchDiffViewerProps) {
     const { settings } = useSettings()
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const [selection, setSelection] = useState<CodeSelectionSnapshot | null>(null)
+    const [selectionError, setSelectionError] = useState('')
     const hasDiffInput = Boolean(fileDiff || fileDiffs.length > 0 || patch)
     const diffThemeName = resolveDiffThemeName(settings.theme)
     const diffThemeType = resolveDiffThemeType(settings.theme)
@@ -224,6 +231,7 @@ export default function PatchDiffViewer({
         [fileDiffs]
     )
     const fileDiffsToken = fileDiffKeys.join('|')
+    useEffect(() => { setSelection(null); setSelectionError('') }, [fileDiff, fileDiffsToken, patch, workspaceRoot])
     const presentationToken = `${mode}:${settings.theme}:${settings.accentColor.primary}:${flush}:${hideChangeIcon}:${hideHeaderStats}`
     const renderToken = `${fileDiff?.cacheKey || fileDiff?.name || fileDiffsToken || patch || 'empty'}:${presentationToken}`
     const settledFileDiffStateRef = useRef<{ keys: string[]; presentationToken: string } | null>(null)
@@ -252,6 +260,13 @@ export default function PatchDiffViewer({
         tokenizeMaxLineLength: 1000,
         unsafeCSS
     }), [diffStyle, diffThemeName, diffThemeType, unsafeCSS])
+    const selectionOptions = useMemo(() => {
+        const entries = new Map([...fileDiffs, ...(fileDiff ? [fileDiff] : [])].map(entry => [entry, {
+            ...options, enableLineSelection: true,
+            onLineSelected: (range: Parameters<typeof diffCodeSelection>[1] | null) => setSelection(range ? diffCodeSelection(entry, range, workspaceRoot) : null)
+        }]))
+        return (entry: FileDiffMetadata) => workspaceRoot ? entries.get(entry) || options : options
+    }, [options, fileDiff, fileDiffs, workspaceRoot])
 
     useLayoutEffect(() => {
         ensureDiffContainerStyles(containerRef.current)
@@ -328,11 +343,16 @@ export default function PatchDiffViewer({
             className="relative h-full overflow-auto overscroll-contain bg-transparent custom-scrollbar [scrollbar-gutter:stable]"
         >
             <DiffWorkerPoolProvider>
+                {selection && <div className="sticky top-0 z-10 flex items-center justify-end gap-2 border-b border-sparkle-border bg-sparkle-card px-3 py-1.5 text-xs">
+                    {selectionError && <span role="alert">{selectionError}</span>}
+                    <span className="text-sparkle-text-muted">{selection.side} · lines {selection.startLine}–{selection.endLine}</span>
+                    <button className="inline-flex items-center gap-1.5 rounded px-2 py-1 hover:bg-[var(--surface-hover)]" onClick={() => void requestCodeContext(selection).then(() => setSelection(null)).catch(reason => setSelectionError(String(reason.message || reason)))}><MessageSquare size={12} />Ask Zyra</button>
+                </div>}
                 {fileDiff ? (
                     <FileDiff
                         key={renderToken}
                         fileDiff={fileDiff}
-                        options={options}
+                        options={selectionOptions(fileDiff)}
                         renderHeaderPrefix={headerPrefix ? () => headerPrefix : undefined}
                         renderHeaderMetadata={headerMetadata ? () => headerMetadata : undefined}
                     />
@@ -348,7 +368,7 @@ export default function PatchDiffViewer({
                             >
                                 <FileDiff
                                     fileDiff={entry}
-                                    options={options}
+                                    options={selectionOptions(entry)}
                                     renderHeaderPrefix={renderFileHeaderPrefix ? () => renderFileHeaderPrefix(entry, index) : undefined}
                                     renderHeaderMetadata={renderFileHeaderMetadata ? () => renderFileHeaderMetadata(entry, index) : undefined}
                                 />

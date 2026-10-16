@@ -61,6 +61,13 @@ try {
     dispatchAppNavigation('app.findInChat', navigate)
     assert.equal(findRequests, 1)
     stopFind()
+    for (const [command, binding] of [['app.searchFiles', 'Ctrl+p'], ['app.searchProjectContents', 'Ctrl+Shift+f']] as const) {
+        const before = routes.length
+        dispatchAppNavigation(command, navigate, activeThreadRoute)
+        assert.equal(events.at(-1), 'zyra:quick-open')
+        assert.equal(routes.length, before, 'search overlays preserve the current chat route')
+        assert.deepEqual(effectiveBindings(command, 'win32', {}), [binding])
+    }
     let saveRequests = 0
     const stopSave = subscribeAssistantFileSave(() => { saveRequests++; return true })
     dispatchAppNavigation('app.saveFile', navigate)

@@ -42,7 +42,15 @@ export async function updateChatGptAccount(store, id, update, options = {}) {
   return store.modifyAll(values => {
     const entry = chatGptAccountEntries(values).find(account => account.id === id);
     if (!entry) throw new Error('This ChatGPT account is no longer connected.');
-    if (update.remove === true) {
+    if (update.primary === true) {
+      if (entry.key !== CHATGPT_PROVIDER) {
+        const previous = values[CHATGPT_PROVIDER];
+        values[CHATGPT_PROVIDER] = { ...entry.credential, pool: { ...entry.credential.pool,
+          ...(previous?.pool?.lastPickedByModel ? { lastPickedByModel: previous.pool.lastPickedByModel } : {}) } };
+        if (previous) values[entry.key] = previous;
+        else delete values[entry.key];
+      }
+    } else if (update.remove === true) {
       delete values[entry.key];
       if (entry.key === CHATGPT_PROVIDER) {
         const replacement = chatGptAccountEntries(values)[0];

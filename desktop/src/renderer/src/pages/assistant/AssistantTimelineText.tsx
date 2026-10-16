@@ -218,6 +218,7 @@ export const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBo
                 <div ref={renderedBodyRef}>
                     <MarkdownRenderer
                         content={content}
+                        skillReferenceChips
                         className="text-[13px] leading-6 text-sparkle-text [overflow-wrap:anywhere] [&_h1]:text-sparkle-text [&_h2]:text-sparkle-text [&_h3]:text-sparkle-text [&_li]:whitespace-pre-wrap [&_li]:leading-6 [&_li]:text-sparkle-text [&_p]:whitespace-pre-wrap [&_p]:leading-6 [&_p]:text-sparkle-text"
                     />
                 </div>

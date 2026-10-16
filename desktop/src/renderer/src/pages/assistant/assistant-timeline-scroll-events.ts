@@ -3,6 +3,8 @@ export const ASSISTANT_TIMELINE_FOLLOW_END_EVENT = 'assistant:timeline-follow-en
 export const DOMINANT_MESSAGE_VIEWPORT_RATIO = 0.24
 export const USER_MESSAGE_VISIBLE_RATIO = 0.3
 
+export type AssistantActivityRevealRequest = { activityId: string }
+
 export type AssistantTimelineDisclosureAnchorMode =
     | 'preserve-user'
     | 'center-work'

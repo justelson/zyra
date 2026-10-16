@@ -21,7 +21,12 @@ export async function respondToAssistantUserInputWithRuntime(input: {
         if (result?.continuationPrompt) return result.continuationPrompt
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (!/unknown user-input request/i.test(message)) throw error
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : null
+        // A restarted server may have lost its in-memory handoff. The caller
+        // already verified the saved pending question; continue from that exact
+        // record, never from arbitrary renderer-supplied questions. Conflicts,
+        // transport failures and uncertain responses must still reject.
+        if (code !== 'AGENT_SERVER_USER_INPUT_UNKNOWN' && !(!code && /unknown user-input request/i.test(message))) throw error
     }
     return formatAssistantUserInputContinuationPrompt(input.questions, input.answers)
 }

@@ -276,6 +276,7 @@ async function handleConnect(payload) {
     profile: requestedThreadId ? undefined : payload.profile,
     thinking: payload.thinking ?? "medium",
     reasoningSummary: payload.reasoningSummary ?? (payload.surface === "memory-worker" ? "auto" : undefined),
+    startInNewWorktree: payload.startInNewWorktree,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
     tools: Array.isArray(payload.tools) ? payload.tools : undefined,
     excludeTools: Array.isArray(payload.excludeTools) ? payload.excludeTools : undefined,
@@ -803,6 +804,7 @@ async function handlePrompt(payload) {
   const images = normalizePromptImages(payload.images);
   await sdk.runZyraPrompt(runtime, payload.prompt, {
     images,
+    startInNewWorktree: payload.startInNewWorktree,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
   });
   if (shouldGenerateTitle && payload.skipTitleGeneration !== true) {

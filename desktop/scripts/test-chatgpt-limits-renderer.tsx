@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { ZyraCredentialStore, createZyraCredentialAuthStorage } from '../../src/zyra-auth-store.mjs'
 import { ChatGptAccountPool, chatGptIdentity } from '../../src/chatgpt-account-pool.mjs'
+import { saveChatGptAccountAlias } from '../../src/chatgpt-account-aliases.mjs'
 
 const root = await mkdtemp(join(tmpdir(), 'zyra-limits-renderer-'))
 const authPath = join(root, 'credentials', 'auth.json')
@@ -19,6 +22,7 @@ for (const id of ['a', 'b']) {
     ids.push(chatGptIdentity(credential).id)
 }
 const pool = new ChatGptAccountPool(store)
+for (const [index, id] of ids.entries()) await saveChatGptAccountAlias(authPath, id, index ? 'Fixture B' : 'Fixture A')
 for (const [index, id] of ids.entries()) await pool.recordUsage(id, { primary: { usedPercent: index ? 20 : 90, resetAt: new Date(Date.now() + 1800000).toISOString(), windowSeconds: 18000 }, secondary: { usedPercent: 30, resetAt: new Date(Date.now() + 86400000).toISOString(), windowSeconds: 604800 } })
 const renderer = resolve(import.meta.dir, '../src/renderer/src')
 const harness = `
@@ -37,7 +41,10 @@ function Harness(){const pool=useChatGptAccountPool(),slot=useRef(null),[url,set
 const root=createRoot(document.getElementById('root'))
 try{
  await act(async()=>root.render(<Harness/>));await wait(()=>document.querySelector('[aria-label="ChatGPT usage strategy"]'))
- check(document.body.textContent.includes('a@example.test')&&document.body.textContent.includes('b@example.test'),'separate account rows render')
+ check(document.querySelector('[data-chatgpt-usage-account="'+${JSON.stringify(ids[0])}+'"]').textContent.includes('Fixture A')&&document.querySelector('[data-chatgpt-usage-account="'+${JSON.stringify(ids[1])}+'"]').textContent.includes('Fixture B'),'separate aliases render on their exact account rows')
+ check(!document.body.textContent.includes('a@example.test')&&!document.body.textContent.includes('b@example.test'),'account emails remain hidden by default')
+ await act(async()=>document.querySelector('[aria-label="Show email for Fixture A"]').click());check(document.body.textContent.includes('a@example.test')&&!document.body.textContent.includes('b@example.test'),'revealing one account preserves the other account privacy')
+ await act(async()=>document.querySelector('[aria-label="Hide email for Fixture A"]').click());check(!document.body.textContent.includes('a@example.test'),'hiding email restores the account alias')
  check(document.querySelectorAll('[role=meter]').length===1&&document.querySelector('[role=meter]').getAttribute('aria-label')==='Weekly average remaining','one Weekly summary, with both individual windows below')
  check(!document.body.textContent.includes('Add account')&&!document.body.textContent.includes('ChatGPT account'),'Limits does not contain account sign-in or the old primary account panel')
  check(document.querySelectorAll('[data-chatgpt-usage-window]').length===4,'each reported usage window appears once')
@@ -46,11 +53,11 @@ try{
  await change('ChatGPT usage strategy','fill-first');check(document.querySelector('[aria-label="ChatGPT preferred account"]'),'drain-first reveals account preference')
  await change('ChatGPT preferred account',${JSON.stringify(ids[1])});check((await window.devscope.onboarding.getChatGptAccounts()).pool.policy.preferredAccountId===${JSON.stringify(ids[1])},'preference persists in native backend')
  await change('Allowed ChatGPT accounts','selected');check(!document.querySelector('input[type=checkbox]'),'selected accounts do not create a duplicated list')
- await act(async()=>document.querySelector('button[title="Usage options for a@example.test"]').click());await wait(()=>document.querySelector('[role=menu]'))
+ await act(async()=>document.querySelector('button[title="Usage options for Fixture A"]').click());await wait(()=>document.querySelector('[role=menu]'))
  await act(async()=>[...document.querySelectorAll('[role^=menuitem]')].find(item=>item.textContent.includes('Exclude this account')).click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
  check((await window.devscope.onboarding.getChatGptAccounts()).pool.policy.accountIds.length===1,'selected-only change reaches the saved policy')
- await act(async()=>document.querySelector('[aria-label="Enable b@example.test"]').click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
- check((await window.devscope.onboarding.getChatGptAccounts()).pool.accounts.find(a=>a.email==='b@example.test').state==='paused','pause reaches saved account state')
+ await act(async()=>document.querySelector('[aria-label="Enable Fixture B"]').click());await wait(()=>!document.querySelector('[aria-label="ChatGPT usage strategy"]').disabled)
+ check((await window.devscope.onboarding.getChatGptAccounts()).pool.accounts.find(a=>a.id===${JSON.stringify(ids[1])}).state==='paused','alias-labelled pause reaches the exact saved account state')
  check(document.querySelector('a[href="https://openai.com/brand/"]').className.includes('decoration-dotted'),'website hover uses dotted decoration')
  await window.fixture.hover();await wait(()=>document.querySelector('[data-browser-link-hover]')?.textContent==='https://example.test/destination','Chromium link hover')
  const hint=document.querySelector('[data-browser-link-hover]');check(hint.style.left==='648px'&&parseFloat(hint.style.maxWidth)<=284,'native link hint uses browser slot left edge and width')
@@ -58,6 +65,10 @@ try{
  await act(async()=>root.unmount());console.log('LIMITS_RENDERER_PASS')
 }catch(error){console.error('LIMITS_RENDERER_FAIL',error.stack)}
 `
+const hoverServer = createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8')
+    response.end('<!doctype html><a href="https://example.test/destination" style="position:absolute;left:10px;top:10px">Link</a>')
+})
 try {
     const build = await Bun.build({ entrypoints: ['limits-renderer-harness'], target: 'browser', plugins: [{ name: 'limits-fixture', setup(builder) {
         builder.onResolve({ filter: /^limits-renderer-harness$/ }, () => ({ path: 'harness', namespace: 'fixture' }))
@@ -67,8 +78,10 @@ try {
     await writeFile(join(root, 'harness.js'), await build.outputs.find(output => output.path.endsWith('.js'))!.text())
     await writeFile(join(root, 'test.html'), '<style>body{margin:12px;background:#191919;color:#ddd;font:13px sans-serif}section{border:1px solid #444;margin:8px;padding:10px}button,select{padding:5px;margin:3px;background:#292929;color:#ddd;border:1px solid #555}h3,p{margin:4px}select{width:190px}p{color:#aaa}</style><div id="root"></div><script type="module" src="harness.js"></script>')
     await writeFile(join(root, 'preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('devscope',{onboarding:{getChatGptAccounts:()=>ipcRenderer.invoke('pool-get'),updateChatGptAccounts:input=>ipcRenderer.invoke('pool-update',input)}});contextBridge.exposeInMainWorld('fixture',{onHover:fn=>{const handler=(_e,url)=>fn(url);ipcRenderer.on('hover',handler);return()=>ipcRenderer.removeListener('hover',handler)},hover:()=>ipcRenderer.invoke('hover'),leave:()=>ipcRenderer.invoke('leave')});`)
+    await new Promise<void>((accept, reject) => { hoverServer.once('error', reject); hoverServer.listen(0, '127.0.0.1', () => accept()) })
+    const hoverUrl = `http://127.0.0.1:${(hoverServer.address() as AddressInfo).port}/`
     const backend = pathToFileURL(resolve(import.meta.dir, '../../src/chatgpt-pool-service.mjs')).href
-    await writeFile(join(root, 'main.cjs'), `const {app,BrowserWindow,WebContentsView,ipcMain}=require('electron');app.setPath('userData',${JSON.stringify(join(root, 'profile'))});app.whenReady().then(async()=>{const api=await import(${JSON.stringify(backend)}),options={authPath:${JSON.stringify(authPath)}};ipcMain.handle('pool-get',async()=>({success:true,pool:await api.getChatGptAccounts(options)}));ipcMain.handle('pool-update',async(_e,input)=>({success:true,pool:await api.updateChatGptAccounts(input,options)}));const window=new BrowserWindow({show:false,width:1000,height:600,webPreferences:{preload:${JSON.stringify(join(root, 'preload.cjs'))},backgroundThrottling:false}});window.webContents.on('console-message',event=>{const text=event.message;console.log(text);if(text.includes('LIMITS_RENDERER_PASS'))app.exit(0);if(text.includes('LIMITS_RENDERER_FAIL'))app.exit(1)});const guest=new WebContentsView({webPreferences:{backgroundThrottling:false}});window.contentView.addChildView(guest);guest.setBounds({x:640,y:420,width:300,height:100});guest.webContents.on('update-target-url',(_e,url)=>window.webContents.send('hover',url));guest.webContents.debugger.attach('1.3');ipcMain.handle('hover',async()=>{console.log('HOVER_GEOMETRY',JSON.stringify({window:window.getContentBounds(),guest:guest.getBounds(),layout:await guest.webContents.executeJavaScript("({width:innerWidth,height:innerHeight,hit:document.elementFromPoint(25,20)?.outerHTML})")}));await guest.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:25,y:20});});ipcMain.handle('leave',()=>guest.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:250,y:90}));await guest.webContents.loadURL('data:text/html,<a href="https://example.test/destination" style="position:absolute;left:10px;top:10px">Link</a>');await window.loadFile(${JSON.stringify(join(root, 'test.html'))});});setTimeout(()=>app.exit(1),45000);`)
+    await writeFile(join(root, 'main.cjs'), `const {app,BrowserWindow,WebContentsView,ipcMain}=require('electron');app.setPath('userData',${JSON.stringify(join(root, 'profile'))});app.whenReady().then(async()=>{const api=await import(${JSON.stringify(backend)}),options={authPath:${JSON.stringify(authPath)}};ipcMain.handle('pool-get',async()=>({success:true,pool:await api.getChatGptAccounts(options)}));ipcMain.handle('pool-update',async(_e,input)=>({success:true,pool:await api.updateChatGptAccounts(input,options)}));const window=new BrowserWindow({show:false,width:1000,height:600,webPreferences:{preload:${JSON.stringify(join(root, 'preload.cjs'))},backgroundThrottling:false}});window.webContents.on('console-message',event=>{const text=event.message;console.log(text);if(text.includes('LIMITS_RENDERER_PASS'))app.exit(0);if(text.includes('LIMITS_RENDERER_FAIL'))app.exit(1)});const guest=new WebContentsView({webPreferences:{backgroundThrottling:false}});window.contentView.addChildView(guest);guest.setBounds({x:640,y:420,width:300,height:100});guest.webContents.on('update-target-url',(_e,url)=>window.webContents.send('hover',url));guest.webContents.debugger.attach('1.3');ipcMain.handle('hover',async()=>{console.log('HOVER_GEOMETRY',JSON.stringify({window:window.getContentBounds(),guest:guest.getBounds(),layout:await guest.webContents.executeJavaScript("({width:innerWidth,height:innerHeight,hit:document.elementFromPoint(25,20)?.outerHTML})")}));await guest.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:25,y:20});});ipcMain.handle('leave',()=>guest.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:250,y:90}));await guest.webContents.loadURL(${JSON.stringify(hoverUrl)});await window.loadFile(${JSON.stringify(join(root, 'test.html'))});}).catch(error=>{console.error('LIMITS_FIXTURE_BOOTSTRAP_FAIL',error);app.exit(1)});setTimeout(()=>app.exit(1),45000);`)
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
     const electron = createRequire(import.meta.url)('electron') as string
     const args = [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), join(root, 'main.cjs')]
@@ -78,6 +91,8 @@ try {
     if (code) throw Error(`Limits renderer fixture exited ${code}`)
     console.log('Live Limits renderer -> saved policy/account controls and Chromium hover -> browser destination hint: ok')
 } finally {
+    hoverServer.closeAllConnections()
+    await new Promise<void>(accept => hoverServer.close(() => accept()))
     if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith('zyra-limits-renderer-')) throw Error('Unexpected fixture cleanup path')
     await rm(root, { recursive: true, force: true })
 }

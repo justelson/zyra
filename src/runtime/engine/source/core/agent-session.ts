@@ -247,6 +247,8 @@ export interface PromptOptions {
 	images?: ImageContent[];
 	/** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
 	streamingBehavior?: "steer" | "followUp";
+	/** Hidden context accepted and persisted with this prompt, never before its preflight. */
+	contextMessages?: Array<Pick<CustomMessage, "customType" | "content" | "display" | "details">>;
 	/** Source of input for extension input event handlers. Defaults to "interactive". */
 	source?: InputSource;
 	/** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
@@ -319,6 +321,7 @@ export class AgentSession {
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
+	private _agentRunAbortEpoch = 0;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
 
@@ -849,6 +852,7 @@ export class AgentSession {
 	 * Call this when completely done with the session.
 	 */
 	dispose(): void {
+		this._agentRunAbortEpoch++;
 		try {
 			this.abortRetry();
 			this.abortCompaction();
@@ -1073,10 +1077,14 @@ export class AgentSession {
 	// =========================================================================
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		const abortEpoch = this._agentRunAbortEpoch;
 		this._isAgentRunActive = true;
 		try {
 			await this.agent.prompt(messages);
-			while (await this._handlePostAgentRun()) {
+			while (abortEpoch === this._agentRunAbortEpoch && (await this._handlePostAgentRun())) {
+				// Stop may arrive while retry or compaction awaits. It also owns
+				// the gap between agent runs, when agent.abort() has no active signal.
+				if (abortEpoch !== this._agentRunAbortEpoch) break;
 				await this.agent.continue();
 			}
 		} finally {
@@ -1089,7 +1097,7 @@ export class AgentSession {
 	private async _handlePostAgentRun(): Promise<boolean> {
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
-		if (!msg) {
+		if (!msg || msg.stopReason === "aborted") {
 			return false;
 		}
 
@@ -1175,6 +1183,11 @@ export class AgentSession {
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
 
+			const contextMessages: CustomMessage[] = (options?.contextMessages ?? []).map((message) => ({
+				role: "custom", customType: message.customType, content: message.content ?? [],
+				display: message.display, details: message.details, timestamp: Date.now(),
+			}));
+
 			// If streaming, queue via steer() or followUp() based on option
 			if (this.isStreaming) {
 				if (!options?.streamingBehavior) {
@@ -1183,9 +1196,9 @@ export class AgentSession {
 					);
 				}
 				if (options.streamingBehavior === "followUp") {
-					await this._queueFollowUp(expandedText, currentImages);
+					this._queueFollowUp(expandedText, currentImages, contextMessages);
 				} else {
-					await this._queueSteer(expandedText, currentImages);
+					this._queueSteer(expandedText, currentImages, contextMessages);
 				}
 				preflightResult?.(true);
 				return;
@@ -1234,6 +1247,8 @@ export class AgentSession {
 				content: userContent,
 				timestamp: Date.now(),
 			});
+
+			messages.push(...contextMessages);
 
 			// Inject any pending "nextTurn" messages as context alongside the user message
 			for (const msg of this._pendingNextTurnMessages) {
@@ -1388,35 +1403,29 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	private _queueSteer(text: string, images?: ImageContent[], contextMessages: CustomMessage[] = []): void {
 		this._steeringMessages.push(text);
 		this._emitQueueUpdate();
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
 		}
-		this.agent.steer({
-			role: "user",
-			content,
-			timestamp: Date.now(),
-		});
+		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
+		this.agent.steer(contextMessages.length ? [message, ...contextMessages] : message);
 	}
 
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+	private _queueFollowUp(text: string, images?: ImageContent[], contextMessages: CustomMessage[] = []): void {
 		this._followUpMessages.push(text);
 		this._emitQueueUpdate();
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
 		}
-		this.agent.followUp({
-			role: "user",
-			content,
-			timestamp: Date.now(),
-		});
+		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
+		this.agent.followUp(contextMessages.length ? [message, ...contextMessages] : message);
 	}
 
 	/**
@@ -1560,6 +1569,7 @@ export class AgentSession {
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {
+		this._agentRunAbortEpoch++;
 		this.abortRetry();
 		this.agent.abort();
 		await this.waitForIdle();

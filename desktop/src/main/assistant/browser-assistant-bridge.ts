@@ -562,6 +562,7 @@ export class BrowserAssistantBridge {
             case 'renameSession': return service.renameSession(args[0] as string, args[1] as string)
             case 'regenerateSessionTitle': return service.regenerateSessionTitle(args[0] as string)
             case 'archiveSession': return service.archiveSession(args[0] as string, args[1] !== false)
+            case 'settleSession': return service.setSessionSettled(args[0] as string, args[1] as boolean, args[2] === true)
             case 'deleteSession': return service.deleteSession(args[0] as string)
             case 'deleteMessage': return service.deleteMessage(args[0] as any)
             case 'clearLogs': return service.clearLogs(args[0] as any)

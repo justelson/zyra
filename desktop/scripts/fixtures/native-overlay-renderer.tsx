@@ -1,4 +1,5 @@
-import { StrictMode, createContext, useContext, useState } from 'react'
+import { StrictMode, createContext, useContext, useRef, useState } from 'react'
+import { AnchoredNativeOverlay } from '../../src/renderer/src/components/ui/AnchoredNativeOverlay'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { NativeOverlayPortal, addOverlayEventListener, getOverlayActiveElement, isOverlayEventInside, registerOverlayAnchor } from '../../src/renderer/src/components/ui/native-overlay-portal'
@@ -45,6 +46,18 @@ window.open = ((_url:string, name:string) => {
 
 const context=createContext('')
 function Contents(){const value=useContext(context);const [count,setCount]=useState(0);return <div role="dialog" aria-label="Actual portal"><input data-native-overlay-autofocus data-value value={value} readOnly/><button data-increment onClick={()=>{buttons++;setCount(value=>value+1)}}>{count}</button></div>}
+function NestedAnchoredMenuFixture(){
+ const trigger=useRef<HTMLButtonElement>(null),menu=useRef<HTMLDivElement>(null)
+ const [open,setOpen]=useState(false)
+ return <><button ref={trigger} data-nested-trigger onClick={()=>setOpen(value=>!value)} style={{position:'absolute',left:12,top:36,width:120,height:24}}>Choose apps</button>
+ {open&&<AnchoredNativeOverlay anchorRef={trigger} inputRegionRef={menu}><div ref={menu} data-nested-popup style={{position:'absolute',left:0,top:30,width:200,height:80,background:'#18202a'}}>Apps</div></AnchoredNativeOverlay>}</>
+}
+function AnchoredMenuFixture(){
+ const trigger=useRef<HTMLButtonElement>(null),menu=useRef<HTMLDivElement>(null)
+ const [expanded,setExpanded]=useState(false)
+ return <><button ref={trigger} style={{position:'fixed',left:100,top:40,width:80,height:24}}>Workspace</button>
+ <AnchoredNativeOverlay anchorRef={trigger} inputRegionRef={menu}><div ref={menu} data-cropped-menu style={{position:'absolute',left:-12,top:30,width:280,height:expanded?240:120,background:'#18202a'}}><button onClick={()=>setExpanded(value=>!value)}>Expand app choices</button><NestedAnchoredMenuFixture/></div></AnchoredNativeOverlay></>
+}
 type Options={a?:boolean;b?:boolean;passive?:boolean;value?:string;autoFocus?:boolean;focusOnPresent?:boolean;bounds?:{x:number;y:number;width:number;height:number}}
 const root=createRoot(document.querySelector('#root')!)
 function App({a,b,passive,value='first',autoFocus=true,focusOnPresent=false,bounds}:Options){return <context.Provider value={value}>
@@ -224,6 +237,31 @@ const fontMetrics=(owner:Document)=>{
  render({})
  await settle()
  checks.push('browser-only native input bounds, nested expansion, release and live anchor movement')
+
+ flushSync(()=>root.render(<AnchoredMenuFixture/>))
+ await until(()=>JSON.stringify((calls.at(-1) as any).bounds)===JSON.stringify({x:88,y:70,width:280,height:120}),'menu-only native bounds')
+ const menuDocument=last('interactive').document
+ const menuBox=menuDocument.querySelector('[data-cropped-menu]')!.getBoundingClientRect()
+ assert(menuBox.x===0&&menuBox.y===0,'menu crop compensation preserves its original position')
+ const regionCallsStart=calls.length
+ ;(menuDocument.querySelector('[data-cropped-menu] button') as HTMLButtonElement).click()
+ await until(()=>(calls.at(-1) as any).bounds?.height===240,'expanded app choices resize native input')
+ assert(calls.slice(regionCallsStart).every(call=>(call as any).bounds!==null),'expanding menu choices never creates full-window input interception')
+ assert((calls.at(-1) as any).bounds.x===88&&(calls.at(-1) as any).bounds.y===70,'native crop translation cannot feed back into menu positioning')
+ const nestedCallsStart=calls.length
+ ;(menuDocument.querySelector('[data-nested-trigger]') as HTMLButtonElement).click()
+ await until(()=>menuDocument.querySelector('[data-nested-popup]'),'nested chooser rendered')
+ await settle()
+ const nestedBox=menuDocument.querySelector('[data-nested-popup]')!.getBoundingClientRect()
+ assert(nestedBox.x===12&&nestedBox.y===66,'chooser anchored inside a cropped native document preserves owner-window coordinates')
+ assert(calls.slice(nestedCallsStart).every(call=>(call as any).bounds!==null),'nested chooser never expands input to the whole window')
+ assert((calls.at(-1) as any).bounds.x===88&&(calls.at(-1) as any).bounds.y===70,'nested chooser keeps parent positioning stable')
+ ;(menuDocument.querySelector('[data-nested-trigger]') as HTMLButtonElement).click()
+ await settle()
+ assert(!menuDocument.querySelector('[data-nested-popup]')&&shown('interactive'),'closing chooser preserves parent menu')
+ render({})
+ await until(()=>!shown('interactive'),'cropped workspace closes')
+ checks.push('anchored menu-only input, crop compensation and expanded choices remain scoped')
 
  render({a:true,value:'before-loss'})
  await until(()=>shown('interactive'),'reopen')

@@ -337,7 +337,7 @@ export function getAssistantThreadLastMessageAt(thread: AssistantThread | null):
 
     // A shell and a hydrated thread must sort identically. An older retained
     // message cannot replace the latest completed turn's activity boundary.
-    return [latestMessageAt, thread.latestTurn?.completedAt, thread.latestTurn?.startedAt,
+    return [latestMessageAt, thread.lastMessageAt, thread.latestTurn?.completedAt, thread.latestTurn?.startedAt,
         thread.latestTurn?.requestedAt, thread.createdAt].filter((value): value is string => Boolean(value))
         .sort((left, right) => getSortableTimestamp(right) - getSortableTimestamp(left))[0] || ''
 }

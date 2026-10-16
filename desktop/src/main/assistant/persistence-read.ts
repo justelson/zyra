@@ -222,10 +222,10 @@ function readThreadDetails(db: SqlDatabase, threadId: string): AssistantHydrated
     }
 }
 
-function readAssistantPendingUserInputs(db: SqlDatabase, threadId: string): AssistantPendingUserInput[] {
-    return readThreadRows<AssistantPendingUserInput>(db, 'assistant_pending_user_inputs', threadId, [
-        'id', 'request_id', 'questions_json', 'status', 'answers_json', 'response_message_id', 'turn_id', 'created_at', 'resolved_at'
-    ], (row) => ({
+const userInputColumns = ['id', 'request_id', 'questions_json', 'status', 'answers_json', 'response_message_id', 'turn_id', 'created_at', 'resolved_at']
+
+function pendingUserInputFromRow(row: SqlValue[]): AssistantPendingUserInput {
+    return {
         id: String(row[0] || ''),
         requestId: String(row[1] || ''),
         questions: parseJson(row[2], []),
@@ -235,7 +235,16 @@ function readAssistantPendingUserInputs(db: SqlDatabase, threadId: string): Assi
         turnId: toNullableString(row[6]),
         createdAt: String(row[7] || new Date(0).toISOString()),
         resolvedAt: toNullableString(row[8])
-    }))
+    }
+}
+
+function readAssistantPendingUserInputs(db: SqlDatabase, threadId: string): AssistantPendingUserInput[] {
+    return readThreadRows(db, 'assistant_pending_user_inputs', threadId, userInputColumns, pendingUserInputFromRow)
+}
+
+export function readAssistantPendingUserInput(db: SqlDatabase, requestId: string): { threadId: string; userInput: AssistantPendingUserInput } | null {
+    const row = db.exec(`SELECT ${userInputColumns.join(', ')}, thread_id FROM assistant_pending_user_inputs WHERE request_id = ? AND status = 'pending' LIMIT 1`, [requestId])[0]?.values?.[0]
+    return row ? { threadId: String(row[9]), userInput: pendingUserInputFromRow(row) } : null
 }
 
 export function readAssistantSessionTurnUsage(db: SqlDatabase, sessionId?: string, since?: string): AssistantSessionTurnUsageEntry[] {
@@ -299,6 +308,11 @@ function readAssistantMeta(db: SqlDatabase): AssistantMetaRow {
 function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSnapshot['playground']): AssistantSession[] {
     const sessions = new Map<string, AssistantSession>()
     const chatScopes = readAssistantChatScopes(db)
+    const canonicalSettlement = new Map<string, Pick<AssistantSession, 'settled' | 'settlementManual'>>()
+    for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'canonicalSettlement:%'")[0]?.values || []) {
+        const cached = parseJson<Record<string, unknown> | null>(row[1], null)
+        if (cached && typeof cached.settled === 'boolean') canonicalSettlement.set(String(row[0]).slice('canonicalSettlement:'.length), { settled: cached.settled, settlementManual: cached.settlementManual === true })
+    }
     const sessionRoutePatches: Array<{
         sessionId: string
         mode: AssistantSession['mode']
@@ -319,6 +333,7 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
         const chatScope = chatScopes.get(sessionId) || null
         const session: AssistantSession = {
             id: sessionId,
+            ...canonicalSettlement.get(sessionId),
             title: String(row[1] || 'New Session'),
             mode: String(row[2] || 'work') === 'playground' ? 'playground' : 'work',
             projectPath: toNullableString(row[3]),
@@ -363,7 +378,13 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
         }
         return counts
     }
-    const messageCountByThreadId = readCountMap('assistant_messages')
+    const messageCountByThreadId = new Map<string, number>()
+    const lastMessageAtByThreadId = new Map<string, string>()
+    for (const row of db.exec("SELECT thread_id, COUNT(*), MAX(CASE WHEN role != 'system' THEN created_at END) FROM assistant_messages GROUP BY thread_id")[0]?.values || []) {
+        if (typeof row[0] !== 'string') continue
+        messageCountByThreadId.set(row[0], toNumber(row[1]))
+        if (typeof row[2] === 'string') lastMessageAtByThreadId.set(row[0], row[2])
+    }
     const activityCountByThreadId = readCountMap('assistant_activities')
     const proposedPlanCountByThreadId = readCountMap('assistant_proposed_plans')
     const pendingApprovalCountByThreadId = readCountMap('assistant_pending_approvals', ` WHERE status = 'pending'`)
@@ -424,6 +445,7 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
             profile: toNullableString(row[11]),
             cwd: toNullableString(row[12]),
             messageCount,
+            lastMessageAt: lastMessageAtByThreadId.get(threadId) || null,
             activityCount: activityCountByThreadId.get(threadId) ?? 0,
             proposedPlanCount: proposedPlanCountByThreadId.get(threadId) ?? 0,
             lastSeenCompletedTurnId: toNullableString(row[14]),

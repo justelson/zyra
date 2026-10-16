@@ -158,6 +158,8 @@ export interface PromptOptions {
     images?: ImageContent[];
     /** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
     streamingBehavior?: "steer" | "followUp";
+    /** Hidden context accepted and persisted with this prompt, never before its preflight. */
+    contextMessages?: Array<Pick<CustomMessage, "customType" | "content" | "display" | "details">>;
     /** Source of input for extension input event handlers. Defaults to "interactive". */
     source?: InputSource;
     /** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
@@ -202,6 +204,7 @@ export declare class AgentSession {
     private _unsubscribeAgent?;
     private _eventListeners;
     private _isAgentRunActive;
+    private _agentRunAbortEpoch;
     private _idleWaitPromise;
     private _resolveIdleWait;
     /** Tracks pending steering messages for UI display. Removed when delivered. */

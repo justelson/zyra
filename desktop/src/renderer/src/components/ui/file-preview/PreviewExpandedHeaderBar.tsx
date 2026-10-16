@@ -6,7 +6,7 @@ import { useSettings } from '@/lib/settings'
 import type { PreviewFile, PreviewTab } from './types'
 import type { ViewportPreset } from './viewport'
 import { PreviewEditorSettingsMenu } from './PreviewEditorSettingsMenu'
-import type { PreviewHeaderEditMenuAction } from './PreviewHeaderEditMenu'
+import { PreviewHeaderEditMenu, type PreviewHeaderEditMenuAction } from './PreviewHeaderEditMenu'
 import { PreviewHeaderHtmlControls } from './PreviewHeaderHtmlControls'
 import { PreviewHistoryNavigation } from './PreviewHistoryNavigation'
 import { PreviewTabStrip } from './PreviewTabStrip'
@@ -263,27 +263,7 @@ export function PreviewExpandedHeaderBar({
                         onViewportChange={onViewportChange}
                     />
                 ) : null}
-                {previewModeEnabled ? (
-                    <>
-                        {contextualActions.map((action) => <HeaderIconButton key={action.id} active={action.checked} disabled={action.disabled} title={action.label} onClick={action.onSelect}>{action.icon}</HeaderIconButton>)}
-                        {isDirty ? <>
-                            <HeaderIconButton disabled={isSaving} title="Save changes" onClick={onSave}><Save size={13} /></HeaderIconButton>
-                            <HeaderIconButton disabled={isSaving} title="Discard changes" onClick={onRevert}><Undo2 size={13} /></HeaderIconButton>
-                        </> : null}
-                        <button
-                            type="button"
-                            onClick={() => onModeChange(isEditMode ? 'preview' : 'edit')}
-                            disabled={!isEditMode && (!isEditable || loadingEditableContent)}
-                            aria-pressed={isEditMode}
-                            title={isEditMode ? 'Switch to preview mode' : 'Switch to edit mode'}
-                            className={cn(
-                                'no-drag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--surface-divider)] bg-[var(--surface-floating)] px-2.5 text-[11px] text-sparkle-text transition-colors hover:bg-[var(--surface-hover)]',
-                                isEditMode && 'bg-[var(--surface-active)]',
-                                !isEditMode && (!isEditable || loadingEditableContent) && 'cursor-not-allowed opacity-45'
-                            )}
-                        ><Edit3 size={12} /><span>Edit</span></button>
-                    </>
-                ) : null}
+                {previewModeEnabled && isEditable ? <PreviewHeaderEditMenu previewModeEnabled={previewModeEnabled} isEditable={isEditable} isEditMode={isEditMode} isDirty={isDirty} isSaving={isSaving} loadingEditableContent={loadingEditableContent} contextualActions={contextualActions} onModeChange={onModeChange} onSave={onSave} onRevert={onRevert} /> : null}
                 {showCloseButton ? (
                     <HeaderIconButton title="Close preview" onClick={onClose}>
                         <X size={14} />

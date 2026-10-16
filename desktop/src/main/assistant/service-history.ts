@@ -1,4 +1,5 @@
 import type { AssistantLatestTurn, AssistantMessage, AssistantThread } from '../../shared/assistant/contracts'
+import { latestAssistantMessageAt } from '../../shared/assistant/message-recency'
 
 type UserTurnEntry = {
     message: AssistantMessage
@@ -29,6 +30,7 @@ type AssistantDeleteMessagePlan = {
         | 'activePlan'
         | 'lastSeenCompletedTurnId'
         | 'latestTurn'
+        | 'lastMessageAt'
         | 'state'
         | 'lastError'
         | 'updatedAt'
@@ -198,6 +200,7 @@ export function buildDeleteMessagePlan(thread: AssistantThread, messageId: strin
             activePlan: thread.activePlan && thread.activePlan.turnId && removedTurnIds.has(thread.activePlan.turnId) ? null : thread.activePlan,
             lastSeenCompletedTurnId,
             latestTurn,
+            lastMessageAt: latestAssistantMessageAt(keptMessages),
             state: includesThreadTail ? 'ready' : thread.state,
             lastError: includesThreadTail ? null : thread.lastError,
             updatedAt: occurredAt

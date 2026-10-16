@@ -1262,12 +1262,14 @@ assert.deepEqual(
     'failed command rows must remain inside the same chronological tool-call batch'
 )
 
-const boundaryEntries = getTimelineEntries([], [
+const boundaryEntries = getTimelineEntries([
+    message({ id: 'turn-two-user', role: 'user', turnId: 'turn-two', millisecond: 1350, text: 'Next request' })
+], [
     activity({ id: 'turn-two-tool', turnId: 'turn-two', millisecond: 1400 }),
     activity({ id: 'turn-one-tool', turnId: 'turn-one', millisecond: 1300 })
 ])
-assert.equal(boundaryEntries.length, 2, 'adjacent tools from different turns must never merge into one batch')
-assert.equal(boundaryEntries.every((entry) => entry.type === 'activity'), true)
+assert.equal(boundaryEntries.length, 3, 'the real user-message boundary separates tool batches')
+assert.equal(boundaryEntries.filter((entry) => entry.type === 'activity').length, 2, 'tools on either side of the user message remain individual activities')
 
 const managedCommand = activity({ id: 'managed-command', turnId: 'managed-turn', millisecond: 1500 })
 managedCommand.payload = {
@@ -1352,7 +1354,8 @@ const checkpointGroupMarkup = renderToStaticMarkup(createElement(TimelineToolCal
         buildCommandCheckpointDisplayActivity(commandCheckpoint, [commandCheckpoint, managedCommand]),
         buildCommandCheckpointDisplayActivity(secondCommandCheckpoint, [secondCommandCheckpoint, managedCommand])
     ],
-    onRevealActivity: () => undefined
+    onRevealActivity: () => undefined,
+    revealActivityRequest: { activityId: commandCheckpoint.id }
 }))
 assert.equal((checkpointGroupMarkup.match(/data-assistant-tool-call=/g) || []).length, 2, 'adjacent follow-ups keep one clickable row per action')
 assert.equal(checkpointGroupMarkup.includes('Follow-up'), true)
@@ -1459,8 +1462,9 @@ newFileActivity.payload = {
 const newFileMarkup = renderToStaticMarkup(createElement(TimelineToolCallCard, { activity: newFileActivity }))
 assert.equal(newFileMarkup.includes('Edited file'), false, 'file rows use path and Git-style status instead of a repeated action label')
 assert.equal(newFileMarkup.includes('aria-label="New / untracked"'), true, 'new files use a U status pill')
-assert.equal(newFileMarkup.indexOf('aria-label="New / untracked"') < newFileMarkup.indexOf('+4'), true, 'the status pill stays attached to the path before right-side metrics')
-assert.equal(newFileMarkup.indexOf('+4') < newFileMarkup.indexOf('1.3s'), true, 'diff counts sit beside and before the far-right elapsed time')
+assert.equal(newFileMarkup.includes('data-diff-additions="4"'), true, 'closed file cards retain applied change counts')
+assert.equal(newFileMarkup.indexOf('aria-label="New / untracked"') < newFileMarkup.indexOf('data-diff-additions="4"'), true, 'the status pill precedes the accessible change totals')
+assert.equal(newFileMarkup.replace(/<[^>]+>/g, '').includes('1.3s'), false, 'closed file cards keep optional elapsed statistics hidden')
 const partialReadActivity = activity({ id: 'partial-read', turnId: 'read-presentation', millisecond: 1692 })
 partialReadActivity.kind = 'file-read'
 partialReadActivity.summary = 'Read file'
@@ -1532,7 +1536,7 @@ assert.equal(inlineDiffPreviewSource.includes("[text-rendering:auto] [-webkit-fo
 assert.equal(inlineDiffPreviewSource.includes('@pierre/diffs'), false, 'inline diff has no rich-renderer dependency')
 assert.equal(inlineDiffPreviewSource.includes("lazy(() => import('./AssistantInlineDiffSyntax')"), true, 'syntax grammars load only when an inline preview opens')
 assert.equal(inlineDiffPreviewSource.includes('More lines — open full diff'), true, 'the truncation row opens the full sidebar diff')
-assert.equal(inlineDiffSyntaxSource.includes('PrismLight as SyntaxHighlighter'), true, 'capped inline rows retain syntax highlighting')
+assert.equal(inlineDiffSyntaxSource.includes("from 'react-syntax-highlighter/dist/esm/prism-light'"), true, 'capped inline rows retain the direct Prism Light syntax-highlighter import')
 assert.equal(inlineDiffSyntaxSource.includes("textShadow: 'none'"), true, 'syntax tokens explicitly remove theme text shadows')
 const inlineDiffMarkup = renderToStaticMarkup(createElement(AssistantInlineDiffPreview, {
     patch: 'diff --git a/src/new-file.ts b/src/new-file.ts\n--- a/src/new-file.ts\n+++ b/src/new-file.ts\n@@ -1 +1 @@\n-old\n+new',
@@ -1552,7 +1556,7 @@ assert.equal(toolCardSource.includes("window.setInterval(() => setNowIso(new Dat
 assert.equal(toolCardSource.includes("'shrink-0 text-right font-mono text-[9px] tabular-nums transition-colors'"), true, 'command durations stay right-aligned and tabular in both chat displays')
 assert.equal(toolCardSource.includes("minimal ? 'w-auto' : 'w-14'"), false, 'command timing uses intrinsic width instead of a padded fixed column')
 assert.equal(toolCardSource.includes("'text-sparkle-text-muted group-hover:text-sparkle-text-secondary'"), true, 'completed command durations stay visually quiet until row hover')
-assert.equal(toolCardSource.includes("{formatAssistantActionTime(activityStartedAt)}{elapsed ? ` · ${elapsed}` : ''}"), true, 'command time and elapsed duration share the one compact row')
+assert.match(toolCardSource, /showStats \? `\$\{formatAssistantActionTime\(activityStartedAt\)\}\$\{elapsed/, 'optional command time and elapsed duration share one compact row')
 assert.equal(toolCardSource.includes('inline-flex w-4 shrink-0 items-center justify-center'), true, 'every tool row reserves the same trailing chevron endpoint')
 assert.equal(
     toolCardSource.indexOf('{completedWithoutOutput ? (') < toolCardSource.indexOf('{isRead ? ('),
@@ -1627,7 +1631,7 @@ const allToolsMarkup = renderToStaticMarkup(createElement(TimelineToolCallList, 
 assert.equal(allToolsMarkup.includes('Show all 10'), false, 'Action batches never restore the last-five format')
 assert.equal(allToolsMarkup.includes('data-assistant-action-batch="true"'), true, 'consecutive Actions collapse into one block')
 assert.equal(allToolsMarkup.includes('data-state="closed"'), true, 'the Action block starts closed with no visible action subset')
-assert.equal((allToolsMarkup.match(/data-assistant-tool-call=/g) || []).length, 10, 'opening the Action block reveals every captured Action')
+assert.equal((allToolsMarkup.match(/data-assistant-tool-call=/g) || []).length, 0, 'the closed Action block does not mount captured Actions')
 assert.equal(stripAssistantCommandEnvelope('Command completed (cmd-1) after 1s.\nCommand: npm test\n\npassed', 'npm test'), 'passed', 'managed command wrappers stay out of evidence')
 
 const timelineRowsSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantTimelineRows.tsx', import.meta.url), 'utf8')

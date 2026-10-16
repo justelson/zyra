@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatGptAccountsUpdate, ChatGptPoolSnapshot } from '@shared/onboarding/contracts'
+import { publishChatGptAccounts, subscribeChatGptAccounts } from '@/lib/chatgpt-account-events'
 
 export function useChatGptAccountPool({ usageActive = true }: { usageActive?: boolean } = {}) {
     const [snapshot, setSnapshot] = useState<ChatGptPoolSnapshot | null>(null)
@@ -28,10 +29,12 @@ export function useChatGptAccountPool({ usageActive = true }: { usageActive?: bo
             if (!result.success) throw new Error(result.error)
             setSnapshot(result.pool)
             setError(null)
+            publishChatGptAccounts(result.pool)
             return true
         } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save account preferences.'); return false }
         finally { mutation.current = false; setBusy(false) }
     }, [])
+    useEffect(() => subscribeChatGptAccounts(pool => { ++generation.current; setSnapshot(pool) }), [])
     useEffect(() => {
         void refresh().then(() => { if (usageActive) return refresh(true) })
         const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(usageActive) }, 60_000)

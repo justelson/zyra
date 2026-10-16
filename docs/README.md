@@ -30,6 +30,8 @@ Status words used below:
 
 ## Architecture
 
+- [Personal tools and build previews](architecture/personal-tools-and-build-preview.md) — **Draft / Coming soon.** Lightweight developer previews and a future everyday-user edition with most developer surfaces removed, saved local personal tools, and optional publishing to the user's own Cloudflare account. Consumer implementation has not started.
+
 - [Agent server](architecture/agent-server.md) — **Current.** Shared server authority, persistence, and client flow.
 - [Canonical chat integrity](architecture/canonical-chat-integrity.md) — **Current.** Cross-client identity, indexed history, metadata, recovery, and migration safety.
 - [Local chat search ADR](adr/0012-use-a-derived-fts-projection-for-local-chat-search.md) — **Accepted and implemented.** Canonical eligibility, FTS5 projection ownership, worker isolation, bounded fallback, and exact-message navigation.

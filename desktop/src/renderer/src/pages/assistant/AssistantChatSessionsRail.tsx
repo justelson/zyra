@@ -489,7 +489,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
             onCreateThread: props.onCreateThread,
             onChooseProject: props.onChooseSessionProject,
             onCopyThreadId: async id => { await copyChatThreadId(id, onShowToast) },
-            onToggleSettlement: () => { if (!settlement.priority) setChatSettlement(session, !settlement.settled) },
+            onToggleSettlement: () => { if (!settlement.priority) void setChatSettlement(session, !settlement.settled).catch(error => onShowToast({ message: error.message, tone: 'error' })) },
             onOpenRename: (target) => { void renameSession(target) },
             onRegenerateTitle: regenerateTitle,
             onTogglePinned: () => togglePinnedSession(session),
@@ -854,6 +854,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                         onCreateProjectChat={onCreateProjectChat}
                         onSelectSession={onSelectSession}
                         onRename={renameSession}
+                        onShowToast={onShowToast}
                         getSessionMenuItems={getSessionMenuItems}
                         onOpenContextMenu={openSessionContextMenu}
                     />

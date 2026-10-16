@@ -198,115 +198,115 @@ export function AssistantBrowserNewTab({
                 <div className="font-semibold leading-none tracking-[-0.055em] tabular-nums" style={{ color: clockForegroundColor, fontSize: 'clamp(64px, 8vw, 88px)', textShadow: clockTextShadow }}>{timeLabel}</div>
                 <div className="mt-1.5 text-[11px] font-medium" style={{ color: clockQuietForegroundColor, textShadow: clockTextShadow }}>{dateLabel}</div>
 
-                <form className="relative z-30 mt-7 h-[52px] w-full max-w-[520px]" onSubmit={(event) => {
-                    event.preventDefault()
-                    event.currentTarget.querySelector('input')?.blur()
-                    submit(activeSuggestionIndex >= 0 ? suggestions[activeSuggestionIndex] || query : query)
-                }}>
-                    <div className={cn('absolute inset-x-0 top-0 z-30 overflow-hidden border border-[var(--surface-divider)] shadow-[0_12px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl transition-[border-radius,box-shadow] focus-within:shadow-[0_20px_56px_rgba(0,0,0,0.42),0_0_0_3px_color-mix(in_srgb,var(--accent-primary)_16%,transparent)]', suggestionsOpen ? 'rounded-[24px]' : 'rounded-full')} style={{ backgroundColor: 'color-mix(in srgb, var(--color-bg) 96%, transparent)' }}>
-                        <label className="flex items-center" style={{ height: 52 }}>
-                            <Search size={15} className="shrink-0 text-sparkle-text-muted" style={{ marginLeft: 18 }} />
-                            <input value={query} onChange={(event) => {
-                                setQuery(event.target.value)
-                                setActiveSuggestionIndex(-1)
-                            }} onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 0)} onKeyDown={(event) => {
-                                if (event.key === 'ArrowDown' && suggestions.length > 0) {
-                                    event.preventDefault()
-                                    setActiveSuggestionIndex((current) => Math.min(suggestions.length - 1, current + 1))
-                                } else if (event.key === 'ArrowUp' && suggestions.length > 0) {
-                                    event.preventDefault()
-                                    setActiveSuggestionIndex((current) => current <= 0 ? suggestions.length - 1 : current - 1)
-                                } else if (event.key === 'Escape') {
-                                    event.currentTarget.blur()
-                                    setFocused(false)
-                                    setSuggestionState({ query: '', values: [] })
-                                    setSuggestionsLoading(false)
-                                }
-                            }} className="min-w-0 flex-1 bg-transparent px-3 text-[12px] text-sparkle-text outline-none placeholder:text-sparkle-text-muted" placeholder="Search Google or enter an address" spellCheck={false} aria-label="New tab search" role="combobox" aria-autocomplete="list" aria-expanded={suggestionsOpen} aria-controls={suggestionsOpen ? NEW_TAB_SUGGESTIONS_ID : undefined} aria-activedescendant={activeSuggestionIndex >= 0 && suggestions[activeSuggestionIndex] ? `${NEW_TAB_SUGGESTIONS_ID}-option-${activeSuggestionIndex}` : undefined} />
-                            <button type="submit" className="inline-flex w-11 self-stretch items-center justify-center text-[var(--accent-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)]" title="Open"><ArrowRight size={14} /></button>
-                        </label>
-                        {suggestionsOpen ? (
-                            <div id={NEW_TAB_SUGGESTIONS_ID} role="listbox" aria-label="Google suggestions" className="max-h-72 overflow-y-auto border-t border-[var(--surface-divider)] p-1.5 text-left">
-                                {suggestions.length > 0 ? suggestions.map((suggestion, index) => (
-                                    <button key={suggestion} id={`${NEW_TAB_SUGGESTIONS_ID}-option-${index}`} type="button" role="option" aria-selected={activeSuggestionIndex === index} onPointerDown={(event) => event.preventDefault()} onClick={() => submit(suggestion)} onPointerEnter={() => setActiveSuggestionIndex(index)} className={cn('flex h-9 w-full items-center gap-2 rounded-[7px] px-2.5 text-left text-sparkle-text transition-colors hover:bg-[var(--surface-hover)]', activeSuggestionIndex === index && 'bg-[var(--surface-hover)] text-sparkle-text')}><Search size={11} className="text-sparkle-text-muted" /><span className="truncate text-[11px] font-medium">{suggestion}</span></button>
-                                )) : (
-                                    <div role="status" className="flex h-9 items-center gap-2 px-2.5 text-[10px] text-sparkle-text-muted"><Search size={11} /><span>{suggestionsLoading ? 'Finding suggestions…' : 'Press Enter to search'}</span></div>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
-                </form>
-
-                <section
-                    className="relative z-10 w-full overflow-hidden border-x border-b border-[var(--surface-divider)] text-sparkle-text backdrop-blur-xl"
-                    style={{
-                        backgroundColor: 'color-mix(in srgb, var(--color-bg) 94%, transparent)',
-                        borderBottomLeftRadius: 12,
-                        borderBottomRightRadius: 12,
-                        borderTopLeftRadius: 0,
-                        borderTopRightRadius: 0,
-                        boxShadow: serversExpanded
-                            ? '0 16px 40px rgba(0,0,0,0.16)'
-                            : '0 8px 24px rgba(0,0,0,0.10)',
-                        height: localServersPanelHeight,
-                        marginTop: -10,
-                        maxWidth: 440,
-                        transition: 'height 420ms cubic-bezier(0.22,1,0.36,1), background-color 300ms ease, box-shadow 360ms ease'
-                    }}
-                    aria-label="Running locally"
+                {/* Search, suggestions and local servers share one clipped surface.
+                    Only drawer height and content opacity change during disclosure. */}
+                <div
+                    data-new-tab-search-frame=""
+                    className="relative mt-7 w-[88%] max-w-[460px] overflow-hidden rounded-t-[22px] rounded-b-[12px] border border-[var(--surface-divider)] shadow-[0_12px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl transition-shadow focus-within:shadow-[0_20px_56px_rgba(0,0,0,0.42),0_0_0_3px_color-mix(in_srgb,var(--accent-primary)_16%,transparent)]"
+                    style={{ backgroundColor: 'color-mix(in srgb, var(--color-bg) 96%, transparent)' }}
                 >
-                    <span className="sr-only">This project</span>
-                    <span className="sr-only">Other local servers</span>
-                    <div
-                        id="assistant-browser-local-servers-content"
-                        className="absolute inset-x-0 top-0 overflow-y-auto px-2 pb-1 pt-3 text-left custom-scrollbar"
+                    <form className="relative z-30 w-full" onSubmit={(event) => {
+                        event.preventDefault()
+                        event.currentTarget.querySelector('input')?.blur()
+                        submit(activeSuggestionIndex >= 0 ? suggestions[activeSuggestionIndex] || query : query)
+                    }}>
+                        <div className="relative">
+                            <label className="flex items-center" style={{ height: 44 }}>
+                                <Search size={15} className="shrink-0 text-sparkle-text-muted" style={{ marginLeft: 14 }} />
+                                <input value={query} onChange={(event) => {
+                                    setQuery(event.target.value)
+                                    setActiveSuggestionIndex(-1)
+                                }} onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 0)} onKeyDown={(event) => {
+                                    if (event.key === 'ArrowDown' && suggestions.length > 0) {
+                                        event.preventDefault()
+                                        setActiveSuggestionIndex((current) => Math.min(suggestions.length - 1, current + 1))
+                                    } else if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                                        event.preventDefault()
+                                        setActiveSuggestionIndex((current) => current <= 0 ? suggestions.length - 1 : current - 1)
+                                    } else if (event.key === 'Escape') {
+                                        event.currentTarget.blur()
+                                        setFocused(false)
+                                        setSuggestionState({ query: '', values: [] })
+                                        setSuggestionsLoading(false)
+                                    }
+                                }} className="min-w-0 flex-1 bg-transparent px-3 text-[12px] text-sparkle-text outline-none placeholder:text-sparkle-text-muted" placeholder="Search Google or enter an address" spellCheck={false} aria-label="New tab search" role="combobox" aria-autocomplete="list" aria-expanded={suggestionsOpen} aria-controls={suggestionsOpen ? NEW_TAB_SUGGESTIONS_ID : undefined} aria-activedescendant={activeSuggestionIndex >= 0 && suggestions[activeSuggestionIndex] ? `${NEW_TAB_SUGGESTIONS_ID}-option-${activeSuggestionIndex}` : undefined} />
+                                <button type="submit" className="inline-flex w-11 self-stretch items-center justify-center text-[var(--accent-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)]" title="Open"><ArrowRight size={14} /></button>
+                            </label>
+                            {suggestionsOpen ? (
+                                <div id={NEW_TAB_SUGGESTIONS_ID} role="listbox" aria-label="Google suggestions" className="max-h-72 overflow-y-auto border-t border-[var(--surface-divider)] p-1.5 text-left">
+                                    {suggestions.length > 0 ? suggestions.map((suggestion, index) => (
+                                        <button key={suggestion} id={`${NEW_TAB_SUGGESTIONS_ID}-option-${index}`} type="button" role="option" aria-selected={activeSuggestionIndex === index} onPointerDown={(event) => event.preventDefault()} onClick={() => submit(suggestion)} onPointerEnter={() => setActiveSuggestionIndex(index)} className={cn('flex h-9 w-full items-center gap-2 rounded-[7px] px-2.5 text-left text-sparkle-text transition-colors hover:bg-[var(--surface-hover)]', activeSuggestionIndex === index && 'bg-[var(--surface-hover)] text-sparkle-text')}><Search size={11} className="text-sparkle-text-muted" /><span className="truncate text-[11px] font-medium">{suggestion}</span></button>
+                                    )) : (
+                                        <div role="status" className="flex h-9 items-center gap-2 px-2.5 text-[10px] text-sparkle-text-muted"><Search size={11} /><span>{suggestionsLoading ? 'Finding suggestions…' : 'Press Enter to search'}</span></div>
+                                    )}
+                                </div>
+                            ) : null}
+                        </div>
+                    </form>
+
+                    <section
+                        className="relative z-10 w-full overflow-hidden text-sparkle-text"
                         style={{
-                            bottom: 34,
-                            opacity: serversExpanded ? 1 : 0,
-                            pointerEvents: serversExpanded ? 'auto' : 'none',
-                            transform: serversExpanded ? 'translateY(0)' : 'translateY(-10px)',
-                            transition: serversExpanded
-                                ? 'opacity 220ms ease 110ms, transform 360ms cubic-bezier(0.22,1,0.36,1) 70ms, visibility 0ms'
-                                : 'opacity 130ms ease, transform 220ms ease, visibility 0ms 300ms',
-                            visibility: serversExpanded ? 'visible' : 'hidden'
+                            height: localServersPanelHeight,
+                            transition: 'height 420ms cubic-bezier(0.22,1,0.36,1)'
                         }}
-                        aria-hidden={!serversExpanded}
+                        aria-label="Running locally"
                     >
-                        {totalServers > 0 ? (
-                            <>
-                                <BrowserServerGroup label="This project" servers={projectServers} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
-                                <BrowserServerGroup label="Other local servers" servers={otherServers} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
-                            </>
-                        ) : (
-                            <div className="flex min-h-11 items-center justify-center gap-2 text-[10px] text-sparkle-text-muted">
-                                {loading ? <><LoaderCircle size={11} className="animate-spin" /><span>Looking for local servers…</span></> : <span>{error || 'No running local servers detected.'}</span>}
-                            </div>
-                        )}
-                    </div>
-                    <div className="absolute inset-x-0 bottom-0 flex items-center" style={{ height: 34, transform: serversExpanded ? 'translateY(0)' : 'translateY(3px)', transition: 'transform 220ms ease' }}>
-                        <button
-                            type="button"
-                            onClick={toggleLocalServers}
-                            className="flex h-full min-w-0 flex-1 items-center text-[10px] font-medium text-sparkle-text outline-none transition-colors hover:bg-[var(--surface-hover)] focus-visible:bg-[var(--surface-hover)]"
-                            style={{ gap: 6, justifyContent: 'flex-start', padding: '0 14px' }}
-                            aria-expanded={serversExpanded}
-                            aria-controls="assistant-browser-local-servers-content"
+                        <span className="sr-only">This project</span>
+                        <span className="sr-only">Other local servers</span>
+                        <div
+                            id="assistant-browser-local-servers-content"
+                            className="absolute inset-x-0 top-0 overflow-y-auto text-left custom-scrollbar"
+                            style={{
+                                bottom: 34,
+                                opacity: serversExpanded ? 1 : 0,
+                                pointerEvents: serversExpanded ? 'auto' : 'none',
+                                transform: serversExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                transition: serversExpanded
+                                    ? 'opacity 220ms ease 110ms, transform 360ms cubic-bezier(0.22,1,0.36,1) 70ms, visibility 0ms'
+                                    : 'opacity 130ms ease, transform 220ms ease, visibility 0ms 300ms',
+                                visibility: serversExpanded ? 'visible' : 'hidden'
+                            }}
+                            aria-hidden={!serversExpanded}
                         >
-                            <span className="inline-flex shrink-0 items-center justify-center text-sparkle-text-muted" style={{ height: 14, width: 14 }}><Server size={12} /></span>
-                            <span className="inline-flex items-center whitespace-nowrap" style={{ height: 14, lineHeight: '14px' }}>Local servers</span>
-                            <span className="inline-flex items-center text-[10px] font-medium text-sparkle-text-muted" style={{ height: 14, lineHeight: '14px' }}>{totalServers}</span>
-                            <span className="inline-flex shrink-0 items-center justify-center" style={{ height: 14, marginLeft: 1, width: 14 }}><ChevronDown size={10} className="transition-transform duration-300" style={{ transform: serversExpanded ? 'rotate(180deg)' : 'rotate(-90deg)' }} /></span>
-                        </button>
-                        {serversExpanded ? <button type="button" onClick={onRefresh} disabled={loading} className="mr-1 inline-flex size-8 items-center justify-center text-sparkle-text-muted transition-[color,transform] hover:rotate-12 hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)] disabled:opacity-35" title="Refresh running servers" aria-label="Refresh running servers"><RefreshCw size={11} className={cn(loading && 'animate-spin')} /></button> : null}
-                    </div>
-                </section>
+                            <div className="px-2 pb-1 pt-3">{totalServers > 0 ? (
+                                <>
+                                    <BrowserServerGroup label="This project" servers={projectServers} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
+                                    <BrowserServerGroup label="Other local servers" servers={otherServers} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
+                                </>
+                            ) : (
+                                <div className="flex min-h-11 items-center justify-center gap-2 text-[10px] text-sparkle-text-muted">
+                                    {loading ? <><LoaderCircle size={11} className="animate-spin" /><span>Looking for local servers…</span></> : <span>{error || 'No running local servers detected.'}</span>}
+                                </div>
+                            )}</div>
+                        </div>
+                        <div className="absolute inset-x-0 bottom-0 flex items-center" style={{ height: 34 }}>
+                            <button
+                                type="button"
+                                onClick={toggleLocalServers}
+                                className="flex h-full min-w-0 flex-1 items-center text-[10px] font-medium text-sparkle-text outline-none transition-colors hover:bg-[var(--surface-hover)] focus-visible:bg-[var(--surface-hover)]"
+                                style={{ gap: 6, justifyContent: 'flex-start', padding: '0 14px' }}
+                                aria-expanded={serversExpanded}
+                                aria-controls="assistant-browser-local-servers-content"
+                            >
+                                <span className="inline-flex shrink-0 items-center justify-center text-sparkle-text-muted" style={{ height: 14, width: 14 }}><Server size={12} /></span>
+                                <span className="inline-flex items-center whitespace-nowrap" style={{ height: 14, lineHeight: '14px' }}>Local servers</span>
+                                <span className="inline-flex items-center text-[10px] font-medium text-sparkle-text-muted" style={{ height: 14, lineHeight: '14px' }}>{totalServers}</span>
+                                <span className="inline-flex shrink-0 items-center justify-center" style={{ height: 14, marginLeft: 1, width: 14 }}><ChevronDown size={10} className="transition-transform duration-300" style={{ transform: serversExpanded ? 'rotate(180deg)' : 'rotate(-90deg)' }} /></span>
+                            </button>
+                            {serversExpanded ? <button type="button" onClick={onRefresh} disabled={loading} className="mr-1 inline-flex size-8 items-center justify-center text-sparkle-text-muted transition-[color,transform] hover:rotate-12 hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)] disabled:opacity-35" title="Refresh running servers" aria-label="Refresh running servers"><RefreshCw size={11} className={cn(loading && 'animate-spin')} /></button> : null}
+                        </div>
+                    </section>
+                </div>
             </main>
 
-            {activeBackground?.provider === 'built-in' ? (
-                <button type="button" onClick={() => void openDesktopLink(activeBackground.sourceUrl)} className="absolute bottom-3 left-3 z-20 max-w-[min(520px,calc(100%-24px))] truncate text-[10px] opacity-80 transition-opacity hover:opacity-100" style={{ color: attributionForegroundColor, textShadow: attributionTextShadow }} title={activeBackground.attributionText}>{activeBackground.attributionText}</button>
-            ) : activeBackground ? (
-                <span className="absolute bottom-3 left-3 z-20 max-w-[min(520px,calc(100%-24px))] truncate text-[10px] opacity-80" style={{ color: attributionForegroundColor, textShadow: attributionTextShadow }}>Photo by <button type="button" onClick={() => void openDesktopLink(activeBackground.photographerUrl)} className="hover:underline hover:opacity-100">{activeBackground.photographer}</button> on <button type="button" onClick={() => void openDesktopLink('https://unsplash.com/?utm_source=zyra&utm_medium=referral')} className="hover:underline hover:opacity-100">Unsplash</button></span>
-            ) : null}
+            <div data-new-tab-attribution="" className="relative z-20 -mt-8 px-3 pb-3">
+                {activeBackground?.provider === 'built-in' ? (
+                    <button type="button" onClick={() => void openDesktopLink(activeBackground.sourceUrl)} className="max-w-[min(520px,calc(100%-24px))] truncate text-[10px] opacity-80 transition-opacity hover:opacity-100" style={{ color: attributionForegroundColor, textShadow: attributionTextShadow }} title={activeBackground.attributionText}>{activeBackground.attributionText}</button>
+                ) : activeBackground ? (
+                    <span className="max-w-[min(520px,calc(100%-24px))] truncate text-[10px] opacity-80" style={{ color: attributionForegroundColor, textShadow: attributionTextShadow }}>Photo by <button type="button" onClick={() => void openDesktopLink(activeBackground.photographerUrl)} className="hover:underline hover:opacity-100">{activeBackground.photographer}</button> on <button type="button" onClick={() => void openDesktopLink('https://unsplash.com/?utm_source=zyra&utm_medium=referral')} className="hover:underline hover:opacity-100">Unsplash</button></span>
+                ) : null}
+            </div>
             {backgroundPickerOpen ? <AssistantBrowserBackgroundPicker controller={background} onClose={() => setBackgroundPickerOpen(false)} /> : null}
         </div>
     )

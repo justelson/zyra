@@ -17,6 +17,8 @@ import { shouldAutoReconnectAssistantOnStartup } from '../src/renderer/src/lib/a
 import { areAssistantSessionsRailSelectionsEqual } from '../src/renderer/src/lib/assistant/assistant-store-selection-helpers'
 import { getAssistantThreadPhase, isAssistantSessionBackgroundActive, isAssistantThreadActivelyWorking } from '../src/renderer/src/lib/assistant/selectors'
 import { toAssistantThreadShell } from '../src/main/assistant/persistence-snapshot'
+import { applyAssistantDomainEvent } from '../src/shared/assistant/projector'
+import { buildDeleteMessagePlan } from '../src/main/assistant/service-history'
 import { TrailingAsyncReconciler } from '../src/main/assistant/trailing-async-reconciler'
 import { shouldAutoReconnectAssistantThread } from '../src/renderer/src/pages/assistant/assistant-connection-recovery-policy'
 import { AssistantConnectionRecoveryBanner } from '../src/renderer/src/pages/assistant/AssistantConnectionRecoveryBanner'
@@ -689,6 +691,27 @@ assert.equal(
     thread.createdAt,
     'runtime attachment timestamps must not make an old chat look newly active'
 )
+const legacyMessage = { id: 'legacy-latest', role: 'assistant' as const, text: 'Saved response', createdAt: completedAt, updatedAt: completedAt }
+const hydratedLegacy = { ...thread, latestTurn: null, messages: [legacyMessage] }
+const legacyShell = toAssistantThreadShell(hydratedLegacy)
+assert.equal(legacyShell.lastMessageAt, completedAt, 'legacy shell retains message recency without a latest turn')
+assert.equal(getAssistantThreadLastMessageAt({ ...hydratedLegacy, ...legacyShell, messages: [] }), completedAt, 'closing a legacy chat cannot move it to its creation date')
+assert.equal(getAssistantThreadLastMessageAt({ ...hydratedLegacy, ...legacyShell, messages: [{ ...legacyMessage, createdAt: thread.createdAt }] }), completedAt, 'loading an older history page cannot lower sidebar recency')
+const liveMessage = { ...legacyMessage, id: 'recency-user', role: 'user' as const, turnId: 'recency-turn' }
+const recencyEvent = { sequence: snapshot.snapshotSequence + 1, eventId: 'message-recency', type: 'thread.message.user' as const,
+    occurredAt: '2099-01-01T00:00:00.000Z', sessionId, threadId, payload: { threadId, message: liveMessage } }
+const liveRecency = applyAssistantDomainEvent(snapshot, recencyEvent)
+const liveRecencyThread = liveRecency.sessions.find(session => session.id === sessionId)!.threads.find(thread => thread.id === threadId)!
+assert.equal(liveRecencyThread.lastMessageAt, completedAt, 'live projection uses message creation time instead of replay/attachment time')
+const olderReplay = applyAssistantDomainEvent(liveRecency, { ...recencyEvent, sequence: recencyEvent.sequence + 1, eventId: 'older-history-recency', type: 'thread.updated',
+    payload: { threadId, patch: { messages: [{ ...legacyMessage, id: 'older-message', createdAt: thread.createdAt }] }, removedMessageIds: [] } })
+assert.equal(olderReplay.sessions.find(session => session.id === sessionId)!.threads.find(thread => thread.id === threadId)!.lastMessageAt, completedAt, 'an empty removal list cannot discard newer known recency')
+const newerAt = new Date(Date.parse(completedAt) + 60_000).toISOString()
+const newestRecency = applyAssistantDomainEvent(liveRecency, { ...recencyEvent, sequence: recencyEvent.sequence + 1, eventId: 'newer-message-recency',
+    payload: { threadId, message: { ...liveMessage, id: 'recency-user-newest', turnId: 'recency-turn-newest', createdAt: newerAt } } })
+const newestRecencyThread = newestRecency.sessions.find(session => session.id === sessionId)!.threads.find(thread => thread.id === threadId)!
+const deletePlan = buildDeleteMessagePlan(newestRecencyThread, 'recency-user-newest', newerAt)
+assert.equal(deletePlan.patch.lastMessageAt, completedAt, 'deleting the newest turn restores the previous message boundary')
 assert.deepEqual(
     resolveCanonicalPresenceAttention({
         currentHasPendingApprovals: false,
@@ -717,6 +740,9 @@ const baseRailSelection = {
     connected: true,
     commandPending: false
 }
+const recencyRailSelection = { ...baseRailSelection, sessions: baseRailSelection.sessions.map(session => ({ ...session,
+    threads: session.threads.map(thread => ({ ...thread, lastMessageAt: completedAt })) })) }
+assert.equal(areAssistantSessionsRailSelectionsEqual(baseRailSelection, recencyRailSelection), false, 'message recency metadata invalidates the memoized sidebar selection')
 const pendingRailSelection = {
     ...baseRailSelection,
     snapshot: pendingSnapshot,

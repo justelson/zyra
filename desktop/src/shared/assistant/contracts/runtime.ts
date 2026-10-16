@@ -150,6 +150,7 @@ export type AssistantRuntimeEvent =
     | (AssistantRuntimeEventBase & {
         type: 'thread.started'
         payload: {
+            activeCompactions?: Array<{ sequence?: number; occurredAt?: string }>
             providerThreadId: string
             source?: 'root' | 'subagent' | 'other'
             parentProviderThreadId?: string

@@ -4,11 +4,16 @@ import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 
 export const HISTORY_TOOL_RESULT_BODY_POLICY = "lazy-v1";
+export const HISTORY_ON_DEMAND_BODY_POLICY = "lazy-desktop-v2";
 export const EAGER_HISTORY_TOOL_RESULTS = 15;
 export const MAX_EAGER_HISTORY_TOOL_RESULT_BYTES = 8 * 1024 * 1024;
 
 export function normalizeHistoryBodyOptions(options = {}) {
-  return { deferToolResults: [HISTORY_TOOL_RESULT_BODY_POLICY, "lazy-mobile-v1"].includes(options.toolResultBodies), mobile: options.toolResultBodies === "lazy-mobile-v1" };
+  return {
+    deferToolResults: [HISTORY_TOOL_RESULT_BODY_POLICY, HISTORY_ON_DEMAND_BODY_POLICY, "lazy-mobile-v1"].includes(options.toolResultBodies),
+    mobile: options.toolResultBodies === "lazy-mobile-v1",
+    deferAll: [HISTORY_ON_DEMAND_BODY_POLICY, "lazy-mobile-v1"].includes(options.toolResultBodies)
+  };
 }
 
 export function inspectToolResultEntry(entry, entryIndex, byteLength, identity = {}) {
@@ -16,7 +21,7 @@ export function inspectToolResultEntry(entry, entryIndex, byteLength, identity =
     ? entry.message
     : null;
   if (message?.role !== "toolResult") return null;
-  const toolName = stringValue(message.toolName) || "tool";
+  const toolName = stringValue(identity.resolvedToolName) || stringValue(message.toolName) || "tool";
   const entryId = stringValue(entry.id);
   const toolCallId = stringValue(message.toolCallId) || stringValue(message.tool_call_id);
   const canonicalChatId = stringValue(identity.canonicalChatId);
@@ -90,12 +95,16 @@ export function projectIndexedHistoryEntries(input = {}) {
   const options = normalizeHistoryBodyOptions(input.options);
   if (!options.deferToolResults) return readSelectedEntries(input.file, input.selected, null, input.options?.entryLocators === true, input.options?.mediaBodies === "lazy-v1");
   const deferredRecords = input.deferredToolResults || [];
-  const eagerIndexes = eagerToolResultIndexSet(input.toolResultEntryIndexes, deferredRecords, options.mobile);
+  const questionCallIds = new Set();
+  const eagerIndexes = eagerToolResultIndexSet(input.toolResultEntryIndexes, deferredRecords, options.deferAll);
   return readSelectedEntries(input.file, input.selected, (selection) => {
     if (eagerIndexes.has(selection.entryIndex)) return null;
     const record = findRecordByEntryIndex(deferredRecords, selection.entryIndex);
-    return record ? createDeferredEntry(record) : null;
-  }, input.options?.entryLocators === true, input.options?.mediaBodies === "lazy-v1");
+    return record && !requiresInlineControlResult(record, input.options, questionCallIds) ? createDeferredEntry(record) : null;
+  }, input.options?.entryLocators === true, input.options?.mediaBodies === "lazy-v1",
+  input.options?.toolResultBodies === HISTORY_ON_DEMAND_BODY_POLICY ? entry => trackQuestionCalls(entry, questionCallIds) : null,
+  (entry, selection) => requiresInlineControlResult(findRecordByEntryIndex(deferredRecords, selection.entryIndex), input.options, questionCallIds)
+    ? projectQuestionResult(entry) : entry);
 }
 
 export function projectLoadedHistoryEntries(entries, startIndex, options = {}) {
@@ -115,9 +124,12 @@ export function projectLoadedHistoryEntries(entries, startIndex, options = {}) {
   const toolResultIndexes = Array.isArray(options.toolResultEntryIndexes)
     ? options.toolResultEntryIndexes
     : records.filter(Boolean).map((record) => record.entryIndex);
-  const eagerIndexes = eagerToolResultIndexSet(toolResultIndexes, records.filter(isDeferrableHistoryRecord), normalized.mobile);
+  const eagerIndexes = eagerToolResultIndexSet(toolResultIndexes, records.filter(isDeferrableHistoryRecord), normalized.deferAll);
+  const questionCallIds = new Set(options.questionCallIds || []);
   return located(entries.map((entry, localIndex) => {
+    if (options.toolResultBodies === HISTORY_ON_DEMAND_BODY_POLICY) trackQuestionCalls(entry, questionCallIds);
     const record = records[localIndex];
+    if (record && requiresInlineControlResult(record, options, questionCallIds)) return projectQuestionResult(entry);
     return isDeferrableHistoryRecord(record) && !eagerIndexes.has(record.entryIndex)
       ? createDeferredEntry(record)
       : cloneJson(entry);
@@ -126,6 +138,36 @@ export function projectLoadedHistoryEntries(entries, startIndex, options = {}) {
 
 export function isDeferrableHistoryRecord(record) {
   return Boolean(record?.entryId && record?.toolCallId && record?.canonicalChatId);
+}
+
+function requiresInlineControlResult(record, options = {}, questionCallIds = new Set()) {
+  if (options?.toolResultBodies !== HISTORY_ON_DEMAND_BODY_POLICY) return false;
+  const toolName = stringValue(record?.toolName) || "";
+  // Question receipts carry request ownership/cancellation, not merely output.
+  // Legacy unnamed results are identified by their actual preceding call.
+  return toolName.toLowerCase().split(/[./:]/).at(-1) === "request_user_input" || questionCallIds.has(record?.toolCallId);
+}
+
+export function trackQuestionCalls(entry, questionCallIds) {
+  if (entry?.type !== "message" || entry.message?.role !== "assistant" || !Array.isArray(entry.message.content)) return;
+  for (const part of entry.message.content) {
+    if (part?.type !== "toolCall") continue;
+    const id = stringValue(part.id);
+    if (id && part.name === "request_user_input") questionCallIds.add(id);
+    else if (id) questionCallIds.delete(id);
+  }
+}
+
+export function historyQuestionCallIds(entries, endIndex) {
+  const ids = new Set();
+  for (let index = 0; index < endIndex; index += 1) trackQuestionCalls(entries[index], ids);
+  return [...ids];
+}
+
+function projectQuestionResult(entry) {
+  const projected = cloneJson(entry);
+  projected.message.toolName = "request_user_input";
+  return projected;
 }
 
 export function validateHistoryBodyRef(record, ref = {}) {
@@ -154,9 +196,9 @@ export function createHistoryBodyRef(record) {
   };
 }
 
-function eagerToolResultIndexSet(indexes = [], records = [], mobile = false) {
+function eagerToolResultIndexSet(indexes = [], records = [], deferAll = false) {
   const eager = new Set();
-  if (mobile) return eager;
+  if (deferAll) return eager;
   let eagerBytes = 0;
   for (let index = indexes.length - 1; index >= 0 && eager.size < EAGER_HISTORY_TOOL_RESULTS; index -= 1) {
     const entryIndex = indexes[index];
@@ -207,7 +249,7 @@ function createEnvelope(entry, message) {
   };
 }
 
-function readSelectedEntries(file, selected, replacement, locators = false, media = false) {
+function readSelectedEntries(file, selected, replacement, locators = false, media = false, visit = null, transform = null) {
   const entries = [];
   if (!Array.isArray(selected) || selected.length === 0 || !existsSync(file)) return entries;
   const fd = openSync(file, "r");
@@ -215,6 +257,7 @@ function readSelectedEntries(file, selected, replacement, locators = false, medi
     for (const selection of selected) {
       const projected = replacement?.(selection);
       if (projected) {
+        visit?.(projected);
         entries.push(locators ? { ...projected, historyEntryIndex: selection.entryIndex } : projected);
         continue;
       }
@@ -223,7 +266,13 @@ function readSelectedEntries(file, selected, replacement, locators = false, medi
       if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || length <= 0) continue;
       const buffer = Buffer.allocUnsafe(length);
       if (readSync(fd, buffer, 0, length, offset) !== length) continue;
-      try { const raw = JSON.parse(buffer.toString("utf8")); const entry = media ? projectHistoryMedia(raw, selection.entryIndex) : raw; entries.push(locators ? { ...entry, historyEntryIndex: selection.entryIndex } : entry); }
+      try {
+        const parsed = JSON.parse(buffer.toString("utf8"));
+        const raw = transform ? transform(parsed, selection) : parsed;
+        const entry = media ? projectHistoryMedia(raw, selection.entryIndex) : raw;
+        visit?.(entry);
+        entries.push(locators ? { ...entry, historyEntryIndex: selection.entryIndex } : entry);
+      }
       catch {}
     }
   } finally {

@@ -212,6 +212,51 @@ try {
         assert.equal(recoveredEvents.filter(event => event.type === 'tool_execution_start' && event.toolCallId === 'tool:journal-gap').length, 1, 'Desktop must recover pending tools after a journal gap')
     } finally { gapWorker.dispose(); gapConnection.close() }
 
+    // Pending maintenance can start before both the retained replay and UI watermark.
+    workers[1].emit('event', { type: 'compaction_start', reason: 'manual' })
+    const maintainedSession = server.sessions.get('chat:desktop-test')!
+    const maintainedSequence = maintainedSession.sequence
+    for (let index = 0; index < 520; index++) workers[1].emit('event', { type: 'status', index })
+    const maintenanceConnection = new DesktopAgentServerConnection(root, { stateDirectory, channel, autoStart: false, authorityProof: 'desktop-test-authority' })
+    const maintenanceWorker = maintenanceConnection.createWorker(project, maintainedSession.sequence)
+    const maintenanceEvents: Array<{ event: any; metadata: any }> = []
+    maintenanceWorker.onEvent((event, metadata) => maintenanceEvents.push({ event, metadata }))
+    try {
+        const connected = await maintenanceWorker.request('connect', {
+            cwd: project, localThreadId: 'assistant-thread:desktop-test', threadId: 'chat:desktop-test', providerThreadId: 'chat:desktop-test',
+            pluginSkillSources: workers[1].connectPayloads[0]?.pluginSkillSources
+        })
+        assert.deepEqual(connected.agentServerPendingCompactions, [{ sequence: maintainedSequence, occurredAt: maintainedSession.pendingOperationEvents.get('compaction').occurredAt }])
+        const watermark = maintenanceWorker.latestSequence
+        maintenanceWorker.flushReplay()
+        assert.equal(maintenanceEvents.filter(entry => entry.event.type === 'compaction_start').length, 1, 'authoritative maintenance bypasses the old watermark exactly once per attachment')
+        assert.equal(maintenanceEvents.find(entry => entry.event.type === 'compaction_start')?.metadata.sequence, maintainedSequence)
+        assert.equal(maintenanceWorker.latestSequence, watermark, 'older authoritative recovery never rewinds the event cursor')
+        workers[1].emit('event', { type: 'compaction_end', reason: 'manual', aborted: true })
+        await waitUntil(() => maintenanceEvents.some(entry => entry.event.type === 'compaction_end'))
+        assert.equal(maintenanceEvents.find(entry => entry.event.type === 'compaction_end')?.event.startedSequence, maintainedSequence, 'live terminal retains identity even after its start was evicted')
+    } finally { maintenanceWorker.dispose(); maintenanceConnection.close() }
+
+    const terminalCursor = maintainedSession.sequence - 1
+    const terminalConnection = new DesktopAgentServerConnection(root, { stateDirectory, channel, autoStart: false, authorityProof: 'desktop-test-authority' })
+    const terminalWorker = terminalConnection.createWorker(project, terminalCursor)
+    const terminalEvents: any[] = []
+    terminalWorker.onEvent(event => terminalEvents.push(event))
+    try {
+        await terminalWorker.request('connect', { cwd: project, localThreadId: 'assistant-thread:desktop-test', threadId: 'chat:desktop-test', providerThreadId: 'chat:desktop-test', pluginSkillSources: workers[1].connectPayloads[0]?.pluginSkillSources })
+        terminalWorker.flushReplay()
+        assert.equal(terminalEvents.filter(event => event.type === 'compaction_start').length, 0, 'cursor already consumed the persisted start')
+        assert.equal(terminalEvents.find(event => event.type === 'compaction_end')?.startedSequence, maintainedSequence, 'end-only reconnect carries exact identity without replaying a start')
+    } finally { terminalWorker.dispose(); terminalConnection.close() }
+    workers[1].emit('event', { type: 'compaction_start', reason: 'manual' })
+    const legacyStartSequence = maintainedSession.sequence
+    workers[1].emit('event', { type: 'compaction_end', reason: 'manual', aborted: true })
+    const oldTerminal = maintainedSession.events.at(-1)
+    delete oldTerminal.event.startedSequence
+    delete oldTerminal.event.startedAt
+    assert.equal(maintainedSession.replay(legacyStartSequence).at(-1).event.startedSequence, legacyStartSequence, 'retained old journals backfill terminal identity before cursor filtering')
+    assert.equal(oldTerminal.event.startedSequence, undefined, 'legacy enrichment leaves stored history unchanged')
+
     const retryProbe = new DesktopAgentServerConnection(root, { autoStart: false })
     const recoveredClient = { close: () => undefined }
     let clientCreationAttempts = 0

@@ -100,6 +100,30 @@ try {
     assert.equal(switched.sessions.find((session: any) => session.id === past.id).threads[0].messageCount, catalogCount, 'Selecting a different persisted chat preserves the settled chat metadata')
     assert.equal(isSidebarSettlementCurrent(refreshed, override), true, 'Unchanged catalog refresh must preserve a manually settled past chat')
 
+    const originalCatalog = ZyraRuntime.prototype.listCanonicalChats
+    try {
+        ZyraRuntime.prototype.listCanonicalChats = async function () {
+            return (await originalCatalog.call(this)).map(chat => ({ ...chat, settled: true, settlementManual: true }))
+        }
+        await (service as any).importCanonicalChats()
+        await (service as any).persistence.flush()
+        assert.equal((await service.getSnapshot()).sessions.find(session => session.id === past.id)?.settled, true)
+        ZyraRuntime.prototype.listCanonicalChats = async () => { throw new Error('Synthetic unavailable catalog') }
+        await (service as any).importCanonicalChats()
+        assert.equal((service as any).state.snapshot.sessions.find((session: any) => session.id === past.id)?.settled, true, 'Unavailable transport preserves the last authoritative choice')
+        ZyraRuntime.prototype.listCanonicalChats = async function () {
+            return (await originalCatalog.call(this)).map(({ settled, settlementManual, ...chat }) => chat)
+        }
+        await (service as any).importCanonicalChats()
+        const legacy = (service as any).state.snapshot.sessions.find((session: any) => session.id === past.id)
+        assert.equal(legacy.settled, undefined, 'A successful older-server catalog clears cached canonical settlement')
+        assert.equal(legacy.settlementManual, undefined, 'A successful older-server catalog clears its migration marker')
+        await (service as any).persistence.flush()
+        const cold = (await (service as any).persistence.load()).snapshot.sessions.find((session: any) => session.id === past.id)
+        assert.equal(cold.settled, undefined, 'Removed settlement stays absent after reading persisted metadata')
+        assert.equal(cold.settlementManual, undefined)
+    } finally { ZyraRuntime.prototype.listCanonicalChats = originalCatalog }
+
     // A fresh attachment may request history before its next catalog import.
     const pendingAttachment = (service as any).state.snapshot.sessions.find((session: any) => session.id === past.id).threads[0]
     pendingAttachment.messageCount = 0

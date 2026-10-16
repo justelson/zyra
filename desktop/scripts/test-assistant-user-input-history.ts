@@ -30,6 +30,23 @@ const entries = [
     { type: 'message', timestamp: resolved.resolvedAt, message: { role: 'user', content: [{ type: 'text', text }] } }
 ]
 const recovered = recoverCanonicalUserInputReceipts(entries, [{ ...canonical, timelineSequence: 3 }])
+const { projectLoadedHistoryEntries, historyQuestionCallIds } = await import('../../src/agent-server/history-bodies.mjs')
+const locatedEntries = entries.map((entry, index) => ({ ...entry, id: `control-entry-${index}` }))
+const onDemandEntries = projectLoadedHistoryEntries(locatedEntries, 0, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'question-history' })
+const onDemandRecovered = recoverCanonicalUserInputReceipts(onDemandEntries, [{ ...canonical, timelineSequence: 3 }])
+assert.equal(onDemandRecovered[0]?.requestId, 'question-request', 'on-demand output history preserves the real question request owner')
+const unnamedLocated = structuredClone(locatedEntries)
+delete (unnamedLocated[1]!.message as any).toolName
+assert.equal(recoverCanonicalUserInputReceipts(projectLoadedHistoryEntries(unnamedLocated, 0, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'question-history' }), [{ ...canonical, timelineSequence: 3 }])[0]?.requestId, 'question-request', 'unnamed legacy question results retain their control metadata')
+const gapEntries = [unnamedLocated[0], { type: 'custom', id: 'waiting', data: {} }, ...unnamedLocated.slice(1)]
+const gapPage = projectLoadedHistoryEntries(gapEntries.slice(1), 1, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'question-history', questionCallIds: historyQuestionCallIds(gapEntries, 1) })
+assert.equal(recoverCanonicalUserInputReceipts(gapPage, [{ ...canonical, timelineSequence: 4 }], 1)[0]?.requestId, 'question-request', 'an isolated legacy question result recovers its real owner through the paged DTO')
+;(gapEntries[2]!.message!.details as any).cancelled = true
+const cancelledGap = projectLoadedHistoryEntries(gapEntries.slice(1), 1, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'question-history', questionCallIds: historyQuestionCallIds(gapEntries, 1) })
+assert.equal(recoverCanonicalUserInputReceipts(cancelledGap, [{ ...canonical, timelineSequence: 4 }], 1).length, 0, 'page gaps never revive cancelled legacy questions')
+const cancelledLocated = structuredClone(locatedEntries)
+;(cancelledLocated[1]!.message.details as any).cancelled = true
+assert.equal(recoverCanonicalUserInputReceipts(projectLoadedHistoryEntries(cancelledLocated, 0, { toolResultBodies: 'lazy-desktop-v2', canonicalChatId: 'question-history' }), [{ ...canonical, timelineSequence: 3 }]).length, 0, 'lazy history cannot revive cancelled questions')
 assert.equal(recovered.length, 1, 'legacy cold canonical history restores missing question receipts')
 assert.equal(recovered[0]!.responseMessageId, canonical.id)
 assert.deepEqual(recovered[0]!.answers, resolved.answers)

@@ -13,6 +13,7 @@ import type { GitLineMarker } from './gitDiff'
 import HtmlRenderedPreview from './HtmlRenderedPreview'
 import PdfPreviewContent from './PdfPreviewContent'
 import OfficePreviewContent from './OfficePreviewContent'
+import { PreviewLoadingStatus } from './PreviewLoadingStatus'
 
 interface PreviewBodyProps {
     file: PreviewFile
@@ -100,7 +101,7 @@ export default function PreviewBody({
     if (file.readError) return <div role="alert" className="p-4 text-sm text-red-400">{file.readError}</div>
     // Keep the current content visible while an editable full-file read finishes.
     // An unread document never mounts an empty editable buffer.
-    if (loading && !content) return null
+    if (loading && !content) return <PreviewLoadingStatus />
 
     if (file.type === 'directory') {
         return (

@@ -25,7 +25,7 @@ data class ChatListActions(val search: (String) -> Unit, val open: (Chat) -> Uni
     val appearance by vm.preferences.appearance.collectAsStateWithLifecycle()
     val settlements by vm.preferences.settlements.collectAsStateWithLifecycle()
     LaunchedEffect(state.chats) { vm.preferences.reconcileSettlements(state.chats) }
-    ChatsContent(state, appearance, ChatListActions(vm::searchChats, vm::open, create, vm::moreChats, { chat, title, archived -> vm.updateChat(chat, title, archived) }, vm::openSearchMatch, vm.preferences::setChatSettled), settlements)
+    ChatsContent(state, appearance, ChatListActions(vm::searchChats, vm::open, create, vm::moreChats, { chat, title, archived -> vm.updateChat(chat, title, archived) }, vm::openSearchMatch, vm::settleChat), settlements)
 }
 @Composable fun ChatsContent(state: MobileState, appearance: Appearance, actions: ChatListActions, settlements: Map<String, String> = emptyMap()) {
     var filter by rememberSaveable { mutableStateOf("all") }

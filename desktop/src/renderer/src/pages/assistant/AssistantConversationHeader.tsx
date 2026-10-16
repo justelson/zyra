@@ -10,6 +10,7 @@ import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
 import { AssistantTuiPresenceIndicator } from './AssistantTuiPresenceIndicator'
 import { assistantMobileDevices, assistantMobileVoiceDevice, hasAssistantTuiPresence } from './assistant-tui-presence'
+import { DeveloperWorkspaceMenu } from './DeveloperWorkspaceMenu'
 
 export const AssistantConversationHeader = memo(function AssistantConversationHeader(props: {
     displayMode?: AssistantChatDisplayMode
@@ -175,6 +176,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                     </span>
                 ) : null}
             </div>
+            {selectedProjectPath && !activeThreadIsSubagent && <DeveloperWorkspaceMenu root={selectedProjectPath} />}
             {showRightSidebarToggle ? (
                 <button
                     type="button"

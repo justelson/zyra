@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { addOverlayEventListener, createOverlayPortal as createPortal, isOverlayEventInside } from './native-overlay-portal'
 import { supportsNativeOverlay } from './native-overlay-host'
+import { AnchoredMenuPopover } from './AnchoredMenuPopover'
 import { Bot, ChevronDown, Folder, FolderOpen, LoaderCircle, Terminal } from 'lucide-react'
 import type { DevScopeInstalledIde } from '@shared/contracts/devscope-project-contracts'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
@@ -24,6 +25,7 @@ export function OpenWithProjectButton(props: {
     onMenuOpenChange?: (open: boolean) => void
     menuWidthMode?: 'content' | 'trigger'
     menuPresentation?: 'portal' | 'inline'
+    compactMenuRow?: boolean
     contextActions?: OpenWithContextAction[]
 }) {
     const {
@@ -33,9 +35,10 @@ export function OpenWithProjectButton(props: {
         onMenuOpenChange,
         menuWidthMode = 'content',
         menuPresentation: requestedPresentation = 'portal',
-        contextActions = []
+        contextActions = [],
+        compactMenuRow = false
     } = props
-    const menuPresentation = supportsNativeOverlay() ? 'portal' : requestedPresentation
+    const menuPresentation = compactMenuRow ? 'popover' : supportsNativeOverlay() ? 'portal' : requestedPresentation
     const triggerRef = useRef<HTMLDivElement | null>(null)
     const menuRef = useRef<HTMLDivElement | null>(null)
     const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false)
@@ -282,15 +285,14 @@ export function OpenWithProjectButton(props: {
         return installedIdes.find((ide) => ide.id === primaryTargetId)?.name || terminalLabel
     }, [installedIdes, primaryTargetId, terminalLabel])
 
-    const inlineSurfaceClassName = menuPresentation === 'inline' ? 'bg-sparkle-card' : 'bg-sparkle-card/95'
+    const inlineSurfaceClassName = 'bg-[var(--surface-floating)]'
 
     const menuContent = (
         <AnimatedHeight isOpen={menuOpen} duration={240}>
             <div className={cn(
-                'relative border border-white/10 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.28)]',
+                compactMenuRow ? 'relative' : 'relative border border-white/10 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.28)]',
                 inlineSurfaceClassName,
-                menuPresentation === 'portal' && 'backdrop-blur-xl',
-                menuPresentation === 'inline'
+                compactMenuRow ? undefined : menuPresentation === 'inline'
                     ? 'rounded-b-lg rounded-t-none border-t-transparent'
                     : menuPosition?.shellClassName,
                 menuPresentation === 'portal' && menuPosition?.originClassName
@@ -403,19 +405,20 @@ export function OpenWithProjectButton(props: {
     )
 
     return (
-        <div className="relative inline-flex" ref={triggerRef}>
+        <div className={cn('relative inline-flex', compactMenuRow && 'w-full shrink-0')} ref={triggerRef}>
             <div
                 className={cn(
                     'inline-flex overflow-hidden rounded-lg border transition-[border-color,background-color,box-shadow,border-radius] duration-200',
                     inlineSurfaceClassName,
-                    menuOpen && !disabled && (
+                    menuOpen && !disabled && !compactMenuRow && (
                         menuPresentation === 'inline' || menuPosition?.attachment !== 'top'
                             ? 'rounded-b-none border-b-transparent border-white/20 shadow-[0_10px_24px_rgba(0,0,0,0.16)]'
                             : 'rounded-t-none border-t-transparent border-white/20 shadow-[0_10px_24px_rgba(0,0,0,0.16)]'
                     ),
                     disabled
                         ? 'border-white/10 opacity-60'
-                        : 'border-white/10'
+                        : 'border-white/10',
+                    compactMenuRow && 'w-full rounded-md border-transparent bg-transparent shadow-none'
                 )}
             >
                 <button
@@ -424,6 +427,7 @@ export function OpenWithProjectButton(props: {
                     disabled={disabled || Boolean(openingTargetId)}
                     className={cn(
                         'inline-flex h-8 items-center gap-1.5 px-2.5 text-[11px] font-medium transition-colors',
+                        compactMenuRow && 'min-w-0 flex-1 px-2 text-xs',
                         disabled || openingTargetId
                             ? 'cursor-not-allowed text-sparkle-text-muted/60'
                             : cn(
@@ -438,7 +442,7 @@ export function OpenWithProjectButton(props: {
                         installedIdes={installedIdes}
                         opening={Boolean(openingTargetId && openingTargetId === primaryTargetId)}
                     />
-                    <span>Open with</span>
+                    <span>{compactMenuRow ? `Open in ${primaryActionLabel}` : 'Open with'}</span>
                 </button>
                 <button
                     type="button"
@@ -465,11 +469,13 @@ export function OpenWithProjectButton(props: {
                 </button>
             </div>
 
+            {menuOpen && compactMenuRow && <AnchoredMenuPopover anchorRef={triggerRef} contentRef={menuRef} label="Open project in" onClose={() => setMenuOpen(false)}>{menuContent}</AnchoredMenuPopover>}
+
             {menuPresentation === 'inline' ? (
                 <div
                     ref={menuRef}
                     className={cn(
-                        'absolute right-0 top-full z-[160] -mt-px overflow-hidden',
+                        compactMenuRow ? 'relative w-full overflow-hidden rounded-lg' : 'absolute right-0 top-full z-[160] -mt-px overflow-hidden',
                         menuWidthMode === 'trigger' ? 'w-full min-w-0' : 'min-w-[188px]',
                         menuOpen ? 'pointer-events-auto' : 'pointer-events-none'
                     )}

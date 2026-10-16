@@ -23,6 +23,7 @@ import {
     TimelineWorkingIndicator
 } from './AssistantTimelineRows'
 import { TimelineTurnInterruptionMarker, TimelineTurnWorkSummary } from './AssistantTimelineWorkSummary'
+import type { AssistantActivityRevealRequest } from './assistant-timeline-scroll-events'
 import { TimelineVoiceTaskStatus } from './AssistantTimelineVoiceTask'
 import { useVoiceAgentStatusPreference } from './useVoiceAgentStatusPreference'
 import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
@@ -134,6 +135,11 @@ type AssistantTimelineProps = {
     onScrollContainer?: (element: HTMLDivElement) => void
 }
 
+function timelineRowHasActivity(row: TimelineRenderRow, activityId: string): boolean {
+    return row.kind === 'activity' ? row.activity.id === activityId
+        : 'activities' in row && row.activities.some(activity => activity.id === activityId)
+}
+
 function AssistantTimelineImpl({
     threadId = null,
     messages,
@@ -228,7 +234,12 @@ function AssistantTimelineImpl({
         return next
     }, [messages, turnUsageById])
     const listRef = useRef<LegendListRef | null>(null)
-    const pendingActivityRevealRef = useRef<string | null>(null)
+    const pendingActivityRevealRef = useRef<AssistantActivityRevealRequest | null>(null)
+    const [activityRevealRequest, setActivityRevealRequest] = useState<AssistantActivityRevealRequest | null>(null)
+    useEffect(() => {
+        pendingActivityRevealRef.current = null
+        setActivityRevealRequest(null)
+    }, [threadId])
     const revealActivityInDom = useCallback((activityId: string): boolean => {
         const target = document.getElementById(getTimelineActivityDomId(activityId))
         if (!target) return false
@@ -251,8 +262,12 @@ function AssistantTimelineImpl({
         return true
     }, [])
     const revealActivity = useCallback((activityId: string) => {
+        pendingActivityRevealRef.current = null
+        setActivityRevealRequest(null)
         if (revealActivityInDom(activityId)) return
-        pendingActivityRevealRef.current = activityId
+        const request = { activityId }
+        pendingActivityRevealRef.current = request
+        setActivityRevealRequest(request)
     }, [revealActivityInDom])
 
     const showVoiceAgentStatus = useVoiceAgentStatusPreference()
@@ -359,22 +374,36 @@ function AssistantTimelineImpl({
     }, [focusMessageId, revealMessageInDom, stableRows])
 
     useLayoutEffect(() => {
-        const activityId = pendingActivityRevealRef.current
-        if (!activityId) return
-        const rowIndex = stableRows.findIndex((row) => (
-            row.kind === 'activity' ? row.activity.id === activityId
-                : 'activities' in row ? row.activities.some((activity) => activity.id === activityId)
-                    : row.kind === 'turn-work-summary' ? row.rows.some((nested) => (
-                        nested.kind === 'activity' ? nested.activity.id === activityId : 'activities' in nested && nested.activities.some((activity) => activity.id === activityId)
-                    )) : false
-        ))
+        const request = pendingActivityRevealRef.current
+        if (!request) return
+        const { activityId } = request
+        const rowIndex = stableRows.findIndex(row => row.kind === 'turn-work-summary'
+            ? row.rows.some(nested => timelineRowHasActivity(nested, activityId))
+            : timelineRowHasActivity(row, activityId))
         if (rowIndex < 0) return
         void listRef.current?.scrollToIndex({ index: rowIndex, viewPosition: 0.5, animated: true })
-        const frame = window.requestAnimationFrame(() => {
-            if (revealActivityInDom(activityId)) pendingActivityRevealRef.current = null
-        })
-        return () => window.cancelAnimationFrame(frame)
-    }, [revealActivityInDom, stableRows])
+        let observer: MutationObserver | null = null
+        let timer = 0
+        const finish = () => {
+            observer?.disconnect()
+            window.clearTimeout(timer)
+            if (pendingActivityRevealRef.current !== request) return
+            pendingActivityRevealRef.current = null
+            setActivityRevealRequest(current => current === request ? null : current)
+        }
+        const tryReveal = () => {
+            const target = document.getElementById(getTimelineActivityDomId(activityId))
+            if (target?.closest('[inert]')) return
+            if (pendingActivityRevealRef.current === request && revealActivityInDom(activityId)) finish()
+        }
+        // Explicit jumps open lazy disclosures over multiple commits. Observe
+        // the mounted target instead of relying on hidden descendant DOM.
+        observer = new MutationObserver(tryReveal)
+        observer.observe(scrollContainerRef?.current || document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['inert'] })
+        const frame = window.requestAnimationFrame(tryReveal)
+        timer = window.setTimeout(finish, 5000)
+        return () => { observer?.disconnect(); window.cancelAnimationFrame(frame); window.clearTimeout(timer) }
+    }, [activityRevealRequest, revealActivityInDom, scrollContainerRef, stableRows])
 
     if (loadingChats) {
         return <TimelineChatLoadingState />
@@ -411,6 +440,7 @@ function AssistantTimelineImpl({
                     actionCount={countTimelineWorkActions(row.rows)}
                     hasWork={row.rows.length > 0}
                     revealContent={Boolean(focusMessageId && row.rows.some((nested) => nested.kind === 'message' && nested.message.id === focusMessageId))}
+                    activityRevealRequest={activityRevealRequest && row.rows.some(nested => timelineRowHasActivity(nested, activityRevealRequest.activityId)) ? activityRevealRequest : null}
                     renderChildren={() => (
                         <div className="[&>*:last-child]:pb-0" data-assistant-work-sequence="chronological">
                             {row.rows.map((workRow) => renderRowContainer(
@@ -451,6 +481,7 @@ function AssistantTimelineImpl({
                     onOpenUrl={onOpenInternalLink}
                     onViewDiff={onViewDiff}
                     onRevealActivity={revealActivity}
+                    revealActivityRequest={activityRevealRequest}
                 />
             )
         }
@@ -474,6 +505,7 @@ function AssistantTimelineImpl({
                             onOpenUrl={onOpenInternalLink}
                             onViewDiff={onViewDiff}
                             onRevealActivity={revealActivity}
+                            revealActivityRequest={activityRevealRequest}
                         />
                     )
             return interruptionActivities.length > 0 ? (
@@ -515,6 +547,7 @@ function AssistantTimelineImpl({
                         onOpenUrl={onOpenInternalLink}
                         onViewDiff={onViewDiff}
                         onRevealActivity={revealActivity}
+                        revealActivityRequest={activityRevealRequest}
                     />
                 )
             }
@@ -624,6 +657,7 @@ function AssistantTimelineImpl({
             rows={stableRows}
             windowKey={windowKey}
             focusMessageId={focusMessageId}
+            activityRevealRequest={activityRevealRequest}
             followLatestRequestKey={followLatestRequestKey}
             listRef={listRef}
             scrollContainerRef={scrollContainerRef}

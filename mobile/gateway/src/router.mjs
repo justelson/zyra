@@ -204,7 +204,9 @@ export class HostRouter {
       assert(typeof params.session === 'string', 'Choose a chat.');
       await this.assertChat(params.session);
       assert(params.title === undefined || (typeof params.title === 'string' && params.title.length <= 240), 'Title is too long.');
-      return this.client.request(method, pick(params, ['session', 'title', 'archived']));
+      assert(params.settled === undefined || typeof params.settled === 'boolean', 'Choose whether to settle this chat.');
+      assert(params.settlementIfAbsent === undefined || typeof params.settlementIfAbsent === 'boolean', 'Invalid settlement migration.');
+      return this.client.request(method, pick(params, ['session', 'title', 'archived', 'settled', 'settlementIfAbsent']));
     }
     if (method === 'session.detach') {
       assert(this.attached.has(params.sessionKey), 'Open this chat first.');

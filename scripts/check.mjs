@@ -388,6 +388,7 @@ const desktopTasks = [
   { label: "desktop:test:analytics", bunArgs: ["run", "--cwd", "desktop", "test:analytics"] },
   { label: "desktop:test:assistant-composer-command-menu", bunArgs: ["desktop/scripts/test-assistant-composer-command-menu.ts"] },
   { label: "desktop:test:assistant-fleet", bunArgs: ["run", "--cwd", "desktop", "test:assistant-fleet"] },
+  { label: "desktop:test:assistant-chat-identity", bunArgs: ["run", "--cwd", "desktop", "test:assistant-chat-identity"] },
   { label: "desktop:test:assistant-settlement", bunArgs: ["run", "--cwd", "desktop", "test:assistant-settlement"] },
   { label: "desktop:test:assistant-thread-collaboration", bunArgs: ["run", "--cwd", "desktop", "test:assistant-thread-collaboration"] },
   { label: "desktop:test:browser-recording", bunArgs: ["run", "--cwd", "desktop", "test:browser-recording"] },

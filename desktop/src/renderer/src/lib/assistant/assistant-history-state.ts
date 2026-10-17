@@ -79,10 +79,12 @@ export function shouldRehydrateAssistantHistoryAfterCanonicalEvent(
     event: { type: string; threadId?: string | null; payload?: Record<string, unknown> },
     selectedThreadId: string | null
 ): boolean {
-    if (!selectedThreadId || event.type !== 'thread.updated') return false
+    if (!selectedThreadId) return false
     const payload = event.payload && typeof event.payload === 'object' ? event.payload : {}
     const eventThreadId = String(event.threadId || payload['threadId'] || '')
     if (eventThreadId !== selectedThreadId) return false
+    if (event.type === 'session.merged') return true
+    if (event.type !== 'thread.updated') return false
     const patchValue = payload['patch']
     if (!patchValue || typeof patchValue !== 'object' || Array.isArray(patchValue)) return false
     const patch = patchValue as Record<string, unknown>
@@ -480,6 +482,7 @@ export function getAssistantEventHistoryThreadIds(
     for (const event of events) {
         const threadId = String(event.payload['threadId'] || event.threadId || '')
         if (threadId) ids.add(threadId)
+        if (event.type === 'session.merged') ids.add(String(event.payload['duplicateThreadId'] || ''))
         if (event.type.startsWith('session.') || (event.type.startsWith('thread.') && !threadId)) {
             const sessionId = String(event.payload['sessionId'] || event.sessionId || '')
             if (sessionId) sessionIds.add(sessionId)

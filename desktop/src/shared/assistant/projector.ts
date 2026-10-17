@@ -1,4 +1,5 @@
 import { applyAssistantTextUpdate } from './stream-text-update'
+import { mergeAssistantChatRecords, type AssistantChatRequestEvidence } from './chat-identity'
 import type {
     AssistantDomainEvent,
     AssistantMessage,
@@ -293,6 +294,12 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
             writable.session.playgroundLabId = null
             writable.session.pendingLabRequest = null
             writable.session.threadIds = sortThreadsNewestFirst(writable.session.threadIds, writable.session.threads)
+            shouldSortSessions = true
+            break
+        }
+        case 'session.merged': {
+            next = mergeAssistantChatRecords(next, String(event.payload['sessionId']), String(event.payload['threadId']),
+                String(event.payload['duplicateSessionId']), String(event.payload['duplicateThreadId']), event.payload['requests'] as AssistantChatRequestEvidence | undefined)
             shouldSortSessions = true
             break
         }

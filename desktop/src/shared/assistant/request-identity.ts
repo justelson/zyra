@@ -1,3 +1,10 @@
+/** Resolved evidence wins over stale pending aliases during identity repair. */
+export function mergeAssistantRequests<T extends { id: string; requestId: string; createdAt: string; status: 'pending' | 'resolved'; resolvedAt: string | null }>(preferred: T[], fallback: T[]): T[] {
+    const ordered = [...fallback, ...preferred].sort((left, right) => Number(left.status === 'resolved') - Number(right.status === 'resolved')
+        || (left.resolvedAt || left.createdAt).localeCompare(right.resolvedAt || right.createdAt))
+    return ordered.reduce<T[]>((items, incoming) => upsertAssistantRequest(items, incoming), [])
+}
+
 /** A recovered request can keep its durable ID while gaining a new runtime ID.
  * Replace both aliases together so replay cannot leave two visible questions. */
 export function upsertAssistantRequest<T extends { id: string; requestId: string; createdAt: string }>(items: T[], incoming: T): T[] {

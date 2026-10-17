@@ -348,8 +348,10 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const desiredSettled = settledExpanded ? visibleSettled : visibleSettled.filter((item) => item.active)
     const stableLayout = useStableSidebarGroups([desiredPriority, desiredRecent, desiredSettled])
     const [priorityItems, recentItems, renderedSettled] = stableLayout.groups
-    // An explicit pin/unpin must move immediately, even while hover holds status-driven moves.
-    useLayoutEffect(() => stableLayout.release(), [props.pinnedSessionIds, stableLayout.release])
+    // Explicit choices move immediately. Keep hover holds for automatic
+    // status/recency changes, not canonical settlement or header-menu actions.
+    const settlementChoices = JSON.stringify(visibleSessions.map(session => [session.id, session.settled, session.settlementManual]).sort())
+    useLayoutEffect(() => stableLayout.release(), [props.pinnedSessionIds, settlementChoices, settlementOverrides, stableLayout.release])
     const hiddenSettledCount = settledItems.length - visibleSettled.length
     const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
     const layoutKey = [

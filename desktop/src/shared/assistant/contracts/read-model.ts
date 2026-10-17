@@ -556,6 +556,7 @@ export type AssistantDomainEventType =
     | 'session.selected'
     | 'session.updated'
     | 'session.deleted'
+    | 'session.merged'
     | 'playground.updated'
     | 'thread.created'
     | 'thread.updated'

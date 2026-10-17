@@ -74,6 +74,7 @@ export type CanonicalAgentChat = {
     agentCreatedBy?: string | null
     agentLabel?: string | null
     canonicalChatId: string
+    aliases?: string[]
     lastSeenCompletedTurnId?: string | null
     sessionPath: string
     storageProject?: string

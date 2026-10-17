@@ -1,5 +1,7 @@
 import { encodeApprovalScope } from './approval-persistence'
 import { reconcileAssistantPersistedRequestIdentity } from './persistence-request-identity'
+import { readFleetSnapshot, writeFleetSnapshot } from './fleet-persistence'
+import { remapAssistantFleetRoot, shouldApplyAssistantFleetSnapshot } from '../../shared/assistant/fleet-projection'
 import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
@@ -12,7 +14,8 @@ import type {
     AssistantProposedPlan,
     AssistantSession,
     AssistantSnapshot,
-    AssistantThread
+    AssistantThread,
+    FleetSnapshot
 } from '../../shared/assistant/contracts'
 import { findAssistantMessageReplayDuplicateIds } from '../../shared/assistant/message-reconciliation'
 import {
@@ -76,6 +79,37 @@ export function persistAssistantEvent(db: SqlDatabase, event: AssistantDomainEve
                 replaceAssistantPlaygroundLabs(db, snapshot.playground.labs)
                 upsertAssistantMeta(db, 'playgroundRootPath', snapshot.playground.rootPath || '')
                 break
+            case 'session.merged': {
+                if (!session || !thread) break
+                const duplicateSessionId = String(event.payload['duplicateSessionId'] || '')
+                const duplicateThreadId = String(event.payload['duplicateThreadId'] || '')
+                if (duplicateSessionId === session.id || duplicateThreadId === thread.thread.id) break
+                let fleet: FleetSnapshot | null = null
+                for (const candidate of [readFleetSnapshot(db, thread.thread.id), snapshot.fleetByThreadId[thread.thread.id], readFleetSnapshot(db, duplicateThreadId)]) {
+                    if (!candidate) continue
+                    const incoming = remapAssistantFleetRoot(candidate,
+                        { rootSessionId: duplicateSessionId, rootThreadId: duplicateThreadId }, { rootSessionId: session.id, rootThreadId: thread.thread.id })
+                    if (shouldApplyAssistantFleetSnapshot(fleet, incoming)) fleet = incoming
+                }
+                // Move even unloaded history before cascading away the redundant cache.
+                // Never call the canonical delete/archive API for an identity repair.
+                for (const table of ['assistant_turns', 'assistant_messages', 'assistant_activities', 'assistant_proposed_plans', 'assistant_pending_approvals', 'assistant_pending_user_inputs']) {
+                    db.run(`UPDATE ${table} SET thread_id = ? WHERE thread_id = ?`, [thread.thread.id, duplicateThreadId])
+                }
+                db.run('UPDATE assistant_threads SET parent_thread_id = ? WHERE parent_thread_id = ?', [thread.thread.id, duplicateThreadId])
+                for (const table of ['assistant_fleet_snapshots', 'assistant_agent_runs', 'assistant_workflow_runs', 'assistant_workflow_phases', 'assistant_workflow_calls', 'assistant_agent_relationships', 'assistant_agent_artifacts']) {
+                    db.run(`DELETE FROM ${table} WHERE root_thread_id = ?`, [duplicateThreadId])
+                }
+                if (fleet) writeFleetSnapshot(db, thread.thread.id, fleet)
+                db.run('DELETE FROM assistant_sessions WHERE id = ?', [duplicateSessionId])
+                db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${duplicateSessionId}`])
+                syncAssistantSessionPersistence(db, session)
+                upsertAssistantThreadSummary(db, session.id, thread.thread)
+                if (thread.thread.latestTurn) upsertAssistantTurn(db, thread.thread.id, thread.thread.model, thread.thread.latestTurn)
+                for (const approval of thread.thread.pendingApprovals) upsertAssistantPendingApproval(db, thread.thread.id, approval)
+                for (const input of thread.thread.pendingUserInputs) upsertAssistantPendingUserInput(db, thread.thread.id, input)
+                break
+            }
             case 'session.deleted':
                 db.run('DELETE FROM assistant_sessions WHERE id = ?', [event.payload['sessionId'] as SqlValue])
                 db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${event.payload['sessionId']}`])

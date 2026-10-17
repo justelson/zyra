@@ -1,4 +1,6 @@
 import { findSupersededRuntimeCompactionIds } from './compaction-reconciliation'
+import { findCanonicalChatRecords, isImportedChat } from '../../shared/assistant/chat-identity'
+import { remapAssistantFleetRoot } from '../../shared/assistant/fleet-projection'
 import { VisualizationLibrary, resolveVisualizationLibraryContext } from './visualization-library'
 import type { GetVisualizationInput, ListVisualizationsInput } from '../../shared/visualization-resources'
 import { usageProjectionFallback } from '../../shared/assistant/usage-ownership'
@@ -528,6 +530,13 @@ export class AssistantService {
         }
         this.runtime.on('runtime', (event) => {
             this.handleRuntimeEvent(event)
+            // A catalog snapshot can precede server alias registration. Revisit
+            // identities after attachment, including on older alias-less servers.
+            if (event.type === 'thread.started' && findCanonicalChatRecords(this.state.snapshot.sessions, {
+                canonicalChatId: event.payload.providerThreadId
+            }).length > 1) void this.queueCanonicalChatImport().catch(error => {
+                log.warn('[Assistant] Could not reconcile attached chat identity', error)
+            })
         })
         this.runtime.on('chat.attention', (notice: ChatAttentionNotice) => { void this.chatNotifications.receive(notice) })
         this.runtime.on('catalog.changed', (value) => {
@@ -3065,9 +3074,44 @@ export class AssistantService {
         for (const chat of chats) {
             if (!chat.canonicalChatId) continue
             const agentOrigin = projectCanonicalAgentOrigin(chat)
-            const existing = this.state.snapshot.sessions
-                .flatMap((session) => session.threads.map((thread) => ({ session, thread })))
-                .find(({ thread }) => thread.providerThreadId === chat.canonicalChatId)
+            const matches = findCanonicalChatRecords(this.state.snapshot.sessions, chat)
+            let existing: (typeof matches)[number] | undefined = matches[0]
+            if (existing && !existing.thread.providerThreadId) {
+                this.appendEvent('thread.updated', nowIso(), {
+                    threadId: existing.thread.id, patch: { providerThreadId: chat.canonicalChatId }
+                }, existing.session.id, existing.thread.id)
+            }
+            const duplicates = matches.slice(1).filter(isImportedChat)
+            if (existing && !isImportedChat(existing) && duplicates.length > 0) {
+                for (const duplicate of duplicates) {
+                    this.assistantTextDeltaBuffer.flush({ threadId: duplicate.thread.id })
+                    this.assistantActivityDeltaBuffer.flush({ threadId: duplicate.thread.id })
+                    const [originalRequests, duplicateRequests] = await Promise.all([
+                        this.persistence.readThreadRequests(existing.thread.id),
+                        this.persistence.readThreadRequests(duplicate.thread.id)
+                    ])
+                    const current = findThreadRecord(this.state.snapshot, existing.thread.id)
+                    const imported = findThreadRecord(this.state.snapshot, duplicate.thread.id)
+                    if (!current || !imported || current.thread.providerThreadId !== chat.canonicalChatId
+                        || imported.thread.providerThreadId !== chat.canonicalChatId || !isImportedChat(imported)) continue
+                    this.appendEvent('session.merged', nowIso(), {
+                        requests: {
+                            pendingApprovals: [...originalRequests.pendingApprovals, ...duplicateRequests.pendingApprovals],
+                            pendingUserInputs: [...originalRequests.pendingUserInputs, ...duplicateRequests.pendingUserInputs]
+                        },
+                        sessionId: existing.session.id, threadId: existing.thread.id,
+                        duplicateSessionId: duplicate.session.id, duplicateThreadId: duplicate.thread.id
+                    }, existing.session.id, existing.thread.id)
+                    for (const view of this.threadViews.values()) {
+                        if (view.threadId === duplicate.thread.id) view.threadId = existing.thread.id
+                    }
+                    const fleet = this.state.snapshot.fleetByThreadId[existing.thread.id]
+                    if (fleet) this.fleetProjection.apply(existing.thread.id, fleet)
+                    this.fleetProjection.remove(duplicate.thread.id)
+                    this.markCanonicalHistoryDirty(chat.canonicalChatId)
+                }
+                existing = findThreadRecord(this.state.snapshot, existing.thread.id) || undefined
+            }
             const createdAt = normalizeCatalogDate(chat.createdAt)
             const updatedAt = normalizeCatalogDate(chat.modifiedAt, createdAt)
             const canonicalProjectPath = resolveImportedAssistantProjectPath({
@@ -3884,6 +3928,24 @@ export class AssistantService {
     }
 
     private handleRuntimeEvent(event: Parameters<typeof handleAssistantRuntimeEvent>[0]) {
+        // A worker attached through a repaired imported alias can still emit its
+        // old local ID. Route that evidence to the surviving canonical chat.
+        if (!findThreadRecord(this.state.snapshot, event.threadId) && event.providerThreadId) {
+            const record = findThreadRecord(this.state.snapshot, event.providerThreadId)
+            if (record) {
+                // The removed projection is not allowed to rewrite the original
+                // chat's configuration or working directory after repair.
+                if (event.type === 'session.config.updated' || event.type === 'thread.started') return
+                if (event.type === 'fleet.snapshot.updated') {
+                    const removedSessionId = event.threadId.startsWith('assistant-thread:shared:')
+                        ? event.threadId.replace('assistant-thread:shared:', 'assistant-session:shared:') : undefined
+                    event = { ...event, payload: { ...event.payload, snapshot: remapAssistantFleetRoot(event.payload.snapshot,
+                        { rootThreadId: event.threadId, rootSessionId: removedSessionId },
+                        { rootThreadId: record.thread.id, rootSessionId: record.session.id }) } }
+                }
+                event = { ...event, threadId: record.thread.id }
+            }
+        }
         if (event.type === 'turn.completed') {
             const record = findThreadRecord(this.state.snapshot, event.threadId)
             const startedAt = record?.thread.latestTurn?.startedAt

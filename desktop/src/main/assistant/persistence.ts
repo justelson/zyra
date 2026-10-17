@@ -35,7 +35,7 @@ import { is } from '../utils'
 import { backupAssistantDatabaseSet } from './assistant-database-files'
 import { recoverLegacyAssistantInterruptions } from './legacy-terminal-recovery'
 import { createDefaultSnapshot, recoverPersistedSnapshot } from './projector'
-import { mergeAssistantSearchTurnIds, readAssistantActivity, readAssistantCompactionActivities, readAssistantHistoryAroundMessage, readAssistantHistoryPage, readAssistantReviewIndex, readAssistantThreadDetail, readAssistantTurnDetail, searchAssistantTurns } from './persistence-history'
+import { mergeAssistantSearchTurnIds, readAssistantActivity, readAssistantCompactionActivities, readAssistantHistoryAroundMessage, readAssistantHistoryPage, readAssistantReviewIndex, readAssistantThreadDetail, readAssistantThreadRequests, readAssistantTurnDetail, searchAssistantTurns } from './persistence-history'
 import { hydrateSnapshotThreads, summarizeThread } from './persistence-snapshot'
 import { initializeAssistantSearchIndex, searchAssistantChatsFallback } from './assistant-search-index'
 import { AssistantSearchWorkerClient } from './assistant-search-worker-client'
@@ -356,6 +356,13 @@ export class AssistantPersistence {
         this.clearPendingEventTimer()
         await this.processPendingEvents()
         return this.enqueue(() => readAssistantThreadDetail(this.requireDb(), threadId))
+    }
+
+    async readThreadRequests(threadId: string) {
+        await this.ensureInitialized()
+        this.clearPendingEventTimer()
+        await this.processPendingEvents()
+        return this.enqueue(() => readAssistantThreadRequests(this.requireDb(), threadId))
     }
 
     async readPendingUserInput(requestId: string) {

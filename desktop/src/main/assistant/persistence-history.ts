@@ -1031,14 +1031,17 @@ export function readAssistantTurnDetail(db: SqlDatabase, threadId: string, turnI
     }
 }
 
+export function readAssistantThreadRequests(db: SqlDatabase, threadId: string): Pick<AssistantThreadDetail, 'pendingApprovals' | 'pendingUserInputs'> {
+    return { pendingApprovals: readPendingApprovals(db, threadId), pendingUserInputs: readPendingUserInputs(db, threadId) }
+}
+
 export function readAssistantThreadDetail(db: SqlDatabase, threadId: string): AssistantThreadDetail {
     const page = readAssistantHistoryPage(db, { threadId, turnLimit: INITIAL_ASSISTANT_HISTORY_TURN_LIMIT })
     const row = db.exec('SELECT active_plan_json FROM assistant_threads WHERE id = ?', [threadId])[0]?.values?.[0]
     return {
         threadId,
         activePlan: parseJson(row?.[0] ?? null, null),
-        pendingApprovals: readPendingApprovals(db, threadId),
-        pendingUserInputs: readPendingUserInputs(db, threadId),
+        ...readAssistantThreadRequests(db, threadId),
         history: {
             ...page,
             initialLoading: false,

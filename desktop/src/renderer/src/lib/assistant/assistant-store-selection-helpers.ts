@@ -310,6 +310,7 @@ function getRailSessionSignature(session: AssistantSnapshot['sessions'][number])
     const hasVisibleChats = session.threads.some((thread) => (thread.messageCount || 0) > 0)
     return [
         session.id, session.title, session.titleGenerating ? 'title-loading' : '', session.mode, session.projectPath || '', session.playgroundLabId || '', session.pendingLabRequest?.id || '', session.pendingLabRequest?.kind || '', session.archived ? '1' : '0', session.createdAt, session.activeThreadId || '',
+        String(session.settled ?? ''), String(session.settlementManual ?? ''),
         session.threads.map(getRailThreadSignature).join('|'),
         hasVisibleChats ? '1' : '0', activeThread?.state || '', activeThread?.messageCount || 0, activeThread?.lastSeenCompletedTurnId || '', activeThread?.latestTurn?.id || '', activeThread?.latestTurn?.state || '', activeThread?.cwd || '', earliestCreatedThread?.cwd || ''
     ].join('|')

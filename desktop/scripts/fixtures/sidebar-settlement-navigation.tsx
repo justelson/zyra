@@ -5,6 +5,7 @@ import type { AssistantSession, AssistantThread } from '../../src/shared/assista
 import { toAssistantShellSnapshot } from '../../src/main/assistant/persistence-snapshot'
 import { materializeAssistantShellSnapshot } from '../../src/renderer/src/lib/assistant/assistant-history-state'
 import { applyAssistantDomainEvents, createDefaultAssistantSnapshot } from '../../src/shared/assistant/projector'
+import { areAssistantSessionsRailSelectionsEqual } from '../../src/renderer/src/lib/assistant/assistant-store-selection-helpers'
 
 const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
@@ -42,6 +43,21 @@ function isSettled() { return Boolean(row()?.querySelector('[aria-label="Un-sett
 async function run() {
     localStorage.clear()
     render(); await sleep()
+    // Match the production selector: a canonical update replaces records rather
+    // than mutating props, and selection stays on the same open chat.
+    const before = { sessions, activeSessionId: selected, activeThreadId: 'settled-thread', connected: true,
+        commandPending: false, playground: { rootPath: null, labs: [] } }
+    const after = { ...before, sessions: sessions.map(session => ({ ...session, settled: true, settlementManual: true })) }
+    check(!areAssistantSessionsRailSelectionsEqual(before as any, after as any), 'Settlement-only update must notify the sidebar selector')
+    const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
+    scroller.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    row()!.querySelector<HTMLElement>('[role="button"]')!.focus()
+    sessions = after.sessions; render(); await sleep()
+    check(isSettled() && selected === 'settled', 'Canonical settlement moves the focused selected chat immediately while hovered')
+    sessions = sessions.map(session => ({ ...session, settled: false })); render(); await sleep()
+    check(!isSettled(), 'Canonical un-settle immediately restores the open hovered chat to Recent')
+    scroller.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))
+    row()!.querySelector<HTMLElement>('[role="button"]')!.blur()
     row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click(); await sleep()
     check(isSettled(), 'Explicit settlement moves the chat to Settled')
     const shell = materializeAssistantShellSnapshot(toAssistantShellSnapshot({ ...createDefaultAssistantSnapshot(), sessions: [hydrated] })).sessions[0]

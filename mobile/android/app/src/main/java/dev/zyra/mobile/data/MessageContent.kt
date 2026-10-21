@@ -6,6 +6,7 @@ import org.json.JSONObject
 /** Canonical reply content stays separate from reasoning and tool inspection. */
 data class MessageParts(val text: String = "", val reasoning: String = "", val tools: List<String> = emptyList())
 object MessageContent {
+    fun hiddenMetadataTool(name: String): Boolean = name == "set_chat_title"
     private val leadingNewlines = Regex("^(?:\\r?\\n){1,2}")
     fun read(value: Any?, previousReasoning: String = ""): MessageParts {
         val text = mutableListOf<String>(); val thoughts = mutableListOf<String>(); val tools = mutableListOf<String>()
@@ -17,7 +18,7 @@ object MessageContent {
                 when (block.optString("type")) {
                     "text" -> text.add(block.optString("text"))
                     "thinking" -> { hasThinking = true; thoughts.add(block.optString("thinking").ifBlank { block.optString("text") }) }
-                    "toolCall" -> tools.add(block.optString("name").ifBlank { "Tool" })
+                    "toolCall" -> block.optString("name").takeUnless(::hiddenMetadataTool)?.let { tools.add(it.ifBlank { "Tool" }) }
                 }
             }
         }

@@ -26,6 +26,8 @@ assert.equal(runtimeConnectionPresentation({ phase: 'ready' }).live, false, 'an 
 assert.equal(runtimeConnectionPresentation({ ...live, lastConfirmedAt: 'invalid' }).live, false)
 assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'getState']), true)
 assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'restart']), false, 'status relay grants no service lifecycle authority')
+assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'activateUpdate']), false, 'browser cannot invoke Desktop runtime activation')
+assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'refresh']), false, 'browser status observation does not grant reconnect authority')
 assert.equal(isBrowserDevscopeRelayEvent({ event: 'runtimeActivationChanged', payload: live }), true)
 const copy = readRuntimeActivation()
 copy.instance!.instanceId = 'not-the-owner'

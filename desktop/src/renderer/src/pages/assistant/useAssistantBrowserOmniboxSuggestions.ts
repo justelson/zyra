@@ -20,6 +20,7 @@ export function useAssistantBrowserOmniboxSuggestions(query: string, history: De
             setLoading(false)
             return
         }
+        let cancelled = false
         setSnapshot(current => current ?? { entries: filterAssistantBrowserHistory(history, query, 24), google: [] })
         setLoading(true)
         const timer = window.setTimeout(() => {
@@ -37,14 +38,15 @@ export function useAssistantBrowserOmniboxSuggestions(query: string, history: De
                     if (result.success) google = result.suggestions
                 }).catch(() => { /* A failed suggestion read settles as no remote matches. */ }))
             }
-            void Promise.all(requests).then(() => {
-                if (requestGeneration !== generation.current) return
+            void Promise.allSettled(requests).then(() => {
+                if (cancelled || requestGeneration !== generation.current) return
                 setSnapshot({ entries, google })
                 setLoading(false)
             })
         }, 120)
         return () => {
             generation.current++
+            cancelled = true
             window.clearTimeout(timer)
         }
     }, [query, history, googleEnabled])

@@ -21,9 +21,13 @@ function subscribe(listener: () => void) {
     listeners.add(listener)
     return () => { listeners.delete(listener); if (!listeners.size) window.removeEventListener('storage', onStorage) }
 }
-export function writePinnedSessionIds(ids: Set<string>) {
-    snapshot = ids
-    try { const raw = JSON.stringify([...ids]); localStorage.setItem(KEY, raw); persistedRaw = raw } catch { /* retain pins in memory */ }
+export function writePinnedSessionIds(ids: Set<string>, options: { strict?: boolean } = {}) {
+    try {
+        const raw = JSON.stringify([...ids]); localStorage.setItem(KEY, raw)
+        if (options.strict && localStorage.getItem(KEY) !== raw) throw new Error('Pinned chats could not be persisted.')
+        persistedRaw = raw
+    } catch (error) { if (options.strict) throw error }
+    snapshot = new Set(ids)
     publish()
 }
 export const usePinnedSessionIds = () => useSyncExternalStore(subscribe, getPinnedSessionIds, getPinnedSessionIds)

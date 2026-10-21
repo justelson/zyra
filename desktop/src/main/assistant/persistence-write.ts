@@ -113,6 +113,8 @@ export function persistAssistantEvent(db: SqlDatabase, event: AssistantDomainEve
             case 'session.deleted':
                 db.run('DELETE FROM assistant_sessions WHERE id = ?', [event.payload['sessionId'] as SqlValue])
                 db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${event.payload['sessionId']}`])
+                db.run('DELETE FROM assistant_meta WHERE key = ?', [`manualTitle:${event.payload['sessionId']}`])
+                db.run('DELETE FROM assistant_meta WHERE key = ?', [`forkOrigin:${event.payload['sessionId']}`])
                 break
             case 'thread.created':
                 if (session && thread) {
@@ -258,6 +260,8 @@ export function replaceAssistantSnapshot(db: SqlDatabase, snapshot: AssistantSna
         db.run('DELETE FROM assistant_threads')
         db.run('DELETE FROM assistant_sessions')
         db.run("DELETE FROM assistant_meta WHERE key LIKE 'canonicalSettlement:%'")
+        db.run("DELETE FROM assistant_meta WHERE key LIKE 'manualTitle:%'")
+        db.run("DELETE FROM assistant_meta WHERE key LIKE 'forkOrigin:%'")
         db.run('DELETE FROM assistant_playground_labs')
 
         persistAssistantSnapshotMeta(db, snapshot)
@@ -329,6 +333,8 @@ function upsertAssistantSession(db: SqlDatabase, session: AssistantSession): voi
         session.activeThreadId
     ])
     if (session.chatScope !== undefined) upsertAssistantChatScope(db, session.id, session.chatScope)
+    if (session.forkOrigin) upsertAssistantMeta(db, `forkOrigin:${session.id}`, jsonStringify(session.forkOrigin))
+    if (typeof session.titleManuallySet === 'boolean') upsertAssistantMeta(db, `manualTitle:${session.id}`, jsonStringify(session.titleManuallySet))
     // This is a cached server projection, never a local settlement decision.
     if (typeof session.settled === 'boolean') upsertAssistantMeta(db, `canonicalSettlement:${session.id}`, jsonStringify({ settled: session.settled, settlementManual: session.settlementManual === true }))
     else db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${session.id}`])
@@ -685,9 +691,9 @@ function upsertAssistantPendingUserInput(db: SqlDatabase, threadId: string, inpu
     reconcileAssistantPersistedRequestIdentity(db, 'assistant_pending_user_inputs', threadId, input.id, input.requestId)
     db.run(`
         INSERT INTO assistant_pending_user_inputs (
-            id, thread_id, request_id, questions_json, status, answers_json, response_message_id, turn_id, created_at, resolved_at
+            id, thread_id, request_id, questions_json, status, answers_json, response_message_id, turn_id, created_at, resolved_at, input_mode
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT DO UPDATE SET
             id = excluded.id,
             thread_id = excluded.thread_id,
@@ -698,7 +704,8 @@ function upsertAssistantPendingUserInput(db: SqlDatabase, threadId: string, inpu
             response_message_id = excluded.response_message_id,
             turn_id = excluded.turn_id,
             created_at = excluded.created_at,
-            resolved_at = excluded.resolved_at
+            resolved_at = excluded.resolved_at,
+            input_mode = excluded.input_mode
     `, [
         input.id,
         threadId,
@@ -709,6 +716,7 @@ function upsertAssistantPendingUserInput(db: SqlDatabase, threadId: string, inpu
         input.responseMessageId || null,
         input.turnId,
         input.createdAt,
-        input.resolvedAt
+        input.resolvedAt,
+        input.mode === 'async' ? 'async' : 'blocking'
     ])
 }

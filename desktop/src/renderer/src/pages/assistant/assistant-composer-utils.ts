@@ -1,4 +1,5 @@
 import type { AssistantPromptImageInput } from '@shared/assistant/contracts'
+import { formatAssistantCitation, parseAssistantCitation } from '@shared/assistant/assistant-citations'
 import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import {
     buildAssistantBrowserAnnotationPrompt,
@@ -258,6 +259,7 @@ export function isPastedTextAttachment(file: ComposerContextFile): boolean {
 }
 
 export function getContentTypeTag(file: ComposerContextFile): string {
+    if (parseAssistantCitation(file.citation)) return 'CITATION'
     const meta = getContextFileMeta(file)
     if (meta.category === 'image') return 'IMAGE'
     if (meta.category === 'code') return 'CODE'
@@ -298,8 +300,10 @@ export function buildPromptWithContextFiles(prompt: string, contextFiles: Compos
         const meta = getContextFileMeta(file)
         const isClipboardAttachment = isClipboardOriginAttachment(file)
         const browserAnnotation = parseAssistantBrowserAnnotation(file.content)
-        const inlineContent = browserAnnotation
-            ? buildAssistantBrowserAnnotationPrompt(browserAnnotation)
+        const citation = parseAssistantCitation(file.citation)
+        const inlineContent = citation
+            ? formatAssistantCitation(citation)
+            : browserAnnotation ? buildAssistantBrowserAnnotationPrompt(browserAnnotation)
             : meta.category === 'image' ? '' : String(file.content || '')
         const headerLabel = isClipboardAttachment
             ? getClipboardAttachmentDisplayName(file, meta.category)
@@ -327,6 +331,7 @@ export function buildPromptWithContextFiles(prompt: string, contextFiles: Compos
                 file.mimeType ? `mime: ${file.mimeType}` : '',
                 Number.isFinite(file.sizeBytes) ? `size: ${Number(file.sizeBytes)} bytes` : '',
                 file.previewText ? `preview: ${file.previewText}` : '',
+                citation ? `citation-json: ${JSON.stringify(citation)}` : '',
                 inlineContent ? `content:\n${inlineContent}` : '',
                 !inlineContent && file.previewDataUrl
                     ? 'note: image attached in composer UI; inline image payload omitted in this compatibility mode.'

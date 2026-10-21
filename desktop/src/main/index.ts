@@ -1,4 +1,5 @@
 import { KEYBINDING_DISPATCH_CHANNEL, configureShortcutOverrides, shortcutAccelerator, type AppNavigationCommand, type ShortcutPlatform } from '../shared/keybindings'
+import { randomBytes } from 'node:crypto'
 import { prepareAppShortcutInput, registerKeybindingRecording } from './keybindings'
 import { assistantUtilityProvisionalUrl } from './assistant-utility-provisional-document'
 import { defaultThemeTokens, resolveDefaultAppearance } from '../shared/preferences/default-theme-tokens'
@@ -22,6 +23,9 @@ import { configurePreviewTerminalWorkspaceAuthorizer, disposePreviewTerminalRunt
 import { configureProjectOpenAnalytics } from './ipc/handlers/project-details-handlers'
 import { disposeDeveloperWorkflowTasks } from './ipc/handlers/developer-workflow-handlers'
 import { configureAssistantService, disposeAssistantService, getAssistantService } from './assistant'
+import { AgentAppService, type AgentAppDependencies } from './assistant/agent-app-service'
+import { createAgentAppActions } from './assistant/agent-app-actions'
+import { createAgentAppRendererOwner } from './assistant/agent-app-renderer-owner'
 import { AssistantUtilityWindowManager, type ResolvedUtilityChat, type UtilityWindowCreationOptions } from './assistant/assistant-utility-window-manager'
 import { persistAssistantClipboardImage, resolveAssistantClipboardAttachment } from './assistant/clipboard-attachments'
 import { getCodexVoiceTranscriptionState } from './assistant/codex-voice-transcription'
@@ -130,6 +134,21 @@ async function readMainRendererOverlayAppearance(): Promise<Record<string, unkno
 
 const launchStartedAt = performance.now()
 const setupServices = createDesktopSetupServices(app.getPath('userData'))
+const appRendererOwner = createAgentAppRendererOwner(() => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null)
+const appOperationDependencies: Omit<AgentAppDependencies, 'actions'> = {
+    stateDirectory: app.getPath('userData'), getAssistant: () => getAssistantService(), setup: setupServices,
+    renderer: appRendererOwner,
+    open: async (route, actor) => {
+        if (!/^\/(?:settings(?:\/|$)|assistant\/chat\/|plugins(?:\/|$))/.test(route)) throw new Error('Only registered Zyra destinations can be opened.')
+        if (!mainWindow || mainWindow.isDestroyed()) { mainWindow = createWindow(true, route); ensureIpcHandlersRegistered(mainWindow) }
+        else {
+            await appRendererOwner({ domain: 'app', operation: 'open', params: { area: 'destination', input: { route } }, actor, operationId: randomBytes(32).toString('hex') })
+            if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus()
+        }
+        return { opened: true, route }
+    }
+}
+const agentAppService = new AgentAppService({ ...appOperationDependencies, actions: createAgentAppActions(appOperationDependencies) })
 configureShortcutOverrides(() => setupServices.preferences.getKeyboardShortcuts())
 registerKeybindingRecording(
     command => { if (setupServices.onboarding.isAccessAllowed()) sendAppMenuCommand(command) },
@@ -1222,6 +1241,10 @@ app.whenReady().then(async () => {
             (await setupServices.preferences.get({ surface: 'desktop' })).settings.assistantDefaultModel || ''
         ) || null,
         getProjectDiscoveryRoots: () => setupServices.preferences.getProjectDiscoveryRoots(),
+        handleAppOperation: request => {
+            const { assertCurrent, ownerRequestId: _ownerRequestId, ...envelope } = request
+            return agentAppService.execute(envelope, typeof assertCurrent === 'function' ? assertCurrent as () => Promise<void> : undefined)
+        },
         openDesktopWorkspace: (request) => assistantUtilityWindowManager.openFromTui(request),
         cancelDesktopWorkspace: (requestId) => assistantUtilityWindowManager.cancelFromTui(requestId),
         handleDesktopWorkspaceTurn: (canonicalChatId, turnId) => assistantUtilityWindowManager.handleTuiTurn(canonicalChatId, turnId),

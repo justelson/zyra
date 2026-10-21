@@ -8,16 +8,25 @@ import { build } from 'esbuild'
 import electronPath from 'electron'
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const directory = await mkdtemp(join(tmpdir(), 'zyra-force-send-'))
+const restart = process.argv.includes('--restart')
+const fixture = restart ? 'assistant-restart-send' : 'assistant-force-send'
+const smoke = restart ? 'runRestartSendSmoke' : 'runForceSendSmoke'
+const directory = await mkdtemp(join(tmpdir(), `zyra-${fixture}-`))
 try {
     const index = await readFile(join(desktop, 'src/renderer/index.html'), 'utf8')
     const csp = index.match(/<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/)?.[0]
     if (!csp) throw new Error('Renderer CSP missing')
     await build({
-        absWorkingDir: desktop, entryPoints: ['scripts/fixtures/assistant-force-send.tsx'],
+        absWorkingDir: desktop, entryPoints: [`scripts/fixtures/${fixture}.tsx`],
         outfile: join(directory, 'renderer.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic',
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') },
-        define: { 'process.env.NODE_ENV': '"development"', 'import.meta.env.DEV': 'true' }
+        define: { 'process.env.NODE_ENV': '"development"', 'import.meta.env.DEV': 'true' },
+        // Startup recovery imports a main-process utility whose ID generator is
+        // unused here. Keep the real recovery policy, not Electron/Node services.
+        plugins: restart ? [{ name: 'browser-uuid', setup(builder) {
+            builder.onResolve({ filter: /^node:crypto$/ }, () => ({ path: 'uuid', namespace: 'browser-uuid' }))
+            builder.onLoad({ filter: /.*/, namespace: 'browser-uuid' }, () => ({ contents: 'export const randomUUID = () => crypto.randomUUID();', loader: 'js' }))
+        } }] : []
     })
     await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${csp}</head><body><div id="root"></div><script src="./renderer.js"></script></body></html>`)
     await writeFile(join(directory, 'main.cjs'), `
@@ -27,8 +36,8 @@ const watchdog=setTimeout(()=>{console.error('Force send test timed out');app.ex
 app.whenReady().then(async()=>{let win;try{
 win=new BrowserWindow({show:false,focusable:false,skipTaskbar:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
 await win.loadFile(path.join(__dirname,'index.html'));
-const result=await win.webContents.executeJavaScript('window.runForceSendSmoke()',true);
-console.log(JSON.stringify({test:'assistant-force-send',...result}));clearTimeout(watchdog);win.destroy();app.exit(0);
+const result=await win.webContents.executeJavaScript('window.${smoke}()',true);
+console.log(JSON.stringify({test:'${fixture}',...result}));clearTimeout(watchdog);win.destroy();app.exit(0);
 }catch(error){console.error(error);clearTimeout(watchdog);win?.destroy();app.exit(1)}});
 `)
     const env = { ...process.env }

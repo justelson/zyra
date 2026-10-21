@@ -2,6 +2,7 @@ import { isAssistantRuntimeMode, type AssistantInteractionMode, type AssistantRu
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
 import type { ComposerContextFile } from './assistant-composer-types'
+import { parseAssistantCitation, formatAssistantCitation } from '@shared/assistant/assistant-citations'
 
 export type AssistantComposerSessionState = {
     draft?: string
@@ -118,11 +119,13 @@ function sanitizeComposerContextFile(value: unknown, index: number): ComposerCon
         ? record.previewDataUrl
         : undefined
 
+    const citation = parseAssistantCitation(record.citation)
     return {
+        ...(citation ? { citation } : {}),
         id,
         path,
         name: name || undefined,
-        content,
+        content: citation ? formatAssistantCitation(citation) : content,
         mimeType: typeof record.mimeType === 'string' && record.mimeType.trim().length > 0 ? record.mimeType.trim() : undefined,
         kind,
         sizeBytes,
@@ -152,10 +155,11 @@ function areComposerContextFilesEqual(
             && leftFile.previewText === rightFile.previewText
             && leftFile.previewDataUrl === rightFile.previewDataUrl
             && leftFile.source === rightFile.source
+            && JSON.stringify(leftFile.citation) === JSON.stringify(rightFile.citation)
     })
 }
 
-export function writeAssistantComposerSessionState(sessionId: string, state: AssistantComposerSessionState): AssistantComposerSessionState {
+export function writeAssistantComposerSessionState(sessionId: string, state: AssistantComposerSessionState, options: { strict?: boolean } = {}): AssistantComposerSessionState {
     const sanitized = sanitizeAssistantComposerSessionState(state)
     try {
         const key = getAssistantComposerSessionStorageKey(sessionId)
@@ -163,13 +167,14 @@ export function writeAssistantComposerSessionState(sessionId: string, state: Ass
         if (areAssistantComposerSessionStatesEqual(current, sanitized)) return sanitized
         if (isAssistantComposerSessionStateEmpty(sanitized)) localStorage.removeItem(key)
         else localStorage.setItem(key, JSON.stringify(sanitized))
+        if (options.strict && JSON.stringify(readAssistantComposerSessionState(sessionId)) !== JSON.stringify(sanitized)) throw new Error('The composer state could not be persisted.')
         window.dispatchEvent(new CustomEvent(COMPOSER_SESSION_EVENT, {
             detail: {
                 sessionId,
                 state: sanitized
             }
         }))
-    } catch {}
+    } catch (error) { if (options.strict) throw error }
     return sanitized
 }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequestUserInputDialog } from "../src/request-user-input-dialog.mjs";
 import { createRequestUserInputTool } from "../src/request-user-input-tool.mjs";
+import { installDeferredUserInputTurnStop } from '../src/user-input-turn-stop.mjs';
 import {
   isRequestUserInputAnswerComplete,
   normalizeRequestUserInputQuestions,
@@ -71,6 +72,18 @@ const deferredResult = await deferredTool.execute("call-deferred", {
 assert.equal(deferredResult.terminate, true, "a UI handoff ends the current tool turn without waiting");
 assert.equal(deferredResult.details.deferred, true);
 assert.match(deferredResult.content[0].text, /End this turn now/);
+const asyncResult = await deferredTool.execute('call-async', {
+  mode: 'async', questions: [{ id: 'choice', header: 'Choice', question: 'Choose later', type: 'text' }],
+});
+assert.equal(asyncResult.terminate, undefined, 'An answer-later question leaves the tool turn free to continue');
+assert.equal(asyncResult.details.mode, 'async');
+assert.match(asyncResult.content[0].text, /independent work/i);
+let previousChecks = 0;
+const session = { agent: { shouldStopAfterTurn: async () => { previousChecks++; return false; } } };
+installDeferredUserInputTurnStop(session);
+assert.equal(await session.agent.shouldStopAfterTurn({ toolResults: [{ toolName: 'request_user_input', details: asyncResult.details }] }), false, 'The real SDK turn-stop policy allows independent work after async questions');
+assert.equal(previousChecks, 1);
+assert.equal(await session.agent.shouldStopAfterTurn({ toolResults: [{ toolName: 'request_user_input', details: deferredResult.details }] }), true, 'Blocking handoffs still stop mixed tool batches');
 
 const optionalTextDialog = createRequestUserInputDialog({ questions: [
   { id: "optional-text", header: "Optional", question: "Add a note", type: "text", required: false },
@@ -173,7 +186,8 @@ assert.match(sdkSource, /installDeferredUserInputTurnStop/, "mixed tool batches 
 assert.match(bridgeSource, /continuationPrompt/, "the bridge returns a surface-neutral continuation prompt");
 assert.match(systemPromptSource, /There is no separate planning mode/);
 assert.match(systemPromptSource, /Use `request_user_input` only after inspecting available context/);
-assert.match(systemPromptSource, /Submitted answers return as a real user message and begin a new turn/);
+assert.match(systemPromptSource, /mode: "blocking"[\s\S]*ends the current turn/);
+assert.match(systemPromptSource, /mode: "async"[\s\S]*continue only work that does not depend on their answers/);
 assert.match(systemPromptSource, /Use a `<proposed_plan>` card/);
 
 console.log("request_user_input Desktop and TUI contract tests passed");

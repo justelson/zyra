@@ -68,6 +68,7 @@ import {
     type CanonicalAgentChatHistoryOptions,
     type PluginAuthorityUpdate,
     type ZyraWorkerEventMetadata,
+    type ZyraWorkerRequestOptions,
     type ZyraWorkerLike
 } from './zyra-agent-server-worker'
 
@@ -145,6 +146,15 @@ type ClaimedPrivateVoiceWorker = {
     connected: Record<string, unknown>
 }
 
+type PendingRuntimePrompt = {
+    turnId: string
+    cancelled: boolean
+    dispatched: boolean
+    acknowledged: boolean
+    ready: Promise<void>
+    resolveReady: () => void
+}
+
 type ZyraSessionContext = {
     localThreadId: string
     providerThreadId: string
@@ -168,6 +178,7 @@ type ZyraSessionContext = {
     webSearch: boolean | null
     webFetch: boolean | null
     activeTurnId: string | null
+    pendingPrompt?: PendingRuntimePrompt
     completedTurnIds: Set<string>
     terminalAssistantMessageOutcome: TerminalAssistantMessageOutcome | null
     assistantMessageSequence: number
@@ -1282,7 +1293,8 @@ class ZyraWorker {
         )
     }
 
-    request(type: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    request(type: string, payload: Record<string, unknown> = {}, options?: ZyraWorkerRequestOptions): Promise<Record<string, unknown>> {
+        options?.beforeDispatch?.()
         this.ensureStarted()
         if (!this.child?.stdin.writable) {
             return Promise.reject(new Error('Zyra bridge stdin is closed.'))
@@ -1427,6 +1439,7 @@ export class ZyraRuntime extends EventEmitter {
     private pluginMcpConnections: PluginMcpConnections | null = null
     private pluginAppViewSettingsResolver: (pluginId: string) => Promise<{ enabled: boolean; displayMode: 'manual' | 'automatic' }> = async () => ({ enabled: false, displayMode: 'manual' })
     private unsubscribeCatalogChanged: (() => void) | null = null
+    private appOperationHandler: ((request: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
     private desktopWorkspaceHandler: ((request: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
     private desktopWorkspaceCancelHandler: ((requestId: string) => void) | null = null
     private desktopWorkspaceTurnHandler: ((canonicalChatId: string, turnId: string) => void) | null = null
@@ -1579,6 +1592,14 @@ export class ZyraRuntime extends EventEmitter {
         return remember({ available: true, reason: null })
     }
 
+    async refreshRuntimeStatus(): Promise<void> {
+        await this.getAgentServerConnection(resolveZyraRoot()).refreshRuntimeStatus()
+    }
+
+    async activateRuntimeUpdate(): Promise<void> {
+        await this.getAgentServerConnection(resolveZyraRoot()).activateRuntimeUpdate()
+    }
+
     async listCanonicalChats(): Promise<CanonicalAgentChat[]> {
         return this.getAgentServerConnection(resolveZyraRoot()).listCanonicalChats()
     }
@@ -1640,7 +1661,7 @@ export class ZyraRuntime extends EventEmitter {
 
     async updateCanonicalChat(
         threadId: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
+        patch: { title?: string; expectedTitle?: string; titleSource?: 'refresh'; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<void> {
         const normalizedThreadId = String(threadId || '').trim()
         if (!normalizedThreadId) return
@@ -2033,6 +2054,7 @@ export class ZyraRuntime extends EventEmitter {
         prompt: string,
         options?: {
             turnId?: string
+            initialManualTitle?: string
             model?: string
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
@@ -2051,6 +2073,9 @@ export class ZyraRuntime extends EventEmitter {
 
         const turnId = options?.turnId || randomUUID()
         context.activeTurnId = turnId
+        let resolveReady!: () => void
+        context.pendingPrompt = { turnId, cancelled: false, dispatched: false, acknowledged: false,
+            ready: new Promise<void>(resolve => { resolveReady = resolve }), resolveReady: () => resolveReady() }
         context.completedTurnIds.delete(turnId)
         context.terminalAssistantMessageOutcome = null
         context.activeRetry = null
@@ -2096,6 +2121,21 @@ export class ZyraRuntime extends EventEmitter {
 
         void this.runPromptTurn(context, turnId, prompt, options)
         return { turnId, providerThreadId: context.providerThreadId }
+    }
+
+    async steerPrompt(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }> {
+        const context = this.requireSession(threadId)
+        await this.ensureConnected(context)
+        const presence = context.worker.readPresence ? await context.worker.readPresence() : null
+        const activeTurnId = presence ? presence.activeTurnId : context.activeTurnId
+        if (!activeTurnId || activeTurnId !== options.targetTurnId) {
+            throw new Error('The active turn changed. Your message was not sent. Use Send next instead.')
+        }
+        if (context.pendingPrompt && !context.pendingPrompt.acknowledged) {
+            throw new Error('The turn is still starting. Use Send next until it is ready.')
+        }
+        await context.worker.request('steer', { prompt, images: options.images, targetTurnId: activeTurnId })
+        return { turnId: activeTurnId }
     }
 
     async preparePrivateVoiceTask(input: PrivateVoiceTaskPreparationInput): Promise<void> {
@@ -2378,15 +2418,54 @@ export class ZyraRuntime extends EventEmitter {
         return readAssistantBackgroundProcessList(result['jobs'])
     }
 
+    async cancelPendingPrompt(threadId: string, turnId?: string): Promise<boolean> {
+        const context = this.getSessionContext(threadId)
+        const pending = context?.pendingPrompt
+        if (!context || !pending || turnId && turnId !== pending.turnId || context.activeTurnId !== pending.turnId) return false
+        pending.cancelled = true
+        if (!pending.dispatched) {
+            markTurnCompleted(context, pending.turnId)
+            context.activeTurnId = null
+            getAgentControlBroker().revokePrincipal({ type: 'root', threadId: context.localThreadId, turnId: pending.turnId })
+            this.emitRuntime({ eventId: randomUUID(), type: 'turn.completed', createdAt: nowIso(),
+                threadId: context.localThreadId, providerThreadId: context.providerThreadId, turnId: pending.turnId,
+                payload: { outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } } })
+            return true
+        }
+        // The pipe write happened, but asynchronous server setup may not yet
+        // have admitted the turn. Wait for that exact admission before aborting;
+        // canonical idle during setup is not proof this submission disappeared.
+        if (!pending.acknowledged) await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('The agent has not confirmed this submission. Reconnect and retry Stop.')), 5_000)
+            void pending.ready.then(() => { clearTimeout(timer); resolve() })
+        })
+        if (context.completedTurnIds.has(pending.turnId)) return true
+        if (!pending.acknowledged) throw new Error('Could not confirm that the submitted turn stopped. Reconnect and retry Stop.')
+        await this.interruptCanonicalTurn(threadId, pending.turnId)
+        return true
+    }
+
     async interruptTurn(threadId: string, turnId?: string): Promise<void> {
+        if (await this.cancelPendingPrompt(threadId, turnId)) return
+        await this.interruptCanonicalTurn(threadId, turnId)
+    }
+
+    private async interruptCanonicalTurn(threadId: string, turnId?: string): Promise<void> {
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
-        if (turnId && context.activeTurnId && turnId !== context.activeTurnId) return
-        const interruptedTurnId = context.activeTurnId
+        let interruptedTurnId = context.activeTurnId
+        if (context.worker.readPresence) {
+            const presence = await context.worker.readPresence()
+            if (!presence) throw new Error('The active turn could not be confirmed. Reconnect before stopping work.')
+            if (turnId && turnId !== presence.activeTurnId) return
+            interruptedTurnId = presence.activeTurnId
+        } else if (turnId && context.activeTurnId && turnId !== context.activeTurnId) return
         if (!interruptedTurnId) return
+        const observedLocalTurnId = context.activeTurnId
         getAgentControlBroker().revokePrincipal({ type: 'root', threadId: context.localThreadId, turnId: interruptedTurnId })
         const result = await context.worker.request('abort', { turnId: interruptedTurnId })
-        if (result['aborted'] === false || context.activeTurnId !== interruptedTurnId) return
+        if (result['aborted'] === false || context.completedTurnIds.has(interruptedTurnId)
+            || context.activeTurnId !== observedLocalTurnId && context.activeTurnId !== interruptedTurnId) return
         markTurnCompleted(context, interruptedTurnId)
         this.emitRuntime({
             eventId: randomUUID(),
@@ -2419,11 +2498,13 @@ export class ZyraRuntime extends EventEmitter {
         threadId: string,
         requestId: string,
         answers: Record<string, string | string[]>,
-        questions: AssistantUserInputQuestion[] = []
+        questions: AssistantUserInputQuestion[] = [],
+        options?: { mode?: 'blocking' | 'async'; cancelled?: boolean }
     ): Promise<{ continuationPrompt: string | null }> {
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
-        const result = await context.worker.request('user_input.respond', { requestId, questions, answers, cancelled: false })
+        const result = await context.worker.request('user_input.respond', { requestId, questions, answers, cancelled: options?.cancelled === true, mode: options?.mode, ...(options?.mode === 'async' ? { deferContinuation: true } : {}) })
+        if (options?.mode === 'async' || options?.cancelled) return { continuationPrompt: asString(result['continuationPrompt']) || null }
         const deadline = Date.now() + 5_000
         while (context.activeTurnId && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 20))
@@ -2589,10 +2670,22 @@ export class ZyraRuntime extends EventEmitter {
         this.agentServerConnection = null
     }
 
+    setAppOperationHandler(handler: ((request: Record<string, unknown>) => Promise<Record<string, unknown>>) | null): void {
+        this.appOperationHandler = handler
+        this.agentServerConnection?.setAppOperationHandler(async request => {
+            if (!this.appOperationHandler) throw new Error('Desktop app operations are unavailable.')
+            return this.appOperationHandler(request)
+        })
+    }
+
     private getAgentServerConnection(root: string): DesktopAgentServerConnection {
         if (!this.agentServerConnection) {
             this.agentServerConnection = new DesktopAgentServerConnection(root, {
                 onChatAttention: (notice) => this.emit('chat.attention', notice),
+                handleAppOperation: async request => {
+                    if (!this.appOperationHandler) throw new Error('Desktop app operations are unavailable.')
+                    return this.appOperationHandler(request)
+                },
                 openDesktopWorkspace: async (request) => {
                     if (!this.desktopWorkspaceHandler) throw Object.assign(new Error('Desktop workspace routing is unavailable.'), { code: 'DESKTOP_WORKSPACE_UNAVAILABLE' })
                     return this.desktopWorkspaceHandler(request)
@@ -2673,6 +2766,7 @@ export class ZyraRuntime extends EventEmitter {
         options?: {
             effort?: AssistantReasoningEffort
             serviceTier?: 'fast'
+            initialManualTitle?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
@@ -2680,12 +2774,15 @@ export class ZyraRuntime extends EventEmitter {
         }
     ): Promise<void> {
         let preserveServerOwnedTurn = false
+        const pending = context.pendingPrompt?.turnId === turnId ? context.pendingPrompt : undefined
         try {
             await this.ensureConnected(context)
+            const memoryEnabled = await this.isMemoryEnabled()
+            if (context.activeTurnId !== turnId || pending?.cancelled) return
             await context.worker.request('prompt', {
                 prompt,
                 turnId,
-                memoryEnabled: await this.isMemoryEnabled(),
+                memoryEnabled,
                 model: context.model,
                 thinking: context.thinking,
                 profile: context.profile,
@@ -2693,11 +2790,17 @@ export class ZyraRuntime extends EventEmitter {
                 webSearch: context.webSearch ?? undefined,
                 webFetch: context.webFetch ?? undefined,
                 startInNewWorktree: options?.startInNewWorktree,
+                initialManualTitle: options?.initialManualTitle,
                 images: options?.images,
                 reasoningSummary: options?.reasoningSummary,
                 contextCompactionThresholdTokens: options?.contextCompactionThresholdTokens,
                 skipTitleGeneration: true
-            })
+            }, { beforeDispatch: () => {
+                if (pending?.cancelled || context.activeTurnId !== turnId) {
+                    throw Object.assign(new Error('The prompt was cancelled before dispatch.'), { code: 'AGENT_SERVER_PROMPT_CANCELLED' })
+                }
+                if (pending) pending.dispatched = true
+            } })
             if (context.activeTurnId !== turnId) return
             if (context.worker.serverOwnedLifecycle) return
             this.completeAssistantText(context, turnId)
@@ -2731,7 +2834,7 @@ export class ZyraRuntime extends EventEmitter {
                 this.reconnectDetachedSession(context)
                 return
             }
-            if (isExpectedBridgeDisposalError(error)) {
+            if (isExpectedBridgeDisposalError(error) || (error as { code?: string })?.code === 'AGENT_SERVER_PROMPT_CANCELLED') {
                 if (context.activeTurnId === turnId) context.activeTurnId = null
                 markTurnCompleted(context, turnId)
                 log.info('[ZyraRuntime] prompt interrupted by bridge disposal')
@@ -2771,6 +2874,8 @@ export class ZyraRuntime extends EventEmitter {
                 payload: { state: sessionState, error: message, message }
             })
         } finally {
+            pending?.resolveReady()
+            if (!preserveServerOwnedTurn && context.pendingPrompt === pending) context.pendingPrompt = undefined
             if (!preserveServerOwnedTurn && context.activeTurnId === turnId) {
                 getAgentControlBroker().revokePrincipal(
                     { type: 'root', threadId: context.localThreadId, turnId },
@@ -2845,6 +2950,10 @@ export class ZyraRuntime extends EventEmitter {
             )
             context.connected = true
             if (agentServerActiveTurnId && !context.activeTurnId) context.activeTurnId = agentServerActiveTurnId
+            if (agentServerActiveTurnId && context.pendingPrompt?.turnId === agentServerActiveTurnId) {
+                context.pendingPrompt.acknowledged = true
+                context.pendingPrompt.resolveReady()
+            }
             const connectedFleet = asRecord(result['fleet']) as unknown as FleetSnapshot | null
             if (connectedFleet) {
                 context.fleetSnapshot = connectedFleet
@@ -3068,6 +3177,12 @@ export class ZyraRuntime extends EventEmitter {
             return
         }
         const observedTurnId = metadata?.turnId
+        const pendingPrompt = context.pendingPrompt
+        if (pendingPrompt && metadata?.replay !== true && (observedTurnId || context.activeTurnId) === pendingPrompt.turnId
+            && (type === 'zyra_server_prompt_accepted' || type === 'agent_start' || type === 'turn_start' || type === 'message_start')) {
+            pendingPrompt.acknowledged = true
+            pendingPrompt.resolveReady()
+        }
         if (
             observedTurnId
             && metadata?.replay !== true
@@ -3241,7 +3356,7 @@ export class ZyraRuntime extends EventEmitter {
                 providerThreadId: context.providerThreadId,
                 turnId: turnId || undefined,
                 requestId,
-                payload: { questions }
+                payload: { questions, mode: event['mode'] === 'async' ? 'async' : 'blocking' }
             })
             return
         }

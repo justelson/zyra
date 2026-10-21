@@ -397,7 +397,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             nextAnswers,
         )
 
-        if (progress.isReviewStep) {
+        if (progress.isReviewStep || activePrompt.questions.length === 1 && canAdvanceStep && composerController.contextFiles.length === 0 && stepQuestion && !isAssistantUserInputMultiValueQuestion(stepQuestion)) {
             if (!resolvedAnswers) return
             submittingRef.current = true
             try {
@@ -411,6 +411,8 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
                     clearAssistantComposerSessionState(questionComposerSessionId)
                 suppressDraftPersistenceRequestIdRef.current = activePrompt.requestId
                 clearAssistantPendingUserInputDraft(activePrompt.requestId)
+            } catch (error) {
+                setPasteError(error instanceof Error ? error.message : 'Could not submit. Your answer stays here.')
             } finally {
                 submittingRef.current = false
             }
@@ -462,8 +464,10 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         if (!activePrompt || !activeQuestion || responding) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.metaKey || event.ctrlKey || event.altKey) return
+            if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing || event.key === 'Process') return
             const target = event.target
+            if (target instanceof HTMLElement && target.isContentEditable) return
+            if (activePrompt.mode === 'async' && (!(target instanceof Element) || !target.closest('[data-assistant-async-question]'))) return
             if (
                 target instanceof HTMLTextAreaElement ||
                 target instanceof HTMLInputElement ||
@@ -506,7 +510,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     ])
 
     useLayoutEffect(() => {
-        if (!progress?.activeQuestion || !activePrompt) return
+        if (!progress?.activeQuestion || !activePrompt || activePrompt.mode === 'async') return
         const activeCustomQuestionId = customQuestionIdByRequestId[activePrompt.requestId] || null
         const shouldFocusCustomComposer =
             progress.activeQuestion.type === 'text' ||
@@ -566,7 +570,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             ? 'Adding files'
             : canSkipStep
               ? 'Skip'
-              : 'Continue'
+              : activePrompt?.questions.length === 1 && composerController.contextFiles.length === 0 && activeQuestion && !isAssistantUserInputMultiValueQuestion(activeQuestion) ? 'Submit answer' : 'Continue'
     const canAdvance = isReviewStep ? answeredAllQuestions && !attaching : canAdvanceStep
     const reviewAnswers = (activePrompt?.questions || []).map((question, index) => ({
         question,
@@ -607,7 +611,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             if ('nativeEvent' in event && 'stopImmediatePropagation' in event.nativeEvent) {
                 event.nativeEvent.stopImmediatePropagation()
             }
-            if (!activeQuestion || isReviewStep || responding) return
+            if (!activeQuestion || isReviewStep || responding || event.nativeEvent?.isComposing || event.key === 'Process') return
             if (event.ctrlKey || event.metaKey || event.altKey) return
             if (event.key !== 'Enter' && event.key !== 'NumpadEnter') return
             if (event.shiftKey) return

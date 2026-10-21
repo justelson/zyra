@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo } from 'react'
+import { readRememberedChoices } from './assistant-remembered-choices'
 import { getLatestModelId, sortModelsLatestFirst } from '../../../../../../src/model-order.mjs'
 import type { AssistantInteractionMode, AssistantModelInfo, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { DevScopeGitBranchSummary } from '@shared/contracts/devscope-api'
@@ -84,26 +85,26 @@ export function useAssistantComposerSessionDefaults(input: {
         useSettingsDefaults
     } = input
 
-    const legacyComposerSessionState = useMemo(() => readLegacyComposerSessionState(), [])
+    const remembered = useMemo(() => readRememberedChoices({ model: settings.assistantDefaultModel, effort: settings.assistantDefaultEffort, runtimeMode: settings.assistantDefaultRuntimeMode }), [sessionId])
     const globalDefaultComposerState = useMemo<AssistantComposerSessionState>(() => ({
         draft: settings.assistantDefaultPromptTemplate || undefined,
-        model: settings.assistantDefaultModel.trim() || undefined,
-        runtimeMode: settings.assistantDefaultRuntimeMode,
+        model: remembered.model || undefined,
+        runtimeMode: remembered.runtimeMode,
         interactionMode: 'default',
-        effort: settings.assistantDefaultEffort,
+        effort: remembered.effort,
         fastModeEnabled: settings.assistantDefaultFastMode
     }), [
         settings.assistantDefaultEffort,
         settings.assistantDefaultFastMode,
         settings.assistantDefaultModel,
         settings.assistantDefaultPromptTemplate,
-        settings.assistantDefaultRuntimeMode
+        settings.assistantDefaultRuntimeMode,
+        remembered
     ])
     const fallbackComposerState = useMemo<AssistantComposerSessionState>(() => resolveAssistantComposerFallbackState({
         useSettingsDefaults,
         settingsDefaults: {
-            ...globalDefaultComposerState,
-            ...legacyComposerSessionState
+            ...globalDefaultComposerState
         },
         activeModel,
         runtimeMode,
@@ -116,7 +117,6 @@ export function useAssistantComposerSessionDefaults(input: {
         activeModel,
         globalDefaultComposerState,
         interactionMode,
-        legacyComposerSessionState,
         runtimeMode,
         useSettingsDefaults
     ])

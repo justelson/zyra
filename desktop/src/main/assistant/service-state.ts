@@ -23,6 +23,9 @@ export function isClearableIssueActivity(activity: { kind?: string; tone?: strin
 export type AssistantNewChatExecutionDefaults = {
     webSearch: boolean
     webFetch: boolean
+    model?: string
+    effort?: import('../../shared/assistant/contracts').AssistantReasoningEffort
+    runtimeMode?: import('../../shared/assistant/contracts').AssistantRuntimeMode
 }
 
 export function createAssistantThread(
@@ -40,13 +43,14 @@ export function createAssistantThread(
         subagentDepth: null,
         agentNickname: null,
         agentRole: null,
-        model: previousThread?.model || '',
+        model: previousThread?.model || defaults?.model || '',
+        thinking: previousThread?.thinking || defaults?.effort || undefined,
         cwd: cwd !== undefined ? cwd : (previousThread?.cwd || null),
         messageCount: 0,
         activityCount: 0,
         proposedPlanCount: 0,
         lastSeenCompletedTurnId: null,
-        runtimeMode: previousThread?.runtimeMode || 'approval-required',
+        runtimeMode: previousThread?.runtimeMode || defaults?.runtimeMode || 'approval-required',
         interactionMode: 'default',
         webSearch: defaults?.webSearch ?? previousThread?.webSearch ?? null,
         webFetch: defaults?.webFetch ?? previousThread?.webFetch ?? null,

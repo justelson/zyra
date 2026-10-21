@@ -80,6 +80,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const visibilitySnapshot = useRendererVisibilitySnapshot()
     const reducedMotion = usePresentationReducedMotion()
     const textStreaming = props.rows.some(row => row.kind === 'message' && row.message.streaming)
+    const latestWork = [...props.rows].reverse().find(row => row.kind === 'turn-work-summary')
+    const stoppedPresentation = latestWork?.kind === 'turn-work-summary'
+        && (latestWork.outcome === 'interrupted' || latestWork.outcome === 'failed')
     const renderRowRef = useRef(props.renderRow)
     const rowDisclosureState = useMemo(() => ({
         activityRevealRequest: props.activityRevealRequest,
@@ -780,9 +783,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         // LegendList owns live size/data follow. A second instant alignment on
         // every token canceled its animation and produced visible line jumps.
         if (startupSettled && textStreaming) return
-        if (!props.selectionHydrating && !disclosureLayoutActive && !props.focusMessageId
+        if (!stoppedPresentation && !props.selectionHydrating && !disclosureLayoutActive && !props.focusMessageId
             && scrollModeRef.current === 'following-end') requestEndAlignment()
-    }, [disclosureLayoutActive, props.focusMessageId, props.rows, props.selectionHydrating, props.windowKey, requestEndAlignment, startupSettled, textStreaming])
+    }, [disclosureLayoutActive, props.focusMessageId, props.rows, props.selectionHydrating, props.windowKey, requestEndAlignment, startupSettled, stoppedPresentation, textStreaming])
 
     useEffect(() => () => {
         window.clearTimeout(disclosureTimerRef.current)
@@ -842,7 +845,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             initialScrollAtEnd
             onLoad={handleInitialLoad}
             maintainVisibleContentPosition={maintainVisibleContentPosition}
-            maintainScrollAtEnd={scrollMode === 'following-end' ? {
+            maintainScrollAtEnd={scrollMode === 'following-end' && !(startupSettled && stoppedPresentation) ? {
                 animated: startupSettled && textStreaming && !reducedMotion,
                 on: {
                     dataChange: true,

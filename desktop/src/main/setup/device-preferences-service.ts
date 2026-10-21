@@ -23,7 +23,7 @@ import {
     normalizeAssistantRuntimePolicy,
     type AssistantRuntimePolicy
 } from '../../shared/assistant/runtime-policy'
-import { isDarkThemeId, isLightThemeId } from '../../shared/preferences/theme-contract'
+import { isDarkThemeId, isLightThemeId, LIGHT_THEME_IDS, DARK_THEME_IDS } from '../../shared/preferences/theme-contract'
 import { FutureSchemaError, RevisionConflictError, writeJsonAtomically } from './atomic-json'
 
 type PreferenceBucket = Record<string, unknown>
@@ -94,7 +94,7 @@ const ENUMS: Record<string, ReadonlySet<string>> = {
     assistantDefaultRuntimeMode: new Set(['approval-required', 'auto-review', 'edits-only', 'full-access']),
     assistantDefaultEffort: new Set(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     assistantReasoningSummary: new Set(['auto', 'detailed', 'concise']),
-    assistantBusyMessageMode: new Set(['queue', 'force']),
+    assistantBusyMessageMode: new Set(['queue', 'steer']),
     browserViewMode: new Set(['grid', 'finder']),
     browserContentLayout: new Set(['grouped', 'explorer']),
     assistantUsageDisplayMode: new Set(['remaining', 'used']),
@@ -183,7 +183,20 @@ function sanitizeJson(value: unknown, depth = 0): unknown {
         }))
 }
 
+export function describeDevicePreferenceValue(key: string): Record<string, unknown> {
+    if (BOOLEAN_KEYS.has(key)) return { type: 'boolean' }
+    if (ENUMS[key]) return { type: 'enum', values: [...ENUMS[key]!] }
+    if (NUMBER_RANGES[key]) return { type: 'integer', min: NUMBER_RANGES[key]![0], max: NUMBER_RANGES[key]![1] }
+    if (STRING_LIMITS[key]) return { type: 'string', maxLength: STRING_LIMITS[key] }
+    if (key === 'appearanceLightTheme') return { type: 'enum', values: LIGHT_THEME_IDS }
+    if (key === 'appearanceDarkTheme') return { type: 'enum', values: DARK_THEME_IDS }
+    if (STRING_LIST_KEYS.has(key)) return { type: 'string[]', maxItems: 32 }
+    if (STRING_RECORD_KEYS.has(key)) return { type: 'string-record', maxItems: MAX_RECORD_ENTRIES }
+    return { type: 'object', maxDepth: MAX_JSON_DEPTH, maxItems: MAX_RECORD_ENTRIES }
+}
+
 export function sanitizeDevicePreferenceValue(key: string, value: unknown): unknown {
+    if (key === 'assistantBusyMessageMode' && value === 'force') return 'queue'
     if (key === 'keyboardShortcuts') return sanitizeShortcutOverrides(value)
     if (key === 'appearanceLightTheme') return isLightThemeId(value) ? value : undefined
     if (key === 'appearanceDarkTheme') return value === 'dark' ? 'vercel' : isDarkThemeId(value) ? value : undefined
@@ -288,7 +301,7 @@ export class DevicePreferencesService {
         return this.snapshot(record, surface)
     }
 
-    async update(input: UpdateDevicePreferencesInput): Promise<DevicePreferencesSnapshot> {
+    async update(input: UpdateDevicePreferencesInput, resetKeys: readonly string[] = []): Promise<DevicePreferencesSnapshot> {
         const surface = isDevicePreferenceSurface(input?.surface) ? input.surface : 'browser'
         const expectedRevision = Number(input?.expectedRevision)
         return this.enqueue(async () => {
@@ -297,13 +310,19 @@ export class DevicePreferencesService {
                 throw new RevisionConflictError(expectedRevision, record.revision)
             }
             const partitioned = partitionDevicePreferencePatch(input?.patch, surface)
-            if (partitioned.changedKeys.length === 0) return this.snapshot(record, surface)
+            const resets = resetKeys.filter(key => ['shared', 'surface'].includes(getDevicePreferenceOwnership(key)))
+            const changedKeys = [...new Set([...partitioned.changedKeys, ...resets])] as ManagedDevicePreferenceKey[]
+            if (changedKeys.length === 0) return this.snapshot(record, surface)
             const next = this.withPatch(record, surface, partitioned.shared, partitioned.surface)
+            for (const key of resets) {
+                if (getDevicePreferenceOwnership(key) === 'shared') delete next.shared[key]
+                else delete next.surfaces[surface][key]
+            }
             await this.persist(next)
             this.emit({
                 schemaVersion: DEVICE_PREFERENCES_SCHEMA_VERSION,
                 revision: next.revision,
-                changedKeys: partitioned.changedKeys,
+                changedKeys,
                 sourceSurface: surface
             })
             return this.snapshot(next, surface)
@@ -369,11 +388,14 @@ export class DevicePreferencesService {
         return this.defaultProjectsFolder
     }
 
-    async getNewChatWebDefaults(): Promise<{ webSearch: boolean; webFetch: boolean }> {
+    async getNewChatWebDefaults(): Promise<import('../assistant/service-state').AssistantNewChatExecutionDefaults> {
         const record = await this.requireReadyRecord()
         return {
             webSearch: record.shared.assistantDefaultWebSearch !== false,
-            webFetch: record.shared.assistantDefaultWebFetch !== false
+            webFetch: record.shared.assistantDefaultWebFetch !== false,
+            model: typeof record.shared.assistantDefaultModel === 'string' ? record.shared.assistantDefaultModel : '',
+            effort: record.shared.assistantDefaultEffort as import('../../shared/assistant/contracts').AssistantReasoningEffort || 'medium',
+            runtimeMode: record.shared.assistantDefaultRuntimeMode as import('../../shared/assistant/contracts').AssistantRuntimeMode || 'approval-required'
         }
     }
 
@@ -395,11 +417,18 @@ export class DevicePreferencesService {
 
     async getAssistantMemoryEnabled(): Promise<boolean> {
         const record = await this.requireReadyRecord()
-        if (typeof record.shared.assistantMemoryEnabled === 'boolean') return record.shared.assistantMemoryEnabled
-        // Records created before this preference existed kept Memory enabled by default.
-        // A new installation writes an explicit false value during its first preference migration.
+        return typeof record.shared.assistantMemoryEnabled === 'boolean' ? record.shared.assistantMemoryEnabled : this.memoryResetValue(record)
+    }
+
+    async getAssistantMemoryResetValue(): Promise<boolean> {
+        return this.memoryResetValue(await this.requireReadyRecord())
+    }
+
+    private memoryResetValue(record: DevicePreferencesRecord): boolean {
+        // Historical profiles inferred Memory from other saved preferences. The
+        // Memory key itself must not count when explaining an ownership reset.
         return Boolean(record.migrations.desktopLegacyV4CompletedAt)
-            || Object.keys(record.shared).length > 0
+            || Object.keys(record.shared).some(key => key !== 'assistantMemoryEnabled')
             || Object.keys(record.surfaces.desktop).length > 0
             || Object.keys(record.surfaces.browser).length > 0
     }
@@ -460,7 +489,9 @@ export class DevicePreferencesService {
         return {
             ...record,
             revision: record.revision + 1,
-            shared: { ...record.shared, ...sharedPatch },
+            // A first appearance/shortcut write must not silently opt a new
+            // profile into Memory by making the historical fallback nonempty.
+            shared: { ...(record.shared.assistantMemoryEnabled === undefined && !this.memoryResetValue(record) ? { assistantMemoryEnabled: false } : {}), ...record.shared, ...sharedPatch },
             surfaces: {
                 ...record.surfaces,
                 [surface]: { ...record.surfaces[surface], ...surfacePatch }
@@ -474,6 +505,7 @@ export class DevicePreferencesService {
             schemaVersion: DEVICE_PREFERENCES_SCHEMA_VERSION,
             revision: record.revision,
             surface,
+            savedKeys: [...Object.keys(record.shared), ...Object.keys(record.surfaces[surface])],
             settings: structuredClone({
                 ...record.shared,
                 ...record.surfaces[surface],

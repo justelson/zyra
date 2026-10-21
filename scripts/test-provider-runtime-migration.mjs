@@ -69,8 +69,9 @@ assert.doesNotMatch(accountBoundary, /node:child_process|\b(?:spawn|execFile)\s*
 
 const utilityBridge = read("src/zyra-ui-bridge.mjs");
 assert.match(utilityBridge, /handleGenerateText[\s\S]*?noSession: true,[\s\S]*?noTools: ["']all["'],/u, "utility text generation must be ephemeral and tool-free");
-assert.match(utilityBridge, /buildCompletedTitleTranscript\(targetRuntime\.session\.state\?\.messages\)/u, "TUI titles use the completed canonical user/final-assistant turn");
-assert.match(utilityBridge, /runtime !== targetRuntime/u, "a delayed TUI title cannot overwrite a different Desktop-selected chat");
+assert.match(utilityBridge, /onChatTitle:[\s\S]*?type: 'session_title'/u, "initial titles come from the originating foreground model as metadata");
+assert.match(utilityBridge, /chatTitleState: payload\.chatTitleState/u, "the foreground receives canonical title eligibility, not the selected Desktop chat");
+assert.doesNotMatch(utilityBridge, /buildCompletedTitleTranscript\(targetRuntime\.session\.state\?\.messages\)/u, "initial titles must not start a competing post-turn utility request");
 assert.match(utilityBridge, /refreshServerAuthProvider[\s\S]*authStorage\.refreshAuthProvider\(provider\)/u, "the authoritative server runtime refreshes shared credentials without provider network access");
 assert.match(utilityBridge, /applyChatConfig[\s\S]*await refreshServerAuthProvider\(requestedProvider\)/u, "every server configure and prompt observes external auth-file changes before model resolution");
 const tuiRuntime = read("src/agent-server/tui-runtime.mjs");

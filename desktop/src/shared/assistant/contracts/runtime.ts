@@ -240,6 +240,7 @@ export type AssistantRuntimeEvent =
     | (AssistantRuntimeEventBase & {
         type: 'user-input.requested'
         payload: {
+            mode?: 'blocking' | 'async'
             questions: AssistantUserInputQuestion[]
         }
     })

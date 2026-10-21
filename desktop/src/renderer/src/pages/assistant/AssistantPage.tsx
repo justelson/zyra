@@ -31,6 +31,7 @@ import { useAssistantBrowserSurfaceRequests } from './useAssistantBrowserSurface
 import { useAssistantWorkspaceLayout } from './assistant-workspace-context'
 import { useAssistantReviewIndex } from './useAssistantReviewIndex'
 import { useAssistantChatRouting } from './useAssistantChatRouting'
+import { useAssistantCitationNavigation } from './useAssistantCitationNavigation'
 import { parseAssistantChatRoute, parseAssistantMessageSearchTarget } from './assistant-chat-route'
 import { parseAssistantFilesShellLaunchRequest } from '@shared/assistant/files-shell-launch-route'
 
@@ -321,6 +322,7 @@ export default function AssistantPage() {
         [effectiveDiffActivity, effectiveDiffTarget]
     )
     const { toast, showToast } = useAssistantTransientToast()
+    useAssistantCitationNavigation(location, shell.selectedSessionId, shell.activeThreadId, showToast)
     const messageSearchRequestRef = useRef<string | null>(null)
     useEffect(() => {
         if (!messageSearchTarget) {

@@ -17,6 +17,8 @@ Preserve the existing separation between installed Desktop, development profiles
 - `instanceId` identifies one service start. It is different after restarting in the same namespace.
 - Connection health records the last authenticated confirmation. It is independent of a chat's running, waiting or terminal state.
 
+Desktop also offers explicit safe activation through the existing client retirement path. The status projection carries installed expected and active runtime fingerprints separately, plus sanitized blockers. Concurrent activation requests share one replacement; the server checks current work and the requested instance before retirement. No automatic idle-update schedule or forced cancellation is implied. Reconnect and lifecycle controls are Desktop-owned; browser status relay stays read-only.
+
 The authenticated handshake, service status and attachment response carry public instance identity. A descriptor and handshake advertising different namespaces are rejected. Browser automatic reconnection pins both the selected origin and the known namespace; a process reusing that port is not silently accepted as the old installation.
 
 Protocol/method compatibility and code freshness are distinct. Missing required methods still fail closed. If a same-protocol, method-compatible service cannot retire because work is active, retirement is unavailable, or the client lacks retirement authority, the client keeps its connection and reports `updatePending`. It does not cancel work. An idle, authorized replacement still uses the existing retirement handshake and bounded replacement policy. A deferred update can be activated on a later connection; the UI does not promise that an open connection hot-swaps its worker code automatically.

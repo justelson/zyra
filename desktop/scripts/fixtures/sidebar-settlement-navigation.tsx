@@ -39,6 +39,11 @@ const sleep = () => new Promise(resolve => setTimeout(resolve, 300))
 function check(value: unknown, label: string) { if (!value) throw new Error(label) }
 function row() { return document.querySelector<HTMLElement>('[data-agent-inbox-layout-id="settled"]') }
 function isSettled() { return Boolean(row()?.querySelector('[aria-label="Un-settle chat"]')) }
+async function expandSettled() {
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]')).find(button => button.textContent?.startsWith('Settled'))
+    if (button) { button.click(); await sleep() }
+}
+function renderedIds() { return Array.from(document.querySelectorAll<HTMLElement>('[data-agent-inbox-layout-id]')).map(element => element.dataset.agentInboxLayoutId) }
 
 async function run() {
     localStorage.clear()
@@ -60,6 +65,9 @@ async function run() {
     row()!.querySelector<HTMLElement>('[role="button"]')!.blur()
     row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click(); await sleep()
     check(isSettled(), 'Explicit settlement moves the chat to Settled')
+    const settledHeader = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent?.startsWith('Settled'))!
+    check(settledHeader.getAttribute('aria-expanded') === 'false', 'Settled defaults collapsed; the active settled chat remains accessible')
+    await expandSettled()
     const shell = materializeAssistantShellSnapshot(toAssistantShellSnapshot({ ...createDefaultAssistantSnapshot(), sessions: [hydrated] })).sessions[0]
     selected = null; sessions = [shell]; render(); await sleep()
     check(isSettled(), 'Settled chat stays settled when navigation replaces hydrated history with a shell')
@@ -73,6 +81,8 @@ async function run() {
     selected = null; sessions = [refreshed]; render(); await sleep()
     check(isSettled(), 'Metadata refresh does not revive the chat')
     render(false); render(); await sleep()
+    check(!row(), 'Collapsed Settled hides inactive chats after remount')
+    await expandSettled()
     check(isSettled(), 'Persisted settlement survives sidebar remount')
     sessions = applyAssistantDomainEvents({ ...createDefaultAssistantSnapshot(), sessions }, [{
         eventId: 'new-turn', sequence: 1, occurredAt: messageAt, type: 'thread.latest-turn.updated',
@@ -86,6 +96,7 @@ async function run() {
     delete shell.settled; delete shell.settlementManual; delete hydrated.settled; delete hydrated.settlementManual
     localStorage.setItem('assistant:agent-inbox-settled-overrides:v1', JSON.stringify({ settled: { state: 'settled', activityAt: messageAt } }))
     sessions = [shell]; render(); await sleep()
+    await expandSettled()
     check(isSettled(), 'Legacy timestamp-only settlement is retained on first catalog load')
     sessions = [hydrated]; selected = 'settled'; render(); await sleep()
     check(isSettled(), 'Legacy settlement survives history loading')
@@ -95,9 +106,35 @@ async function run() {
     row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click(); await sleep()
     check(isSettled(), 'Revived chat can be settled again')
     row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click(); await sleep()
-    check(!isSettled(), 'Explicit un-settle returns the chat to Recent')
+    check(!isSettled(), 'Explicit un-settle returns the chat to Chats')
     render(false); render(); await sleep()
     check(!isSettled(), 'Explicit un-settle survives remount')
-    return ['settlement survives shell/history navigation, metadata refresh and remount; legacy choices upgrade; projected new work and new messages revive chats; explicit un-settle persists']
+
+    // The restored chat is deliberately older than every active chat. Its place
+    // must be an explicit restore decision, not an incidental timestamp sort.
+    render(false)
+    const older = { ...hydrated, createdAt: new Date(Date.parse(now) - 86_400_000).toISOString(), settled: true, settlementManual: true }
+    const peers = Array.from({ length: 24 }, (_, index) => {
+        const id = `peer-${String(index).padStart(2, '0')}`
+        const thread = { ...hydratedThread, id: `${id}-thread`, messages: [...hydratedThread.messages] }
+        return { ...hydrated, id, title: id, createdAt: new Date(Date.parse(now) + index * 1000).toISOString(), settled: false, settlementManual: true,
+            threads: [thread], threadIds: [thread.id], activeThreadId: thread.id }
+    })
+    selected = 'settled'; sessions = [older, ...peers]; render(); await sleep()
+    check(isSettled() && renderedIds()[0] !== 'settled', 'Old settled chat starts below newer active chats')
+    const scroll = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
+    scroll.scrollTop = 180
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    await sleep()
+    const beforeRestoreScroll = scroll.scrollTop
+    check(beforeRestoreScroll === 180, 'Restore fixture has a real nonzero scroll position')
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click(); await sleep()
+    check(!isSettled() && renderedIds()[0] === 'settled', 'Explicitly restoring an old chat places it above all newer chats')
+    check(scroll.scrollTop === beforeRestoreScroll, 'Restoring to the top preserves the sidebar scroll position')
+    sessions = structuredClone(sessions); render(); await sleep()
+    check(renderedIds()[0] === 'settled' && scroll.scrollTop === beforeRestoreScroll, 'Snapshot refresh preserves restored order and scroll')
+    render(false); render(); await sleep()
+    check(renderedIds()[0] === 'settled' && !isSettled(), 'Restored top position survives saved-order reload on remount')
+    return ['collapsed Settled retains active-row access; settlement survives shell/history navigation, metadata refresh and remount; legacy choices upgrade; projected work revives chats; explicit restore puts old chats first, preserves scroll and survives order reload']
 }
 ;(window as any).sidebarContinuityCheck = run()

@@ -1,4 +1,5 @@
 import { normalizePromptImages } from '../prompt-images.mjs';
+import { initialChatTitleState } from '../chat-title-tool.mjs';
 import { normalizeChatModel } from './chat-model.mjs';
 import { ReplayWindow } from './replay-window.mjs';
 import { ApprovalResponses } from "./approval-responses.mjs";
@@ -20,6 +21,7 @@ import { ChildThreadWorker } from './child-thread-worker.mjs';
 import { agentEndOutcome } from './agent-end-outcome.mjs';
 import { ServerPluginAuthority } from "./plugin-authority.mjs";
 import { AgentEventJournal } from "./event-journal.mjs";
+import { requestAgentAppOperation, completeAgentAppOperation, validateAgentAppOperation } from './app-operations.mjs';
 import { CanonicalChatCatalog } from "./catalog.mjs";
 import { CanonicalChatAttention } from "./chat-attention.mjs";
 import { getAgentServerPaths } from "./paths.mjs";
@@ -91,6 +93,7 @@ export class ZyraAgentServer extends EventEmitter {
     this.utilityWorker = null;
     this.canonicalMessageQueues = new Map();
     this.desktopWorkspaceRequests = new Map();
+    this.appRequests = new Map();
     this.externalTools = new ExternalToolSessions(this, options.externalTools);
     this.server = null;
     this.startedAt = null;
@@ -164,6 +167,8 @@ export class ZyraAgentServer extends EventEmitter {
       pending.reject(Object.assign(new Error(reason), { code: "DESKTOP_WORKSPACE_UNAVAILABLE" }));
     }
     this.desktopWorkspaceRequests.clear();
+    for (const pending of this.appRequests.values()) { clearTimeout(pending.timer); pending.reject(new Error('Agent server closed during app operation.')); }
+    this.appRequests.clear();
     for (const client of this.clients.values()) client.socket.destroy();
     this.clients.clear();
     const server = this.server;
@@ -230,7 +235,21 @@ export class ZyraAgentServer extends EventEmitter {
       clients: this.clients.size,
       methods: AGENT_SERVER_METHODS,
       instance: this.instanceIdentity(),
-      sessions: uniqueSessions.map((session) => session.summary())
+      sessions: uniqueSessions.map((session) => session.summary()),
+      activity: this.runtimeActivity()
+    };
+  }
+
+  runtimeActivity() {
+    const sessions = [...new Set(this.sessions.values())].map(session => session.summary());
+    return {
+      activeTurns: sessions.filter(session => session.latestTurn?.state === 'running').length,
+      backgroundChats: sessions.filter(session => session.backgroundWorkActive).length,
+      attention: sessions.filter(session => session.attention).length,
+      requests: Math.max(0, this.pendingRequests - 1, sessions.reduce((total, session) => total + (Number(session.activeRequests) || 0), 0))
+        + (this.memoryQueue.active ? 1 : 0),
+      workspaceRequests: this.desktopWorkspaceRequests.size + this.appRequests.size,
+      externalTools: this.externalTools.sessions.size
     };
   }
 
@@ -281,6 +300,10 @@ export class ZyraAgentServer extends EventEmitter {
         this.handleControlResponse(client, message);
         return;
       }
+      if (message?.type === 'desktop.app.response') {
+        completeAgentAppOperation(this, client, message);
+        return;
+      }
       if (message?.type === "desktop.workspace.response") {
         this.handleDesktopWorkspaceResponse(client, message);
         return;
@@ -316,6 +339,7 @@ export class ZyraAgentServer extends EventEmitter {
       && tokensMatch(hashAuthorityProof(message.authorityProof), expectedAuthorityHash);
     client.canControl = verifiedDesktop && message.authorities?.includes?.("desktop-control") === true;
     client.canOpenWorkspace = verifiedDesktop && message.authorities?.includes?.("desktop-workspace") === true;
+    client.canOperateApp = verifiedDesktop && message.authorities?.includes?.('desktop-app') === true;
     client.authenticated = true;
     clearTimeout(client.handshakeTimer);
     this.clients.set(client.connectionId, client);
@@ -349,14 +373,16 @@ export class ZyraAgentServer extends EventEmitter {
         throw new AgentServerProtocolError("Unsupported runtime activation handshake.", "AGENT_SERVER_UPGRADE_REQUIRED");
       }
       if (!client.canControl) throw new AgentServerProtocolError("Only verified Zyra Desktop can restart the background service.", "AGENT_SERVER_AUTH_FAILED");
-      const busy = this.pendingRequests > 1 || this.desktopWorkspaceRequests.size > 0 || this.externalTools.sessions.size > 0
-        || [...new Set(this.sessions.values())].some((session) => {
-          const state = session.summary();
-          return state.activeRequests > 0 || state.backgroundWorkActive || state.attention;
-        });
+      if (params.expectedInstanceId !== undefined && params.expectedInstanceId !== this.instanceId) {
+        throw new AgentServerProtocolError('The running Zyra instance changed. Refresh its status before updating.', 'AGENT_SERVER_INSTANCE_CHANGED');
+      }
+      const busy = Object.values(this.runtimeActivity()).some(count => count > 0);
       if (busy) throw new AgentServerProtocolError("Zyra's background service needs an update. Let active work finish, then try again.", "AGENT_SERVER_UPGRADE_BUSY");
       if (this.listenerCount("retire") === 0) throw new AgentServerProtocolError("Restart Zyra's background service to finish updating.", "AGENT_SERVER_UPGRADE_REQUIRED");
       this.retiring = true;
+      // Freeze queued maintenance in the same tick as admission closes. A timer
+      // must not start a new job between the idle check and process shutdown.
+      this.memoryQueue.dispose();
       return { retiring: true };
     }
     if (method === "runtime.prepare") {
@@ -385,6 +411,7 @@ export class ZyraAgentServer extends EventEmitter {
       const chats = await this.catalog.list(params);
       return { chats: chats.map((chat) => this.projectCatalogChat(chat)) };
     }
+    if (method === 'desktop.app.validate') return validateAgentAppOperation(this, client, params);
     if (method === "catalog.get") {
       const chat = await this.catalog.find(params.session, params);
       return { chat: chat ? this.projectCatalogChat(chat) : null };
@@ -432,10 +459,16 @@ export class ZyraAgentServer extends EventEmitter {
         const active = this.sessions.get(this.catalog.resolveAlias(params.session));
         const presence = this.sessionPresence(this.catalog.resolveAlias(params.session));
         if (params.settled && (active?.latestTurn?.state === 'running' || active?.foregroundPromptRequests > 0 || presence.state === 'background' || presence.attention)) throw new AgentServerProtocolError('Finish the current turn before settling this chat.');
+        if (params.settled && params.settlementIfAbsent !== true && active) {
+          for (const id of [...active.pendingUserInputRequestIds]) {
+            if (active.pendingUserInputModes.get(id) !== 'async') continue;
+            await active.request(client, 'user_input.respond', { requestId: id, answers: {}, cancelled: true, deferContinuation: true }, { turnId: `answer-${id}`, localThreadId: client.clientId });
+          }
+        }
       }
       const chat = await this.catalog.updateChat(params.session, {
         ...(params.settled !== undefined ? { settled: params.settled, settlementIfAbsent: params.settlementIfAbsent === true } : {}),
-        ...(params.title !== undefined ? { title: params.title } : {}),
+        ...(params.title !== undefined ? { title: params.title, ...(typeof params.expectedTitle === 'string' ? { expectedTitle: params.expectedTitle } : {}), ...(params.titleSource === 'refresh' ? { titleSource: 'refresh' } : {}) } : {}),
         ...(params.project !== undefined ? { project: params.project } : {}),
         ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
         ...(params.archived !== undefined ? { archived: params.archived === true } : {}),
@@ -682,7 +715,8 @@ export class ZyraAgentServer extends EventEmitter {
       clients: [...session.clients].map((client) => ({ clientId: client.clientId, surface: client.surface, ...(client.displayName ? { displayName: client.displayName } : {}) })),
       viewers: this.chatAttention.viewers(sessionKey),
       backgroundWorkActive: session.hasBackgroundWork(),
-      attention: session.pendingUserInputRequestIds.size > 0 ? "user-input" : session.pendingApprovalRequestIds.size > 0 ? "approval" : null,
+      attention: [...session.pendingUserInputRequestIds].some(id => session.pendingUserInputModes.get(id) !== 'async') ? "user-input" : session.pendingApprovalRequestIds.size > 0 ? "approval" : null,
+      pendingQuestionCount: [...session.pendingUserInputRequestIds].filter(id => session.pendingUserInputModes.get(id) === 'async').length,
       latestTurn: session.latestTurn ? { ...session.latestTurn } : null,
       latestSequence: session.sequence
     };
@@ -719,6 +753,7 @@ export class ZyraAgentServer extends EventEmitter {
     if (requestedCandidate?.deleted) {
       throw new AgentServerProtocolError("Canonical chat was deleted and cannot be reattached.", "AGENT_SERVER_SESSION_NOT_FOUND");
     }
+    if (requestedCandidate?.forkPending) throw new AgentServerProtocolError('The fork history is saved, but its owning Desktop has not confirmed its scope. Inspect the original operation receipt.', 'CHAT_FORK_SCOPE_PENDING');
     const requested = requestedCandidate;
     if (requested?.agentThread || requested?.agentCreatedBy) {
       let linked = this.findAgentOwner(requested.canonicalChatId);
@@ -925,6 +960,11 @@ export class ZyraAgentServer extends EventEmitter {
       if (pending.requester === client && pending.owner?.socket?.writable) this.send(pending.owner, { type: 'desktop.workspace.cancel', requestId })
       pending.reject(Object.assign(new Error(pending.owner === client ? "Zyra Desktop disconnected before opening the workspace." : "The requesting TUI disconnected."), { code: "DESKTOP_WORKSPACE_UNAVAILABLE", retryable: true }));
     }
+    for (const [requestId, pending] of this.appRequests) {
+      if (pending.owner !== client) continue;
+      this.appRequests.delete(requestId); clearTimeout(pending.timer);
+      pending.reject(new Error('The app owner disconnected before acknowledging the operation. Check its receipt before retrying.'));
+    }
     for (const session of new Set(this.sessions.values())) session.detach(client);
   }
 
@@ -1052,7 +1092,13 @@ class ServerOwnedSession {
     this.pendingUserInputRequestIds = new Set();
     this.userInputContinuationWaiters = new Set();
     this.userInputContinuationEpoch = 0;
-    this.userInputResponses = new UserInputResponses(this.pendingUserInputRequestIds, (prompt, context) => this.continueUserInput(prompt, context));
+    this.userInputRequestEpochs = new Map();
+    this.pendingUserInputModes = new Map();
+    this.userInputResponses = new UserInputResponses(this.pendingUserInputRequestIds,
+      (prompt, context, mode) => this.continueUserInput(prompt, context, this.userInputContinuationEpoch, mode), {
+        onClaim: state => this.publish({ type: 'user_input_response_claimed', ...state }),
+        onSettled: state => this.publish({ type: 'user_input_response_completed', ...state }),
+      });
     this.userInputResponseStates = this.userInputResponses.states;
     this.backgroundFleetActive = false;
     this.managedJobIds = new Set();
@@ -1070,7 +1116,9 @@ class ServerOwnedSession {
     this.worker.on("event", (event) => this.publish(event));
     this.worker.on("control", (message) => this.server.routeControlRequest(this, message));
     this.worker.on('thread-request', message => {
-      void this.server.threads.request(this, message).then(
+      void (message.input?.action === 'app'
+        ? requestAgentAppOperation(this.server, this, message)
+        : this.server.threads.request(this, message)).then(
         result => this.worker.sendControlResponse({ type: 'threads.response', requestId: message.requestId, ok: true, result }),
         error => this.worker.sendControlResponse({ type: 'threads.response', requestId: message.requestId, ok: false, error: String(error?.message || error) }),
       );
@@ -1155,7 +1203,13 @@ class ServerOwnedSession {
       this.journal.append(entry);
     }
     this.rebuildLatestTurnSummary();
+    for (const id of this.pendingUserInputRequestIds) this.pendingAttentionEvents.delete(id);
+    this.pendingUserInputRequestIds.clear();
+    this.pendingUserInputModes.clear();
+    this.userInputRequestEpochs.clear();
     for (const entry of this.events) {
+      this.updateUserInputReadModel(entry.event);
+      if (['user_input_response_claimed', 'user_input_response_completed'].includes(entry.event?.type)) this.userInputResponses.restore(entry.event);
       const fleet = entry?.event?.fleet || entry?.event?.fleetSnapshot;
       this.latestFleetSnapshot = selectCurrentFleetSnapshot(this.latestFleetSnapshot, fleet);
     }
@@ -1227,16 +1281,47 @@ class ServerOwnedSession {
       if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('Chat Plugin authority was revoked.', 'AGENT_SERVER_PLUGIN_AUTHORITY_REVOKED');
       this.server.pluginAuthority.assertAllowed(this.sessionKey, this.pluginSkillSources);
     }
-    const requestContext = normalizeRequestContext(requestContextValue);
+    let requestContext = normalizeRequestContext(requestContextValue);
     const stoppingTurnId = type === 'abort' ? this.activeRequestContext?.turnId || null : null;
     if (type === 'abort' && payload?.turnId && String(payload.turnId) !== stoppingTurnId) {
       return { aborted: false, reason: 'The requested turn is no longer active.' };
     }
+    if (type === 'steer' && (!payload?.targetTurnId
+      || String(payload.targetTurnId) !== this.activeRequestContext?.turnId
+      || this.isTurnTerminal(this.activeRequestContext?.turnId))) {
+      throw new AgentServerProtocolError('Steering requires the exact active turn.', 'AGENT_SERVER_SESSION_BUSY');
+    }
     const approvalResponsePromise = type === "approval.respond" ? this.approvalResponses.respond(client.clientId, payload, () => this.worker.request(type, payload)) : null;
     const continuationEpoch = this.userInputContinuationEpoch;
+    const questionId = String(payload?.requestId || '');
+    const questionEpoch = this.userInputRequestEpochs.get(questionId) ?? continuationEpoch;
+    // Mode and recovered questions come from the canonical request, never a
+    // responding client's attempt to upgrade a blocking request to async.
+    const questionMode = this.pendingUserInputModes.get(questionId) || this.userInputResponseStates.get(questionId)?.mode || 'blocking';
+    const questionEvent = this.pendingAttentionEvents.get(questionId);
+    if (type === 'user_input.respond') {
+      payload = { ...payload,
+        ...(questionMode === 'async' || payload?.mode ? { mode: questionMode } : {}),
+        ...(questionMode === 'async' ? {
+          continue: payload?.continue === true || payload?.deferContinuation !== true,
+          ...(questionEvent?.questions ? { questions: questionEvent.questions } : {}),
+        } : {}),
+      };
+      if (payload.continue && questionMode === 'async' && !requestContext?.turnId) {
+        requestContext = normalizeRequestContext({ ...requestContext, turnId: `answer-${questionId}` });
+      }
+    }
     const userInputResponsePromise = type === "user_input.respond"
-      ? this.userInputResponses.respond(String(client?.clientId || "unknown"), payload, requestContext, () => this.worker.request(type, payload), (prompt, context) => this.continueUserInput(prompt, context, continuationEpoch)) : null;
-    if (type === "abort") { this.userInputContinuationEpoch++; this.releaseUserInputContinuations(new Error('The queued question continuation was stopped.')); }
+      ? this.userInputResponses.respond(String(client?.clientId || "unknown"), payload, requestContext,
+        async () => {
+          const result = await this.worker.request(type, payload);
+          return questionMode === 'async' ? { ...result, mode: questionMode } : result;
+        },
+        (prompt, context, mode) => this.continueUserInput(prompt, context, mode === 'async' ? questionEpoch : continuationEpoch, mode, payload.requestId)) : null;
+    if (type === "abort") {
+      this.publish({ type: 'user_input_continuation_epoch', epoch: this.userInputContinuationEpoch + 1 });
+      this.releaseUserInputContinuations(new Error('The queued question continuation was stopped.'));
+    }
     if (type === "memory.global.configure") {
       this.memoryEligible = payload?.enabled === true && this.memoryEligibilityBase;
       this.syncMemoryQueue();
@@ -1288,6 +1373,20 @@ class ServerOwnedSession {
       } });
     }
     try {
+      if (type === 'prompt') {
+        if (typeof payload?.initialManualTitle === 'string' && payload.initialManualTitle.trim()) {
+          await this.server.catalog.updateChat(this.sessionKey, { title: payload.initialManualTitle, initializeTitle: true });
+        }
+        const chat = await this.server.catalog.find(this.sessionKey, { allProjects: true }) || {
+          title: this.connectedResult?.sessionName || 'New chat',
+          messageCount: this.connectedResult?.messages?.length || 0
+        };
+        const metadata = this.server.catalog.record.metadata[this.sessionKey] || {};
+        if (initialChatTitleState(chat, metadata).eligible && !metadata.titleSource) {
+          await this.server.catalog.updateChat(this.sessionKey, { title: chat.title, titleSource: 'initial', initializeTitle: true });
+        }
+        payload = { ...payload, chatTitleState: initialChatTitleState(chat, this.server.catalog.record.metadata[this.sessionKey] || {}) };
+      }
       const result = await (approvalResponsePromise || userInputResponsePromise || this.worker.request(type, payload));
       if (type === 'abort' && result?.aborted !== false && stoppingTurnId
         && this.activeRequestContext?.turnId === stoppingTurnId
@@ -1330,11 +1429,34 @@ class ServerOwnedSession {
     }
   }
 
-  async continueUserInput(prompt, requestContext, epoch = this.userInputContinuationEpoch) {
-    if (epoch !== this.userInputContinuationEpoch) throw new Error('The queued question continuation was stopped.');
+  async continueUserInput(prompt, requestContext, epoch = this.userInputContinuationEpoch, mode = 'blocking', requestId) {
+    const hold = () => {
+      this.publish({ type: 'user_input_continuation_held', requestId, prompt, mode, turnId: requestContext.turnId, reason: 'stopped' });
+      return { state: 'held', turnId: requestContext.turnId };
+    };
+    if (epoch !== this.userInputContinuationEpoch) {
+      if (mode === 'async') return hold();
+      throw new Error('The queued question continuation was stopped.');
+    }
+    if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('The session ended before its question continuation could start.', 'AGENT_SERVER_SESSION_NOT_FOUND');
+    if (mode === 'async' && this.activeRequestContext?.turnId && !this.isTurnTerminal(this.activeRequestContext.turnId)) {
+      const targetTurnId = this.activeRequestContext.turnId;
+      // Steering joins the current canonical turn; it must not claim a second
+      // foreground prompt or change the turn that Stop targets.
+      await this.request({ clientId: requestContext.localThreadId }, 'steer', { prompt, targetTurnId }, requestContext);
+      return { state: 'steered', turnId: targetTurnId };
+    }
     while (this.activeRequestContext || this.foregroundPromptRequests > 0) {
-      await new Promise((resolve, reject) => this.userInputContinuationWaiters.add({ resolve, reject }));
-      if (epoch !== this.userInputContinuationEpoch) throw new Error('The queued question continuation was stopped.');
+      try {
+        await new Promise((resolve, reject) => this.userInputContinuationWaiters.add({ resolve, reject }));
+      } catch (error) {
+        if (mode === 'async' && epoch !== this.userInputContinuationEpoch) return hold();
+        throw error;
+      }
+      if (epoch !== this.userInputContinuationEpoch) {
+        if (mode === 'async') return hold();
+        throw new Error('The queued question continuation was stopped.');
+      }
     }
     if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('The session ended before its question continuation could start.', 'AGENT_SERVER_SESSION_NOT_FOUND');
     // No connection-owned task: this server-owned request survives a phone
@@ -1350,6 +1472,7 @@ class ServerOwnedSession {
   }
 
   publish(event) {
+    if (event?.type === 'user_input_requested') event = { ...event, mode: event.mode === 'async' ? 'async' : 'blocking', continuationEpoch: this.userInputContinuationEpoch };
     if (event?.type === 'zyra_agent_interruption') this.pendingAgentInterruption = event.interruption;
     if (event?.type === 'agent_start') {
       this.pendingAgentInterruption = null;
@@ -1411,9 +1534,16 @@ class ServerOwnedSession {
       void this.server.threads.pump().catch(error => this.server.emit('worker-error', { sessionKey: this.sessionKey, error }));
     }
     if (event?.type === "session_title" && event.title) {
-      void this.server.catalog.updateChat(this.sessionKey, { title: event.title }).then(() => {
+      void this.server.catalog.updateChat(this.sessionKey, {
+        title: event.title,
+        ...(['model', 'provisional'].includes(event.titleSource) ? {
+          titleSource: event.titleSource, initialTitleOnly: true, expectedTitle: event.expectedTitle
+        } : {})
+      }).then(chat => {
+        if (!chat) return;
+        this.connectedResult = { ...(this.connectedResult || {}), sessionName: chat.title };
         this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, title: true });
-      });
+      }).catch(error => this.server.emit('worker-error', { sessionKey: this.sessionKey, error }));
     }
     if (event?.type === 'compaction_end') {
       const start = this.pendingOperationEvents.get('compaction');
@@ -1507,26 +1637,55 @@ class ServerOwnedSession {
       this.pendingApprovalRequestIds.delete(String(event.requestId));
       this.pendingAttentionEvents.delete(String(event.requestId));
     }
-    if (event?.type === "user_input_requested" && event.requestId) {
-      this.pendingUserInputRequestIds.add(String(event.requestId));
-      this.pendingAttentionEvents.set(String(event.requestId), event);
-    }
-    if (event?.type === "user_input_resolved" && event.requestId) {
-      this.pendingUserInputRequestIds.delete(String(event.requestId));
-      this.pendingAttentionEvents.delete(String(event.requestId));
-    }
+    this.updateUserInputReadModel(event);
     this.updateLatestTurnSummary(event, requestContext, occurredAt);
     if (event?.type === "zyra_server_turn_completed") {
       this.liveMessage = null;
       this.pendingToolEvents.clear();
-      this.pendingAttentionEvents.clear();
+      for (const [id, pending] of this.pendingAttentionEvents) {
+        if (pending.type === 'user_input_requested' && pending.mode === 'async') continue;
+        this.pendingAttentionEvents.delete(id);
+        this.pendingUserInputRequestIds.delete(id);
+        this.userInputRequestEpochs.delete(id);
+        this.pendingUserInputModes.delete(id);
+      }
       this.pendingApprovalRequestIds.clear();
-      this.pendingUserInputRequestIds.clear();
+    }
+  }
+
+  updateUserInputReadModel(event) {
+    const id = String(event?.requestId || '');
+    if (event?.type === 'user_input_continuation_epoch' && Number.isSafeInteger(event.epoch)) {
+      this.userInputContinuationEpoch = Math.max(this.userInputContinuationEpoch, event.epoch);
+    }
+    if (event?.type === 'user_input_requested' && id) {
+      const mode = event.mode === 'async' ? 'async' : 'blocking';
+      this.pendingUserInputRequestIds.add(id);
+      this.pendingUserInputModes.set(id, mode);
+      this.pendingAttentionEvents.set(id, { ...event, mode });
+      const epoch = Number.isSafeInteger(event.continuationEpoch) ? event.continuationEpoch : this.userInputContinuationEpoch;
+      this.userInputRequestEpochs.set(id, epoch);
+      this.userInputContinuationEpoch = Math.max(this.userInputContinuationEpoch, epoch);
+    }
+    if (event?.type === 'user_input_resolved' && id) {
+      this.pendingUserInputRequestIds.delete(id);
+      this.pendingUserInputModes.delete(id);
+      this.pendingAttentionEvents.delete(id);
+      this.userInputRequestEpochs.delete(id);
+    }
+    if (event?.type === 'zyra_server_turn_completed') {
+      for (const requestId of this.pendingUserInputRequestIds) {
+        if (this.pendingUserInputModes.get(requestId) === 'async') continue;
+        this.pendingUserInputRequestIds.delete(requestId);
+        this.pendingUserInputModes.delete(requestId);
+        this.pendingAttentionEvents.delete(requestId);
+        this.userInputRequestEpochs.delete(requestId);
+      }
     }
   }
 
   updateLatestTurnSummary(event, requestContext, occurredAt) {
-    if (event?.canonicalCommit === true) return;
+    if (event?.canonicalCommit === true || ['user_input_continuation_held', 'user_input_continuation_epoch', 'user_input_response_claimed', 'user_input_response_completed'].includes(event?.type)) return;
     const turnId = String(requestContext?.turnId || event?.turnId || "").trim();
     if (turnId && this.latestTurn?.id !== turnId) {
       this.latestTurn = {
@@ -1622,7 +1781,8 @@ class ServerOwnedSession {
       activeRequests: this.activeRequests,
       activeRequestContext: this.activeRequestContext,
       latestTurn: this.latestTurn ? { ...this.latestTurn } : null,
-      attention: this.pendingUserInputRequestIds.size > 0 ? "user-input" : this.pendingApprovalRequestIds.size > 0 ? "approval" : null,
+      attention: [...this.pendingUserInputRequestIds].some(id => this.pendingUserInputModes.get(id) !== 'async') ? "user-input" : this.pendingApprovalRequestIds.size > 0 ? "approval" : null,
+      pendingQuestionCount: [...this.pendingUserInputRequestIds].filter(id => this.pendingUserInputModes.get(id) === 'async').length,
       backgroundWorkActive: this.hasBackgroundWork(),
       latestSequence: this.sequence,
       alive: this.worker.isAlive()

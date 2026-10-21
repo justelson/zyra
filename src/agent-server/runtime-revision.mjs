@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-export const RUNTIME_ACTIVATION_VERSION = 1;
+// Version 2 includes compiled JS/CJS engine code as well as MJS modules.
+export const RUNTIME_ACTIVATION_VERSION = 2;
 const pendingRevisions = new Map();
 /** Content fingerprint is portable across development and packaged runtime roots. */
 export async function readRuntimeRevision(root) {
@@ -26,7 +27,7 @@ async function computeRuntimeRevision(root) {
     for (const entry of entries) {
       const child = `${relative}/${entry.name}`;
       if (entry.isDirectory()) await collect(child);
-      else if (entry.isFile() && /\.(mjs|json|md)$/.test(entry.name)) files.push(child);
+      else if (entry.isFile() && /\.(mjs|cjs|js|json|md)$/.test(entry.name)) files.push(child);
     }
   }
   for (const directory of ["src", "prompts", "agents"]) await collect(directory);

@@ -90,7 +90,7 @@ export function getAssistantDefaultSpeedLabel(fastModeEnabled: boolean): string 
 }
 
 export function getAssistantBusyMessageModeLabel(value: AssistantBusyMessageMode): string {
-    return value === 'force' ? 'Force while busy' : 'Queue while busy'
+    return value === 'steer' ? 'Steer while working' : 'Send next while working'
 }
 
 export function getAssistantDefaultsPreview(settings: AssistantDefaultsSubset): string {

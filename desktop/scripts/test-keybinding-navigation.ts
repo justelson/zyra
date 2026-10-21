@@ -103,7 +103,7 @@ try {
     assert.match(inspectorSidebar, /tabs\.length === 0[\s\S]*addTabItems\.map[\s\S]*void item\.onSelect\(\)/, 'the empty Inspector offers the same live actions as the add-tab menu')
     assert.match(inspectorSidebar, /flex-wrap justify-center[\s\S]*flexBasis: 'calc\(\(100% - 1\.5rem\) \/ 3\)'/, 'empty-state actions form a centered three-column grid')
     assert.match(inspectorSidebar, /shortcutLabel\(commandId\)\.split\(' \/ '\)\[0\]/, 'each empty-state action shows its configured keyboard shortcut')
-    assert.match(inspectorSidebar, /rounded-\[4px\][\s\S]*?<kbd className="[^"]*rounded-\[3px\][\s\S]*?\{shortcut \|\| 'No shortcut'\}[\s\S]*?<\/kbd>[\s\S]*?<\/button>/, 'sharp-cornered tiles contain their shortcut keycaps')
+    assert.match(inspectorSidebar, /rounded-\[4px\][\s\S]*?<ShortcutKeycaps id=\{commandId\} platform=\{shortcutPlatform\(\)\} overrides=\{settings.keyboardShortcuts\}[\s\S]*?<\/button>/, 'sharp-cornered tiles use shared per-key caps with effective platform overrides')
     assert.match(source('renderer/src/pages/assistant/AssistantComposerView.tsx'), /useAssistantComposerFocus\([\s\S]*sessionId: controller\.loadedSessionId/)
     assert.match(source('renderer/src/pages/assistant/useAssistantComposerFocus.ts'), /subscribeAssistantComposerFocus[\s\S]*textarea\.focus\(\)/)
     assert.match(source('main/native-overlay-manager.ts'), /prepareAppShortcutInput\(contents, input, owner\.contents\)/)

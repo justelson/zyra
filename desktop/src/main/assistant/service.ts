@@ -163,8 +163,7 @@ import {
 } from './prompt-resources'
 import { shouldKeepHydratedThread, toAssistantShellSnapshot } from './persistence-snapshot'
 import { FleetProjection, shouldApplyAssistantFleetSnapshot } from './fleet-projection'
-import { recoverSessionTitleFromHistory, queueGeneratedSessionTitle, regenerateSessionTitle as generateReplacementSessionTitle, regenerateSessionTitleFromPrompt, shouldAutoRegenerateSessionTitle, shouldGenerateSessionTitleForPrompt } from './session-title-generation'
-import { recoverAssistantSidebarTitles } from './sidebar-title-recovery'
+import { queueGeneratedSessionTitle, regenerateSessionTitle as generateReplacementSessionTitle, regenerateSessionTitleFromPrompt, shouldAutoRegenerateSessionTitle, shouldGenerateSessionTitleForPrompt } from './session-title-generation'
 import { findSessionTitleThread, resolveSessionTitleTarget } from './session-title-target'
 import { awaitCanonicalSessionTitleSaves } from './session-title-updates'
 import { applyDomainEvent, createDefaultSnapshot } from './projector'
@@ -285,13 +284,14 @@ type PendingCanonicalVoiceStart = {
 export type AssistantServiceOptions = {
     openNotificationChat?: (canonicalChatId: string) => Promise<void>
     getDefaultProjectsFolder?: () => string | null
-    getNewChatExecutionDefaults?: () => Promise<{ webSearch: boolean; webFetch: boolean }>
+    getNewChatExecutionDefaults?: () => Promise<import('./service-state').AssistantNewChatExecutionDefaults>
     getNewChatPreparationModel?: () => Promise<string | null>
     getTitleGenerationModel?: () => Promise<string | null>
     getTitleAutomation?: () => Promise<{ enabled: boolean; turnInterval: number }>
     getRuntimePolicy?: () => Promise<AssistantRuntimePolicy>
     getAssistantMemoryEnabled?: () => Promise<boolean>
     getProjectDiscoveryRoots?: () => Promise<string[]>
+    handleAppOperation?: (request: Record<string, unknown>) => Promise<Record<string, unknown>>
     openDesktopWorkspace?: (request: Record<string, unknown>) => Promise<Record<string, unknown>>
     cancelDesktopWorkspace?: (requestId: string) => void
     handleDesktopWorkspaceTurn?: (canonicalChatId: string, turnId: string) => void
@@ -333,6 +333,7 @@ function reconcileCanonicalFileChangeActivities(
 }
 
 export class AssistantService {
+    private readonly agentForkImports = new Map<string, { sourceSessionId: string; scope: AssistantChatScope | null; config: { model?: unknown; effort?: unknown; runtimeMode?: unknown } }>()
     private static readonly MAX_IN_MEMORY_EVENTS = 256
     private static readonly ASSISTANT_TEXT_DELTA_FLUSH_MS = 40
     private static readonly ASSISTANT_ACTIVITY_DELTA_FLUSH_MS = 48
@@ -452,7 +453,6 @@ export class AssistantService {
     private disposeRequested = false
     private readonly actionDeps: AssistantServiceActionDeps
     private readonly startupSelection = new AssistantStartupSelection()
-    private sidebarTitleRecovery: Promise<void> | null = null
 
     private state: AssistantStateRecord = {
         snapshot: createDefaultSnapshot(),
@@ -488,6 +488,7 @@ export class AssistantService {
             return { enabled, displayMode: catalog.appViews.displayMode }
         })
         this.runtime.setMemoryEnabledResolver(options.getAssistantMemoryEnabled || (async () => true))
+        this.runtime.setAppOperationHandler(options.handleAppOperation || null)
         this.runtime.setDesktopWorkspaceHandler(options.openDesktopWorkspace || null, options.cancelDesktopWorkspace || null, options.handleDesktopWorkspaceTurn || null, options.handleDetachedControl || null, options.handleDesktopWorkspaceTurnEnded || null)
         this.readyPromise = this.initialize()
         this.actionDeps = {
@@ -597,9 +598,6 @@ export class AssistantService {
             }
             this.broadcastRealtimeVoiceEvent(event, false, eventOwner)
         })
-        void this.readyPromise
-            .then(() => this.recoverSidebarSessionTitles())
-            .catch((error) => log.warn('[Assistant] Failed to recover chat titles', error))
     }
 
     subscribe(senderId: number) {
@@ -820,7 +818,6 @@ export class AssistantService {
     async getBootstrap() {
         await this.ensureReady()
         await this.startupSelection.ensure(this.actionDeps)
-        void this.recoverSidebarSessionTitles()
         const status = await this.getStatus()
         return {
             snapshot: toAssistantShellSnapshot(this.state.snapshot),
@@ -890,7 +887,7 @@ export class AssistantService {
     async createPluginChat(input: AssistantCreatePluginChatInput) {
         await this.ensureReady()
         if (!input || typeof input.pluginId !== 'string' || typeof input.releaseId !== 'string' || !/^[a-f0-9]{64}$/.test(input.contentDigest)) throw new Error('Choose an installed Plugin release.')
-        return this.createSessionWithPluginScope({ mode: 'work' }, input)
+        return this.createSessionWithPluginScope({ mode: 'work', composer: input.composer }, input)
     }
 
     async inspectLocalPlugin(input: AssistantInspectLocalPluginInput, ownerId?: number) {
@@ -1240,7 +1237,7 @@ export class AssistantService {
     }
 
     private async createSessionWithPluginScope(input?: AssistantCreateSessionInput, pluginSelection?: AssistantCreatePluginChatInput) {
-        if (!pluginSelection) await this.stopCanonicalVoiceForNavigation()
+        if (!pluginSelection && input?.select !== false) await this.stopCanonicalVoiceForNavigation()
         const plannedSessionId = createAssistantId('assistant-session')
         let sessionCreated = false
         let rollbackWorkspace: (() => Promise<void>) | undefined
@@ -1276,7 +1273,7 @@ export class AssistantService {
             }
             await this.pluginRegistry.createChatScope(plannedSessionId, projectId || null, input?.mode !== 'playground', pluginSelection)
             if (input?.mode !== 'playground') await this.pluginRegistry.ensureAvailableChatScope(plannedSessionId, projectId || null)
-            if (pluginSelection) await this.stopCanonicalVoiceForNavigation()
+            if (pluginSelection && input?.select !== false) await this.stopCanonicalVoiceForNavigation()
             const result = await createAssistantSessionAction(this.actionDeps, {
                 ...input,
                 ...(input?.workspace ? { workingRoot: requestedPath, projectPath: requestedPath } : {}),
@@ -1307,6 +1304,57 @@ export class AssistantService {
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'create', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
             throw error
         }
+    }
+
+    /** App-operation only: prepare a new fork workspace without selecting or running a Chat. */
+    async prepareAgentForkWorkspace(sourceSessionId: string, isolated: boolean): Promise<AssistantChatScope | null> {
+        await this.ensureReady()
+        const source = this.state.snapshot.sessions.find(session => session.id === sourceSessionId)
+        if (!source) throw new Error('The fork source is unavailable.')
+        if (!isolated) return source.chatScope ? structuredClone(source.chatScope) : null
+        const root = source.workingRoot || source.projectPath
+        if (!source.projectId || !root || !source.chatScope?.roots.some(entry => entry.path === root && entry.access === 'read-write')) throw new Error('Isolated forks require a writable, associated Git Project.')
+        const { resolveChatWorktree, scopeChatWorktree } = await import('../services/developer-worktrees')
+        const workingRoot = await resolveChatWorktree(root, { kind: 'new-worktree' })
+        // This expansion is inside the exact user-approved fork operation. Other
+        // Chats retain their immutable scope snapshots; only the fork writes here.
+        await this.persistence.associateProjectFolder({ projectId: source.projectId, path: workingRoot, access: 'read-write' })
+        return scopeChatWorktree(await this.persistence.createProjectChatScope(source.projectId, workingRoot), workingRoot)
+    }
+
+    async completeAgentForkScope(canonicalChatId: string, sourceSessionId: string, scope: AssistantChatScope | null, config: { model?: unknown; effort?: unknown; runtimeMode?: unknown; expectedProjectPath?: unknown; expectedWorkingRoot?: unknown } = {}) {
+        await this.ensureReady()
+        const source = this.state.snapshot.sessions.find(session => session.id === sourceSessionId)
+        if (!source || scope && scope.projectId !== source.projectId) throw new Error('The fork source Project changed.')
+        if (scope) {
+            const maximum = await this.persistence.createProjectChatScope(scope.projectId, scope.workingRoot)
+            if (scope.roots.some(root => !maximum.roots.some(ceiling => ceiling.path === root.path && (root.access === 'read-only' || ceiling.access === 'read-write')))) throw new Error('The Project folder ceiling changed before fork completion.')
+        }
+        const canonical = await this.runtime.getCanonicalChat(canonicalChatId)
+        const pathKey = (value: string) => { const normalized = value.replace(/\\/g, '/').replace(/\/+$/, ''); return process.platform === 'win32' ? normalized.toLowerCase() : normalized }
+        if (!canonical?.forkOrigin || !source.threads.some(thread => thread.providerThreadId === canonical.forkOrigin!.canonicalChatId)
+            || typeof config.expectedProjectPath !== 'string' || typeof config.expectedWorkingRoot !== 'string'
+            || pathKey(canonical.project) !== pathKey(config.expectedProjectPath) || pathKey(canonical.cwd || canonical.project) !== pathKey(config.expectedWorkingRoot)) throw new Error('The saved fork moved or its provenance changed. No scope was rebound.')
+        const existingFork = this.state.snapshot.sessions.find(session => session.threads.some(thread => thread.providerThreadId === canonicalChatId))
+        if (existingFork && ((existingFork.projectId || null) !== (source.projectId || null) || pathKey(this.getSessionRuntimeCwd(existingFork, existingFork.threads.find(thread => thread.providerThreadId === canonicalChatId)!)) !== pathKey(config.expectedWorkingRoot))) throw new Error('The existing fork configuration changed. No scope was rebound.')
+        this.agentForkImports.set(canonicalChatId, { sourceSessionId, scope, config })
+        try {
+            if (!await this.ensureCanonicalChatAvailable(canonicalChatId)) throw new Error('The fork was saved but Desktop import is pending.')
+        } finally { this.agentForkImports.delete(canonicalChatId) }
+        const fork = this.state.snapshot.sessions.find(session => session.threads.some(thread => thread.providerThreadId === canonicalChatId))
+        if (!fork || fork.id === source.id) throw new Error('The new fork is unavailable.')
+        await this.pluginRegistry.createChatScope(fork.id, source.projectId || null, source.mode !== 'playground')
+        await this.applySessionProjectScope(fork.id, scope)
+        const thread = fork.threads.find(thread => thread.providerThreadId === canonicalChatId)!
+        const occurredAt = nowIso()
+        this.appendEvent('thread.updated', occurredAt, { threadId: thread.id, patch: {
+            ...(typeof config.model === 'string' && config.model ? { model: config.model } : {}),
+            ...(isAssistantReasoningEffort(config.effort) ? { thinking: config.effort } : {}),
+            ...(typeof config.runtimeMode === 'string' && ['approval-required', 'auto-review', 'edits-only', 'full-access'].includes(config.runtimeMode) ? { runtimeMode: config.runtimeMode as AssistantThread['runtimeMode'] } : {}),
+            updatedAt: occurredAt,
+        } }, fork.id, thread.id)
+        await this.pluginRegistry.ensureAvailableChatScope(fork.id, source.projectId || null)
+        return { sessionId: fork.id, canonicalChatId, scope, selected: false, filesystemRestored: false }
     }
 
     async seedDevelopmentChatFixtures() {
@@ -1372,7 +1420,6 @@ export class AssistantService {
         const snapshot = toAssistantShellSnapshot(this.state.snapshot)
         if (!isAssistantDevelopmentChatFixtureSessionId(sessionId)) {
             this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
-            void this.recoverSessionTitle(sessionId).catch(error => log.warn('[Assistant] Selected chat title recovery failed:', error))
         }
         return { ...result, snapshot }
     }
@@ -1387,7 +1434,6 @@ export class AssistantService {
         const snapshot = toAssistantShellSnapshot(this.state.snapshot)
         if (!isAssistantDevelopmentChatFixtureSessionId(sessionId)) {
             this.scheduleSelectedCanonicalSessionSynchronization(sessionId, generation)
-            void this.recoverSessionTitle(sessionId).catch(error => log.warn('[Assistant] Selected chat title recovery failed:', error))
         }
         return { ...result, snapshot }
     }
@@ -1585,8 +1631,8 @@ export class AssistantService {
         return { success: true as const, detail }
     }
 
-    async renameSession(sessionId: string, title: string) {
-        return renameAssistantSessionAction(this.actionDeps, sessionId, title)
+    async renameSession(sessionId: string, title: string, expectedTitle?: string) {
+        return renameAssistantSessionAction(this.actionDeps, sessionId, title, expectedTitle)
     }
 
     async regenerateSessionTitle(sessionId: string, canonicalChatId?: string) {
@@ -1617,9 +1663,9 @@ export class AssistantService {
                     .map((providerThreadId) => this.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle })))
             }
         }
-        const title = firstPrompt
-            ? await regenerateSessionTitleFromPrompt({ ...titleArgs, messageText: firstPrompt })
-            : await generateReplacementSessionTitle({ ...titleArgs, turns: completedTurns })
+        const title = completedTurns.length > 0
+            ? await generateReplacementSessionTitle({ ...titleArgs, turns: completedTurns })
+            : await regenerateSessionTitleFromPrompt({ ...titleArgs, messageText: firstPrompt! })
         return { success: true as const, title: title || session.title }
     }
 
@@ -1855,6 +1901,16 @@ export class AssistantService {
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'cancel', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
             throw error
         }
+    }
+
+    async refreshRuntimeStatus(): Promise<void> {
+        await this.ensureReady()
+        await this.runtime.refreshRuntimeStatus()
+    }
+
+    async activateRuntimeUpdate(): Promise<void> {
+        await this.ensureReady()
+        await this.runtime.activateRuntimeUpdate()
     }
 
     async respondApproval(input: { requestId: string; decision: 'acceptOnce' | 'acceptForSession' | 'decline' }) {
@@ -3035,7 +3091,7 @@ export class AssistantService {
                 currentHasPendingApprovals: thread.hasPendingApprovals,
                 currentHasPendingUserInputs: thread.hasPendingUserInputs,
                 hasLocalPendingApproval: (thread.pendingApprovals?.some((entry) => entry.status === 'pending') ?? thread.hasPendingApprovals),
-                hasLocalPendingInput: (thread.pendingUserInputs?.some((entry) => entry.status === 'pending') ?? thread.hasPendingUserInputs),
+                hasLocalPendingInput: (thread.pendingUserInputs?.some((entry) => entry.status === 'pending' && entry.mode !== 'async') ?? thread.hasPendingUserInputs),
                 presence: chat.presence
             })
             this.appendEvent('thread.updated', occurredAt, {
@@ -3116,6 +3172,8 @@ export class AssistantService {
                 }
                 existing = findThreadRecord(this.state.snapshot, existing.thread.id) || undefined
             }
+            const preparedFork = this.agentForkImports.get(chat.canonicalChatId)
+            if (chat.forkPending && !existing && !preparedFork) continue
             const createdAt = normalizeCatalogDate(chat.createdAt)
             const updatedAt = normalizeCatalogDate(chat.modifiedAt, createdAt)
             const canonicalProjectPath = resolveImportedAssistantProjectPath({
@@ -3136,7 +3194,12 @@ export class AssistantService {
                     persistedCanonicalEntryCount: existing.thread.canonicalHistoryEntryCount
                 })) this.markCanonicalHistoryDirty(chat.canonicalChatId)
                 const sessionPatch: Record<string, unknown> = {}
-                if (chat.title && chat.title !== existing.session.title) sessionPatch['title'] = chat.title
+                if (chat.forkOrigin && JSON.stringify(existing.session.forkOrigin) !== JSON.stringify(chat.forkOrigin)) sessionPatch['forkOrigin'] = chat.forkOrigin
+                const localRenamePending = existing.session.titleManuallySet === true && chat.titleSource !== 'manual'
+                if (!localRenamePending && chat.title && chat.title !== existing.session.title) sessionPatch['title'] = chat.title
+                if (!localRenamePending && chat.titleSource && existing.session.titleManuallySet !== (chat.titleSource === 'manual')) {
+                    sessionPatch['titleManuallySet'] = chat.titleSource === 'manual'
+                }
                 if (!existing.session.chatScope && canonicalProjectPath !== existing.session.projectPath) {
                     sessionPatch['projectPath'] = canonicalProjectPath
                 }
@@ -3179,7 +3242,7 @@ export class AssistantService {
                     currentHasPendingApprovals: existing.thread.hasPendingApprovals,
                     currentHasPendingUserInputs: existing.thread.hasPendingUserInputs,
                     hasLocalPendingApproval: (existing.thread.pendingApprovals?.some((entry) => entry.status === 'pending') ?? existing.thread.hasPendingApprovals),
-                    hasLocalPendingInput: (existing.thread.pendingUserInputs?.some((entry) => entry.status === 'pending') ?? existing.thread.hasPendingUserInputs),
+                    hasLocalPendingInput: (existing.thread.pendingUserInputs?.some((entry) => entry.status === 'pending' && entry.mode !== 'async') ?? existing.thread.hasPendingUserInputs),
                     presence: chat.presence
                 })
                 const nextHasPendingApprovals = nextAttention.hasPendingApprovals
@@ -3254,6 +3317,21 @@ export class AssistantService {
                 thread
             })
             session.workingRoot = canonicalRuntimeCwd
+            if (preparedFork) {
+                const source = this.state.snapshot.sessions.find(session => session.id === preparedFork.sourceSessionId)
+                if (!source || preparedFork.scope && preparedFork.scope.projectId !== source.projectId) throw new Error('The fork source Project changed during import.')
+                session.chatScope = preparedFork.scope ? structuredClone(preparedFork.scope) : null
+                session.projectId = source.projectId || null
+                session.projectPath = preparedFork.scope?.workingRoot || source.projectPath || null
+                session.workingRoot = preparedFork.scope?.workingRoot || source.workingRoot || source.projectPath || null
+                session.mode = source.mode
+                thread.cwd = session.workingRoot || canonicalRuntimeCwd
+                const config = preparedFork.config
+                if (typeof config.model === 'string' && config.model) thread.model = config.model
+                if (isAssistantReasoningEffort(config.effort)) thread.thinking = config.effort
+                if (typeof config.runtimeMode === 'string' && ['approval-required', 'auto-review', 'edits-only', 'full-access'].includes(config.runtimeMode)) thread.runtimeMode = config.runtimeMode as AssistantThread['runtimeMode']
+            }
+            session.forkOrigin = chat.forkOrigin || null
             session.archived = chat.archived === true
             session.settled = chat.settled
             session.settlementManual = chat.settlementManual
@@ -3638,10 +3716,13 @@ export class AssistantService {
     private async maybeAutoRegenerateSessionTitle(sessionId: string, threadId: string): Promise<void> {
         const session = this.state.snapshot.sessions.find((entry) => entry.id === sessionId) || null
         const thread = session?.threads.find((entry) => entry.id === threadId) || null
-        if (!session || !thread || thread.source !== 'root' || session.titleGenerating) return
-        if (await this.recoverSessionTitle(sessionId)) return
+        if (!session || !thread || thread.source !== 'root' || session.titleGenerating || session.titleManuallySet) return
         const preferences = await this.options.getTitleAutomation?.().catch(() => null)
         if (!preferences?.enabled) return
+        if (thread.providerThreadId) {
+            const canonical = await this.runtime.getCanonicalChat(thread.providerThreadId)
+            if (!canonical?.titleSource || canonical.titleSource === 'manual') return
+        }
 
         const review = await this.persistence.readReviewIndex(thread.id)
         const completedTurns = review.turns.filter((turn) => turn.state === 'completed' && turn.prompt && turn.response)
@@ -3667,61 +3748,9 @@ export class AssistantService {
                 await awaitCanonicalSessionTitleSaves(session.threads
                     .map((entry) => entry.providerThreadId)
                     .filter((providerThreadId): providerThreadId is string => Boolean(providerThreadId))
-                    .map((providerThreadId) => this.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle })))
+                    .map((providerThreadId) => this.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle, titleSource: 'refresh' })))
             }
         })
-    }
-
-    private recoverSidebarSessionTitles(): Promise<void> {
-        if (this.sidebarTitleRecovery) return this.sidebarTitleRecovery
-        const task = recoverAssistantSidebarTitles({
-            sessions: this.state.snapshot.sessions,
-            selectedSessionId: this.state.snapshot.selectedSessionId,
-            recover: async sessionId => { if (!this.disposeRequested) await this.recoverSessionTitle(sessionId) },
-            onError: error => log.warn('[Assistant] Chat title recovery failed:', error)
-        }).finally(() => { this.sidebarTitleRecovery = null })
-        this.sidebarTitleRecovery = task
-        return task
-    }
-
-    private async recoverSessionTitle(sessionId: string): Promise<boolean> {
-        const session = this.state.snapshot.sessions.find(entry => entry.id === sessionId)
-        const thread = session ? findSessionTitleThread(session) : null
-        if (!session || !thread || thread.source === 'subagent' || session.titleGenerating) return false
-        // Unloaded canonical chats need a known original prefix, not a latest
-        // fragment. Bound eligibility work without indexing complete history.
-        let firstUserMessage: string | null
-        if (thread.providerThreadId && !this.canonicalReviewHistoryState.has(thread.providerThreadId)) {
-            const prefix = await this.runtime.readCanonicalChatHistory(thread.providerThreadId, this.getSessionRuntimeCwd(session, thread), {
-                before: '128', limit: 128, toolResultBodies: 'lazy-desktop-v2'
-            })
-            if (!prefix || prefix.pageInfo?.startCursor !== '0') return false
-            firstUserMessage = projectCanonicalTimeline(prefix.entries, thread.providerThreadId, thread.id,
-                thread.createdAt, 0, prefix.chat.cwd || this.getSessionRuntimeCwd(session, thread))
-                .messages.find(message => message.role === 'user' && message.text.trim())?.text || null
-        } else {
-            firstUserMessage = await this.persistence.readFirstUserMessageText(session.id)
-        }
-        if (!firstUserMessage || !shouldGenerateSessionTitleForPrompt(session, firstUserMessage)) return false
-        const review = await this.persistence.readReviewIndex(thread.id)
-        const preferredModel = await this.options.getTitleGenerationModel?.().catch(() => null) || null
-        await recoverSessionTitleFromHistory({
-            sessionId: session.id,
-            firstUserMessage,
-            turns: review.turns,
-            cwd: this.getSessionRuntimeCwd(session, thread),
-            preferredModel,
-            generateText: (prompt, options) => this.runtime.generateText(prompt, options),
-            getSnapshot: () => this.state.snapshot,
-            appendEvent: (type, occurredAt, payload, eventSessionId, eventThreadId) => {
-                this.appendEvent(type, occurredAt, payload, eventSessionId, eventThreadId)
-            },
-            onApplied: async title => {
-                const { canonicalIds } = resolveSessionTitleTarget(session)
-                await awaitCanonicalSessionTitleSaves(canonicalIds.map(id => this.runtime.updateCanonicalChat(id, { title })))
-            }
-        })
-        return true
     }
 
     private async ensureReady() {
@@ -4362,6 +4391,10 @@ export function projectCanonicalTimeline(
             const toolName = String(part['name'] || 'tool')
             const args = asCanonicalRecord(part['arguments'])
             const activityId = `zyra-tool-${toolCallId}`
+            if (toolName.trim().toLowerCase() === 'set_chat_title') {
+                legacyActivityIds.add(activityId)
+                continue
+            }
             if (toolName.trim().toLowerCase() === ASSISTANT_ACTION_BATCH_TOOL_NAME) {
                 activeActionBatchIntent = normalizeAssistantActionBatchIntent(args?.['title'])
                 legacyActivityIds.add(activityId)
@@ -4411,6 +4444,10 @@ export function projectCanonicalTimeline(
             const activityId = `zyra-tool-${toolCallId}`
             const existing = activities.get(activityId)
             const toolName = String(message['toolName'] || existing?.payload?.['toolName'] || 'tool')
+            if (toolName.trim().toLowerCase() === 'set_chat_title') {
+                legacyActivityIds.add(activityId)
+                continue
+            }
             if (toolName.trim().toLowerCase() === ASSISTANT_ACTION_BATCH_TOOL_NAME) {
                 legacyActivityIds.add(activityId)
                 continue

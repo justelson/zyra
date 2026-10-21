@@ -39,6 +39,7 @@ export interface AssistantRuntimeBridge {
     ): Promise<void>
     hasSession(threadId: string): boolean
     ensurePromptAvailable?(threadId: string): Promise<void>
+    getCanonicalChat?(threadId: string, project?: string): Promise<{ presence?: { activeTurnId: string | null } } | null>
     getSessionUsage?(threadId: string): AssistantSessionUsageTotals | null
     generateText(
         prompt: string,
@@ -46,13 +47,14 @@ export interface AssistantRuntimeBridge {
     ): Promise<{ success: boolean; text?: string; model?: string; error?: string }>
     updateCanonicalChat(
         threadId: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
+        patch: { title?: string; expectedTitle?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<void>
     sendPrompt(
         threadId: string,
         prompt: string,
         options?: {
             turnId?: string
+            initialManualTitle?: string
             model?: string
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
@@ -65,6 +67,8 @@ export interface AssistantRuntimeBridge {
             contextCompactionThresholdTokens?: number
         }
     ): Promise<{ turnId: string; providerThreadId: string | null }>
+    steerPrompt?(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }>
+    cancelPendingPrompt?(threadId: string, turnId?: string): Promise<boolean>
     interruptTurn(threadId: string, turnId?: string): Promise<void>
     requestBackgroundProcessOperation?(threadId: string, action: 'list' | 'stop', payload?: { jobId?: string; all?: boolean }): Promise<import('../../shared/assistant/contracts').AssistantBackgroundProcess[]>
     rollbackThread(threadId: string, numTurns: number): Promise<void>
@@ -73,7 +77,8 @@ export interface AssistantRuntimeBridge {
         threadId: string,
         requestId: string,
         answers: Record<string, string | string[]>,
-        questions?: AssistantUserInputQuestion[]
+        questions?: AssistantUserInputQuestion[],
+        options?: { mode?: 'blocking' | 'async'; cancelled?: boolean }
     ): Promise<{ continuationPrompt: string | null }>
     disconnect(threadId: string, options?: { preserveThreadState?: boolean }): void
     setNavigationBackgrounded?(threadId: string, backgrounded: boolean): void

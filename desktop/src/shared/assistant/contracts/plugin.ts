@@ -1,3 +1,5 @@
+import type { AssistantCreateSessionInput } from './ipc'
+
 export type AssistantPluginSourceKind = 'official' | 'marketplace' | 'local'
 export type AssistantPluginInstallationState = 'active' | 'disabled' | 'failed' | 'quarantined'
 export type AssistantPluginContributionKind =
@@ -240,6 +242,7 @@ export interface AssistantPluginDownload {
 }
 
 export interface AssistantCreatePluginChatInput {
+    composer?: AssistantCreateSessionInput['composer']
     pluginId: string
     releaseId: string
     contentDigest: string

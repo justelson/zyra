@@ -16,6 +16,8 @@ import type { AssistantSession, AssistantThread } from '../../src/shared/assista
 import { checkVoiceRecorderInput } from './voice-recorder-input'
 import { checkConversationMarkers } from './conversation-markers'
 import { useAssistantThreadView } from '../../src/renderer/src/pages/assistant/useAssistantThreadView'
+import { getAssistantChatNavigationSnapshot, performAssistantChatOrderOperation } from '../../src/renderer/src/pages/assistant/assistant-chat-navigation'
+import { cycleAssistantChat, selectAssistantChatAt } from '../../src/renderer/src/pages/assistant/assistant-chat-cycling'
 
 const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
@@ -55,11 +57,12 @@ function session(id: string, working = false): AssistantSession {
         latestTurn: { id: `${id}-turn`, state: working ? 'running' : 'completed', requestedAt: now, startedAt: now, completedAt: working ? null : now },
         lastSeenCompletedTurnId: working ? null : `${id}-turn`
     } as unknown as AssistantThread
-    return { id, title: `${id} chat with a long readable title`, createdAt: now, updatedAt: now, projectPath: null, threads: [thread], activeThreadId: thread.id, threadIds: [thread.id], archived: false } as AssistantSession
+    return { id, title: `${id} chat with a long readable title`, createdAt: id === 'child' ? new Date(Date.parse(now) - 60_000).toISOString() : now, updatedAt: now, projectPath: null, threads: [thread], activeThreadId: thread.id, threadIds: [thread.id], archived: false } as AssistantSession
 }
 let sessions = [session('drawing'), session('child'), session('other', true)]
 let selected = 'drawing'
 let disabled = false
+let pinnedIds = new Set<string>()
 function CompletionViewReporter() {
     useAssistantThreadView(sessions.find(session => session.id === selected)?.threads[0])
     return null
@@ -67,7 +70,7 @@ function CompletionViewReporter() {
 function render() {
     flushSync(() => root.render(<div id="rail" className="flex h-full w-[300px] flex-col p-2">
         {location.search.includes('unreadCompletion=1') && <CompletionViewReporter />}
-        <AssistantAgentInboxSidebar sessions={sessions} activeSessionId={selected} activeThreadId={`${selected}-thread`} commandPending={disabled}
+        <AssistantAgentInboxSidebar sessions={sessions} pinnedSessionIds={pinnedIds} activeSessionId={selected} activeThreadId={`${selected}-thread`} commandPending={disabled}
             pendingControlThreadIds={new Set()} projectIconOverrides={{}} onSelectSession={id => { selected = id; render() }}
             onCreateProjectChat={() => undefined} onRename={() => undefined} getSessionMenuItems={() => []} onOpenContextMenu={() => undefined}
             headerActions={<RailButton label="New chat" icon={<Bot size={16} />} disabled={disabled} onClick={() => undefined} />} />
@@ -75,6 +78,16 @@ function render() {
     </div>))
 }
 function row(id: string) { return document.querySelector<HTMLElement>(`[data-agent-inbox-layout-id="${id}"]`)! }
+function rowIds(assertCommitted = true) {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-agent-inbox-layout-id]'))
+    const ids = rows.map(element => element.dataset.agentInboxLayoutId).join(',')
+    // A movement publishes persistence before React commits. Poll observable DOM
+    // and navigation agreement; do not throw in the first pre-commit probe.
+    if (!assertCommitted && (getAssistantChatNavigationSnapshot().targetIds.join(',') !== ids || rows.slice(0, 9).some((element, index) => element.dataset.shortcutCommand !== `app.chat${index + 1}`))) return ''
+    check(getAssistantChatNavigationSnapshot().targetIds.join(',') === ids, `navigation snapshot matches actual FINAL rendered rows: ${JSON.stringify({ navigation: getAssistantChatNavigationSnapshot().targetIds, dom: ids })}`)
+    rows.slice(0, 9).forEach((element, index) => check(element.dataset.shortcutCommand === `app.chat${index + 1}`, 'numbered hint annotation follows rendered row order'))
+    return ids
+}
 function section(id: string) {
     let sibling = row(id)?.previousElementSibling
     while (sibling?.hasAttribute('data-agent-inbox-layout-id')) sibling = sibling.previousElementSibling
@@ -87,6 +100,51 @@ function titleReadable(id: string) {
     check(Number(getComputedStyle(inner).opacity) >= .8, `${id}: first animation frame never hides title`)
     check(getComputedStyle(row(id)).contentVisibility !== 'auto', `${id}: rows remain painted during switching`)
     check(getComputedStyle(row(id)).clipPath === 'none', `${id}: row animation does not clip labels`)
+}
+
+async function checkExplicitOrderControls() {
+    const key = 'assistant-agent-inbox-order-v1'
+    const originalStorage = localStorage.getItem(key)
+    const original = rowIds().split(',')
+    const initialSelected = selected
+    selectAssistantChatAt(0)
+    check(selected === original[0], 'numbered shortcut selects actual first rendered row')
+    cycleAssistantChat(1)
+    check(selected === original[1], 'next shortcut follows actual rendered rows')
+    cycleAssistantChat(-1)
+    check(selected === original[0], 'previous shortcut follows actual rendered rows')
+    selected = initialSelected; render()
+    const inspected = getAssistantChatNavigationSnapshot()
+    const agentMove = performAssistantChatOrderOperation({ action: 'move', owner: inspected.owner!, expectedRevision: inspected.revision, group: 'chats', sessionId: original.at(-1)!, beforeSessionId: original[0]! })
+    check(agentMove.success, 'agent move applies through the live sidebar owner')
+    await waitForCheck(() => rowIds(false) === [original.at(-1)!, ...original.slice(0, -1)].join(','), 'agent operation updates real rendered order')
+    const agentUndo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
+    check(agentUndo, 'agent move exposes the same sidebar Undo')
+    agentUndo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'agent Undo restores rendered order')
+    const dragged = original.at(-1)!
+    const target = original[0]!
+    const transfer = new DataTransfer()
+    const source = row(dragged).querySelector<HTMLElement>('[draggable="true"]')!
+    const destination = row(target).querySelector<HTMLElement>('[draggable="true"]')!
+    check(source && destination, 'only explicit movable chat rows expose native drag controls')
+    const move = () => {
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+        destination.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: destination.getBoundingClientRect().top + 1 }))
+    }
+    const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
+    move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
+    const undo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
+    check(undo, 'explicit movement offers Undo')
+    undo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'Undo restores exact previous order')
+    move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
+    check(JSON.parse(localStorage.getItem(key) || '{}').chats[0] === dragged, 'drag order is saved before remount')
+    flushSync(() => root.render(<div />)); render()
+    await waitForCheck(() => rowIds(false) === expected, 'saved explicit order survives a real sidebar remount')
+    if (originalStorage === null) localStorage.removeItem(key); else localStorage.setItem(key, originalStorage)
+    flushSync(() => root.render(<div />)); render()
+    await waitForCheck(() => rowIds(false) === original.join(','), 'fixture restores original sidebar order')
+    results.push('native within-section drag, exact Undo and saved-order remount pass on the real sidebar')
 }
 
 async function checkAgentColors() {
@@ -140,17 +198,19 @@ async function checkUnreadCompletion() {
     }
     render(); await sleep(250)
     const cardHeight = row('child').getBoundingClientRect().height
-    check(cardHeight > 60 && section('child') === 'Priority', 'Background working chat starts as a full-size Priority card')
+    const initialOrder = rowIds()
+    check(initialOrder === 'drawing,child', 'Creation order keeps the older background working chat below the newer chat')
+    check(cardHeight > 60 && section('child') === 'Chats', 'Unpinned working chat stays a full-size Chats card')
     const completedTurn = session('child').threads[0].latestTurn!
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: completedTurn })
     project('thread.updated', { threadId: 'child-thread', patch: { state: 'ready', canonicalPresence: { state: 'ready', clients: [] } } })
     render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Unread completed chat keeps a full-size Recent card, not Priority')
+    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Chats' && rowIds() === initialOrder, 'Unread completion keeps its full-size Chats card and exact creation-order position')
     check(row('child').textContent?.includes('Done'), 'Retained completion card says Done')
     selected = 'child'; render(); await sleep(250)
     check(sessions.find(session => session.id === 'child')?.threads[0].lastSeenCompletedTurnId === completedTurn.id, 'Mounted visible chat acknowledges through the real view hook')
     selected = 'drawing'; render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Recent', 'Read completion keeps the full-size Recent card')
+    check(row('child').getBoundingClientRect().height === cardHeight && section('child') === 'Chats' && rowIds() === initialOrder, 'Reading and selecting a completed chat preserves its Chats card and position')
     check(!row('child').textContent?.includes('Done'), 'Leaving the viewed completed chat does not revive Done')
     selected = 'child'; render(); await sleep(150)
     const viewedTurn = { ...completedTurn, id: 'completed-while-viewing' }
@@ -159,7 +219,7 @@ async function checkUnreadCompletion() {
     check(!row('child').textContent?.includes('Done'), 'Completion arriving inside the open chat stays read after leaving')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...completedTurn, id: 'child-new-turn' } })
     render(); await sleep(250)
-    await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight && Boolean(row('child').textContent?.includes('Done')), 'A new unread completion remains a readable Done card in Recent')
+    await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight && Boolean(row('child').textContent?.includes('Done')), 'A new unread completion remains a readable Done card in Chats')
     focused = false
     selected = 'child'; render(); await sleep(100)
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...completedTurn, id: 'finished-in-background-window' } }); render(); await sleep(100)
@@ -177,23 +237,24 @@ async function checkUnreadCompletion() {
     selected = 'child'; render(); await sleep(250)
     check(sessions.find(session => session.id === 'child')?.threads[0].lastSeenCompletedTurnId === stoppedTurn.id, 'Visible interrupted work is acknowledged by the hook')
     selected = 'drawing'; render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight, 'Opening stopped work keeps its full-size Recent card')
+    check(row('child').getBoundingClientRect().height === cardHeight && rowIds() === initialOrder, 'Opening stopped work keeps its full-size Chats card and position')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...stoppedTurn } })
     render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight, 'Repeated stop preserves the same full-size Recent card')
+    check(row('child').getBoundingClientRect().height === cardHeight && rowIds() === initialOrder, 'Repeated stop preserves the same full-size Chats card and position')
     sessions = structuredClone(sessions); render(); await sleep(250)
-    check(row('child').getBoundingClientRect().height === cardHeight, 'Rehydrated read state preserves the Recent card')
+    check(row('child').getBoundingClientRect().height === cardHeight && rowIds() === initialOrder, 'Rehydrated read state preserves the Chats card and position')
     project('thread.latest-turn.updated', { threadId: 'child-thread', latestTurn: { ...stoppedTurn, id: 'child-new-stopped-turn' } })
     render(); await sleep(250)
     await waitForCheck(() => row('child').getBoundingClientRect().height === cardHeight, 'Only a newly stopped unread turn restores its current card')
-    return ['working Priority -> full-size unread/read Done and Stopped Recent; duplicate events preserve read state and card geometry']
+    check(rowIds() === initialOrder && section('child') === 'Chats', 'Working, completion, reading, selection and interruption never reorder unpinned chats')
+    return ['working/unread/read Done and Stopped stay full-size in Chats in creation order; duplicate events preserve read state, card geometry and exact positions']
 }
 
 async function checkRowHoverActions() {
     render(); await sleep(250)
     for (const id of ['child', 'other']) {
         const target = row(id).querySelector<HTMLElement>('[role="button"]')!
-        const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat stays in Priority"]')!
+        const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat cannot be settled"]')!
         const actions = settle.parentElement!.parentElement!
         const rect = target.getBoundingClientRect()
         await movePointer(rect.left + 45, rect.top + rect.height / 2, true)
@@ -299,8 +360,8 @@ async function run() {
         await movePointer(900, 750, true)
         await sleep(180)
         const menu = child.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
-        menu.click(); await sleep(180)
-        check(getComputedStyle(actions).opacity === '1', 'Open menu keeps its action slot revealed')
+        menu.click()
+        await waitForCheck(() => menu.getAttribute('aria-expanded') === 'true' && getComputedStyle(actions).opacity === '1', 'Open menu keeps its action slot revealed')
         await inspectAnimation()
         menu.click(); await sleep(180)
     }
@@ -310,7 +371,7 @@ async function run() {
     for (const id of ['child', 'drawing', 'child', 'drawing']) {
         selected = id; render(); titleReadable('drawing'); titleReadable('child')
         check(row('child').getBoundingClientRect().height === row('drawing').getBoundingClientRect().height && row('child').getBoundingClientRect().height > 60, 'Completed chats keep matching full-size card geometry across selection')
-        check(row('drawing').getBoundingClientRect().top === drawingTop, 'Selecting a completed chat does not reshuffle Recent')
+        check(row('drawing').getBoundingClientRect().top === drawingTop, 'Selecting a completed chat does not reshuffle Chats')
     }
     results.push('rapid completed-chat switching keeps titles painted and row geometry stable')
     const scroll = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
@@ -321,8 +382,14 @@ async function run() {
     check(row('child').getBoundingClientRect().top === targetTop, 'Background status changes cannot move a hovered navigation target')
     check(row('child').textContent?.includes('Working'), 'A held card still updates its live status')
     scroll.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); await sleep(300)
-    check(row('child').textContent?.includes('Working'), 'Releasing navigation updates Active work membership')
-    results.push('pointer-held targets remain stable while live work status continues updating')
+    check(row('child').textContent?.includes('Working') && section('child') === 'Chats', 'Releasing navigation retains unpinned work in Chats')
+    check(row('child').getBoundingClientRect().top === targetTop, 'Releasing a status update does not change the creation-order position')
+    pinnedIds = new Set(['child']); render(); await sleep(300)
+    check(section('child') === 'Pinned', 'Only explicitly pinned work enters Pinned')
+    pinnedIds = new Set(); render(); await sleep(300)
+    check(section('child') === 'Chats' && row('child').getBoundingClientRect().top === targetTop, 'Unpin returns work to its unchanged Chats position')
+    results.push('pointer-held and released targets retain creation order while live status updates; explicit pin/unpin alone changes Pinned membership')
+    await checkExplicitOrderControls()
     const button = document.querySelector<HTMLButtonElement>('#rail button')!
     const color = getComputedStyle(button).color
     disabled = true; render()
@@ -335,7 +402,7 @@ async function run() {
         await sleep(180)
         titleReadable('child')
         const status = Array.from(row('child').querySelectorAll('span')).find(element => element.classList.contains('assistant-agent-inbox-working-text'))!
-        const settle = row('child').querySelector<HTMLButtonElement>('[aria-label="Working chat stays in Priority"]')!
+        const settle = row('child').querySelector<HTMLButtonElement>('[aria-label="Working chat cannot be settled"]')!
         const actions = settle.parentElement!.parentElement!
         const menu = row('child').querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, 'Active card menu fits its reveal slot')

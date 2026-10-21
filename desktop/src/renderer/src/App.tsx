@@ -1,6 +1,7 @@
 import { appShortcut } from './lib/keybindings'
 import { AppMenuCommandHost } from './components/layout/AppMenuCommandHost'
 import { ShortcutHints } from './components/layout/ShortcutHints'
+import { AgentAppOperations } from './components/layout/AgentAppOperations'
 import { isBrowserExtension } from './lib/browser-extension'
 import { ExtensionSidebarHeader } from './components/layout/ExtensionSidebarHeader'
 import { RuntimeActivationNotice } from './components/updates/RuntimeActivationNotice'
@@ -337,6 +338,7 @@ function NormalDesktopApp() {
                             <ProjectCreationProvider>
                                 <AppMenuCommandHost />
                                 <ShortcutHints />
+                                <AgentAppOperations />
                                 <AppContent />
                                 <CommandPalette />
                                 <QuickOpenDialog />

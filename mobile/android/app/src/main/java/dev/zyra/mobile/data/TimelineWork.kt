@@ -40,6 +40,17 @@ class TimelineWork {
         val content = message.optJSONArray("content") ?: return false
         return (0 until content.length()).any { content.optJSONObject(it)?.optString("type") == "image" }
     }
+    private fun hiddenTitleMetadata(item: TimelineItem): Boolean {
+        val value = raw(item); val message = value.optJSONObject("message") ?: value
+        if (MessageContent.hiddenMetadataTool(value.optString("toolName")) ||
+            MessageContent.hiddenMetadataTool(message.optString("toolName")) ||
+            (item.kind == "tool" || item.kind == "deferred") && MessageContent.hiddenMetadataTool(item.text.substringBefore('\n'))) return true
+        val content = message.optJSONArray("content") ?: return false
+        return item.role == "assistant" && item.text.isBlank() && item.reasoning.isBlank() && content.length() > 0 &&
+            (0 until content.length()).all { index -> content.optJSONObject(index)?.let {
+                it.optString("type") == "toolCall" && MessageContent.hiddenMetadataTool(it.optString("name"))
+            } == true }
+    }
     fun rows(view: SessionView): List<ChatRailRow> {
         if (owner != view.id) {
             owner = view.id; parsed.clear(); actionCache.clear(); groupIds = emptyMap()
@@ -58,6 +69,7 @@ class TimelineWork {
                 val part = content?.optJSONObject(i) ?: continue
                 if (part.optString("type") != "toolCall") continue
                 val name = part.optString("name"); val args = part.optJSONObject("arguments") ?: emptyArguments
+                if (MessageContent.hiddenMetadataTool(name)) continue
                 val key = "tool:" + part.optString("id")
                 calls[key] = name to args
                 if (name == "begin_action_batch") batch = args.optString("title").trim().takeIf(String::isNotBlank)
@@ -65,6 +77,7 @@ class TimelineWork {
             }
             if (value.optString("type") == "tool_execution_start") {
                 val name = value.optString("toolName"); val args = value.optJSONObject("args") ?: emptyArguments
+                if (MessageContent.hiddenMetadataTool(name)) continue
                 calls[item.id] = name to args
                 if (name == "begin_action_batch") batch = args.optString("title").trim().takeIf(String::isNotBlank)
                 batches[item.id] = batch
@@ -80,7 +93,7 @@ class TimelineWork {
             // Anonymous result echoes remain in SessionView/cache for inspection,
             // but are not another visible action, count, heading or narration row.
             val segment = view.items.subList(boundaries[part], boundaries[part + 1]).filterNot { item ->
-                (item.kind == "tool" || item.kind == "deferred") && action(item, calls[item.id], batches[item.id]).let {
+                hiddenTitleMetadata(item) || (item.kind == "tool" || item.kind == "deferred") && action(item, calls[item.id], batches[item.id]).let {
                     it.toolName.equals("Tool output", ignoreCase = true) && it.title.equals("Using Tool output", ignoreCase = true)
                 }
             }

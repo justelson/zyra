@@ -2,7 +2,7 @@ import { MobileAccessManager } from '../mobile-access'
 import { MOBILE_ACCESS_IPC } from '../../shared/mobile-access'
 import { getAssistantService } from '../assistant'
 import { readRuntimeActivation, subscribeRuntimeActivation } from '../assistant/runtime-activation'
-import { RUNTIME_ACTIVATION_GET, RUNTIME_ACTIVATION_CHANGED } from '../../shared/runtime-activation'
+import { RUNTIME_ACTIVATION_GET, RUNTIME_ACTIVATION_CHANGED, RUNTIME_ACTIVATION_REFRESH, RUNTIME_ACTIVATION_APPLY } from '../../shared/runtime-activation'
 /**
  * Zyra - IPC Handler Registry
  */
@@ -425,6 +425,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle('zyra:memory:getModelPreference', handleMemoryGetModelPreference)
     ipcMain.handle('zyra:memory:setModelPreference', (_event, preference) => handleMemorySetModelPreference(preference))
     ipcMain.handle(RUNTIME_ACTIVATION_GET, () => readRuntimeActivation())
+    ipcMain.handle(RUNTIME_ACTIVATION_REFRESH, requireCompletedSetup(async () => {
+        const assistant = getAssistantService()
+        if (!assistant) throw new Error('The agent connection is not ready.')
+        await assistant.refreshRuntimeStatus()
+        return readRuntimeActivation()
+    }))
+    ipcMain.handle(RUNTIME_ACTIVATION_APPLY, requireCompletedSetup(async () => {
+        const assistant = getAssistantService()
+        if (!assistant) throw new Error('The agent connection is not ready.')
+        await assistant.activateRuntimeUpdate()
+        return readRuntimeActivation()
+    }))
     subscribeRuntimeActivation(state => {
         for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(RUNTIME_ACTIVATION_CHANGED, state)
     })

@@ -1,5 +1,7 @@
 import { stripSidebarBrowserContext } from './browser-context'
+import { parseAssistantCitation, type AssistantCitation } from './assistant-citations'
 export type SerializedAssistantAttachment = {
+    citation?: AssistantCitation
     name: string
     type: string
     path: string | null
@@ -18,7 +20,7 @@ export type SerializedAssistantMessage = {
 
 const ATTACHMENT_BLOCK_MARKER = /(?:^|\n\n)Attached files \((\d+)\):\n/
 const ATTACHMENT_HEADER_PATTERN = /^\d+\.\s+(.+?)\s+\[([A-Z]+)\]$/
-const ATTACHMENT_DETAIL_KEYS = new Set(['path', 'ref', 'mime', 'size', 'preview', 'note', 'origin'])
+const ATTACHMENT_DETAIL_KEYS = new Set(['path', 'ref', 'mime', 'size', 'preview', 'note', 'origin', 'citation-json'])
 
 function parseSerializedAttachmentSection(section: string, index: number): SerializedAssistantAttachment {
     const lines = section.split(/\r?\n/)
@@ -51,7 +53,10 @@ function parseSerializedAttachmentSection(section: string, index: number): Seria
         details.set(key, value)
     }
 
+    let citation: AssistantCitation | null = null
+    try { citation = parseAssistantCitation(JSON.parse(details.get('citation-json') || 'null')) } catch { /* keep the readable quote if metadata is unavailable */ }
     return {
+        ...(citation ? { citation } : {}),
         name: headerMatch?.[1]?.trim() || `Attachment ${index + 1}`,
         type: headerMatch?.[2]?.trim() || 'FILE',
         path: details.get('path') || details.get('ref') || null,
@@ -128,6 +133,7 @@ function serializeAssistantAttachment(attachment: SerializedAssistantAttachment,
         attachment.preview ? `preview: ${attachment.preview}` : null,
         attachment.note ? `note: ${attachment.note}` : null,
         attachment.origin ? `origin: ${attachment.origin}` : null,
+        attachment.citation ? `citation-json: ${JSON.stringify(attachment.citation)}` : null,
         attachment.content ? `content:\n${attachment.content}` : null
     ].filter((value): value is string => Boolean(value))
     return [`${index + 1}. ${attachment.name || `Attachment ${index + 1}`} [${attachment.type || 'FILE'}]`, ...details].join('\n')

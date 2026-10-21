@@ -494,10 +494,11 @@ try {
   const reconnect = client("desktop:reconnect", "desktop", ["desktop-control"]);
   await reconnect.connect();
   const replay = await reconnect.attach({ project, cwd: project, session: "chat:test", localThreadId: "assistant-thread:reconnect", lastSequence: 0 });
-  assert.equal(replay.replay.length, 14, "replay includes accepted prompt, process ownership and post-turn maintenance events");
+  assert.equal(replay.replay.length, 16, "replay includes accepted prompt, process ownership, post-turn maintenance and durable question-response receipts");
+  assert.equal(replay.replay.filter(entry => ['user_input_response_claimed', 'user_input_response_completed'].includes(entry.event.type)).length, 2, 'Question resolution claims and completions survive reconnect without a second dispatch');
   assert.equal(replay.replay.filter(entry => entry.event.type === 'managed_bash_job_update').length, 2);
   assert.equal(replay.replay.filter((entry) => entry.event.type === "zyra_server_prompt_accepted").length, 1);
-  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update"].includes(entry.event.type));
+  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update", "user_input_response_claimed", "user_input_response_completed"].includes(entry.event.type));
   assert.equal(providerReplay.length, 9, "reconnect must replay metadata, fleet, provider events, approvals, user input, retry state, and the authoritative agent completion");
   assert.equal(providerReplay[0].event.type, "agent.created");
   assert.equal(Object.keys(providerReplay[0].event.fleet.agents).length, 1);
@@ -680,6 +681,9 @@ try {
   assert.equal(syncZyraThinkingLevel(tuiRuntime, "max"), "max");
   await waitUntil(() => workers[0].requests.filter((entry) => entry.type === "configure" && entry.payload.thinking === "max").length > maxConfigureCount);
   assert.equal(tuiRuntime.session.thinkingLevel, "max", "remote synchronization must not down-convert max to xhigh");
+  await assert.rejects(tuiRuntime.session.steer('idle steer'), /turn has ended/, 'Idle steering is rejected instead of being silently queued');
+  const steeringHost = tui.request('session.request', { sessionKey: 'chat:test', type: 'prompt', payload: { prompt: 'host TUI steering' }, requestContext: { turnId: 'turn:tui-steering', localThreadId: 'tui:test' } });
+  await waitUntil(() => workers[0].activePrompt && tuiRuntime.session.isStreaming);
   const pendingSteer = tuiRuntime.session.steer("redirect from TUI");
   const pendingFollowUp = tuiRuntime.session.followUp("continue after this turn");
   assert.deepEqual(tuiRuntime.session.getSteeringMessages(), ["redirect from TUI"]);
@@ -689,6 +693,10 @@ try {
     followUp: ["continue after this turn"]
   }, "remote clearQueue must return queued text for Stop/Escape restoration");
   await Promise.all([pendingSteer, pendingFollowUp]);
+  assert.equal(workers[0].requests.findLast(entry => entry.type === 'steer').payload.targetTurnId, 'turn:tui-steering');
+  workers[0].emit('event', { type: 'agent_end' });
+  workers[0].finishPrompt({});
+  await steeringHost;
   const remotePrompt = tuiRuntime.session.prompt("continue from TUI");
   await waitUntil(() => workers[0].activePrompt !== null);
   assert.equal(

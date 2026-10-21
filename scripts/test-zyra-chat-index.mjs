@@ -57,7 +57,8 @@ const lines = [
       id: "message:assistant", role: "assistant", timestamp: Date.parse("2026-07-01T00:00:02.000Z"),
       content: [
         { type: "thinking", thinking: "Check the source." },
-        { type: "toolCall", id: "tool:1", name: "read", arguments: { path: "file.ts" } }
+        { type: "toolCall", id: "tool:1", name: "read", arguments: { path: "file.ts" } },
+        { type: 'toolCall', id: 'tool:hidden-title', name: 'set_chat_title', arguments: { title: 'Hidden metadata' } }
       ]
     }
   },
@@ -77,7 +78,7 @@ try {
   assert.equal(first.length, 1);
   assert.equal(first[0].canonicalChatId, "canonical:test");
   assert.equal(first[0].displayMessageCount, 2);
-  assert.equal(first[0].toolCallCount, 1);
+  assert.equal(first[0].toolCallCount, 1, 'hidden title metadata is not a user-visible Action');
   assert.equal(first[0].imageCount, 1);
 
   const latest = index.history("canonical:test", { limit: 1 });

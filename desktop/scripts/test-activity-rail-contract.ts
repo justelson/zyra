@@ -801,8 +801,8 @@ const interruptedMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSum
 }))
 assert.equal(interruptedMarkup.includes('Worked for'), true)
 assert.equal(interruptedMarkup.includes('Interrupted'), true)
-assert.equal(interruptedMarkup.includes('aria-expanded="false"'), true)
-assert.equal(interruptedMarkup.includes('Interrupted work'), false)
+assert.equal(interruptedMarkup.includes('aria-expanded="true"'), true, 'Stopped work restores its expanded preference instead of forcing completion collapse')
+assert.equal(interruptedMarkup.includes('Interrupted work'), true, 'Partial work stays available immediately after interruption')
 assert.equal(interruptedMarkup.includes('data-assistant-turn-interruption="true"'), true, 'an interrupted turn uses one quiet centered boundary instead of an error-style suffix')
 assert.equal(interruptedMarkup.includes('text-amber'), false, 'an intentional interruption does not use warning or error color')
 
@@ -1008,7 +1008,7 @@ assert.match(conversationWorkingSource, /timelineIsWorking = \(isThreadWorking \
 assert.match(conversationWorkingSource, /timelinePresentationIsWorking = timelineIsWorking && !optimisticPromptAwaitingUserMessage/u, 'the temporary working row waits for the newly sent user message instead of attaching to the previous prompt')
 assert.match(queuedComposerTimelineSource, /onSendingChange\?\.\(true\)[\s\S]{0,120}await dispatchPrompt/u, 'the optimistic working state starts before the prompt IPC')
 assert.match(conversationWorkingSource, /latestTurnState: activeThread\?\.latestTurn\?\.state \|\| null/u, 'background queue state includes the explicit turn ledger')
-assert.match(queuedComposerTimelineSource, /sessionState\.latestTurnState === 'running'/u, 'queued prompts cannot drain during a running turn just because its connection state changed')
+assert.match(queuedComposerTimelineSource, /state\.latestTurnState === 'running'/u, 'queued prompts cannot drain during a running turn just because its connection state changed')
 assert.equal(isAssistantQueuedComposerSessionBusy({
     sessionId: 'recovering-session',
     threadState: 'error',
@@ -1055,10 +1055,10 @@ const runningForceAttempt = resolveAssistantForceInterruptAttempt({
     isThreadWorking: true,
     activeTurnId: 'turn-visible-after-startup'
 })
-assert.equal(startupForceAttempt?.turnId, undefined, 'force still requests interruption before a turn id has reached the renderer')
-assert.equal(runningForceAttempt?.turnId, 'turn-visible-after-startup', 'force retries against the concrete turn once startup publishes it')
-assert.notEqual(startupForceAttempt?.key, runningForceAttempt?.key, 'the startup and running attempts use separate idempotence generations')
-assert.match(queuedComposerTimelineSource, /selectedComposerBusy = sessionId === selectedSessionId && \(commandPending \|\| isThreadWorking\)/u, 'a force-queued prompt cannot drain beside an optimistic prompt whose turn id is still pending')
+assert.equal(startupForceAttempt, null, 'legacy Force never requests an abort during startup')
+assert.equal(runningForceAttempt, null, 'Steer never cancels a running turn')
+assert.match(queuedComposerTimelineSource, /sessionId === selectedSessionId && \(commandPending \|\| isThreadWorking \|\| isAssistantBusy\)/u, 'queue dispatch respects optimistic prompt ownership')
+assert.match(queuedComposerTimelineSource, /snapshotRef\.current\.held\[sessionId\]/u, 'held queues cannot dispatch beside a stopped or unconfirmed turn')
 assert.equal(virtualTimelineSource.includes('<LegendList'), true, 'long histories render through LegendList rather than renderer-only slicing')
 assert.match(virtualTimelineSource, /const maintainVisibleContentPosition = useMemo\(\(\) => \(\{[\s\S]{0,180}data: true,[\s\S]{0,180}size: startupSettled && scrollMode === 'free-scrolling'/u, 'database-page prepends and settled measured row sizes preserve the visible anchor')
 assert.match(virtualTimelineSource, /maintainVisibleContentPosition=\{maintainVisibleContentPosition\}/u, 'LegendList receives the bounded anchor policy')

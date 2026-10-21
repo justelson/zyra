@@ -902,6 +902,7 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         const latestTurn: AssistantLatestTurn = continuesExistingTurn
             ? {
                 ...existingThread.latestTurn!,
+                runtimeRecoveryPending: undefined,
                 state: 'running',
                 completedAt: null,
                 effort: event.payload.effort || existingThread.latestTurn!.effort || null,
@@ -944,6 +945,7 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         const latestTurn: AssistantLatestTurn = completionMatchesLatestTurn
             ? {
                 ...existingThread.latestTurn!,
+                runtimeRecoveryPending: undefined,
                 state: completedTurnState,
                 completedAt: existingThread.latestTurn!.state !== 'running'
                     ? existingThread.latestTurn!.completedAt || event.createdAt
@@ -1348,6 +1350,7 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         const userInput: AssistantPendingUserInput = current
             ? {
                 ...current,
+                mode: event.type === 'user-input.requested' ? event.payload.mode || 'blocking' : current.mode,
                 status: event.type === 'user-input.requested' ? 'pending' : 'resolved',
                 answers: event.type === 'user-input.resolved' ? event.payload.answers : current.answers,
                 resolvedAt: event.type === 'user-input.resolved' ? event.createdAt : current.resolvedAt
@@ -1356,6 +1359,7 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
                 id: createAssistantId('assistant-user-input'),
                 requestId: event.requestId || createAssistantId('assistant-request'),
                 questions: event.type === 'user-input.requested' ? event.payload.questions : [],
+                mode: event.type === 'user-input.requested' ? event.payload.mode || 'blocking' : 'blocking',
                 status: event.type === 'user-input.requested' ? 'pending' : 'resolved',
                 answers: event.type === 'user-input.resolved' ? event.payload.answers : null,
                 responseMessageId: null,

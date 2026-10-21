@@ -6,6 +6,7 @@ export const ComposerSendButton = memo(({
     disabled,
     isConnected,
     isThinking,
+    isStopping = false,
     canSend,
     label = 'Send',
     reconnectPending = false,
@@ -16,6 +17,7 @@ export const ComposerSendButton = memo(({
     disabled: boolean
     isConnected: boolean
     isThinking: boolean
+    isStopping?: boolean
     canSend: boolean
     label?: string
     reconnectPending?: boolean
@@ -23,7 +25,7 @@ export const ComposerSendButton = memo(({
     onReconnect?: () => Promise<void> | void
     onSend: () => void
 }) => {
-    const canStop = isThinking && Boolean(onStop) && isConnected && !disabled
+    const canStop = (isThinking || isStopping) && Boolean(onStop) && isConnected
     const canReconnect = !isConnected && Boolean(onReconnect)
     const isEmptyState = !canStop && !disabled && isConnected && !canSend
     const isDisabled = canStop || canReconnect ? false : disabled || !isConnected || !canSend
@@ -31,7 +33,10 @@ export const ComposerSendButton = memo(({
     return (
         <button
             type="button"
-            disabled={isDisabled}
+            data-shortcut-command={canStop ? 'app.stopTurn' : undefined}
+            disabled={isStopping || isDisabled}
+            aria-label={isStopping ? 'Stopping current turn' : canStop ? 'Stop current turn' : canReconnect ? 'Reconnect assistant' : label}
+            aria-busy={isStopping}
             onClick={() => {
                 if (canStop) {
                     void onStop?.()
@@ -43,7 +48,7 @@ export const ComposerSendButton = memo(({
                 }
                 onSend()
             }}
-            title={canReconnect ? 'Reconnect assistant' : undefined}
+            title={isStopping ? 'Stopping… Your draft and queue stay saved.' : canStop ? 'Stop current turn and hold queued messages' : canReconnect ? 'Reconnect assistant' : label}
             className={cn(
                 'relative inline-flex h-[36px] items-center justify-center overflow-hidden rounded-full border transition-all duration-150',
                 label === 'Send' || canReconnect ? 'w-[36px]' : 'gap-1.5 px-3.5',
@@ -58,9 +63,10 @@ export const ComposerSendButton = memo(({
                         : 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:scale-[1.03] hover:bg-[color-mix(in_srgb,var(--accent-primary)_88%,var(--color-text))]'
             )}
         >
-            {canStop ? <span className="absolute inset-0 animate-shimmer opacity-60" aria-hidden="true" /> : null}
             <span className="relative z-10 inline-flex items-center justify-center gap-1.5">
-                {canStop ? (
+                {isStopping ? (
+                    <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />
+                ) : canStop ? (
                     <Square size={15} fill="currentColor" />
                 ) : canReconnect ? (
                     reconnectPending ? <Loader2 size={17} className="animate-spin" /> : <RotateCw size={17} />

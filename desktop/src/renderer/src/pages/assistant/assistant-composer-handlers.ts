@@ -275,7 +275,8 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         }
     }
 
-    const submitPrompt = async (dispatchMode: 'immediate' | 'queue' | 'force', draftText = text) => {
+    const submitPrompt = async (dispatchMode: 'immediate' | 'queue' | 'steer' | 'force', draftText = text) => {
+        if (args.sendBlockedReason) { onBlockedSend?.(args.sendBlockedReason); return }
         let prompt = replaceInlineMentionTokensWithLabels(draftText, inlineMentionTags).trim()
         let runtimeModeForSend = selectedRuntimeMode
         const desktopCommand = parseAssistantDesktopSlashCommand(prompt)
@@ -338,14 +339,19 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         const prevText = draftText
         const prevTags = inlineMentionTags
         const prevFiles = contextFiles
-        setText('')
-        setInlineMentionTags([])
-        setContextFiles([])
-        setHistoryCursor(null)
-        setDraftBeforeHistory('')
-        onOptimisticSendClear?.()
+        const clearSubmittedDraft = () => {
+            setText('')
+            setInlineMentionTags([])
+            setContextFiles([])
+            setHistoryCursor(null)
+            setDraftBeforeHistory('')
+            onOptimisticSendClear?.()
+        }
+        const awaitAcceptance = dispatchMode !== 'immediate'
+        if (!awaitAcceptance) clearSubmittedDraft()
         restoreComposerFocus()
-        const success = await onSend(prompt, contextFilesForSend, {
+        let success = false
+        try { success = await onSend(prompt, contextFilesForSend, {
             startInNewWorktree: args.startInNewWorktree || undefined,
             model: selectedModel || undefined,
             runtimeMode: runtimeModeForSend,
@@ -353,9 +359,9 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             effort: selectedEffort,
             serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' : undefined,
             dispatchMode
-        })
+        }) } catch (error) { onBlockedSend?.(error instanceof Error ? error.message : 'Could not send. Your draft is preserved.') }
         if (!success) {
-            const shouldRestore = shouldRestoreAfterFailedSend?.() ?? true
+            const shouldRestore = !awaitAcceptance && (shouldRestoreAfterFailedSend?.() ?? true)
             if (shouldRestore) {
                 setText(prevText)
                 setInlineMentionTags(prevTags)
@@ -365,6 +371,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             restoreComposerFocus()
             return
         }
+        if (awaitAcceptance && (args.canClearAcceptedDraft?.(draftText, prevFiles) ?? true)) clearSubmittedDraft()
         if (prompt) setSentPromptHistory((prev) => prev[prev.length - 1] === prompt ? prev : [...prev.slice(-49), prompt])
         restoreComposerFocus()
     }
@@ -382,7 +389,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     const handleForceSend = async () => {
-        await submitPrompt('force')
+        await submitPrompt('steer')
     }
 
     const handleRecallPrevious = () => {
@@ -417,6 +424,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.nativeEvent?.isComposing || event.key === 'Process') return
         const target = event.currentTarget
         const selectionStart = target.selectionStart ?? 0
         const selectionEnd = target.selectionEnd ?? 0
@@ -527,7 +535,9 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         }
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
-            void handleSend()
+            if (isThinking && (event.ctrlKey || event.metaKey)) {
+                void (busyMessageMode === 'steer' ? handleQueueSend() : handleForceSend())
+            } else void handleSend()
         }
     }
 

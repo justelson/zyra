@@ -14,6 +14,7 @@ const SAFE_TOOL_NAMES = new Set([
   "web_fetch",
   "request_user_input",
   "begin_action_batch",
+  "set_chat_title",
 ]);
 
 function asRecord(value) {
@@ -297,6 +298,9 @@ export function createZyraPermissionGateExtension(options = {}) {
     // The saved-resource tool authorizes its trusted store destination from its
     // executor. Caller arguments cannot supply that path or bypass this check.
     if (normalizeToolName(event?.toolName || event?.name) === 'visualization') return undefined;
+    // App operations are authorized at the canonical server and owning service,
+    // against the exact action/patch. Do not request a second generic tool grant.
+    if (['settings', 'settings_action', 'app', 'usage'].includes(normalizeToolName(event?.toolName || event?.name))) return undefined;
     const permissionMode = getPermissionMode();
     if (permissionMode === "full-access") {
       consumeAccess(event);

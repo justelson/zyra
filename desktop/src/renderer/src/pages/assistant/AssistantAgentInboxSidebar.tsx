@@ -1,9 +1,12 @@
 import { setChatSettlement } from './assistant-chat-menu-state'
+import { writePinnedSessionIds } from './assistant-pinned-sessions'
+import { applyAssistantInboxOrder, compareAssistantInboxCreation, restoreAssistantInboxItem, useAssistantInboxOrder } from './assistant-agent-inbox-order'
+import { clearAssistantChatNavigationCursor, getAssistantChatNavigationSnapshot, performAssistantChatOrderOperation, registerAssistantChatNavigation } from './assistant-chat-navigation'
 import type { AssistantToastInput } from './AssistantPageHelpers'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener } from '@/components/ui/native-overlay-portal'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type HTMLAttributes } from 'react'
 import { Check, CheckCircle2, ChevronDown, CircleDashed, Folder, FolderPlus, MessageSquare, MoreHorizontal, Pin, Search, Undo2, X } from 'lucide-react'
 import type { AssistantProject, AssistantSession, AssistantThread } from '@shared/assistant/contracts'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
@@ -69,6 +72,12 @@ type Props = {
     onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, session: AssistantSession, items: FileActionsMenuItem[]) => void
 }
 
+type SidebarRowProps = Props & {
+    getSidebarOrderMenuItems: (item: SidebarItem) => FileActionsMenuItem[]
+    getSidebarShortcutCommand: (item: SidebarItem) => string | undefined
+    getSidebarDragProps?: (item: SidebarItem) => HTMLAttributes<HTMLDivElement>
+}
+
 function getStatusThread(session: AssistantSession): AssistantThread | null {
     return session.threads.find((thread) => thread.id === session.activeThreadId) || getPrimarySessionThread(session)
 }
@@ -77,12 +86,12 @@ function isWorkingItem(item: Pick<SidebarItem, 'status'>): boolean {
     return item.status === 'working' || item.status === 'approval' || item.status === 'input'
 }
 
-function isPriorityItem(item: Pick<SidebarItem, 'pinned' | 'status'>): boolean {
-    return item.pinned || isWorkingItem(item)
+function isPriorityItem(item: Pick<SidebarItem, 'pinned'>): boolean {
+    return item.pinned
 }
 
 function isEffectivelySettled(item: Omit<SidebarItem, 'settled'>, overrides: SettlementOverrides): boolean {
-    return isAssistantChatSettled(item.session, overrides, { priority: isPriorityItem(item), ready: item.status === 'ready', activityAt: item.activityAt })
+    return !isWorkingItem(item) && isAssistantChatSettled(item.session, overrides, { priority: isPriorityItem(item), ready: item.status === 'ready', activityAt: item.activityAt })
 }
 
 function formatWorkingDuration(startedAt: string | null): string {
@@ -136,19 +145,20 @@ function topStatus(item: SidebarItem): ReactNode {
     return formatAssistantSidebarRelativeTime(item.activityAt)
 }
 
-function getAgentInboxMenuItems(item: SidebarItem, onToggleSettlement: (item: SidebarItem) => void, props: Props): FileActionsMenuItem[] {
-    const settlement = createChatSettlementMenuItem({ pinned: item.pinned, settled: item.settled, settlementDisabled: isPriorityItem(item), disabled: props.commandPending, onToggleSettlement: () => onToggleSettlement(item) })
+function getAgentInboxMenuItems(item: SidebarItem, onToggleSettlement: (item: SidebarItem) => void, props: SidebarRowProps): FileActionsMenuItem[] {
+    const settlement = createChatSettlementMenuItem({ pinned: item.pinned, settled: item.settled, settlementDisabled: isPriorityItem(item) || isWorkingItem(item), disabled: props.commandPending, onToggleSettlement: () => onToggleSettlement(item) })
     const actions = props.getSessionMenuItems(item.session)
-    return actions.some(action => action.id === 'settle' || action.id === 'unsettle')
+    const settlementActions = actions.some(action => action.id === 'settle' || action.id === 'unsettle')
         ? actions.map(action => action.id === 'settle' || action.id === 'unsettle' ? settlement : action)
         : [settlement, ...actions]
+    return [...settlementActions, ...props.getSidebarOrderMenuItems(item)]
 }
 
 function InboxRowActions({ item, action, onAction, props, showLabel = false, inFlow = false }: {
     item: SidebarItem
     action: 'settle' | 'unsettle'
     onAction: (item: SidebarItem) => void
-    props: Props
+    props: SidebarRowProps
     showLabel?: boolean
     inFlow?: boolean
 }) {
@@ -164,9 +174,9 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false, inF
             <div className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
                 <button
                     type="button"
-                    aria-label={item.pinned ? 'Unpin chat to settle' : isWorkingItem(item) ? 'Working chat stays in Priority' : action === 'settle' ? 'Settle chat' : 'Un-settle chat'}
-                    title={item.pinned ? 'Unpin chat to settle' : isWorkingItem(item) ? 'Working chat stays in Priority' : undefined}
-                    disabled={isPriorityItem(item)}
+                    aria-label={item.pinned ? 'Unpin chat to settle' : isWorkingItem(item) ? 'Working chat cannot be settled' : action === 'settle' ? 'Settle chat' : 'Un-settle chat'}
+                    title={item.pinned ? 'Unpin chat to settle' : isWorkingItem(item) ? 'Working chat cannot be settled' : undefined}
+                    disabled={isPriorityItem(item) || isWorkingItem(item)}
                     onClick={(event) => {
                         event.preventDefault()
                         event.stopPropagation()
@@ -193,15 +203,15 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false, inF
     )
 }
 
-function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle: (item: SidebarItem) => void; props: Props }) {
+function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle: (item: SidebarItem) => void; props: SidebarRowProps }) {
     const title = getSessionDisplayTitle(item.session)
     const model = resolveAssistantInboxModelPresentation(item.thread?.model)
     const receded = (item.status === 'ready' || item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active
     const activate = () => void props.onSelectSession(item.session.id)
     const menuItems = getAgentInboxMenuItems(item, onSettle, props)
     return (
-        <li data-agent-inbox-layout-id={item.session.id} className="list-none py-0.5">
-            <div role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')} title={[title, item.projectPath, model.modelName, item.thread?.lastError].filter(Boolean).join('\n')}>
+        <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
+            <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')} title={[title, item.projectPath, model.modelName, item.thread?.lastError].filter(Boolean).join('\n')}>
                 <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
                     <div className="flex h-5 min-w-0 items-center gap-1.5">
                         <ProjectMark group={item.project} />
@@ -232,12 +242,12 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     )
 }
 
-function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarItem; action: 'settle' | 'unsettle'; onAction: (item: SidebarItem) => void; props: Props }) {
+function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarItem; action: 'settle' | 'unsettle'; onAction: (item: SidebarItem) => void; props: SidebarRowProps }) {
     const title = getSessionDisplayTitle(item.session)
     const activate = () => void props.onSelectSession(item.session.id)
     const menuItems = getAgentInboxMenuItems(item, onAction, props)
     return (
-        <li data-agent-inbox-layout-id={item.session.id} className="list-none">
+        <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none">
             <div role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-muted/70 hover:bg-[var(--surface-hover)] hover:text-sparkle-text')} title={title}>
                 <ProjectMark group={item.project} dimmed={!item.active} />
                 <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
@@ -266,7 +276,14 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [scope, setScope] = useState(ALL_PROJECTS)
     const [projectMenuOpen, setProjectMenuOpen] = useState(false)
     const [projectSearch, setProjectSearch] = useState('')
-    const [settledExpanded, setSettledExpanded] = useState(true)
+    const [settledExpanded, setSettledExpanded] = useState(false)
+    const [sidebarOrder, setSidebarGroupOrder] = useAssistantInboxOrder()
+    const [undoMove, setUndoMove] = useState<{ label: string; run: () => void | Promise<void> } | null>(null)
+    useEffect(() => {
+        if (!undoMove) return
+        const timer = window.setTimeout(() => setUndoMove(null), 5_000)
+        return () => window.clearTimeout(timer)
+    }, [undoMove])
     const [settledInitialCount, setSettledInitialCount] = useState(1)
     const [settledAdditionalCount, setSettledAdditionalCount] = useState(0)
     const [settlementOverrides, setSettlementOverrides] = useAssistantSettlementOverrides()
@@ -274,6 +291,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const projectTriggerRef = useRef<HTMLButtonElement | null>(null)
     const projectSearchRef = useRef<HTMLInputElement | null>(null)
     const scrollRef = useRef<HTMLDivElement | null>(null)
+    const scrollPositionRef = useRef(0)
     const listRef = useRef<HTMLUListElement | null>(null)
     const settledHeaderRef = useRef<HTMLLIElement | null>(null)
     const previousLayoutRectsRef = useRef(new Map<string, { top: number; height: number }>())
@@ -312,8 +330,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         return () => { removeOverlayListener1(); removeOverlayListener2() }
     }, [projectMenuOpen])
 
-    const items = useMemo(() => visibleSessions
-        .filter((session) => scope === ALL_PROJECTS || projectBySession.get(session.id)?.key === scope)
+    const allItems = useMemo(() => visibleSessions
         .map((session): SidebarItem => {
             const thread = getStatusThread(session)
             const active = session.id === props.activeSessionId
@@ -334,14 +351,18 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 : resolveRowStatus(thread, active && thread?.id === props.activeThreadId)
             const unsettled = { ...base, status }
             return { ...unsettled, settled: isEffectivelySettled(unsettled, settlementOverrides) }
-        }), [props.activeSessionId, props.activeThreadId, props.pendingControlThreadIds, props.pinnedSessionIds, projectBySession, scope, settlementOverrides, visibleSessions])
-
-    const desiredPriority = useMemo(() => items
+        }), [props.activeSessionId, props.activeThreadId, props.pendingControlThreadIds, props.pinnedSessionIds, projectBySession, settlementOverrides, visibleSessions])
+    const items = useMemo(() => allItems.filter(item => scope === ALL_PROJECTS || item.project.key === scope), [allItems, scope])
+    const orderedPriority = useMemo(() => applyAssistantInboxOrder(allItems
         .filter((item) => !item.settled && isPriorityItem(item))
-        .sort((left, right) => Number(right.pinned) - Number(left.pinned) || getSortableTimestamp(right.session.createdAt) - getSortableTimestamp(left.session.createdAt) || left.session.id.localeCompare(right.session.id)), [items])
-    const desiredRecent = useMemo(() => items
+        .sort(compareAssistantInboxCreation), sidebarOrder.pinned), [allItems, sidebarOrder.pinned])
+    const orderedRecent = useMemo(() => applyAssistantInboxOrder(allItems
         .filter((item) => !item.settled && !isPriorityItem(item))
-        .sort((left, right) => getSortableTimestamp(right.activityAt) - getSortableTimestamp(left.activityAt) || left.session.id.localeCompare(right.session.id)), [items])
+        .sort(compareAssistantInboxCreation), sidebarOrder.chats), [allItems, sidebarOrder.chats])
+    const orderedRecentRef = useRef(orderedRecent)
+    orderedRecentRef.current = orderedRecent
+    const desiredPriority = useMemo(() => orderedPriority.filter(item => scope === ALL_PROJECTS || item.project.key === scope), [orderedPriority, scope])
+    const desiredRecent = useMemo(() => orderedRecent.filter(item => scope === ALL_PROJECTS || item.project.key === scope), [orderedRecent, scope])
     const settledItems = useMemo(() => items.filter((item) => item.settled).sort((left, right) => getSortableTimestamp(right.activityAt) - getSortableTimestamp(left.activityAt) || left.session.id.localeCompare(right.session.id)), [items])
     const settledVisibleCount = settledInitialCount + settledAdditionalCount
     const visibleSettled = settledItems.slice(0, settledVisibleCount)
@@ -351,7 +372,79 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     // Explicit choices move immediately. Keep hover holds for automatic
     // status/recency changes, not canonical settlement or header-menu actions.
     const settlementChoices = JSON.stringify(visibleSessions.map(session => [session.id, session.settled, session.settlementManual]).sort())
-    useLayoutEffect(() => stableLayout.release(), [props.pinnedSessionIds, settlementChoices, settlementOverrides, stableLayout.release])
+    useLayoutEffect(() => stableLayout.release(), [props.pinnedSessionIds, settlementChoices, settlementOverrides, sidebarOrder, stableLayout.release])
+    const navigationRef = useRef<ReturnType<typeof registerAssistantChatNavigation> | null>(null)
+    useLayoutEffect(() => {
+        const value = {
+            groups: { pinned: priorityItems.map(item => item.session.id), chats: recentItems.map(item => item.session.id), settled: renderedSettled.map(item => item.session.id) },
+            effective: { pinned: orderedPriority.map(item => item.session.id), chats: orderedRecent.map(item => item.session.id) },
+            activeSessionId: props.activeSessionId,
+            scope,
+            selectSession: props.onSelectSession,
+            onOrderChange: (undo: (() => boolean) | null, label = 'Chat moved') => {
+                stableLayout.release()
+                setUndoMove(undo ? { label, run: () => { undo() } } : null)
+            }
+        }
+        if (navigationRef.current) navigationRef.current.update(value)
+        else navigationRef.current = registerAssistantChatNavigation(value)
+    })
+    useLayoutEffect(() => () => { navigationRef.current?.dispose(); navigationRef.current = null }, [])
+    const shortcutIds = [...priorityItems, ...recentItems, ...renderedSettled].map(item => item.session.id)
+    const moveChat = (sessionId: string, targetId: string, group: 'pinned' | 'chats', placement: 'before' | 'after') => {
+        const snapshot = getAssistantChatNavigationSnapshot()
+        if (!snapshot.owner) return
+        performAssistantChatOrderOperation({ action: 'move', owner: snapshot.owner, expectedRevision: snapshot.revision, group, sessionId, ...(placement === 'before' ? { beforeSessionId: targetId } : { afterSessionId: targetId }) })
+    }
+    const rowProps: SidebarRowProps = {
+        ...props,
+        onSelectSession: id => { clearAssistantChatNavigationCursor(); return props.onSelectSession(id) },
+        getSidebarShortcutCommand: item => {
+            const index = shortcutIds.indexOf(item.session.id)
+            return index >= 0 && index < 9 ? `app.chat${index + 1}` : undefined
+        },
+        getSessionMenuItems: session => props.getSessionMenuItems(session).map(action => action.id === 'pin' || action.id === 'unpin' ? {
+            ...action, onSelect: () => {
+                const previousPins = new Set(props.pinnedSessionIds || [])
+                action.onSelect?.()
+                setUndoMove({ label: action.id === 'pin' ? 'Chat pinned' : 'Chat unpinned', run: () => { writePinnedSessionIds(previousPins) } })
+            }
+        } : action),
+        getSidebarDragProps: item => ({
+            draggable: !item.settled && !props.commandPending,
+            onDragStart: event => {
+                if ((event.target as Element).closest('button,textarea,input')) { event.preventDefault(); return }
+                event.dataTransfer.setData('application/x-zyra-chat-order', item.session.id)
+                event.dataTransfer.effectAllowed = 'move'
+            },
+            onDragOver: event => { if (!item.settled && event.dataTransfer.types.includes('application/x-zyra-chat-order')) event.preventDefault() },
+            onDrop: event => {
+                const draggedId = event.dataTransfer.getData('application/x-zyra-chat-order')
+                const dragged = allItems.find(entry => entry.session.id === draggedId)
+                if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned || draggedId === item.session.id) return
+                event.preventDefault()
+                const rect = event.currentTarget.getBoundingClientRect()
+                moveChat(draggedId, item.session.id, item.pinned ? 'pinned' : 'chats', event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
+            }
+        }),
+        getSidebarOrderMenuItems: (item) => {
+            if (item.settled) return []
+            const group = item.pinned ? 'pinned' : 'chats'
+            const visible = item.pinned ? priorityItems : recentItems
+            const visibleIds = visible.map(entry => entry.session.id)
+            const index = visibleIds.indexOf(item.session.id)
+            return ([-1, 1] as const).map(direction => ({
+                id: direction === -1 ? 'sidebar-move-up' : 'sidebar-move-down',
+                label: direction === -1 ? 'Move up' : 'Move down',
+                separatorBefore: direction === -1,
+                disabled: index < 0 || index + direction < 0 || index + direction >= visibleIds.length,
+                onSelect: () => {
+                    const neighbor = visibleIds[index + direction]
+                    if (neighbor) moveChat(item.session.id, neighbor, group, direction < 0 ? 'before' : 'after')
+                }
+            }))
+        }
+    }
     const hiddenSettledCount = settledItems.length - visibleSettled.length
     const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
     const layoutKey = [
@@ -375,6 +468,8 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     }, [])
 
     useLayoutEffect(() => {
+        // Reordering/restoring must not scroll the navigation to the moved row.
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollPositionRef.current
         measureSettledInitialWindow()
     }, [layoutKey, measureSettledInitialWindow, settledItems.length])
 
@@ -466,9 +561,19 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     }, [])
 
     const setSettlement = (item: SidebarItem, state: SettlementOverride['state']) => {
-        if (item.pinned) return
+        if (item.pinned || isWorkingItem(item)) return
         stableLayout.release()
-        void setChatSettlement(item.session, state === 'settled').catch(error => props.onShowToast?.({ message: error.message, tone: 'error' }))
+        const previousOrder = sidebarOrder.chats
+        void setChatSettlement(item.session, state === 'settled').then(() => {
+            setUndoMove({ label: state === 'settled' ? 'Chat settled' : 'Chat restored', run: async () => {
+                await setChatSettlement(item.session, item.settled)
+                setSidebarGroupOrder('chats', previousOrder)
+            } })
+            if (state === 'active') {
+                setSidebarGroupOrder('chats', current => restoreAssistantInboxItem(
+                    orderedRecentRef.current.map(entry => entry.session.id), current, item.session.id))
+            }
+        }).catch(error => props.onShowToast?.({ message: error.message, tone: 'error' }))
     }
 
     return (
@@ -510,31 +615,33 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             ) : null}
             </div>
             <div ref={scrollRef} onPointerEnter={stableLayout.hold} onPointerLeave={stableLayout.release}
+                onScroll={(event) => { scrollPositionRef.current = event.currentTarget.scrollTop }}
                 onFocusCapture={stableLayout.hold} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) stableLayout.release() }}
-                className="assistant-chat-scrollbar assistant-sidebar-scrollbar relative min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5">
+                className="assistant-chat-scrollbar assistant-sidebar-scrollbar relative min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5 [overflow-anchor:none]">
                 <ul ref={listRef} role="list" className="flex flex-col gap-px">
                     {priorityItems.length > 0 ? (
                         <li className="list-none">
                             <div className="mb-1 flex w-full items-center gap-2 px-2.5 text-left">
-                                <span className="text-xs font-medium text-sparkle-text-muted/50">Priority</span>
+                                <span className="text-xs font-medium text-sparkle-text-muted/50">Pinned</span>
                                 <span className="h-px flex-1 bg-[var(--surface-divider)]/60" />
                             </div>
                         </li>
                     ) : null}
-                    {priorityItems.map((item) => <AgentInboxCard key={`${item.session.id}:card`} item={item} onSettle={(target) => setSettlement(target, 'settled')} props={props} />)}
+                    {priorityItems.map((item) => <AgentInboxCard key={`${item.session.id}:card`} item={item} onSettle={(target) => setSettlement(target, 'settled')} props={rowProps} />)}
                     {recentItems.length > 0 ? (
                         <li className="list-none">
                             <div className="mb-1 mt-3 flex w-full items-center gap-2 px-2.5 text-left">
-                                <span className="text-xs font-medium text-sparkle-text-muted/50">Recent</span>
+                                <span className="text-xs font-medium text-sparkle-text-muted/50">Chats</span>
                                 <span className="h-px flex-1 bg-[var(--surface-divider)]/60" />
                             </div>
                         </li>
                     ) : null}
-                    {recentItems.map((item) => <AgentInboxCard key={`${item.session.id}:recent`} item={item} onSettle={(target) => setSettlement(target, 'settled')} props={props} />)}
+                    {recentItems.map((item) => <AgentInboxCard key={`${item.session.id}:recent`} item={item} onSettle={(target) => setSettlement(target, 'settled')} props={rowProps} />)}
                     {settledItems.length > 0 ? <li ref={settledHeaderRef} className="list-none"><button type="button" onClick={() => setSettledExpanded((expanded) => !expanded)} aria-expanded={settledExpanded} className="mb-1 mt-3 flex w-full items-center gap-2 px-2.5 text-left"><span className="text-xs font-medium text-sparkle-text-muted/50">{settledExpanded ? 'Settled' : `Settled (${settledItems.length})`}</span><span className="h-px flex-1 bg-[var(--surface-divider)]/60" /><ChevronDown size={12} className={cn('text-sparkle-text-muted/50 transition-transform', settledExpanded && 'rotate-180')} /></button></li> : null}
-                    {renderedSettled.map((item) => <AgentInboxSlimRow key={`${item.session.id}:settled`} item={item} action="unsettle" onAction={(target) => setSettlement(target, 'active')} props={props} />)}
+                    {renderedSettled.map((item) => <AgentInboxSlimRow key={`${item.session.id}:settled`} item={item} action="unsettle" onAction={(target) => setSettlement(target, 'active')} props={rowProps} />)}
                     {settledExpanded && hiddenSettledCount > 0 ? <li className="list-none"><button type="button" onClick={() => setSettledAdditionalCount((count) => count + SETTLED_PAGE_COUNT)} className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--surface-divider)] font-mono text-[11px] text-sparkle-text-muted transition-colors hover:border-solid hover:bg-[var(--surface-hover)] hover:text-sparkle-text">See {Math.min(hiddenSettledCount, SETTLED_PAGE_COUNT)} more</button></li> : null}
                 </ul>
+                {undoMove ? <div role="status" className="sticky bottom-1 mx-2 flex items-center justify-between gap-2 rounded-md border border-[var(--surface-divider)] bg-sparkle-card px-3 py-2 text-xs text-sparkle-text-secondary"><span>{undoMove.label}</span><button type="button" onClick={async () => { const action = undoMove; setUndoMove(null); try { await action.run() } catch (error) { props.onShowToast?.({ message: error instanceof Error ? error.message : 'Could not undo this move.', tone: 'error' }) } }}>Undo</button></div> : null}
                 {items.length === 0 ? (
                     <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-sparkle-text-muted/60">
                         <span>{scopedProject ? `No chats in ${scopedProject.label} yet` : projectGroups.length === 0 ? 'No projects yet' : 'No chats yet'}</span>

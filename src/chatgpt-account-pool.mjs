@@ -198,19 +198,24 @@ export class ChatGptAccountPool {
   }
 
   async recordUsage(id, usage, expectedAccess) {
-    const observedAt = Number.isFinite(Number(usage.observedAt)) ? Number(usage.observedAt) : this.now();
-    const sanitize = window => window && Number.isFinite(Number(window.usedPercent)) ? {
-      usedPercent: Math.max(0, Math.min(100, Number(window.usedPercent))),
-      resetAt: Number.isFinite(Date.parse(window.resetAt)) ? new Date(window.resetAt).toISOString() : null,
-      windowSeconds: Number.isFinite(Number(window.windowSeconds)) ? Number(window.windowSeconds) : null,
-    } : null;
+    const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value)) ? Number(value) : null;
+    const observedAt = numeric(usage.observedAt) ?? this.now();
+    const sanitize = window => {
+      const used = numeric(window?.usedPercent);
+      if (used === null) return null;
+      const usedPercent = Math.max(0, Math.min(100, used));
+      const resetAt = Number.isFinite(Date.parse(window.resetAt)) ? new Date(window.resetAt).toISOString() : null;
+      const seconds = numeric(window.windowSeconds);
+      const windowSeconds = seconds > 0 ? seconds : null;
+      return usedPercent === 0 && !resetAt && !windowSeconds ? null : { usedPercent, resetAt, windowSeconds };
+    };
     await this.store.modifyAll(values => {
       const entry = chatGptAccountEntries(values).find(account => account.id === id);
       if (!entry || (expectedAccess && entry.credential.access !== expectedAccess)) return values;
       if (Date.parse(entry.credential.pool?.usage?.updatedAt || '') > observedAt) return values;
       values[entry.key] = { ...entry.credential, pool: { ...entry.credential.pool, id, usage: {
-        primary: sanitize(usage.primary) || (usage.partial ? entry.credential.pool?.usage?.primary : null) || null,
-        secondary: sanitize(usage.secondary) || (usage.partial ? entry.credential.pool?.usage?.secondary : null) || null,
+        primary: sanitize(usage.primary) || (usage.partial ? sanitize(entry.credential.pool?.usage?.primary) : null),
+        secondary: sanitize(usage.secondary) || (usage.partial ? sanitize(entry.credential.pool?.usage?.secondary) : null),
         availableResetCount: Number.isFinite(usage.availableResetCount) && usage.availableResetCount >= 0
           ? Math.floor(usage.availableResetCount)
           : usage.partial ? entry.credential.pool?.usage?.availableResetCount ?? null : null,

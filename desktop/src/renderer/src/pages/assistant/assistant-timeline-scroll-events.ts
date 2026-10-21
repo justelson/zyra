@@ -21,6 +21,7 @@ type AssistantTimelineWorkSummaryState = {
     id: string
     kind: string
     running?: boolean
+    outcome?: string | null
     turnId?: string | null
 }
 
@@ -35,6 +36,7 @@ export function didAssistantTimelineWorkComplete(
     return nextRows.some((row) => (
         row.kind === 'turn-work-summary'
         && row.running === false
+        && (!row.outcome || row.outcome === 'completed')
         && (
             previouslyRunningIds.has(row.id)
             || Boolean(row.turnId && previouslyRunningTurnIds.has(row.turnId))

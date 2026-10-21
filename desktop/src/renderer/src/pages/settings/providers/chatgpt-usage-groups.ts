@@ -18,7 +18,12 @@ export function isUsageAccountAllowed(account: ChatGptAccountProfile, policy: Ch
 export function groupChatGptUsage(accounts: ChatGptAccountProfile[], now = Date.now()): ChatGptUsageGroup[] {
     const groups = new Map<string, ChatGptUsageGroup>()
     for (const account of accounts) {
-        const windows = [account.usage?.primary, account.usage?.secondary]
+        const windows = [account.usage?.primary, account.usage?.secondary].map(window => {
+            if (!window || typeof window.usedPercent !== 'number' || !Number.isFinite(window.usedPercent)) return null
+            const hasDuration = typeof window.windowSeconds === 'number' && Number.isFinite(window.windowSeconds) && window.windowSeconds > 0
+            const hasReset = !!window.resetAt && Number.isFinite(Date.parse(window.resetAt))
+            return window.usedPercent === 0 && !hasDuration && !hasReset ? null : window
+        })
         const reported = windows.some(Boolean)
         for (const [index, window] of (reported ? windows : [null]).entries()) {
             if (reported && !window) continue

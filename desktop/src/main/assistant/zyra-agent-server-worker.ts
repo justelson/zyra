@@ -24,12 +24,14 @@ export type ZyraWorkerEventMetadata = {
     replay?: boolean
 }
 
+export type ZyraWorkerRequestOptions = { beforeDispatch?: () => void }
+
 export type ZyraWorkerLike = {
     readonly serverOwnedLifecycle?: boolean
     onEvent(listener: (event: unknown, metadata?: ZyraWorkerEventMetadata) => void): () => void
     setControlRequestHandler(handler: (operation: unknown, signal: AbortSignal, principal?: unknown) => Promise<Record<string, unknown>>): void
     isAlive(): boolean
-    request(type: string, payload?: Record<string, unknown>): Promise<Record<string, unknown>>
+    request(type: string, payload?: Record<string, unknown>, options?: ZyraWorkerRequestOptions): Promise<Record<string, unknown>>
     readPresence?(): Promise<CanonicalAgentChatPresence | null>
     flushReplay(): void
     dispose(): void
@@ -38,10 +40,13 @@ export type ZyraWorkerLike = {
 type AgentServerClient = EventEmitter & {
     serverMethods?: string[]
     connect(): Promise<void>
+    refreshRuntimeStatus(): Promise<unknown>
+    activateRuntimeUpdate(): Promise<unknown>
     attach(params: Record<string, unknown>): Promise<Record<string, unknown>>
     detach(sessionKey: string): Promise<Record<string, unknown>>
-    request(method: string, params?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<Record<string, unknown>>
+    request(method: string, params?: Record<string, unknown>, options?: { timeoutMs?: number; beforeDispatch?: () => void }): Promise<Record<string, unknown>>
     setControlHandler(handler: (operation: unknown, message: Record<string, unknown>) => Promise<Record<string, unknown>>): void
+    setAppOperationHandler(handler: (request: Record<string, unknown>) => Promise<Record<string, unknown>>): void
     setDesktopWorkspaceHandler(handler: (request: Record<string, unknown>, message: Record<string, unknown>) => Promise<Record<string, unknown>>): void
     setDesktopWorkspaceCancelHandler(handler: (requestId: string) => void): void
     setDesktopWorkspaceTurnHandler(handler: (canonicalChatId: string, turnId: string) => void): void
@@ -68,6 +73,8 @@ export type CanonicalAgentChatPresence = {
 }
 
 export type CanonicalAgentChat = {
+    forkPending?: boolean
+    forkOrigin?: { canonicalChatId: string; entryId: string; messageId?: string; createdAt: string; namespaceId?: string | null; worktree?: 'shared' | 'isolated' } | null
     settled?: boolean
     settlementManual?: boolean
     agentConversationKind?: 'thread' | 'subagent' | null
@@ -81,6 +88,7 @@ export type CanonicalAgentChat = {
     project: string
     cwd: string
     title: string
+    titleSource?: 'initial' | 'provisional' | 'model' | 'manual' | 'refresh' | null
     archived: boolean
     archivedAt?: string | null
     deleted?: boolean
@@ -120,6 +128,7 @@ type DesktopAgentServerConnectionOptions = {
     channel?: string
     autoStart?: boolean
     authorityProof?: string
+    handleAppOperation?: (request: Record<string, unknown>) => Promise<Record<string, unknown>>
     openDesktopWorkspace?: (request: Record<string, unknown>) => Promise<Record<string, unknown>>
     cancelDesktopWorkspace?: (requestId: string) => void
     handleDesktopWorkspaceTurn?: (canonicalChatId: string, turnId: string) => void
@@ -188,6 +197,16 @@ export class DesktopAgentServerConnection {
         const client = await this.getClient()
         if (!client.serverMethods?.includes('session.view')) throw new Error('Restart the updated agent server to synchronize chat viewing state.')
         await client.request('session.view', { session, ...input })
+    }
+
+    async refreshRuntimeStatus(): Promise<void> {
+        const client = await this.getClient()
+        await client.refreshRuntimeStatus()
+    }
+
+    async activateRuntimeUpdate(): Promise<void> {
+        const client = await this.getClient()
+        await client.activateRuntimeUpdate()
     }
 
     async prepareRuntime(model: string | null): Promise<void> {
@@ -269,7 +288,7 @@ export class DesktopAgentServerConnection {
 
     async updateCanonicalChat(
         session: string,
-        patch: { title?: string; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
+        patch: { title?: string; expectedTitle?: string; titleSource?: 'refresh'; project?: string; cwd?: string; archived?: boolean; deleted?: boolean; settled?: boolean; settlementIfAbsent?: boolean }
     ): Promise<CanonicalAgentChat | null> {
         const client = await this.getClient()
         const result = await client.request('catalog.update', { session, ...patch }, { timeoutMs: 5_000 })
@@ -347,7 +366,7 @@ export class DesktopAgentServerConnection {
         }
     }
 
-    async request(worker: ZyraAgentServerWorker, type: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    async request(worker: ZyraAgentServerWorker, type: string, payload: Record<string, unknown>, options?: ZyraWorkerRequestOptions): Promise<Record<string, unknown>> {
         await this.ensureAttached(worker)
         const client = await this.getClient()
         const request = () => client.request('session.request', {
@@ -360,7 +379,7 @@ export class DesktopAgentServerConnection {
                     localThreadId: worker.localThreadId
                 }
             } : {})
-        })
+        }, options)
         try {
             return await request()
         } catch (error: any) {
@@ -580,6 +599,11 @@ export class DesktopAgentServerConnection {
         return this.clientPromise
     }
 
+    setAppOperationHandler(handler: (request: Record<string, unknown>) => Promise<Record<string, unknown>>): void {
+        this.options.handleAppOperation = handler
+        // The installed wrapper reads current options and retains live validation.
+    }
+
     private async createClient(): Promise<AgentServerClient> {
         const moduleUrl = pathToFileURL(join(this.root, 'src', 'agent-server', 'client.mjs')).href
         const module = await import(/* @vite-ignore */ moduleUrl) as {
@@ -595,9 +619,16 @@ export class DesktopAgentServerConnection {
             root: this.root,
             clientId: `desktop:${process.pid}:${randomUUID()}`,
             surface: 'desktop',
-            authorities: ['desktop-control', 'desktop-workspace'],
+            authorities: ['desktop-control', 'desktop-workspace', ...(this.options.handleAppOperation ? ['desktop-app'] : [])],
             authorityProof,
             ...clientOptions
+        })
+        client.setAppOperationHandler(async request => {
+            if (!this.options.handleAppOperation) throw new Error('Desktop app operations are unavailable.')
+            return this.options.handleAppOperation({ ...request, assertCurrent: async () => {
+                const state = await client.request('desktop.app.validate', { operationId: request['operationId'], requestId: request['ownerRequestId'] }, { timeoutMs: 5_000 })
+                if (state['valid'] !== true) throw new Error('The app operation expired, its owner disconnected, or its originating turn was stopped.')
+            } })
         })
         client.setDesktopWorkspaceHandler(async (request, message) => {
             request = { ...request, _requestId: String(message['requestId'] || '') }
@@ -717,10 +748,10 @@ export class ZyraAgentServerWorker implements ZyraWorkerLike {
         return this.disposed
     }
 
-    async request(type: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    async request(type: string, payload: Record<string, unknown> = {}, options?: ZyraWorkerRequestOptions): Promise<Record<string, unknown>> {
         if (this.disposed) throw new Error('Zyra agent-server worker is detached.')
         if (type === 'connect') return this.connection.attach(this, payload)
-        return this.connection.request(this, type, payload)
+        return this.connection.request(this, type, payload, options)
     }
 
     async readPresence(): Promise<CanonicalAgentChatPresence | null> {

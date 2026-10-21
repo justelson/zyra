@@ -24,7 +24,7 @@ function activityNeedsApproval(thread: AssistantThread, activity: AssistantThrea
 
 function projectApprovalWaitingState(thread: AssistantThread, resume = false, projectActivities = true): void {
     const pending = thread.pendingApprovals.filter((entry) => entry.status === 'pending')
-    const waiting = pending.length > 0 || thread.pendingUserInputs.some((entry) => entry.status === 'pending')
+    const waiting = pending.length > 0 || thread.pendingUserInputs.some((entry) => entry.status === 'pending' && entry.mode !== 'async')
     if (waiting && (thread.state === 'running' || thread.state === 'starting')) thread.state = 'waiting'
     else if (resume && !waiting && thread.state === 'waiting' && thread.latestTurn?.state === 'running') thread.state = 'running'
     if (!projectActivities) return
@@ -369,7 +369,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
             if (pendingApprovals || Array.isArray(event.payload['removedPendingApprovalIds'])) writable.thread.pendingApprovals = mergeThreadRecordsById(writable.thread.pendingApprovals, pendingApprovals || [], event.payload['removedPendingApprovalIds'])
             if (pendingUserInputs || Array.isArray(event.payload['removedPendingUserInputIds'])) writable.thread.pendingUserInputs = mergeThreadRecordsById(writable.thread.pendingUserInputs, pendingUserInputs || [], event.payload['removedPendingUserInputIds'])
             writable.thread.hasPendingApprovals = writable.thread.pendingApprovals.some((entry) => entry.status === 'pending')
-            writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending')
+            writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending' && entry.mode !== 'async')
             writable.thread.hasActivePlan = Boolean(writable.thread.activePlan)
             projectApprovalWaitingState(writable.thread, false, Boolean(activities || pendingApprovals))
 
@@ -546,7 +546,7 @@ function applyAssistantDomainEventInternal(snapshot: AssistantSnapshot, event: A
 
             const userInput = event.payload['userInput'] as AssistantPendingUserInput
             writable.thread.pendingUserInputs = upsertAssistantRequest(writable.thread.pendingUserInputs, userInput)
-            writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending')
+            writable.thread.hasPendingUserInputs = writable.thread.pendingUserInputs.some((entry) => entry.status === 'pending' && entry.mode !== 'async')
             projectApprovalWaitingState(writable.thread, userInput.status === 'resolved')
             break
         }

@@ -29,13 +29,16 @@ import { useAssistantComposerProjectData } from './useAssistantComposerProjectDa
 import { useAssistantSpeechInput } from './useAssistantSpeechInput'
 import { useAssistantComposerControllerEffects } from './useAssistantComposerControllerEffects'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
+import { readRememberedChoices, rememberComposerChoices } from './assistant-remembered-choices'
+import { registerAppComposerOwner } from './assistant-app-owner-state'
 import {
     serializeAssistantBrowserAnnotation,
     subscribeAssistantBrowserAnnotationAttachments
 } from './assistant-browser-annotation-composer'
 import { coerceAssistantReasoningEffortForModel, getAssistantModelReasoningEfforts } from '@shared/assistant/reasoning-efforts'
 import {
-    type AssistantComposerSessionState
+    type AssistantComposerSessionState,
+    writeAssistantComposerSessionState
 } from './assistant-composer-session-state'
 import { createAssistantComposerConfigurationPublisher } from './assistant-composer-configuration-publisher'
 import { reconcileAssistantComposerCanonicalConfiguration, retainAssistantComposerCanonicalConfiguration, type AssistantComposerCanonicalConfiguration } from './assistant-composer-canonical-sync'
@@ -48,11 +51,11 @@ function isLegacyFallbackModel(model: string | null | undefined): boolean {
 
 function normalizeComposerDefaultModel(model: string | null | undefined): string {
     const normalized = String(model || '').trim()
-    return normalized && !isLegacyFallbackModel(normalized) ? normalized : ''
+    return normalized
 }
 
 export function useAssistantComposerController(props: AssistantComposerProps) {
-    const { settings } = useSettings()
+    const { settings, updateSettings } = useSettings()
     const {
         sessionId,
         configurationThreadId,
@@ -167,10 +170,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     const [branchRefreshToken, setBranchRefreshToken] = useState(0)
     const [isSwitchingBranch, setIsSwitchingBranch] = useState(false)
     const [branchActionError, setBranchActionError] = useState<string | null>(null)
-    const [selectedEffort, setSelectedEffort] = useState<AssistantComposerPreferenceEffort>(() => coerceAssistantReasoningEffortForModel(
-        initialComposerSessionState.effort || fallbackComposerState.effort || 'medium',
-        resolvedModel
-    ))
+    const [selectedEffort, setSelectedEffort] = useState<AssistantComposerPreferenceEffort>(initialComposerSessionState.effort || fallbackComposerState.effort || 'medium')
     const [fastModeEnabled, setFastModeEnabled] = useState(initialComposerSessionState.fastModeEnabled ?? fallbackComposerState.fastModeEnabled ?? false)
     const [isCompactFooter, setIsCompactFooter] = useState(compact)
     const [loadedSessionId, setLoadedSessionId] = useState<string | null>(normalizedSessionId)
@@ -200,7 +200,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     ), [])
     const publishConfiguration = useCallback((patch: Pick<AssistantUpdateSessionConfigurationInput, 'model' | 'runtimeMode' | 'effort'>) => {
         // New/unconnected chats retain their local launch choices until Send.
-        if (useSettingsDefaults || !normalizedSessionId || !configurationThreadId || !isConnected) return
+        if (isThinking || useSettingsDefaults || !normalizedSessionId || !configurationThreadId || !isConnected) return
         void configurationPublisher({ sessionId: normalizedSessionId, threadId: configurationThreadId, ...patch })
             .catch(error => {
                 const canonical = canonicalConfigurationRef.current
@@ -213,22 +213,28 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 }
                 onBlockedSend?.(error instanceof Error ? error.message : 'Could not update this chat.')
             })
-    }, [configurationPublisher, configurationThreadId, isConnected, normalizedSessionId, onBlockedSend, useSettingsDefaults])
+    }, [configurationPublisher, configurationThreadId, isConnected, isThinking, normalizedSessionId, onBlockedSend, useSettingsDefaults])
     const chooseModel = useCallback((value: SetStateAction<string>) => {
         const next = typeof value === 'function' ? value(selectedModel) : value
         setSelectedModel(next)
+        try { rememberComposerChoices({ ...readRememberedChoices(), model: next }) } catch { onBlockedSend?.('Could not remember this model. Your current chat still uses it.') }
+        void updateSettings({ assistantDefaultModel: next })
         if (next !== selectedModel) publishConfiguration({ model: next })
-    }, [publishConfiguration, selectedModel])
+    }, [publishConfiguration, selectedModel, updateSettings, onBlockedSend])
     const chooseRuntimeMode = useCallback((value: SetStateAction<AssistantRuntimeMode>) => {
         const next = typeof value === 'function' ? value(selectedRuntimeMode) : value
         setSelectedRuntimeMode(next)
+        try { rememberComposerChoices({ ...readRememberedChoices(), runtimeMode: next }) } catch { onBlockedSend?.('Could not remember this permission mode.') }
+        void updateSettings({ assistantDefaultRuntimeMode: next })
         if (next !== selectedRuntimeMode) publishConfiguration({ runtimeMode: next })
-    }, [publishConfiguration, selectedRuntimeMode])
+    }, [publishConfiguration, selectedRuntimeMode, updateSettings, onBlockedSend])
     const chooseEffort = useCallback((value: SetStateAction<AssistantComposerPreferenceEffort>) => {
         const next = typeof value === 'function' ? value(selectedEffort) : value
         setSelectedEffort(next)
+        try { rememberComposerChoices({ ...readRememberedChoices(), effort: next }) } catch { onBlockedSend?.('Could not remember this effort.') }
+        void updateSettings({ assistantDefaultEffort: next })
         if (next !== selectedEffort) publishConfiguration({ effort: next })
-    }, [publishConfiguration, selectedEffort])
+    }, [publishConfiguration, selectedEffort, updateSettings, onBlockedSend])
     const {
         activeBranchCandidate,
         activeMentionCandidate,
@@ -256,7 +262,10 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         ? ''
         : (selectedModelOption.supportedEfforts || []).join('\n')
     const effortOptions = useMemo(
-        () => getAssistantModelReasoningEfforts(selectedModelOption),
+        () => {
+            const supported = getAssistantModelReasoningEfforts(selectedModelOption)
+            return supported.length ? supported : ['off' as const]
+        },
         [selectedModel, selectedModelSupportedEffortsSignature]
     )
     const effortOptionsSignature = effortOptions.join('\n')
@@ -290,7 +299,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         if (patch.fastModeEnabled !== undefined) setFastModeEnabled(patch.fastModeEnabled)
     }, [activeModel, runtimeMode, interactionMode, activeEffort, activeFastModeEnabled, normalizedSessionId, configurationThreadId, configurationPublisher, isConnected, useSettingsDefaults])
     useEffect(() => {
-        setSelectedEffort((current) => coerceAssistantReasoningEffortForModel(current, selectedModelOption))
+        // Preserve the chosen effort. Unsupported choices must be visible, not silently replaced.
     }, [effortOptionsSignature, selectedModel])
     const availableModelIdSignature = useMemo(() => availableModelOptions.map((model) => model.id).join('\n'), [availableModelOptions])
     const preferredAvailableModelId = latestModelId || availableModelOptions[0]?.id || ''
@@ -305,6 +314,36 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         text, selectedModel, selectedRuntimeMode, selectedInteractionMode, selectedEffort, fastModeEnabled,
         contextFiles, persistedComposerState: persistedSessionStateRef.current
     })
+    const latestDraftStatesRef = useRef(new Map<string, AssistantComposerSessionState>())
+    const appComposerStateRef = useRef({ sessionId: normalizedSessionId, state: currentComposerState })
+    appComposerStateRef.current = { sessionId: normalizedSessionId, state: currentComposerState }
+    useEffect(() => {
+        const target = normalizedSessionId
+        if (!target || loadedSessionId !== target) return
+        return registerAppComposerOwner(target, {
+            read: () => appComposerStateRef.current.state,
+            apply: patch => {
+                if (appComposerStateRef.current.sessionId !== target) throw new Error('The composer owner changed before applying.')
+                const next = writeAssistantComposerSessionState(target, { ...appComposerStateRef.current.state, ...patch }, { strict: true })
+                if (persistTimeoutRef.current !== null) { window.clearTimeout(persistTimeoutRef.current); persistTimeoutRef.current = null }
+                appComposerStateRef.current = { sessionId: target, state: next }
+                persistedSessionStateRef.current = next
+                latestDraftStatesRef.current.set(target, next)
+                if (patch.model !== undefined) setSelectedModel(patch.model)
+                if (patch.effort !== undefined) setSelectedEffort(patch.effort)
+                if (patch.runtimeMode !== undefined) setSelectedRuntimeMode(patch.runtimeMode)
+                if (patch.fastModeEnabled !== undefined) setFastModeEnabled(patch.fastModeEnabled)
+                // This is a next-turn choice, not a live configuration publish or remembered default.
+            }
+        })
+    }, [normalizedSessionId, loadedSessionId])
+    if (loadedSessionId && loadedSessionId === normalizedSessionId) latestDraftStatesRef.current.set(loadedSessionId, currentComposerState)
+    useEffect(() => () => {
+        if (!normalizedSessionId) return
+        const saved = latestDraftStatesRef.current.get(normalizedSessionId)
+        if (saved) writeAssistantComposerSessionState(normalizedSessionId, saved)
+        latestDraftStatesRef.current.delete(normalizedSessionId)
+    }, [normalizedSessionId])
     latestTextRef.current = text
     latestInlineMentionTagsRef.current = inlineMentionTags
     latestContextFilesRef.current = contextFiles
@@ -476,6 +515,9 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         selectedModel,
         setSelectedModel: chooseModel,
         selectedModelInputModes: typeof selectedModelOption === 'string' ? undefined : selectedModelOption.inputModes,
+        sendBlockedReason: !modelsLoading && modelOptions && selectedModel && !modelOptions.some(option => option.id === selectedModel)
+            ? 'This model is unavailable. Choose another model before sending.'
+            : !effortOptions.includes(selectedEffort) ? 'This effort is not supported by the selected model. Choose an effort before sending.' : null,
         selectedRuntimeMode,
         setSelectedRuntimeMode: chooseRuntimeMode,
         selectedInteractionMode,
@@ -492,6 +534,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
             latestTextRef.current = ''
             latestInlineMentionTagsRef.current = []
             latestContextFilesRef.current = []
+            if (normalizedSessionId) latestDraftStatesRef.current.set(normalizedSessionId, buildAssistantComposerSessionState({ selectedModel, selectedRuntimeMode, selectedInteractionMode, selectedEffort, fastModeEnabled }))
             persistComposerSessionStateImmediately(buildAssistantComposerSessionState({
                 selectedModel,
                 selectedRuntimeMode,
@@ -500,6 +543,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 fastModeEnabled
             }))
         },
+        canClearAcceptedDraft: (submittedText, submittedFiles) => latestTextRef.current === submittedText && latestContextFilesRef.current === submittedFiles,
         shouldRestoreAfterFailedSend: () => {
             const latestDraft = latestTextRef.current
             const latestTags = latestInlineMentionTagsRef.current
@@ -591,6 +635,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         loadedSessionId,
         disabled,
         allowEmptySubmit,
+        selectionUnavailableReason: !modelsLoading && modelOptions && selectedModel && !modelOptions.some(option => option.id === selectedModel)
+            ? 'Selected model unavailable. Choose a model to send.' : !effortOptions.includes(selectedEffort) ? 'Selected effort unavailable for this model.' : null,
         placement,
         isConnected,
         isConnecting,
@@ -608,6 +654,11 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         onForceQueuedMessage,
         onDeleteQueuedMessage,
         onMoveQueuedMessage,
+        onUpdateQueuedMessage: props.onUpdateQueuedMessage,
+        queueHeld: props.queueHeld ?? false,
+        onHoldQueue: props.onHoldQueue,
+        onResumeQueue: props.onResumeQueue,
+        isStopping: props.isStopping ?? false,
         reconnectPending,
         latestTurnUsage,
         projectId,
@@ -635,6 +686,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         inlineMentionTags,
         setInlineMentionTags,
         contextFiles,
+        updateAttachment: (file: ComposerContextFile) => setContextFiles(current => current.map(existing => existing.id === file.id ? file : existing)),
         historyCursor,
         setHistoryCursor,
         showModelDropdown,

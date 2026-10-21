@@ -23,6 +23,7 @@ import { AssistantAttachmentImageCard } from './AssistantAttachmentImageCard'
 import { AssistantBrowserAnnotationCard } from './AssistantBrowserAnnotationCard'
 import { AssistantComposerMenuSurface, ComposerMenuContext } from './AssistantComposerMenuSurface'
 import { AssistantContextAttachment } from './AssistantContextAttachment'
+import { AssistantCitationChip } from './AssistantCitationChip'
 
 function getEffortTone(effort: string): { textClass: string } {
     return effort === 'off' || effort === 'none'
@@ -67,7 +68,8 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
     presentation = 'compact',
     onOpenAttachmentPreview,
     onPreview,
-    onRemove
+    onRemove,
+    onUpdate
 }: {
     contextFiles: ComposerContextFile[]
     compact: boolean
@@ -80,6 +82,7 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
     ) => Promise<void> | void
     onPreview: (file: ComposerContextFile) => void
     onRemove: (id: string) => void
+    onUpdate?: (file: ComposerContextFile) => void
 }) {
     const shelfRef = useRef<HTMLDivElement | null>(null)
     const previousRectsRef = useRef(new Map<string, DOMRect>())
@@ -188,7 +191,9 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                         data-composer-attachment-layout-id={file.id}
                         className="shrink-0 will-change-transform"
                     >
-                        {presentation === 'compact-pills' ? (
+                        {file.citation ? (
+                            <AssistantCitationChip file={file} removing={isRemoving || isEntering} onUpdate={onUpdate} onRemove={() => onRemove(file.id)} />
+                        ) : presentation === 'compact-pills' ? (
                             <AssistantAttachmentPill
                                 name={meta.name}
                                 previewDataUrl={isImageAttachment ? file.previewDataUrl : undefined}
@@ -589,9 +594,15 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateSubmenuPlacement)
         resizeObserver?.observe(container)
         if (boundary) resizeObserver?.observe(boundary)
+        // The fixed anchor moves after the owner's resize/scroll callback. Recalculate
+        // against its committed position, not the old rectangle from that same event.
+        const wrapper = container.closest('[data-native-overlay-content]')?.firstElementChild
+        const positionObserver = wrapper && typeof MutationObserver !== 'undefined' ? new MutationObserver(updateSubmenuPlacement) : null
+        if (wrapper) positionObserver?.observe(wrapper, { attributes: true, attributeFilter: ['style'] })
         return () => {
             window.removeEventListener('resize', updateSubmenuPlacement)
             resizeObserver?.disconnect()
+            positionObserver?.disconnect()
         }
     }, [showTraitsDropdown, menuReadyRevision, traitsDropdownRef])
 

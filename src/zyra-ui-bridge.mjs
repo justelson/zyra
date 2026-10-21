@@ -150,8 +150,9 @@ function declinePendingPermissions(reason = "Zyra bridge disconnected.") {
 function requestUserInput(request = {}) {
   const requestId = randomUUID();
   const questions = Array.isArray(request.questions) ? request.questions : [];
-  pendingUserInputRequests.set(requestId, { questions });
-  send({ type: "event", event: { type: "user_input_requested", requestId, questions } });
+  const mode = request.mode === 'async' ? 'async' : 'blocking';
+  pendingUserInputRequests.set(requestId, { questions, mode });
+  send({ type: "event", event: { type: "user_input_requested", requestId, questions, mode } });
   return Promise.resolve({ answers: {}, cancelled: false, deferred: true, requestId });
 }
 
@@ -159,6 +160,7 @@ function resolveUserInputRequest(requestId, result = {}) {
   const id = String(requestId || "");
   const pending = pendingUserInputRequests.get(id) || {
     questions: normalizeRequestUserInputQuestions(result.questions),
+    mode: result.mode === 'async' ? 'async' : 'blocking',
   };
   if (pending.questions.length === 0) return null;
   pendingUserInputRequests.delete(id);
@@ -172,14 +174,18 @@ function resolveUserInputRequest(requestId, result = {}) {
     answers,
     cancelled,
     questions: pending.questions,
+    mode: pending.mode,
     continuationPrompt: cancelled ? null : formatRequestUserInputContinuationPrompt(pending.questions, answers),
   };
   send({ type: "event", event: { type: "user_input_resolved", requestId: id, answers, cancelled, reason: result.reason } });
   return resolved;
 }
 
-function abandonPendingUserInputs() {
-  pendingUserInputRequests.clear();
+function abandonPendingUserInputs({ preserveAsync = false } = {}) {
+  for (const [id, pending] of pendingUserInputRequests) {
+    if (preserveAsync && pending.mode === 'async') continue;
+    pendingUserInputRequests.delete(id);
+  }
 }
 
 function stopTemporaryBrowserRelay() {
@@ -294,6 +300,9 @@ async function handleConnect(payload) {
       if (normalized) send({ type: "event", event: normalized });
     },
     requestUserInput,
+    onChatTitle: payload.surface === 'memory-worker' ? undefined : async (title) => {
+      send({ type: 'event', event: { type: 'session_title', ...title } });
+    },
     getPermissionMode: () => activePermissionMode,
     ...overrides,
   });
@@ -328,6 +337,8 @@ async function handleConnect(payload) {
     if (event.type === "agent_end" && event.willRetry !== true) idleMemoryScheduler?.idle();
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
     if (!normalized) return;
+    if ((isToolExecutionEvent(normalized) && normalized.toolName === 'set_chat_title')
+      || event.message?.role === 'toolResult' && event.message?.toolName === 'set_chat_title') return;
     if (isActionBatchIntentEvent(normalized)) {
       activeActionBatchIntent = readActionBatchIntentFromEvent(normalized) || activeActionBatchIntent;
       return;
@@ -478,7 +489,7 @@ function normalizeEvent(event, modelContextWindow) {
   }
 
   if (type === "session_title") {
-    return { type, title: stringValue(event.title) };
+    return { type, title: stringValue(event.title), titleSource: stringValue(event.titleSource), expectedTitle: stringValue(event.expectedTitle) };
   }
 
   if (type === "agent_end") {
@@ -800,62 +811,14 @@ async function handlePrompt(payload) {
   await applyChatConfig(sdk, payload);
   if (typeof payload.memoryEnabled === "boolean") sdk.setZyraMemoryEnabled(runtime, payload.memoryEnabled);
   sdk.setZyraReasoningSummary(runtime, payload.reasoningSummary);
-  const shouldGenerateTitle = !runtime.session.sessionManager?.getSessionName?.();
   const images = normalizePromptImages(payload.images);
   await sdk.runZyraPrompt(runtime, payload.prompt, {
     images,
     startInNewWorktree: payload.startInNewWorktree,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
+    chatTitleState: payload.chatTitleState,
   });
-  if (shouldGenerateTitle && payload.skipTitleGeneration !== true) {
-    const titleTargetRuntime = runtime;
-    void generateAndPersistSessionTitle(titleTargetRuntime, payload.cwd || runtime.project).catch((error) => {
-      process.stderr.write(`[session-title] ${error instanceof Error ? error.message : String(error)}\n`);
-    });
-  }
   return {};
-}
-
-async function generateAndPersistSessionTitle(targetRuntime, cwd) {
-  const sessionManager = targetRuntime?.session?.sessionManager;
-  if (!sessionManager?.appendSessionInfo || sessionManager.getSessionName?.()) return;
-  const transcript = buildCompletedTitleTranscript(targetRuntime.session.state?.messages);
-  if (!transcript) return;
-  const result = await handleGenerateText({
-    cwd: cwd || targetRuntime.project,
-    model: targetRuntime.session.model?.provider === "openai-codex" ? "openai-codex/gpt-5.6-luna" : `${targetRuntime.session.model.provider}/${targetRuntime.session.model.id}`,
-    thinking: "low",
-    prompt: [
-      "You write concise titles for coding assistant chat sessions.",
-      "Return only the title text. Do not use quotes, markdown, JSON, or commentary.",
-      "Keep the title under 60 characters.",
-      "Prefer concrete technical nouns and task intent over generic wording.",
-      "Do not mention tools, implementation steps, or title generation.",
-      "",
-      "Completed conversation:",
-      transcript
-    ].join("\n")
-  });
-  const title = String(result.text || "")
-    .replace(/^title\s*:\s*/i, "")
-    .replace(/^[\"'`]+|[\"'`]+$/g, "")
-    .split(/\r?\n/)[0]
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-  if (!title || runtime !== targetRuntime || sessionManager.getSessionName?.()) return;
-  sessionManager.appendSessionInfo(title);
-  send({ type: "event", event: { type: "session_title", title } });
-}
-
-function buildCompletedTitleTranscript(messages = []) {
-  const visible = Array.isArray(messages) ? messages : [];
-  const userMessage = visible.find((message) => message?.role === "user");
-  const assistantMessage = [...visible].reverse().find((message) => message?.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted");
-  const userText = messageTextForTitle(userMessage).replace(/\s+/g, " ").trim().slice(0, 720);
-  const assistantText = messageTextForTitle(assistantMessage).replace(/\s+/g, " ").trim().slice(0, 1_200);
-  if (!userText) return "";
-  return [`User prompt: ${userText}`, assistantText ? `Final assistant response: ${assistantText}` : ""].filter(Boolean).join("\n");
 }
 
 function messageTextForTitle(message) {
@@ -942,7 +905,7 @@ async function handleAbort() {
   const currentRuntime = runtime;
   send({ type: 'event', event: { type: 'zyra_agent_interruption', interruption: { kind: 'stopped', source: 'user' } } });
   declinePendingPermissions("Root turn stopped.");
-  abandonPendingUserInputs();
+  abandonPendingUserInputs({ preserveAsync: true });
   controlBridgeClient.cancelPending("Root turn stopped.");
   const foregroundJobs = abortManagedBashForegroundJobs(currentRuntime?.managedBash, "Root turn stopped");
   currentRuntime?.session?.abortCompaction?.();
@@ -1154,6 +1117,14 @@ async function handleMessage(message) {
       return;
     }
     if (pluginRevocationPromise && message?.type !== 'dispose') throw new Error('Chat Plugin authority revoked.');
+    if (message?.type === 'app.authorize') {
+      if (!runtime) throw new Error('Zyra is not connected.');
+      const decision = await requestToolPermission({ requestType: 'command', toolName: 'app', toolCallId: message.payload?.toolCallId,
+        title: String(message.payload?.title || 'Allow this app operation?').slice(0, 160),
+        detail: String(message.payload?.detail || '').slice(0, 96_000), grantLabel: 'This exact app operation only' });
+      sendResponse(id, true, { result: { allowed: decision === 'acceptOnce' || decision === 'acceptForSession' } });
+      return;
+    }
     if (message?.type === 'prepare') {
       const sdk = await loadSdk();
       sendResponse(id, true, { result: await sdk.prepareZyraSessionRuntime(message.payload || {}) });

@@ -380,7 +380,7 @@ function consumeLine(record, line, offset, byteLength, questionCallIds) {
   const message = entry.message && typeof entry.message === "object" ? entry.message : {};
   if (["user", "assistant", "system"].includes(message.role)) record.displayMessageCount = (record.displayMessageCount || 0) + 1;
   const content = Array.isArray(message.content) ? message.content : [];
-  record.toolCallCount = (record.toolCallCount || 0) + content.filter((part) => part?.type === "toolCall").length;
+  record.toolCallCount = (record.toolCallCount || 0) + content.filter((part) => part?.type === "toolCall" && part.name !== 'set_chat_title').length;
   record.imageCount = (record.imageCount || 0) + content.filter((part) => part?.type === "image").length;
   if (message.isError === true || message.stopReason === "error" || message.errorMessage) record.errorCount = (record.errorCount || 0) + 1;
   const timestamp = typeof message.timestamp === "number" ? message.timestamp : entry.timestamp;

@@ -42,10 +42,12 @@
     "test:file-change-streaming": "node scripts/test-zyra-write-diff.mjs && node scripts/test-zyra-ui-render.mjs && bun run --cwd desktop test:file-change-lifecycle && bun run --cwd desktop test:pi-assistant-lifecycle && bun run --cwd desktop test:assistant-diff",
     "precheck": "node --check src/auth-methods.mjs && node --check src/project-paths.mjs && node --check src/oauth-login-callbacks.mjs && node --check src/desktop-openai-auth.mjs && node --check src/desktop-openai-auth-worker.mjs && node --check src/secret-input.mjs && node --check scripts/test-zyra-auth.mjs && node scripts/test-zyra-auth.mjs",
     "test:agent-surface": "node scripts/test-agent-surface-contract.mjs && bun run --cwd desktop test:agent-surface",
+    "test:chat-titles": "node scripts/test-chat-title-tool.mjs && node scripts/test-chat-title-runtime.mjs && node scripts/test-zyra-chat-index.mjs && npm --prefix desktop run test:assistant-titles",
     "test:user-input": "node scripts/test-request-user-input.mjs && bun desktop/scripts/test-assistant-user-input-contract.ts",
     "test:task-ownership-prompt": "node scripts/test-zyra-task-ownership-prompt.mjs",
     "test:agent-fleet:cancellation": "node scripts/test-agent-fleet-cancellation.mjs",
     "test:agent-conversations": "node scripts/test-agent-conversation-kind.mjs && node scripts/test-agent-conversations.mjs && node scripts/test-agent-conversation-owner.mjs",
+    "test:subagent-messages": "node scripts/test-subagent-message-routing.mjs && node scripts/test-thread-collaboration.mjs",
     "test:ci-relay": "node scripts/test-ci-relay.mjs",
     "test:work-timeline-v2": "bun run --cwd desktop test:work-timeline-v2",
     "test:child-session-runtime": "node scripts/test-child-session-runtime.mjs",
@@ -60,6 +62,9 @@
     "test:desktop-install": "node scripts/test-zyra-desktop-install.mjs && bun run --cwd desktop test:release-infra",
     "test:agent-platform-integration": "bun desktop/scripts/test-agent-platform-integration.ts",
     "test:agent-server:compatibility": "node scripts/test-zyra-agent-server-compatibility.mjs && node scripts/test-agent-server-connection-status.mjs",
+    "runtime:inspect": "node scripts/runtime-deployment.mjs",
+    "test:runtime-lifecycle": "node scripts/test-runtime-lifecycle.mjs && node scripts/test-runtime-activation.mjs && node scripts/test-agent-server-connection-status.mjs",
+    "test:runtime-deployment": "node scripts/test-runtime-deployment.mjs",
     "test:agent-server:connection-status": "node scripts/test-agent-server-connection-status.mjs",
     "test:agent-server:attention": "node scripts/test-chat-attention.mjs",
     "test:agent-server": "node scripts/test-zyra-agent-server-compatibility.mjs && node scripts/test-agent-server-connection-status.mjs && node scripts/test-zyra-chat-index.mjs && node scripts/test-zyra-agent-server.mjs && node scripts/test-zyra-agent-server-bridge.mjs && bun run --cwd desktop test:agent-server && bun run --cwd desktop test:assistant-project",
@@ -122,8 +127,7 @@
     "test:owned-runtime-session": "node scripts/test-owned-runtime-session.mjs",
     "test:owned-runtime-clipboard": "node scripts/test-owned-runtime-clipboard.mjs",
     "test:owned-codex-transport": "node scripts/test-owned-codex-transport.mjs",
-    "runtime:typecheck": "tsc --noEmit -p src/runtime/tsconfig.json",
-    "test:subagent-messages": "node scripts/test-subagent-message-routing.mjs && node scripts/test-thread-collaboration.mjs"
+    "runtime:typecheck": "tsc --noEmit -p src/runtime/tsconfig.json"
   },
   "bin": {
     "zyra": "bin/zyra.mjs",

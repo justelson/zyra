@@ -37,13 +37,18 @@ function emptyFailure(model, error, signal) {
 
 export function readChatGptResponseLimits(headers, now = Date.now()) {
   const get = key => headers?.get?.(key) ?? headers?.[key];
+  const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value)) ? Number(value) : null;
   const window = name => {
-    const raw = get(`x-codex-${name}-used-percent`);
-    if (raw === undefined || raw === null || !Number.isFinite(Number(raw))) return null;
-    const after = Number(get(`x-codex-${name}-reset-after-seconds`));
-    const absolute = Number(get(`x-codex-${name}-reset-at`));
+    const usedPercent = numeric(get(`x-codex-${name}-used-percent`));
+    if (usedPercent === null) return null;
+    const after = numeric(get(`x-codex-${name}-reset-after-seconds`));
+    const absolute = numeric(get(`x-codex-${name}-reset-at`));
     const deadline = absolute > 0 ? absolute * 1000 : after > 0 ? now + after * 1000 : null;
-    return { usedPercent: Number(raw), resetAt: deadline ? new Date(deadline).toISOString() : null, windowSeconds: Number(get(`x-codex-${name}-window-minutes`)) * 60 || null };
+    const resetAt = deadline && Number.isFinite(new Date(deadline).getTime()) ? new Date(deadline).toISOString() : null;
+    const minutes = numeric(get(`x-codex-${name}-window-minutes`));
+    const windowSeconds = minutes > 0 && Number.isFinite(minutes * 60) ? minutes * 60 : null;
+    if (usedPercent === 0 && !resetAt && !windowSeconds) return null;
+    return { usedPercent, resetAt, windowSeconds };
   };
   const retry = get('retry-after');
   const resetAt = retry ? Number.isFinite(Number(retry)) ? now + Number(retry) * 1000 : Date.parse(retry) : 0;

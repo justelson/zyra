@@ -5,6 +5,7 @@ import type {
     AssistantThread
 } from '@shared/assistant/contracts'
 import type { Settings } from '@/lib/settings'
+import { readRememberedChoices } from './assistant-remembered-choices'
 
 type AssistantComposerConfigurationSettings = Pick<
     Settings,
@@ -31,10 +32,11 @@ export function resolveAssistantComposerLaunchConfiguration(input: {
     interactionModeOverride?: AssistantInteractionMode | null
 }): AssistantComposerLaunchConfiguration {
     if (input.useSettingsDefaults) {
-        const runtimeMode = input.settings.assistantDefaultRuntimeMode
+        const remembered = readRememberedChoices({ model: input.settings.assistantDefaultModel, effort: input.settings.assistantDefaultEffort, runtimeMode: input.settings.assistantDefaultRuntimeMode })
+        const runtimeMode = input.thread?.runtimeMode || remembered.runtimeMode
         return {
-            activeModel: input.settings.assistantDefaultModel.trim() || undefined,
-            activeEffort: input.settings.assistantDefaultEffort,
+            activeModel: input.thread?.model || remembered.model || undefined,
+            activeEffort: input.thread?.thinking || remembered.effort,
             activeFastModeEnabled: input.settings.assistantDefaultFastMode,
             runtimeMode,
             interactionMode: 'default',

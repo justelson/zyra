@@ -1,4 +1,5 @@
 import { recordStreamQueue } from '@shared/performance-samples'
+import { readRememberedChoices } from '@/pages/assistant/assistant-remembered-choices'
 import type {
     AssistantApprovalResponseInput,
     AssistantApprovePendingPlaygroundLabRequestInput,
@@ -369,16 +370,19 @@ export class AssistantStore {
     async createPluginChat(input: AssistantCreatePluginChatInput): Promise<AssistantCreateSessionResult> {
         if (this.createSessionPromise) return { success: false, error: 'A Chat is already being created.' }
         this.pluginChatPending = true
-        const work = this.createSessionImpl({ mode: 'work' }, input)
+        const work = this.createSessionImpl({ mode: 'work', composer: input.composer }, input)
         this.createSessionPromise = work
         try { return await work } finally { this.createSessionPromise = null; this.pluginChatPending = false }
     }
 
     private async createSessionImpl(input?: AssistantCreateSessionInput, pluginSelection?: AssistantCreatePluginChatInput): Promise<AssistantCreateSessionResult> {
+        const choices = input?.composer || readRememberedChoices()
+        input = { ...input, composer: choices }
         const selectedSession = this.state.snapshot.sessions.find(
             (session) => session.id === this.state.snapshot.selectedSessionId
         ) || null
         const reusableEmptySession = !pluginSelection && selectedSession && isReusableEmptySession(selectedSession, input)
+            && selectedSession.threads.some(thread => thread.id === selectedSession.activeThreadId && thread.model === choices.model && thread.thinking === choices.effort && thread.runtimeMode === choices.runtimeMode)
             ? selectedSession
             : null
         if (reusableEmptySession) {
@@ -410,7 +414,7 @@ export class AssistantStore {
         })
         try {
             const result = pluginSelection
-                ? await window.devscope.assistant.createPluginChat(pluginSelection)
+                ? await window.devscope.assistant.createPluginChat({ ...pluginSelection, composer: choices })
                 : await window.devscope.assistant.createSession(input)
             if (!result.success) {
                 this.setState((current) => ({
@@ -943,14 +947,16 @@ export class AssistantStore {
         return this.runAction(() => window.devscope.assistant.disconnect(sessionId), true)
     }
 
-    async sendPrompt(prompt: string, options?: AssistantSendPromptOptions) {
+    async sendPrompt(prompt: string, options?: AssistantSendPromptOptions, canSubmit: () => boolean = () => true) {
         const selectedSession = this.state.snapshot.sessions
             .find((session) => session.id === this.state.snapshot.selectedSessionId) || null
         const threadId = selectedSession?.activeThreadId || null
         if (selectedSession && threadId && this.state.historyByThreadId[threadId]?.pageInfo.hasNewer) {
             await this.requestSessionHydration(selectedSession.id, threadId, 0, true, true)
         }
-        const result = await this.runAction(() => window.devscope.assistant.sendPrompt(prompt, options), false)
+        const result = await this.runAction(() => canSubmit()
+            ? window.devscope.assistant.sendPrompt(prompt, options)
+            : Promise.resolve({ success: false as const, error: 'Stopped before submission. Your message is preserved.' }), false)
         this.flushPendingAssistantEvents()
         if (result.success) {
             const thread = this.state.snapshot.sessions.find(session => session.id === result.sessionId)

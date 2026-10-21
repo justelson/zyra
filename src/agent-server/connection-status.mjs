@@ -14,7 +14,13 @@ export function projectAgentServerInstance(server) {
   return Object.freeze({ instanceId, namespaceId, channel, protocolVersion, runtimeRevision, startedAt });
 }
 
-export function createConnectionStatus({ phase, connection, instance = null, errorCode, lastConfirmedAt, updatePending } = {}) {
+export function projectRuntimeActivity(value) {
+  const keys = ['activeTurns', 'backgroundChats', 'attention', 'requests', 'workspaceRequests', 'externalTools'];
+  if (!value || typeof value !== 'object' || keys.some(key => !Number.isSafeInteger(value[key]) || value[key] < 0)) return null;
+  return Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])));
+}
+
+export function createConnectionStatus({ phase, connection, instance = null, errorCode, lastConfirmedAt, updatePending, expectedRuntimeRevision, activity } = {}) {
   const normalizedConnection = CONNECTIONS.has(connection) ? connection : "disconnected";
   const status = {
     phase: String(phase || normalizedConnection),
@@ -24,6 +30,9 @@ export function createConnectionStatus({ phase, connection, instance = null, err
   };
   if (typeof errorCode === "string" && /^[A-Z0-9_]{1,96}$/.test(errorCode)) status.errorCode = errorCode;
   if (updatePending === true) status.updatePending = true;
+  if (typeof expectedRuntimeRevision === 'string' && /^[a-f0-9]{64}$/.test(expectedRuntimeRevision)) status.expectedRuntimeRevision = expectedRuntimeRevision;
+  const observedActivity = projectRuntimeActivity(activity);
+  if (observedActivity) status.activity = observedActivity;
   return Object.freeze(status);
 }
 

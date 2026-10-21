@@ -23,10 +23,9 @@ export function dispatchAppNavigation(command: AppNavigationCommand, navigate: N
     if (command === 'app.themeSearch' || command === 'app.usageSearch' || command === 'app.actionSearch') { window.dispatchEvent(new CustomEvent('zyra:palette-query', { detail: command === 'app.themeSearch' ? 'theme ' : command === 'app.actionSearch' ? 'action ' : 'usage' })); return }
     if (command === 'app.sidebar') { window.dispatchEvent(new Event('zyra:toggle-assistant-sidebar')); return }
     if (command === 'app.nextChat' || command === 'app.previousChat' || /^app\.chat[1-9]$/.test(command)) {
-        navigate('/assistant')
-        if (command === 'app.nextChat') cycleAssistantChat(1)
-        else if (command === 'app.previousChat') cycleAssistantChat(-1)
-        else selectAssistantChatAt(Number(command.slice(-1)) - 1)
+        if (command === 'app.nextChat') cycleAssistantChat(1, navigate)
+        else if (command === 'app.previousChat') cycleAssistantChat(-1, navigate)
+        else selectAssistantChatAt(Number(command.slice(-1)) - 1, navigate)
         return
     }
     if (command === 'app.findInChat') { requestAssistantConversationFind(); return }

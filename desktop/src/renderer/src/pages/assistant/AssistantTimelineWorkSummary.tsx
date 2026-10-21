@@ -93,12 +93,14 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const visibleActionCount = settings.assistantShowActionStats ? actionCount : 0
     const initialExpandedRef = useRef<boolean | null>(null)
     if (initialExpandedRef.current === null) {
-        initialExpandedRef.current = running && !collapseForTerminalResponse && (activeCollapseLocked || readWorkSummaryExpandedPreference())
+        initialExpandedRef.current = (running && !collapseForTerminalResponse || outcome === 'interrupted' || outcome === 'failed') && (activeCollapseLocked || readWorkSummaryExpandedPreference())
     }
     const initialExpanded = initialExpandedRef.current
     const [expanded, setExpanded] = useState(initialExpanded)
     const [contentMounted, setContentMounted] = useState(initialExpanded)
-    const [contentVisible, setContentVisible] = useState(false)
+    // Restoring existing work is not a disclosure action. Its first layout
+    // must include the work, otherwise opening a chat lands on its prompt.
+    const [contentVisible, setContentVisible] = useState(initialExpanded)
     const panelId = useId()
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const statusTextRef = useRef<HTMLSpanElement | null>(null)
@@ -203,6 +205,12 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
         previousRunningRef.current = running
         previousTerminalResponseRef.current = collapseForTerminalResponse
         if (!runningChanged && !terminalResponseBecameVisible) return
+        if (wasRunning && !running && outcome !== 'completed') {
+            // Stop/failure preserves the reader's disclosure state and partial work.
+            cancelPendingContentWork()
+            pendingExpansionAnchorRef.current = null
+            return
+        }
         // A narration/compaction update must not cancel the pending reveal frame.
         if (activeCollapseLocked && wasRunning) return
         cancelPendingContentWork()
@@ -225,7 +233,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
             contentUnmountTimerRef.current = null
             setContentMounted(false)
         }, WORK_SUMMARY_UNMOUNT_DELAY_MS)
-    }, [collapseForTerminalResponse, running, activeCollapseLocked])
+    }, [collapseForTerminalResponse, running, activeCollapseLocked, outcome])
 
     useEffect(() => () => {
         if (contentRevealFrameRef.current !== null) {

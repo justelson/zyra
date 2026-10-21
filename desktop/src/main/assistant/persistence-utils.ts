@@ -343,6 +343,7 @@ export function initializeAssistantPersistenceSchema(db: SqlDatabase): void {
     ensureTableColumn(db, 'assistant_messages', 'modality', 'TEXT')
     ensureTableColumn(db, 'assistant_messages', 'phase', 'TEXT')
     ensureTableColumn(db, 'assistant_pending_user_inputs', 'response_message_id', 'TEXT')
+    ensureTableColumn(db, 'assistant_pending_user_inputs', 'input_mode', "TEXT NOT NULL DEFAULT 'blocking'")
     ensureTableColumn(db, 'assistant_activities', 'timeline_sequence', 'INTEGER')
     ensureTableColumn(db, 'assistant_activities', 'turn_terminal_outcome', 'TEXT')
     ensureTableColumn(db, 'assistant_proposed_plans', 'timeline_sequence', 'INTEGER')

@@ -123,6 +123,7 @@ const coldSnapshot = hydrateFocusedSessionSnapshot(readAssistantSnapshot(coldDb)
 assert.equal(coldSnapshot.sessions[0]!.threads[0]!.messages.at(-1)?.phase, undefined, 'cold SQL restore has no retained phase')
 let metadataReads = 0
 const coldService = Object.assign(Object.create(AssistantService.prototype), {
+    agentForkImports: new Map(),
     ensureReady: async () => {}, state: { snapshot: coldSnapshot }, options: {},
     canonicalHistoryRefresh: new CanonicalHistoryRefreshTracker(), canonicalHistoryLoadPromises: new Map(),
     canonicalMessagePhaseRecovery: new CanonicalMessagePhaseRecovery(),

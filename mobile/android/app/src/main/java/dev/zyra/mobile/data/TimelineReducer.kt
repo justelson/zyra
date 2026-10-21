@@ -7,7 +7,8 @@ object TimelineReducer {
     // Custom context is agent-only unless its producer explicitly opts into display.
     // Never infer visibility from words in user or assistant messages.
     private fun hiddenMessage(message: JSONObject): Boolean = message.opt("display") == false ||
-        (message.optString("role") == "custom" && message.opt("display") != true)
+        (message.optString("role") == "custom" && message.opt("display") != true) ||
+        (message.optString("role") == "toolResult" && MessageContent.hiddenMetadataTool(message.optString("toolName")))
     private fun toolKey(id: String) = "tool:" + id
     private fun messageKey(message: JSONObject): String? {
         if (message.optString("role") == "toolResult") message.optString("toolCallId").takeUnless { it.isBlank() || it == "null" }?.let { return toolKey(it) }
@@ -30,7 +31,7 @@ object TimelineReducer {
             when (block?.optString("type")) {
                 "text" -> block.optString("text")
                 "thinking" -> block.optString("thinking")
-                "toolCall" -> block.optString("name") + "\n" + (block.optJSONObject("arguments")?.toString(2) ?: "")
+                "toolCall" -> if (MessageContent.hiddenMetadataTool(block.optString("name"))) null else block.optString("name") + "\n" + (block.optJSONObject("arguments")?.toString(2) ?: "")
                 "image" -> if (block.has("mediaRef") || block.has("unavailable")) null else "[Image attachment]"
                 else -> null
             }
@@ -57,6 +58,10 @@ object TimelineReducer {
         if (!force && sequence <= state.sequence) return state
         val event = envelope.optJSONObject("event") ?: return state.copy(sequence = sequence)
         val type = event.optString("type")
+        if (type.startsWith("tool_execution_") && MessageContent.hiddenMetadataTool(event.optString("toolName"))) {
+            val key = toolKey(event.optString("toolCallId"))
+            return state.copy(sequence = maxOf(sequence, state.sequence), items = state.items.filterNot { it.id == key })
+        }
         if (type == "session_config") return state.copy(sequence = maxOf(sequence, state.sequence), config = state.config.merge(event))
         if (event.optJSONObject("message")?.let(::hiddenMessage) == true) {
             val key = messageKey(event.getJSONObject("message"))

@@ -1,4 +1,4 @@
-import { type RuntimeActivationStatus, type RuntimeInstallation, type RuntimeInstanceIdentity } from '../../shared/runtime-activation'
+import { type RuntimeActivationStatus, type RuntimeActivity, type RuntimeInstallation, type RuntimeInstanceIdentity } from '../../shared/runtime-activation'
 
 let state: RuntimeActivationStatus = { phase: 'idle', connection: 'unknown' }
 const listeners = new Set<(state: RuntimeActivationStatus) => void>()
@@ -13,6 +13,11 @@ function identity(value: RuntimeInstanceIdentity | undefined): RuntimeInstanceId
         protocolVersion: Number.isSafeInteger(value.protocolVersion) ? value.protocolVersion : 0,
         startedAt: timestamp(value.startedAt)!, runtimeRevision: revision(value.runtimeRevision) || null
     }
+}
+function activity(value: RuntimeActivity | undefined): RuntimeActivity | undefined {
+    const keys = ['activeTurns', 'backgroundChats', 'attention', 'requests', 'workspaceRequests', 'externalTools'] as const
+    if (!value || keys.some(key => !Number.isSafeInteger(value[key]) || value[key] < 0)) return undefined
+    return Object.fromEntries(keys.map(key => [key, value[key]])) as RuntimeActivity
 }
 export function subscribeRuntimeActivation(listener: (state: RuntimeActivationStatus) => void) {
     listeners.add(listener)
@@ -31,6 +36,8 @@ export function publishRuntimeActivation(value: RuntimeActivationStatus): void {
         ...(state.installation ? { installation: state.installation } : {}),
         ...(identity(value.instance) || state.instance ? { instance: identity(value.instance) || state.instance } : {}),
         ...(revision(value.revision) ? { revision: revision(value.revision) } : {}),
+        ...(revision(value.expectedRuntimeRevision) ? { expectedRuntimeRevision: revision(value.expectedRuntimeRevision) } : {}),
+        ...(activity(value.activity) ? { activity: activity(value.activity) } : {}),
         ...(timestamp(value.lastConfirmedAt) || state.lastConfirmedAt ? { lastConfirmedAt: timestamp(value.lastConfirmedAt) || state.lastConfirmedAt } : {}),
         ...(typeof value.errorCode === 'string' && /^[A-Z0-9_]{1,96}$/.test(value.errorCode) ? { errorCode: value.errorCode } : {}),
         updatePending: value.updatePending === true

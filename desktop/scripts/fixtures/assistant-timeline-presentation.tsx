@@ -184,9 +184,9 @@ async function run() {
     viewport.scrollTop = 1_000
     await pause()
     const readingPosition = viewport.scrollTop
-    render('send-regression', { rows: [...responseRows, rows('later-update')[1]!], renderRow: renderTallRow, coldStart: false, isWorking: true, followLatestRequestKey: 'send:one' })
+    render('send-regression', { rows: [...responseRows, rows('later-update')[1]!], renderRow: renderVeryTallRow, coldStart: false, isWorking: true, followLatestRequestKey: 'send:one' })
     await pause()
-    check(distanceFromEnd() > 500 && Math.abs(viewport.scrollTop - readingPosition) < 2, 'New response updates cannot steal the viewport after deliberate upward navigation')
+    check(distanceFromEnd() > 500 && Math.abs(viewport.scrollTop - readingPosition) < 2, `New response updates cannot steal the viewport after deliberate upward navigation: before=${readingPosition}, after=${viewport.scrollTop}, gap=${distanceFromEnd()}`)
     results.push('Manual history reading remains anchored until a fresh send or latest request')
 
     const anchor = viewport.querySelector<HTMLElement>('[data-assistant-timeline-row-id]')!
@@ -226,14 +226,30 @@ async function run() {
     await waitFor(() => distanceFromEnd() < 2, 'The reopened working chat continues following new updates')
     results.push('Switching from history into an already-working chat reaches and follows the live end')
 
-    const summaryRenderer = (row: TimelineDisplayRow) => row.id === 'live-working-assistant'
-        ? <TimelineTurnWorkSummary startedAt="2026-01-01T00:00:00Z" completedAt={null} running hasWork
+    const summaryRows: TimelineDisplayRow[] = liveRows.map(row => row.id === 'live-working-assistant'
+        ? { id: row.id, kind: 'turn-work-summary', createdAt: row.createdAt, turnId: 'live-working', startedAt: '2026-01-01T00:00:00Z', completedAt: null, running: true, terminalResponseVisible: false, outcome: null, rows: [], liveNarrationRow: null }
+        : row)
+    const summaryRenderer = (row: TimelineDisplayRow) => row.kind === 'turn-work-summary'
+        ? <TimelineTurnWorkSummary key={row.id} startedAt={row.startedAt} completedAt={row.completedAt} running={row.running} outcome={row.outcome} hasWork
             renderChildren={() => <div style={{ height: 3_000 }}>Latest agent work</div>} />
         : liveRenderer(row)
-    render('live-summary-chat', { rows: liveRows, renderRow: summaryRenderer, isWorking: true, coldStart: false })
+    let reopenDisclosures = 0
+    const countReopenDisclosure = () => { reopenDisclosures++ }
+    container.addEventListener('assistant:timeline-disclosure-toggle', countReopenDisclosure)
+    render('live-summary-chat', { rows: summaryRows, renderRow: summaryRenderer, isWorking: true, coldStart: false })
+    const restoredPanel = container.querySelector<HTMLElement>('[data-assistant-work-summary-shell] [data-state]')!
+    check(restoredPanel?.getAttribute('data-state') === 'open' && restoredPanel.getBoundingClientRect().height >= 3_000, 'Restored work has its real height on the first committed layout')
     await new Promise(resolve => setTimeout(resolve, 500))
     check(distanceFromEnd() < 2, 'Opening actual live work does not replay its disclosure or leave the viewport at the prompt')
-    results.push('Reopening real expanded work lands at its latest end after layout settles')
+    check(reopenDisclosures === 0, 'Reopening existing work never replays an expansion event')
+    container.removeEventListener('assistant:timeline-disclosure-toggle', countReopenDisclosure)
+    results.push('Reopening real expanded work has its full height immediately without a prompt-first expansion')
+    const topBeforeStop = scrollContainerRef.current!.scrollTop
+    render('live-summary-chat', { rows: summaryRows.map(row => row.kind === 'turn-work-summary' ? { ...row, running: false, outcome: 'interrupted', completedAt: '2026-01-01T00:00:01Z' } : row), renderRow: summaryRenderer, isWorking: false, coldStart: false })
+    await new Promise(resolve => setTimeout(resolve, 450))
+    check(container.querySelector('[data-assistant-work-summary-shell] [data-state]')?.getAttribute('data-state') === 'open', 'Stop preserves the expanded partial work')
+    check(Math.abs(scrollContainerRef.current!.scrollTop - topBeforeStop) < 2, 'Stop does not run completion alignment or move the viewport')
+    results.push('Stopping preserves disclosure, partial work and scroll position')
 
     for (let attempt = 0; attempt < 8; attempt++) {
         scrollContainerRef.current!.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }))
@@ -335,7 +351,7 @@ async function run() {
             sessionStates: [{ sessionId: 'compaction-chat', threadState: 'ready', latestTurnState: 'completed',
                 pendingApprovalCount: 0, pendingUserInputCount: 0, compacting }],
             isAssistantBusy: false, commandPending: false, isThreadWorking: false,
-            activeTurnId: 'previous-turn', busyMessageMode: 'force',
+            activeTurnId: 'previous-turn', busyMessageMode: 'steer',
             dispatchPrompt: async (_id, prompt, files) => { sent.push(`${prompt}:${files.length}`); return true },
             interruptTurn: async () => { interrupted++ }
         })

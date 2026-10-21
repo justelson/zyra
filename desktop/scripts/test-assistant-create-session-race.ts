@@ -126,4 +126,26 @@ assert.equal(sessions[0]?.projectPath, 'C:/workspace')
 assert.equal(bootstrapCalls, 1, 'a represented queued event cannot manufacture a sequence gap and trigger another hydrate')
 store.release()
 
-console.log('Assistant create-session snapshot race: ok')
+// Plugin chats use a distinct IPC route, but must capture the same immediate choice.
+const values = new Map<string, string>()
+Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) || null,
+    setItem: (key: string, value: string) => values.set(key, value)
+} })
+const { rememberComposerChoices } = await import('../src/renderer/src/pages/assistant/assistant-remembered-choices')
+const chosen = { model: 'fixture/last-deliberate-model', effort: 'high' as const, runtimeMode: 'full-access' as const }
+rememberComposerChoices(chosen)
+let pluginInput: import('../src/shared/assistant/contracts').AssistantCreatePluginChatInput | null = null
+let finishPluginCreation!: () => void
+Object.assign(windowMock.devscope.assistant, { selectSession: async () => ({ success: true, sessionId: authoritativeSession.id }), createPluginChat: async (input: typeof pluginInput) => {
+    pluginInput = structuredClone(input)
+    await new Promise<void>(resolve => { finishPluginCreation = resolve })
+    return { success: true, sessionId: authoritativeSession.id }
+} })
+const pluginCreation = store.createPluginChat({ pluginId: 'fixture-plugin', releaseId: 'fixture-release', contentDigest: 'a'.repeat(64) })
+assert.deepEqual(pluginInput?.composer, chosen, 'Plugin chat IPC captures remembered choices immediately, not a later shared-settings flush')
+rememberComposerChoices({ model: 'fixture/later-model', effort: 'low', runtimeMode: 'approval-required' })
+assert.deepEqual(pluginInput?.composer, chosen, 'an already-created Plugin draft owns an immutable choice copy')
+finishPluginCreation()
+assert.equal((await pluginCreation).success, true)
+console.log('Assistant create-session snapshot race and Plugin composer choice snapshot: ok')

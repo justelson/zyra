@@ -21,7 +21,9 @@ import { CSS } from '@dnd-kit/utilities'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle, Plus, X } from 'lucide-react'
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
-import { useShortcutLabel } from '@/lib/keybindings'
+import { shortcutPlatform, useShortcutLabel } from '@/lib/keybindings'
+import { useSettings } from '@/lib/settings'
+import { ShortcutKeycaps } from '@/components/ui/ShortcutKeycaps'
 import type { CommandId } from '@shared/keybindings'
 import { usePublishAssistantTitleBarEndRegion } from '@/lib/assistant/assistant-title-bar'
 import { cn } from '@/lib/utils'
@@ -197,6 +199,7 @@ export function SortableInspectorTab({
                 <button
                     type="button"
                     onClick={onClose}
+                    data-shortcut-command={active ? 'app.closeWorkspaceTab' : undefined}
                     className="mr-1 inline-flex size-4 shrink-0 items-center justify-center rounded text-sparkle-text-muted/50 opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus:opacity-100 group-hover/tab:opacity-100"
                     aria-label={`Close ${tab.label}`}
                 >
@@ -314,6 +317,7 @@ export function AssistantInspectorSidebar({
     const [localPresented, setPresented] = useState(open)
     const presented = sharedFrame?.presented ?? localPresented
     const shortcutLabel = useShortcutLabel()
+    const { settings } = useSettings()
     useLayoutEffect(() => {
         if (sharedFrame) return
         if (!open) { setPresented(false); return }
@@ -1047,15 +1051,14 @@ export function AssistantInspectorSidebar({
                                             type="button"
                                             onClick={() => { void item.onSelect() }}
                                             disabled={item.disabled}
+                                            data-shortcut-command={commandId}
                                             aria-label={`Open ${item.label}; keyboard shortcut ${shortcut || 'unassigned'}`}
                                             title={shortcut ? `${item.label} · ${shortcut}` : `Open ${item.label}`}
                                             className="flex min-h-[88px] w-full flex-col items-center justify-center gap-1.5 rounded-[4px] border border-[color-mix(in_srgb,var(--color-text)_12%,var(--surface-panel-divider))] bg-[var(--surface-inspector)] px-2 py-2 text-center text-sparkle-text-secondary transition-colors hover:border-[color-mix(in_srgb,var(--accent-primary)_45%,var(--surface-panel-divider))] hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                                         >
                                             <span className="inline-flex size-5 items-center justify-center text-[var(--accent-primary)]" aria-hidden="true">{item.icon}</span>
                                             <span className="w-full truncate text-[10px] font-medium">{item.label}</span>
-                                            <kbd className="max-w-full truncate rounded-[3px] border border-[color-mix(in_srgb,var(--color-text)_15%,var(--surface-panel-divider))] bg-[color-mix(in_srgb,var(--color-text)_5%,var(--surface-inspector))] px-1.5 py-0.5 font-mono text-[9px] font-medium text-sparkle-text-muted">
-                                                {shortcut || 'No shortcut'}
-                                            </kbd>
+                                            {commandId ? <ShortcutKeycaps id={commandId} platform={shortcutPlatform()} overrides={settings.keyboardShortcuts} /> : <span className="text-[9px] text-sparkle-text-muted">No shortcut</span>}
                                         </button>
                                     </div>
                                 )

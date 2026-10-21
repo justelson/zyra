@@ -308,6 +308,9 @@ export interface AssistantUpdateSessionConfigurationInput {
 }
 
 export interface AssistantSendPromptOptions {
+    /** Steer the exact active turn without cancelling it or changing its configuration. */
+    dispatchMode?: 'immediate' | 'steer'
+    targetTurnId?: string
     startInNewWorktree?: boolean
     sessionId?: string
     model?: string
@@ -332,6 +335,10 @@ export interface AssistantDeleteMessageInput {
 }
 
 export interface AssistantCreateSessionInput {
+    /** Nonselecting creation preserves active work, voice and navigation. Defaults true for UI creation. */
+    select?: boolean
+    /** Immutable composer choices captured by the client at creation. */
+    composer?: { model: string; effort: AssistantReasoningEffort; runtimeMode: AssistantRuntimeMode }
     workspace?: import('../../contracts/developer-workflow').ChatWorkspaceChoice
     title?: string
     projectPath?: string
@@ -408,6 +415,9 @@ export interface AssistantApprovalResponseInput {
 }
 
 export interface AssistantUserInputResponseInput {
+    cancelled?: boolean
+    /** The client durably queued an async answer before resolving its question. */
+    deferContinuation?: boolean
     requestId: string
     answers: Record<string, string | string[]>
     contextText?: string

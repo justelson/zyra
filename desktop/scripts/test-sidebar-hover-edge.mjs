@@ -11,20 +11,25 @@ import electronPath from 'electron'
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const priorityPins = process.argv.includes('--priority-pins')
-const chatMenus = process.argv.includes('--chat-menus')
+const stopRecovery = process.argv.includes('--stop-recovery')
+const chatMenus = process.argv.includes('--chat-menus') || stopRecovery
 const screenshotDirectory = process.argv.find(arg => arg.startsWith('--screenshots='))?.slice('--screenshots='.length)
 if (screenshotDirectory) await mkdir(resolve(screenshotDirectory), { recursive: true })
 const directory = await mkdtemp(join(tmpdir(), 'zyra-sidebar-edge-'))
 try {
-    const bundle = await build({ entryPoints: [join(desktop, chatMenus ? 'scripts/fixtures/chat-menus.tsx' : priorityPins ? 'scripts/fixtures/sidebar-priority-pins.tsx' : 'scripts/fixtures/sidebar-hover-edge.tsx')],
+    const bundle = await build({ absWorkingDir: desktop, entryPoints: [join(desktop, chatMenus ? 'scripts/fixtures/chat-menus.tsx' : priorityPins ? 'scripts/fixtures/sidebar-priority-pins.tsx' : 'scripts/fixtures/sidebar-hover-edge.tsx')],
         bundle: true, write: false, metafile: true, format: 'iife', jsx: 'automatic', platform: 'browser',
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') },
-        define: { 'import.meta.hot': 'undefined' }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.woff2': 'dataurl' }, logLevel: 'silent',
+        define: { 'import.meta.hot': 'undefined' }, loader: { '.png': 'dataurl', '.svg': 'dataurl', '.ico': 'dataurl', '.woff2': 'dataurl' }, logLevel: 'silent',
         plugins: [{ name: 'edge-unrelated-services', setup(build) {
             build.onResolve({ filter: /\/AssistantSidebarFooter$/ }, () => ({ path: 'footer', namespace: 'fixture' }))
             build.onResolve({ filter: /\/useAssistantRailTitleRegeneration$/ }, () => ({ path: 'titles', namespace: 'fixture' }))
+            // The unopened developer menu imports a diff worker; it does not own
+            // chat menu behavior and is excluded from this focused fixture.
+            build.onResolve({ filter: /\/DeveloperWorkspaceMenu$/ }, () => ({ path: 'developer', namespace: 'fixture' }))
             build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'footer'
-                ? 'export const AssistantSidebarFooter=()=>null' : 'export const useAssistantRailTitleRegeneration=()=>()=>{}', loader: 'js' }))
+                ? 'export const AssistantSidebarFooter=()=>null' : args.path === 'developer'
+                    ? 'export const DeveloperWorkspaceMenu=()=>null' : 'export const useAssistantRailTitleRegeneration=()=>()=>{}', loader: 'js' }))
         } }]
     })
     const source = (await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8')).replace(/^@import[^\n]+\n/gm, '')
@@ -33,7 +38,7 @@ try {
     const html = join(directory, 'index.html')
     await writeFile(html, `<!doctype html><head><style>${css.css}
         :root{--color-text:#eee;--color-text-secondary:#aaa;--color-text-muted:#888;--color-bg:#10151a;--color-card:#171e26;--surface-hover:#252f38;--surface-divider:#39434d;--accent-primary:#ef9c45;--accent-secondary:#b59bdf}
-        html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script>${bundle.outputFiles[0].text}</script></body>`)
+        html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script>window.stopRecoveryOnly=${stopRecovery};${bundle.outputFiles[0].text}</script></body>`)
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});
         const timer=setTimeout(()=>{console.error('Edge fixture timed out');app.exit(1)},30000);
@@ -45,7 +50,7 @@ try {
         await new Promise(resolve=>setTimeout(resolve,10))}})();
         const results=await window.webContents.executeJavaScript('window.sidebarEdgeCheck');
         for(const result of results)console.log('PASS: '+result);
-        ${chatMenus && screenshotDirectory ? `for(const surface of ['header','sidebar']){await window.webContents.executeJavaScript('window.chatMenuReview('+JSON.stringify(surface)+')');const image=await window.webContents.capturePage();require('fs').writeFileSync(require('path').join(${JSON.stringify(resolve(screenshotDirectory))},surface+'-chat-menu.png'),image.toPNG())}` : ''}
+        ${chatMenus && screenshotDirectory ? `for(const surface of ${JSON.stringify(stopRecovery ? ['header'] : ['header', 'sidebar'])}){await window.webContents.executeJavaScript('window.chatMenuReview('+JSON.stringify(surface)+')');const image=await window.webContents.capturePage();require('fs').writeFileSync(require('path').join(${JSON.stringify(resolve(screenshotDirectory))},surface+'-chat-menu.png'),image.toPNG())}` : ''}
         pumping=false;await pump;clearTimeout(timer);window.destroy();app.quit()}).catch(error=>{console.error(error);clearTimeout(timer);app.exit(1)});`)
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
     process.exitCode = await new Promise((done, reject) => {

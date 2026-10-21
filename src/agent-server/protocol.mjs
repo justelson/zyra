@@ -4,7 +4,8 @@ export const AGENT_SERVER_PROTOCOL_VERSION = 5;
 export const MAX_AGENT_SERVER_MESSAGE_BYTES = 384 * 1024 * 1024;
 export const MAX_AGENT_SERVER_REPLAY_EVENTS = 512;
 
-export const AGENT_SERVER_METHODS = Object.freeze([
+// Baseline required to keep existing Chats connected during a deferred update.
+export const AGENT_SERVER_REQUIRED_METHODS = Object.freeze([
   "server.status",
   "server.retire",
   "runtime.models",
@@ -33,6 +34,10 @@ export const AGENT_SERVER_METHODS = Object.freeze([
   "session.request",
   "session.detach",
   "session.stop",
+]);
+export const AGENT_SERVER_METHODS = Object.freeze([
+  ...AGENT_SERVER_REQUIRED_METHODS,
+  'desktop.app.validate',
 ]);
 const METHOD_NAMES = new Set(AGENT_SERVER_METHODS);
 

@@ -25,7 +25,7 @@ export function RuntimeLifecycleSection() {
     const codeLabel = lifecycle.codeState === 'current' ? 'Installed code active'
         : lifecycle.codeState === 'pending' ? 'Installed code not active' : 'Active code not confirmed'
     const description = lifecycle.codeState === 'pending'
-        ? 'Installed and running agent code differ. Activation replaces only an idle agent with the installed code. Running work is never stopped automatically.'
+        ? 'Installed and running agent code differ. If work delayed the update, Desktop retries automatically when safe. Activation never cancels running work.'
         : lifecycle.codeState === 'current'
             ? 'The running agent matches the code installed with this app. This does not verify a particular bug fix.'
             : 'Refresh the connection to compare installed code with the running agent. Closing the app does not stop its work.'
@@ -42,7 +42,7 @@ export function RuntimeLifecycleSection() {
             control={api?.activateUpdate ? <SettingsButton disabled={pending !== null || !lifecycle.canActivate} onClick={() => void run('activate')}>
                 {pending === 'activate' ? 'Activating…' : 'Activate agent update'}
             </SettingsButton> : undefined} />
-        {lifecycle.blockers.length > 0 ? <SettingsNotice tone="warning">Waiting for {lifecycle.blockers.join(', ')}. Finish or explicitly stop that work, then refresh. Nothing is cancelled by this page.</SettingsNotice> : null}
+        {lifecycle.blockers.length > 0 ? <SettingsNotice tone="warning">Waiting for {lifecycle.blockers.join(', ')}. A busy update retries automatically after this work finishes. Nothing is cancelled by this page.</SettingsNotice> : null}
         {!api?.activateUpdate ? <SettingsNotice>Manage agent updates in the Desktop app. This connection is read-only.</SettingsNotice> : null}
         {error ? <div role="alert"><SettingsNotice tone="error">{error}</SettingsNotice></div> : null}
         <details className="border-t border-[var(--settings-row-divider)]">

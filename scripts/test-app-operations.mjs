@@ -29,6 +29,12 @@ assert.deepEqual(tools.map(tool => tool.name), ['settings', 'settings_action', '
 await tools[0].execute('trusted-tool-call', { action: 'get', area: 'appearance' });
 assert.deepEqual(calls[0], { action: 'app', domain: 'settings', operation: 'get', params: { area: 'appearance' }, dedupeKey: 'trusted-tool-call' });
 assert.deepEqual(createAppControlTools(null), []);
+const legacyTools = createAppControlTools({ request: async () => { throw new Error('Unknown thread operation.'); } });
+await assert.rejects(legacyTools[0].execute('legacy-settings-read', { action: 'get', area: 'appearance' }), error =>
+  error.code === 'APP_RUNTIME_UPDATE_REQUIRED' && error.message.includes('not applied'));
+const ownerError = new Error('The authenticated owner is unavailable.');
+const unavailableTools = createAppControlTools({ request: async () => { throw ownerError; } });
+await assert.rejects(unavailableTools[0].execute('settings-read', { action: 'get' }), error => error === ownerError);
 
 const temporary = mkdtempSync(path.join(tmpdir(), 'zyra-app-transport-'));
 try {

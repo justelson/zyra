@@ -6,10 +6,10 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { getAgentServerPaths } from "./paths.mjs";
-import { createConnectionStatus, projectAgentServerInstance } from "./connection-status.mjs";
+import { createConnectionStatus, projectAgentServerInstance, projectRuntimeActivity } from "./connection-status.mjs";
 import {
   AGENT_SERVER_PROTOCOL_VERSION,
-  AGENT_SERVER_METHODS,
+  AGENT_SERVER_REQUIRED_METHODS,
   createAgentServerLineReader,
   writeAgentServerMessage
 } from "./protocol.mjs";
@@ -34,7 +34,7 @@ export class ZyraAgentServerClient extends EventEmitter {
     this.authorities = Array.isArray(options.authorities) ? [...new Set(options.authorities)] : [];
     this.authorityProof = String(options.authorityProof || "");
     this.autoStart = options.autoStart !== false;
-    this.requiredMethods = options.requiredMethods || AGENT_SERVER_METHODS;
+    this.requiredMethods = options.requiredMethods || AGENT_SERVER_REQUIRED_METHODS;
     this.serverMethods = [];
     this.serverRuntimeRevision = null;
     this.verifyRuntimeRevision = options.verifyRuntimeRevision ?? this.autoStart;
@@ -51,6 +51,8 @@ export class ZyraAgentServerClient extends EventEmitter {
     this.nextRequestId = 1;
     this.connectPromise = null;
     this.activationPromise = null;
+    this.deferredUpgradeKey = null;
+    this.lifecycleGeneration = 0;
     this.expectedRuntimeRevision = null;
     this.helloResolve = null;
     this.helloReject = null;
@@ -136,12 +138,13 @@ export class ZyraAgentServerClient extends EventEmitter {
     }
     this.publishConnectionStatus({ phase: "checking", connection: "connecting" });
     const upgradeError = () => Object.assign(new Error("Zyra's background service is older than this app. Restart the background service to finish updating, then try again."), { code: "AGENT_SERVER_UPGRADE_REQUIRED", missingMethods: missing() });
-    const upgradeKey = JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort(), expectedRevision]);
+    const upgradeKey = this.runtimeUpgradeKey(expectedRevision);
     try {
       if (!this.autoStart || !this.serverMethods.includes("server.retire") || SERVICE_UPGRADE_ATTEMPTS.has(upgradeKey)) throw upgradeError();
       await this.replaceRuntime(descriptor, expectedRevision, upgradeKey);
     } catch (error) {
       if (this.socket?.writable && missing().length === 0 && !revisionMatches() && UPDATE_DEFERRED_CODES.has(error?.code)) {
+        this.deferredUpgradeKey = error.code === 'AGENT_SERVER_UPGRADE_BUSY' ? upgradeKey : null;
         this.acceptConnection(true, error.code);
         return;
       }
@@ -192,7 +195,8 @@ export class ZyraAgentServerClient extends EventEmitter {
       if (!descriptor || descriptor.namespaceId && descriptor.namespaceId !== this.paths.namespaceId) {
         throw Object.assign(new Error('Runtime discovery changed. Reconnect before activating.'), { code: 'AGENT_SERVER_INSTANCE_CHANGED' });
       }
-      const key = JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort(), expected]);
+      const key = this.runtimeUpgradeKey(expected);
+      this.deferredUpgradeKey = null;
       try {
         await this.replaceRuntime(descriptor, expected, key);
         return this.connectionStatus;
@@ -200,7 +204,10 @@ export class ZyraAgentServerClient extends EventEmitter {
         if (this.socket?.writable && UPDATE_DEFERRED_CODES.has(error?.code)) {
           await this.observeRuntimeStatus(expected);
           this.publishConnectionStatus({ errorCode: error.code });
-          if (error.code === 'AGENT_SERVER_UPGRADE_BUSY') return this.connectionStatus;
+          if (error.code === 'AGENT_SERVER_UPGRADE_BUSY') {
+            this.deferredUpgradeKey = key;
+            return this.connectionStatus;
+          }
         } else if (!this.socket?.writable) {
           this.publishConnectionStatus({ phase: 'failed', connection: 'disconnected', errorCode: error?.code || 'AGENT_SERVER_UNAVAILABLE' });
         }
@@ -209,6 +216,31 @@ export class ZyraAgentServerClient extends EventEmitter {
     })();
     this.activationPromise = pending.finally(() => { this.activationPromise = null; });
     return this.activationPromise;
+  }
+
+  runtimeUpgradeKey(expectedRevision) {
+    return JSON.stringify([this.root, this.paths.descriptorFile, [...this.requiredMethods].sort(), expectedRevision]);
+  }
+
+  async retryDeferredRuntimeUpdate(state, socket) {
+    const key = this.deferredUpgradeKey;
+    if (!key || this.socket !== socket || !socket.writable || this.connectPromise || this.activationPromise
+      || !this.autoStart || !this.verifyRuntimeRevision || this.surface !== 'desktop'
+      || !this.authorities.includes('desktop-control') || !this.authorityProof
+      || !this.connectionStatus.updatePending || this.pending.size || SERVICE_UPGRADE_ATTEMPTS.has(key)) return;
+    const activity = state?.activity;
+    // Legacy format-1 servers omit activity, but already rejected this update as
+    // busy through their verified retirement gate. Ask that gate again, never
+    // infer idle from missing counts. Modern malformed/unknown counts fail closed.
+    const legacyGate = state?.activationVersion === 1 && activity === undefined;
+    if (!legacyGate && (!projectRuntimeActivity(activity) || !Object.values(activity).every(count => count === 0))) return;
+    // server.retire checks again atomically if work was admitted after observation.
+    try { await this.activateRuntimeUpdate(); }
+    catch (error) {
+      this.deferredUpgradeKey = null;
+      // An activation refusal must not tear down otherwise healthy, older Chats.
+      if (this.socket?.writable) this.publishConnectionStatus({ errorCode: error?.code || 'AGENT_SERVER_UPGRADE_REQUIRED' });
+    }
   }
 
   async replaceRuntime(descriptor, expectedRevision, upgradeKey) {
@@ -220,12 +252,18 @@ export class ZyraAgentServerClient extends EventEmitter {
       expectedRevision, expectedInstanceId: this.instance?.instanceId }, { timeoutMs: 5_000 });
     if (retired.retiring !== true) throw upgradeError();
     SERVICE_UPGRADE_ATTEMPTS.add(upgradeKey);
+    const generation = this.lifecycleGeneration + 1;
     this.close(undefined, 'restarting');
+    const assertCurrent = () => {
+      if (generation !== this.lifecycleGeneration) throw Object.assign(new Error('Runtime activation was disconnected.'), { code: 'AGENT_SERVER_DISCONNECTED' });
+    };
     const deadline = Date.now() + 10_000;
     while (processAlive(descriptor.pid) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 75));
+    assertCurrent();
     if (processAlive(descriptor.pid)) throw upgradeError();
     this.startServer();
     const next = await waitForDescriptor(this.paths.descriptorFile, DEFAULT_CONNECT_TIMEOUT_MS, descriptor.pid, this.paths);
+    assertCurrent();
     await this.openSocket(next);
     // One replacement only. A competing older client must not cause a loop.
     this.expectedRuntimeRevision = expectedRevision;
@@ -366,6 +404,8 @@ export class ZyraAgentServerClient extends EventEmitter {
   }
 
   close(errorCode = "AGENT_SERVER_DISCONNECTED", phase = "idle") {
+    this.deferredUpgradeKey = null;
+    this.lifecycleGeneration++;
     const socket = this.socket;
     this.cancelHeartbeat(socket);
     this.cleanupReader?.();
@@ -413,6 +453,7 @@ export class ZyraAgentServerClient extends EventEmitter {
           throw Object.assign(new Error('The connected Zyra instance changed. Reconnect to confirm its state.'), { code: 'AGENT_SERVER_INSTANCE_CHANGED' });
         }
         this.publishConnectionStatus({ phase: this.connectionStatus.updatePending ? "waiting" : "ready", connection: "connected", instance: observedInstance || this.instance, activity: state.activity, errorCode: undefined, lastConfirmedAt: new Date().toISOString() });
+        if (observedInstance) await this.retryDeferredRuntimeUpdate(state, socket);
       } catch (error) {
         // A previous connection's timeout must never tear down its replacement.
         if (this.socket !== socket) return;

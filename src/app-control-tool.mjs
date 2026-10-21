@@ -20,8 +20,16 @@ export function createAppControlTools(client) {
     }),
     execute: async (toolCallId, params) => {
       const { action, ...input } = params;
-      const result = await client.request({ action: 'app', domain, operation: action, params: input, dedupeKey: toolCallId });
-      return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { appOperation: true } };
+      try {
+        const result = await client.request({ action: 'app', domain, operation: action, params: input, dedupeKey: toolCallId });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { appOperation: true } };
+      } catch (error) {
+        // Pre-app servers send valid app requests to their thread dispatcher.
+        if (error?.message === 'Unknown thread operation.') throw Object.assign(new Error(
+          'The running background agent does not support app operations yet. This operation was not applied. Let active work finish; if the update stays pending, use Settings > About > Background agent to activate it.'
+        ), { code: 'APP_RUNTIME_UPDATE_REQUIRED' });
+        throw error;
+      }
     },
   });
   return [

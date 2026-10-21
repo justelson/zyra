@@ -110,8 +110,11 @@ try{
  const unsubscribe=subscribeCodeContext('chat-a',file=>attachments.push(file))
  let selectionChanged
  const model={getValue:()=> 'one\\ntwo\\nthree',getValueInRange:()=> 'two',getVersionId:()=>1}
- const widgetHost=document.createElement('div');document.body.append(widgetHost)
- const editor={addContentWidget:widget=>widgetHost.append(widget.getDomNode()),removeContentWidget:widget=>widget.getDomNode().remove(),layoutContentWidget:()=>{},onDidScrollChange:()=>({dispose(){}}),getSelection:()=>({startLineNumber:2,endLineNumber:2,endColumn:4,isEmpty:()=>false}),getModel:()=>model,onDidChangeCursorSelection:callback=>{selectionChanged=callback;return{dispose(){}}},onDidChangeModelContent:()=>({dispose(){}})}
+ const widgetHost=document.createElement('div');widgetHost.style.cssText='width:400px;height:200px';document.body.append(widgetHost)
+ // Transport/selection fixture only. Real Monaco geometry is covered separately
+ // by test-code-selection-toolbar.mjs, never by these API-shaped adapters.
+ const disposable=()=>({dispose(){}})
+ const editor={getDomNode:()=>widgetHost,getScrolledVisiblePosition:()=>({left:0,top:20,height:20}),onDidLayoutChange:disposable,onDidChangeModel:disposable,onKeyDown:disposable,focus:()=>{},onDidScrollChange:disposable,getSelection:()=>({startLineNumber:2,endLineNumber:2,endColumn:4,isEmpty:()=>false,getStartPosition:()=>({lineNumber:2,column:1})}),getModel:()=>model,onDidChangeCursorSelection:callback=>{selectionChanged=callback;return{dispose(){}}},onDidChangeModelContent:disposable}
  await act(async()=>root.render(<MemoryRouter><PreviewCodeSelection editor={editor} filePath="/repo/code.ts" workspaceRoot="/repo"/></MemoryRouter>))
  check(document.body.textContent.includes('Lines 2–2'),'selected lines shown next to action')
  await act(async()=>document.querySelector('[data-code-selection] button').click());await flush(20)

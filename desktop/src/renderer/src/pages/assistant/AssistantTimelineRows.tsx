@@ -12,6 +12,9 @@ import { ZyraLogoASCII } from '@/components/ui/ZyraLogo'
 import { cn } from '@/lib/utils'
 import { formatAssistantDateTime } from '@/lib/assistant/selectors'
 import { AssistantPeerReplyReceipt } from './AssistantPeerReplyReceipt'
+import { AssistantCitationSelection } from './AssistantCitationSelection'
+import { AssistantCitationChip } from './AssistantCitationChip'
+import { citationContextFile } from './assistant-citations'
 import { areAssistantPeerRepliesEqual, type AssistantPeerReply } from './assistant-peer-replies'
 import AssistantAttachmentPreviewModal from './AssistantAttachmentPreviewModal'
 import { AssistantFileAttachmentCard, AssistantPastedTextCard } from './AssistantAttachmentCards'
@@ -713,6 +716,7 @@ export const TimelineMessage = memo(({
                 data-assistant-message-surface={displayMode}
                 data-assistant-inline-work-narration={inlineWorkNarration ? 'true' : undefined}
             >
+                <AssistantCitationSelection messageId={message.id}>
                 {inlineWorkNarration ? (
                     presentationActive ? (
                         <StreamingAssistantMarkdown
@@ -797,6 +801,7 @@ export const TimelineMessage = memo(({
                         mediaMode={presentationActive ? 'none' : 'images-and-videos'}
                     />
                 )}
+                </AssistantCitationSelection>
             </div>
         )
     }
@@ -818,6 +823,7 @@ export const TimelineMessage = memo(({
                         >
                             <div className="flex w-max min-w-full gap-2">
                             {parsedUserMessage.attachments.map((attachment) => {
+                                if (attachment.citation) return <AssistantCitationChip key={attachment.id} file={citationContextFile(attachment.citation, attachment.id)} />
                                 const isImage = attachment.type === 'IMAGE'
                                 const resolvedAttachmentPath = attachment.path && isClipboardAttachmentReference(attachment.path)
                                     ? (resolvedClipboardAttachmentPaths[attachment.id] || null)

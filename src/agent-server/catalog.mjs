@@ -296,18 +296,30 @@ export class CanonicalChatCatalog {
     if (patch.settled !== undefined && !chat) throw new Error('Chat not found.');
     if (patch.project !== undefined) this.registerProject(patch.project);
     const existing = this.record.metadata[canonicalChatId] || {};
+    if (!patch.initialTitleOnly && patch.expectedTitle !== undefined && String(existing.title || chat?.title || '') !== patch.expectedTitle) throw new Error('The Chat title changed before this rename. Read it again.');
+    if (patch.initializeTitle && (existing.titleSource || existing.title)) return chat;
+    if (patch.titleSource === 'refresh' && (!existing.titleSource || existing.titleSource === 'manual')) throw new Error('The manually named or unclassified chat title is protected.');
+    // Recheck after the history read: a manual rename may have won while an
+    // initial-title event was in flight. Never let that event overwrite it.
+    if (patch.initialTitleOnly && (
+      !['initial', 'provisional'].includes(existing.titleSource)
+      || String(existing.title || chat?.title || '') !== patch.expectedTitle
+    )) return null;
     const next = {
       ...existing,
       ...(patch.settled !== undefined && !(patch.settlementIfAbsent && currentChatSettlementChoice(chat, existing)) ? { settlement: {
         state: patch.settled ? 'settled' : 'active', messageCount: Math.max(0, Number(chat.messageCount) || 0), changedAt: new Date().toISOString()
       } } : {}),
-      ...(patch.title !== undefined ? { title: normalizeTitle(patch.title) } : {}),
+      ...(patch.title !== undefined ? { title: normalizeTitle(patch.title), titleSource: patch.titleSource || 'manual' } : {}),
+      ...(patch.titleSource !== undefined && patch.title === undefined ? { titleSource: patch.titleSource } : {}),
       ...(patch.agentCreatedBy !== undefined ? { agentCreatedBy: String(patch.agentCreatedBy).slice(0, 192) } : {}),
       ...(patch.agentLabel !== undefined ? { agentLabel: String(patch.agentLabel).slice(0, 120) } : {}),
       ...(patch.agentRunId !== undefined ? { agentRunId: String(patch.agentRunId).slice(0, 192) } : {}),
       ...(['thread', 'subagent'].includes(patch.agentConversationKind) ? { agentConversationKind: patch.agentConversationKind } : {}),
       ...(patch.project !== undefined ? { project: normalizeProject(patch.project) } : {}),
       ...(patch.cwd !== undefined ? { cwd: normalizeProject(patch.cwd) } : {}),
+      ...(typeof patch.forkPending === 'boolean' ? { forkPending: patch.forkPending } : {}),
+      ...(patch.forkOrigin ? { forkOrigin: { canonicalChatId: String(patch.forkOrigin.canonicalChatId), namespaceId: patch.forkOrigin.namespaceId || null, entryId: String(patch.forkOrigin.entryId), messageId: String(patch.forkOrigin.messageId || patch.forkOrigin.entryId), worktree: patch.forkOrigin.worktree === 'isolated' ? 'isolated' : 'shared', createdAt: String(patch.forkOrigin.createdAt) } } : {}),
       ...(patch.archived !== undefined ? {
         archived: patch.archived === true,
         archivedAt: patch.archived === true ? new Date().toISOString() : null
@@ -385,6 +397,9 @@ function applyMetadata(chat, metadata = {}, record = {}) {
   return {
     ...chat,
     title: normalizeTitle(metadata.title || chat.title),
+    titleSource: metadata.titleSource || null,
+    forkPending: metadata.forkPending === true,
+    forkOrigin: metadata.forkOrigin || null,
     agentCreatedBy: metadata.agentCreatedBy || null,
     agentLabel: metadata.agentLabel || null,
     agentRunId: metadata.agentRunId || null,

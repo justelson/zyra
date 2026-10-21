@@ -51,6 +51,12 @@ export function resolveCanonicalPresenceThreadState(input: {
 }): AssistantThreadState {
     const { currentState, previousPresence, presence, localThread } = input
     if (!presence) return currentState
+    if (localThread?.latestTurn?.runtimeRecoveryPending) {
+        const recovered = mergeCanonicalPresenceLatestTurn(localThread.latestTurn, presence)
+        if (recovered?.state !== 'running') {
+            return recovered?.state === 'error' ? 'error' : recovered?.state === 'interrupted' ? 'interrupted' : 'ready'
+        }
+    }
     if (presence.state === 'running' && localThread?.latestTurn && localThread.latestTurn.state !== 'running'
         && presence.activeTurnId === localThread.latestTurn.id) {
         return localThread.latestTurn.state === 'interrupted' ? 'interrupted' : localThread.latestTurn.state === 'error' ? 'error' : 'ready'
@@ -112,6 +118,12 @@ export function mergeCanonicalPresenceLatestTurn(
     presence?: CanonicalAgentChatPresence | null
 ): AssistantLatestTurn | null {
     const canonical = presence?.latestTurn
+    if (current?.runtimeRecoveryPending && current.state === 'running' && presence && !presence.activeTurnId
+        && (!canonical || canonical.id === current.id && canonical.state === 'running')) {
+        // A fresh observation confirmed no foreground owner survived. This is
+        // startup recovery only, never a rule for an in-flight local submission.
+        return { ...current, runtimeRecoveryPending: undefined, state: 'interrupted', completedAt: new Date().toISOString() }
+    }
     if (!canonical) return current
     const canonicalAssistantMessageId = normalizeAssistantMessageReferenceId(canonical.assistantMessageId)
     if (!current || current.id !== canonical.id) {
@@ -124,6 +136,7 @@ export function mergeCanonicalPresenceLatestTurn(
     return {
         ...current,
         ...canonical,
+        runtimeRecoveryPending: undefined,
         // A terminal ledger entry is immutable for this turn identity. A new
         // turn can start normally, but attachment/replay cannot resurrect it.
         state: current.state !== 'running' && (canonical.state === 'running' || current.state === 'interrupted' && canonical.state === 'error') ? current.state : canonical.state,

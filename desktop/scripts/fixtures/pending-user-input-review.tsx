@@ -1,4 +1,7 @@
+import { createRef } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { createRoot } from 'react-dom/client'
+import { AssistantConversationComposerPane } from '../../src/renderer/src/pages/assistant/AssistantConversationComposerPane'
 import { flushSync } from 'react-dom'
 import { AssistantPendingUserInputPanel } from '../../src/renderer/src/pages/assistant/AssistantPendingUserInputPanel'
 const root = createRoot(document.getElementById('root')!)
@@ -46,7 +49,7 @@ const props = {
     assistantAvailable: true,
     assistantConnected: true,
     selectedProjectPath: null,
-    availableModels: [{ id: 'fixture/model', label: 'Model', inputModes: ['text', 'image'] }],
+    availableModels: [{ id: 'fixture/model', label: 'Model', inputModes: ['text', 'image'], supportedEfforts: ['off', 'medium'] }],
     activeModel: 'fixture/model',
     modelsLoading: false,
     runtimeMode: 'full-access' as const,
@@ -104,7 +107,7 @@ const render = (empty = false) =>
     )
 const button = (label: string) =>
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-        (b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label,
+        (b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label || label === 'Continue' && b.textContent?.trim() === 'Submit answer',
     )!
 const input = () =>
     document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Your answer"]')!
@@ -196,10 +199,9 @@ const paste = () => {
     )
     typeAnswer(clipText)
     await sleep()
+    check(button('Continue').textContent?.trim() === 'Submit answer', 'A simple single answer submits directly without an extra review step')
     button('Continue').click()
-    await wait(() => Boolean(button('Submit')), 'Custom answer reaches review')
-    button('Submit').click()
-    button('Submit').click()
+    button('Continue').click()
     await wait(() => responses.length === 1, 'Response submits once')
     check(
         responses[0].answers.answer === clipText,
@@ -230,17 +232,12 @@ const paste = () => {
     input().dispatchEvent(new Event('input', { bubbles: true }))
     await sleep()
     button('Skip').click()
-    await wait(
-        () => Boolean(button('Submit')),
-        'Empty optional response advances via the primary action',
-    )
-    button('Submit').click()
-    await wait(() => responses.length === 2, 'Skipped answer submits')
+    await wait(() => responses.length === 2, 'A single optional question skips directly with explicit empty-answer semantics')
     check(
         responses[1].answers.answer === '',
         'Skipping is explicit and preserves empty-answer semantics',
     )
-    results.push('One Continue/Skip action, empty optional answers and review')
+    results.push('Direct single-answer submission, one Skip action and explicit empty optional answers')
     questionId = 'files'
     required = true
     choice = false
@@ -523,5 +520,41 @@ const paste = () => {
         document.documentElement.scrollWidth <= window.innerWidth,
         'The question form has no horizontal overflow',
     )
+    const ordinarySends: string[] = []
+    const dismissed: string[] = []
+    const paneRef = createRef<HTMLDivElement>()
+    const asyncRequest = { id: 'async-card', requestId: 'async-card', mode: 'async', status: 'pending', createdAt: new Date().toISOString(), questions: [{ id: 'later', header: 'Later', question: 'Which target should I use later?', type: 'text', options: [], required: true }] }
+    const pane = (pendingUserInputs: any[]) => flushSync(() => root.render(<MemoryRouter><div style={{ position: 'relative', height: '100%' }}><AssistantConversationComposerPane {...props as any}
+        placement="bottom" paneRef={paneRef} selectedSessionId="ordinary-async-chat" selectedSessionMode="work" pendingUserInputs={pendingUserInputs}
+        pendingApprovals={[]} pendingControlActions={[]} pendingControlGrants={[]} controlTargets={[]} pendingPlaygroundLabRequest={null}
+        thinking sending={false} userInputResponding={false} queuedMessages={[]} queuedMessageCount={0} commandPending={false}
+        refreshModels={() => {}} sendPrompt={async prompt => { ordinarySends.push(prompt); return true }} respondUserInput={props.onRespond}
+        onDismissUserInput={async id => { dismissed.push(id) }} onStop={() => {}}
+    /></div></MemoryRouter>))
+    pane([])
+    await wait(() => Boolean(document.querySelector('[data-composer-text-input]')), 'Ordinary composer mounts before answer-later question')
+    const ordinary = document.querySelector<HTMLElement>('[data-composer-text-input]')!
+    ordinary.focus()
+    ordinary.textContent = 'Keep my ordinary draft'
+    ordinary.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'Keep my ordinary draft' }))
+    await sleep()
+    pane([asyncRequest])
+    await sleep()
+    check(document.querySelector('[data-composer-text-input]') === ordinary && ordinary.textContent === 'Keep my ordinary draft', 'Async arrival preserves the exact ordinary composer and its draft')
+    check(document.activeElement === ordinary, 'Async arrival does not steal input focus')
+    check(!document.querySelector('[data-assistant-async-question] textarea'), 'Answer-later card is compact until explicitly opened')
+    button('Answer').click()
+    await wait(() => Boolean(document.querySelector('[data-assistant-async-question] textarea')), 'Answer-later question opens only on intent')
+    ordinary.focus()
+    await sleep()
+    check(document.activeElement === ordinary, 'An open async question does not reclaim focus from ordinary drafting')
+    const answerCount = responses.length
+    ordinary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await wait(() => ordinarySends.length === 1, 'Enter in the ordinary composer sends its draft, not the open async question')
+    check(responses.length === answerCount, 'Normal Enter cannot accidentally submit the async question')
+    button('Dismiss').click()
+    await wait(() => dismissed.length === 1, 'Dismiss reaches the async request without sending an answer')
+    check(responses.length === answerCount && dismissed[0] === 'async-card', 'Dismiss sends no invented answer')
+    results.push('Async questions preserve normal drafts/focus, open explicitly, never hijack Enter and dismiss without an answer')
     return results
 })()

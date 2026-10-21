@@ -116,7 +116,7 @@ const assistantStoreActions = {
     newThread: (sessionId?: string) => assistantStore.newThread(sessionId).then(() => undefined),
     newThreadResult: (sessionId?: string) => assistantStore.newThread(sessionId),
     sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) => assistantStore.sendPrompt(prompt, options).then(() => undefined),
-    sendPromptResult: (prompt: string, options?: AssistantSendPromptOptions) => assistantStore.sendPrompt(prompt, options),
+    sendPromptResult: (prompt: string, options?: AssistantSendPromptOptions, canSubmit?: () => boolean) => assistantStore.sendPrompt(prompt, options, canSubmit),
     warmSelectedSessionConnection: (voicePreparation?: AssistantVoiceExecutionConfiguration) =>
         assistantStore.warmSelectedSessionConnection(voicePreparation),
     interruptTurn: (turnId?: string, sessionId?: string) => assistantStore.interruptTurn(turnId, sessionId).then(() => undefined),
@@ -126,8 +126,8 @@ const assistantStoreActions = {
     disconnect: (sessionId?: string) => assistantStore.disconnect(sessionId).then(() => undefined),
     respondApproval: (requestId: string, decision: AssistantApprovalResponseInput['decision']) =>
         assistantStore.respondApproval({ requestId, decision }).then(() => undefined),
-    respondUserInput: (requestId: string, answers: Record<string, string | string[]>, attachments?: Pick<import('@shared/assistant/contracts').AssistantUserInputResponseInput, 'contextText' | 'images'>) =>
-        assistantStore.respondUserInput({ requestId, answers, ...attachments }).then(() => undefined),
+    respondUserInput: (requestId: string, answers: Record<string, string | string[]>, attachments?: Pick<import('@shared/assistant/contracts').AssistantUserInputResponseInput, 'contextText' | 'images' | 'cancelled' | 'deferContinuation'>) =>
+        assistantStore.respondUserInput({ requestId, answers, ...attachments }).then(result => { if (!result.success) throw new Error(result.error || 'Could not submit this answer.') }),
     chooseProjectPath: (sessionId: string) => assistantStore.chooseProjectPath(sessionId).then(() => undefined),
     chooseProjectPathResult: (sessionId: string) => assistantStore.chooseProjectPath(sessionId),
     createProjectSession: () => assistantStore.createProjectSession().then(() => undefined),

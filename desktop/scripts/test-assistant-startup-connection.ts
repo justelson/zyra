@@ -182,7 +182,7 @@ assert.deepEqual(resolveAssistantComposerLaunchConfiguration({
         assistantDefaultRuntimeMode: 'full-access',
         assistantDefaultEffort: 'xhigh'
     },
-    thread,
+    thread: null,
     fallbackModel: 'openai-codex/gpt-5.5'
 }), {
     activeModel: 'openai-codex/gpt-5.6-sol',
@@ -191,7 +191,19 @@ assert.deepEqual(resolveAssistantComposerLaunchConfiguration({
     runtimeMode: 'full-access',
     interactionMode: 'default',
     activeProfile: 'yolo-fast'
-}, 'a pristine New Chat must use Settings defaults instead of its placeholder backend thread configuration')
+}, 'a genuinely new Chat without copied configuration starts from remembered defaults')
+assert.deepEqual(resolveAssistantComposerLaunchConfiguration({
+    useSettingsDefaults: true,
+    settings: {
+        assistantDefaultModel: 'openai-codex/gpt-5.6-sol', assistantDefaultFastMode: true,
+        assistantDefaultRuntimeMode: 'full-access', assistantDefaultEffort: 'xhigh'
+    },
+    thread: { ...thread, messageCount: 0, thinking: 'high' },
+    fallbackModel: 'openai-codex/gpt-5.6-sol'
+}), {
+    activeModel: 'openai-codex/gpt-5.5', activeEffort: 'high', activeFastModeEnabled: true,
+    runtimeMode: 'approval-required', interactionMode: 'default', activeProfile: 'safe-dev'
+}, 'an unstarted draft keeps its copied choices after remembered defaults change')
 assert.deepEqual(resolveAssistantComposerLaunchConfiguration({
     useSettingsDefaults: false,
     settings: {

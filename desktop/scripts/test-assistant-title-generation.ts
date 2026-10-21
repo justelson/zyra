@@ -14,7 +14,7 @@ mock.module('electron', () => ({
     safeStorage: { isEncryptionAvailable: () => false }
 }))
 const { createAssistantSessionRecord } = await import('../src/main/assistant/service-records')
-const { sendAssistantPromptAction } = await import('../src/main/assistant/service-session-actions')
+const { sendAssistantPromptAction, renameAssistantSessionAction } = await import('../src/main/assistant/service-session-actions')
 const { createAssistantThread } = await import('../src/main/assistant/service-state')
 const { shouldGenerateSessionTitleForPrompt } = await import('../src/main/assistant/session-title-generation')
 
@@ -43,10 +43,11 @@ const generatedModels: string[] = []
 const canonicalTitles: string[] = []
 const sentModels: Array<string | undefined> = []
 const attachedModels: string[] = []
+const submittedManualTitles: Array<string | undefined> = []
 let releaseConnect!: () => void
-let titleStarted!: () => void
+let connectionStarted!: () => void
 const connectionGate = new Promise<void>(resolve => { releaseConnect = resolve })
-const titleGenerationStarted = new Promise<void>(resolve => { titleStarted = resolve })
+const connecting = new Promise<void>(resolve => { connectionStarted = resolve })
 const events: AssistantDomainEvent[] = []
 const appendEvent = (
     type: AssistantDomainEvent['type'],
@@ -69,14 +70,14 @@ const appendEvent = (
 }
 
 assert.equal(shouldGenerateSessionTitleForPrompt(session, null), true, 'a warmed canonical draft remains eligible for first-send title generation')
-const firstSend = sendAssistantPromptAction({
+const actionDeps = {
     ensureReady: async () => {},
     getSnapshot: () => snapshot,
     hydrateSelectedSession: async () => {},
     getFirstUserMessageText: async () => null,
     getNewChatExecutionDefaults: async () => ({ webSearch: true, webFetch: true }),
     getNewChatPreparationModel: async () => 'opencode-harness/openai/gpt-6.1-sol',
-    getTitleGenerationModel: async () => 'openai-codex/gpt-5.6-luna',
+    getTitleGenerationModel: async () => { throw Error('First Send must not read the utility title preference') },
     appendEvent,
     getSessionRuntimeCwd: () => 'C:/workspace',
     createSession: async () => ({ success: true as const, sessionId: session.id }),
@@ -87,14 +88,14 @@ const firstSend = sendAssistantPromptAction({
         checkAvailability: async () => ({ available: true, reason: null }),
         listModels: async () => [],
         hasSession: () => false,
-        connect: async (attachedThread) => { attachedModels.push(attachedThread.model); await connectionGate },
+        connect: async (attachedThread) => { attachedModels.push(attachedThread.model); connectionStarted(); await connectionGate },
         sendPrompt: async (_threadId, _prompt, options) => {
             sentModels.push(options?.model)
+            submittedManualTitles.push(options?.initialManualTitle)
             return { turnId: 'turn-title-model', providerThreadId: 'canonical-title-model' }
         },
         generateText: async (_prompt, options) => {
             generatedModels.push(options.model || '')
-            titleStarted()
             return { success: true, text: 'First Send Layout Fix', model: options.model }
         },
         updateCanonicalChat: async (_threadId, patch) => {
@@ -108,31 +109,31 @@ const firstSend = sendAssistantPromptAction({
         dispose: () => {},
         on() { return this }
     }
-} as never, 'Fix the blank first-send transition.', {
-    sessionId: session.id
-})
-await titleGenerationStarted
-assert.deepEqual(generatedModels, ['openai-codex/gpt-5.6-luna'], 'first-send title generation starts before attachment settles, without navigation')
+} as never
+const firstSend = sendAssistantPromptAction(actionDeps, 'Fix the blank first-send transition.', { sessionId: session.id })
+await connecting
+await renameAssistantSessionAction(actionDeps, session.id, 'Named while attaching')
+assert.deepEqual(generatedModels, [], 'first-send titles are owned by the conversation model, not a concurrent utility')
 assert.deepEqual(sentModels, [], 'the connection gate still holds conversation dispatch')
 releaseConnect()
 const result = await firstSend
 assert.equal(result.success, true)
-for (let attempt = 0; attempt < 20 && snapshot.sessions[0]?.title !== 'First Send Layout Fix'; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0))
-}
 assert.ok(attachedModels.length > 0)
 assert.ok(attachedModels.every(model => model === 'opencode-harness/openai/gpt-6.1-sol'), 'cold attachment receives the saved default rather than the engine fallback')
 assert.deepEqual(sentModels, ['opencode-harness/openai/gpt-6.1-sol'], 'the first conversation dispatch receives the same saved model')
 assert.equal(snapshot.sessions[0]?.threads[0]?.model, 'opencode-harness/openai/gpt-6.1-sol', 'the resolved first-send model becomes durable chat configuration')
-assert.deepEqual(generatedModels, ['openai-codex/gpt-5.6-luna'], 'the independent title preference sends title utility work to Luna')
-assert.deepEqual(canonicalTitles, ['First Send Layout Fix'])
+assert.deepEqual(generatedModels, [], 'initial title creation does not dispatch the separate model')
+assert.deepEqual(canonicalTitles, [], 'the foreground title tool owns canonical writes, not submission')
+assert.deepEqual(submittedManualTitles, ['Named while attaching'], 'a rename during cold attachment is read at the dispatch boundary')
+assert.equal(snapshot.sessions[0]?.titleManuallySet, true)
+assert.equal(snapshot.sessions[0]?.title, 'Named while attaching')
 assert.equal(
     events.some((event) => event.type === 'thread.message.user' && JSON.stringify(event.payload).includes('You write concise titles')),
     false,
     'the title utility prompt never enters canonical chat messages'
 )
 assert.equal(events.filter((event) => event.type === 'session.created').length, 0, 'title utility work cannot create another chat')
-assert.equal(events.filter((event) => event.type === 'session.updated').length, 2, 'only the heuristic title and final generated title update session metadata')
+assert.equal(events.filter((event) => event.type === 'session.updated').length, 2, 'submission supplies a heuristic title; the explicit local rename is a separate event')
 
 // Neither a retained chat choice nor an explicit Send choice reads or adopts
 // a global new-chat default, even on the first attachment after a restart.
@@ -162,14 +163,10 @@ const serviceSource = readFileSync(new URL('../src/main/assistant/service.ts', i
 const runtimeSource = readFileSync(new URL('../src/main/assistant/zyra-runtime.ts', import.meta.url), 'utf8')
 const promptTurnStart = runtimeSource.indexOf('private async runPromptTurn')
 const promptTurnSource = runtimeSource.slice(promptTurnStart, runtimeSource.indexOf('private async ensureConnected', promptTurnStart))
-const recoverySource = serviceSource.slice(serviceSource.indexOf('private async recoverSessionTitle'), serviceSource.indexOf('private async ensureReady'))
-assert.match(recoverySource, /getTitleGenerationModel/, 'startup title recovery must read the same title-model preference')
-assert.match(recoverySource, /preferredModel,\s*generateText/, 'startup title recovery must pass the configured utility model')
-assert.doesNotMatch(recoverySource, /preferredModel: thread\.model/, 'startup recovery cannot silently inherit the conversation model')
+assert.doesNotMatch(serviceSource, /private async recoverSessionTitle|recoverSidebarSessionTitles\(/, 'navigation and startup cannot race foreground title ownership')
 for (const [start, end] of [
     ['async regenerateSessionTitle(', 'async archiveSession('],
-    ['private async maybeAutoRegenerateSessionTitle(', 'private recoverSidebarSessionTitles('],
-    ['private async recoverSessionTitle(', 'private async ensureReady(']
+    ['private async maybeAutoRegenerateSessionTitle(', 'private async ensureReady(']
 ]) {
     const titleCallbackSource = serviceSource.slice(serviceSource.indexOf(start), serviceSource.indexOf(end))
     assert.match(titleCallbackSource, /await awaitCanonicalSessionTitleSaves\(/, 'each multi-chat title callback must settle its complete save cohort before releasing the commit queue')

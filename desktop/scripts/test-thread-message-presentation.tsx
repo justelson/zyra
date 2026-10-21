@@ -9,10 +9,13 @@ import { resolveAgentThreadOwner } from '../src/shared/assistant/thread-owner'
 import { buildSessionSubagentTree, isAssistantDraftThread } from '../src/renderer/src/pages/assistant/assistant-sessions-rail-utils'
 import type { AssistantSession, AssistantThread } from '../src/shared/assistant/contracts'
 import { findAssistantThreadLink } from '../src/renderer/src/pages/assistant/assistant-thread-navigation'
+// The workspace menu's diff worker requires Vite and is unrelated to peer/header attribution.
+mock.module('../src/renderer/src/pages/assistant/DeveloperWorkspaceMenu', () => ({ DeveloperWorkspaceMenu: () => null }))
 // Canvas-dependent Markdown is verified in the hidden renderer fixture.
 mock.module('../src/renderer/src/pages/assistant/AssistantTimelineText', () => ({ CollapsibleUserMessageBody: ({ content }: { content: string }) => <span>{content}</span> }))
 const { AssistantConversationHeader } = await import('../src/renderer/src/pages/assistant/AssistantConversationHeader')
 const { AssistantTimelineThreadMessage } = await import('../src/renderer/src/pages/assistant/AssistantTimelineThreadMessage')
+const { AssistantConversationHeader } = await import('../src/renderer/src/pages/assistant/AssistantConversationHeader')
 
 const details = { messageId: 'receipt-1', senderThreadId: 'agent-run:a', senderConversationKind: 'thread', senderCanonicalThreadId: 'chat-a', senderLabel: 'Xara', recipientThreadId: 'chat-b', text: 'Check the evidence from my thread.', createdAt: '2026-10-01T12:00:00.000Z' }
 const live = projectThreadMessage(details, '2026-10-01T12:00:01.000Z')!

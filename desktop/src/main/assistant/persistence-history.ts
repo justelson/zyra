@@ -601,8 +601,9 @@ function readPendingApprovals(db: SqlDatabase, threadId: string): AssistantPendi
 }
 
 function readPendingUserInputs(db: SqlDatabase, threadId: string): AssistantPendingUserInput[] {
-    const rows = db.exec(`SELECT id, request_id, questions_json, status, answers_json, response_message_id, turn_id, created_at, resolved_at FROM assistant_pending_user_inputs WHERE thread_id = ? ORDER BY created_at ASC, id ASC`, [threadId])[0]?.values || []
+    const rows = db.exec(`SELECT id, request_id, questions_json, status, answers_json, response_message_id, turn_id, created_at, resolved_at, input_mode FROM assistant_pending_user_inputs WHERE thread_id = ? ORDER BY created_at ASC, id ASC`, [threadId])[0]?.values || []
     return rows.map((row) => ({
+        mode: row[9] === 'async' ? 'async' : 'blocking',
         id: String(row[0] || ''), requestId: String(row[1] || ''), questions: parseJson(row[2], []), status: String(row[3] || 'pending') as AssistantPendingUserInput['status'],
         answers: parseJson<Record<string, string | string[]> | null>(row[4], null), responseMessageId: toNullableString(row[5]), turnId: toNullableString(row[6]), createdAt: String(row[7] || new Date(0).toISOString()), resolvedAt: toNullableString(row[8])
     }))

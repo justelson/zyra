@@ -88,7 +88,6 @@ export default function TitleBar() {
     const pendingNavigationKeyRef = useRef<string | null>(null)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(settings.sidebarCollapsed)
     const [appMenuOpen, setAppMenuOpen] = useState(false)
-    const [runtimeDetailsOpen, setRuntimeDetailsOpen] = useState(false)
     const [accessoryError, setAccessoryError] = useState<string | null>(null)
     const [controlState, setControlState] = useState<ControlStateSnapshot | null>(null)
     const controlActive = Boolean(controlState?.active || (controlState && controlState.pairing.state !== 'stopped') || controlState?.pendingGrants.length)
@@ -329,6 +328,7 @@ export default function TitleBar() {
                     <button
                         type="button"
                         onClick={handleToggleSidebar}
+                        data-shortcut-command={!filePreviewFocusState.active ? 'app.sidebar' : undefined}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-sparkle-text-secondary transition-colors hover:text-sparkle-text focus:outline-none focus-visible:text-sparkle-text"
                         style={{ WebkitAppRegion: 'no-drag' } as any}
                         title={`${sidebarActionLabel}${!filePreviewFocusState.active && shortcut('app.sidebar') ? ` (${shortcut('app.sidebar')})` : ''}`}
@@ -358,27 +358,22 @@ export default function TitleBar() {
                     </button>
                     {appMenuOpen ? (
                         <AnchoredNativeOverlay><div className="absolute left-0 top-full z-[190] mt-1 w-[208px] overflow-visible rounded-xl border border-[var(--surface-divider)] bg-[var(--surface-floating)] p-1 text-[13px] shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-xl" role="menu">
-                            <div
-                                className="relative border-b border-[var(--surface-divider)] px-2.5 py-2 text-[11px] text-sparkle-text-muted"
-                                role="presentation"
-                                onMouseEnter={() => setRuntimeDetailsOpen(true)}
-                                onMouseLeave={() => setRuntimeDetailsOpen(false)}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                aria-label="Agent status and updates"
+                                onClick={() => runAppMenuAction(() => navigate('/settings/about'))}
+                                className="flex w-full items-center gap-2 border-b border-[var(--surface-divider)] px-2.5 py-2 text-left text-[11px] text-sparkle-text-muted hover:bg-[var(--surface-hover)]"
                             >
-                                <div className="flex items-center gap-1.5">
-                                    <span>{runtimeConnection.state.installation?.kind === 'development' ? 'Dev' : runtimeConnection.label} · {runtimeConnection.detail}</span>
-                                    <Info size={11} className={cn('shrink-0 transition-opacity', runtimeDetailsOpen ? 'opacity-85' : 'opacity-45')} aria-label="Show runtime details" />
-                                </div>
-                                <div className={cn('pointer-events-none absolute left-full top-0 z-[300] ml-2 w-56 rounded-lg border border-[var(--surface-divider)] bg-[var(--surface-floating)] px-2.5 py-2 text-[10px] leading-4 text-sparkle-text-secondary shadow-[0_12px_30px_rgba(0,0,0,0.28)] transition-[opacity,visibility]', runtimeDetailsOpen ? 'visible opacity-100' : 'invisible opacity-0')}>
-                                    <div className="font-medium text-sparkle-text">Runtime details</div>
-                                    <div>Commit: <span className="font-mono">{runtimeConnection.state.revision || 'Unavailable'}</span></div>
-                                    {runtimeConnection.state.instance ? <div>Instance: <span className="font-mono">{runtimeConnection.state.instance.namespaceId.slice(0, 8)} / {runtimeConnection.state.instance.instanceId.slice(0, 8)}</span></div> : null}
-                                </div>
-                            </div>
+                                <Info size={12} className="shrink-0" />
+                                <span>{runtimeConnection.label} · {runtimeConnection.detail}<span className="block text-sparkle-text-secondary">Agent status and updates</span></span>
+                            </button>
                             {appMenuGroups.map((group, groupIndex) => (
                                 <div key={group[0]?.id || groupIndex} className={cn(groupIndex > 0 && 'mt-1 border-t border-[var(--surface-divider)] pt-1')}>
                                     {group.map((item) => (
                                         <button
                                             key={item.id}
+                                            data-shortcut-command={({ 'new-chat': 'app.newChat', search: 'app.search', plugins: 'app.plugins', settings: 'app.settings' } as Record<string, string>)[item.id]}
                                             type="button"
                                             onClick={() => runAppMenuAction(item.action)}
                                             className={cn(

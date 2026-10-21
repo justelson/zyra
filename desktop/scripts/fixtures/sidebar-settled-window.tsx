@@ -41,6 +41,11 @@ function session(index: number, settled: boolean): AssistantSession {
 }
 const sleep = () => new Promise(resolve => setTimeout(resolve, 20))
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message) }
+async function expandSettled() {
+    const trigger = [...document.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find(button => button.textContent?.startsWith('Settled'))
+    check(trigger, 'Settled disclosure is present')
+    if (trigger.getAttribute('aria-expanded') !== 'true') { flushSync(() => trigger.click()); await sleep() }
+}
 async function run() {
     localStorage.clear()
     let cases = 0
@@ -57,6 +62,7 @@ async function run() {
         caught = null
         measurements.length = 0
         render(sessions[0]!.id)
+        await expandSettled()
         await sleep()
         const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')
         if (scroller) scroller.scrollTop = scroller.scrollHeight
@@ -83,6 +89,7 @@ async function run() {
         </Boundary>))
         caught = null
         render(sessions[0]!.id)
+        await expandSettled()
         await sleep()
         const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
         const header = [...scroller.querySelectorAll('li')].find(row => row.textContent === 'Settled')!
@@ -126,6 +133,7 @@ async function run() {
         </Boundary>))
         caught = null
         render()
+        await expandSettled()
         await sleep()
         for (let index = 0; index < 25; index++) {
             sessions = sessions.map((entry, i) => i === index % 5 ? { ...entry, threads: entry.threads.map(thread => ({ ...thread,
@@ -151,14 +159,14 @@ async function run() {
     </div></Boundary>))
     const order = () => [...document.querySelectorAll<HTMLElement>('[data-agent-inbox-layout-id]')].map(element => element.dataset.agentInboxLayoutId).join(',')
     renderLegacy()
-    check(order() === 'recent-1,recent-0', 'Legacy shells sort by retained message time')
+    check(order() === 'recent-0,recent-1', 'Legacy shells use deterministic creation order, not message recency')
     legacy = legacy.map((entry, index) => index ? { ...entry, threads: entry.threads.map(thread => ({ ...thread,
         messages: [{ id: 'legacy-message', role: 'assistant' as const, text: 'Saved response', createdAt: latestAt, updatedAt: latestAt }] })) } : entry)
     renderLegacy()
-    check(order() === 'recent-1,recent-0', 'Opening legacy history preserves rendered chat order')
+    check(order() === 'recent-0,recent-1', 'Opening legacy history preserves rendered chat order')
     legacy = legacy.map(entry => ({ ...entry, threads: entry.threads.map(thread => ({ ...thread, messages: [] })) }))
     renderLegacy()
-    check(order() === 'recent-1,recent-0', 'Closing legacy history preserves rendered chat order')
+    check(order() === 'recent-0,recent-1', 'Closing legacy history preserves rendered chat order')
     transientHeaderGeometry = true
     caught = null
     const stressSessions = Array.from({ length: 20 }, (_, i) => session(i, true))
@@ -169,6 +177,7 @@ async function run() {
                 onRename={() => {}} getSessionMenuItems={() => []} onOpenContextMenu={() => {}} />
         </div>
     </Boundary>))
+    await expandSettled()
     await sleep()
     check(!caught, `Transient visual geometry must not feed back through row count: ${String(caught)}`)
     transientHeaderGeometry = false

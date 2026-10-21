@@ -246,6 +246,11 @@ export class HostRouter {
         fileUploads = identifiers;
         payload = { ...rest, prompt: appendTextAttachments(rest.prompt, await this.uploads.files(this.owner, params.sessionKey, fileUploads)) };
       }
+      if (params.type === 'steer' && !payload.targetTurnId) {
+        const chat = await this.assertChat(params.sessionKey);
+        assert(chat.presence?.activeTurnId, 'The turn has ended. Send a new message instead.');
+        payload = { ...payload, targetTurnId: chat.presence.activeTurnId };
+      }
       if (params.type === 'configure') assert(Object.keys(payload).every(key => CONFIG.includes(key)), 'Unsupported configuration field.');
       if (params.type === 'preferences.get') assert(Object.keys(payload).length === 0, 'Chat preferences do not accept a scope override.');
       if (params.type === 'memory.configure') assert(Object.keys(payload).every(key => key === 'enabled') && typeof payload.enabled === 'boolean', 'Choose whether this chat can contribute to memory.');
@@ -265,7 +270,7 @@ export class HostRouter {
         catch (error) { if (result == null) throw error; }
       }
       if (liveFailure && result == null) throw liveFailure;
-      if (params.type === 'user_input.respond' && payload.cancelled !== true && result?.cancelled !== true && result?.continuation?.state !== 'completed') {
+      if (params.type === 'user_input.respond' && payload.cancelled !== true && result?.cancelled !== true && !['completed', 'steered', 'held'].includes(result?.continuation?.state)) {
         throw fault('HOST_UPDATE_REQUIRED', 'The answer was received, but this PC needs a Zyra runtime restart to continue it. Open the chat on the PC.');
       }
       for (const id of [...imageUploads, ...fileUploads]) await this.uploads.cancel(this.owner, params.sessionKey, id).catch(() => {});

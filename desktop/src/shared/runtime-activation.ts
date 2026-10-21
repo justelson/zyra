@@ -12,9 +12,19 @@ export type RuntimeInstallation = {
     label: string
     appVersion?: string
 }
+export type RuntimeActivity = {
+    activeTurns: number
+    backgroundChats: number
+    attention: number
+    requests: number
+    workspaceRequests: number
+    externalTools: number
+}
 export type RuntimeActivationStatus = {
     phase: 'idle' | 'checking' | 'waiting' | 'restarting' | 'ready' | 'failed'
     revision?: string
+    expectedRuntimeRevision?: string
+    activity?: RuntimeActivity
     connection?: 'unknown' | 'connecting' | 'connected' | 'disconnected'
     lastConfirmedAt?: string
     errorCode?: string
@@ -24,7 +34,32 @@ export type RuntimeActivationStatus = {
 }
 export const RUNTIME_ACTIVATION_GET = 'zyra:runtime:activation:get'
 export const RUNTIME_ACTIVATION_CHANGED = 'zyra:runtime:activation:changed'
+export const RUNTIME_ACTIVATION_REFRESH = 'zyra:runtime:activation:refresh'
+export const RUNTIME_ACTIVATION_APPLY = 'zyra:runtime:activation:apply'
 export const RUNTIME_CONNECTION_STALE_MS = 45_000
+
+export function runtimeLifecyclePresentation(state: RuntimeActivationStatus, now = Date.now()) {
+    const { live } = runtimeConnectionPresentation(state, now)
+    const revision = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+    const expected = state.expectedRuntimeRevision
+    const actual = state.instance?.runtimeRevision
+    const codeState = live && revision(expected) && revision(actual)
+        ? expected === actual ? 'current' : 'pending'
+        : 'unknown'
+    const labels = [
+        ['activeTurns', 'active turn'], ['backgroundChats', 'background chat'], ['attention', 'pending question or approval'],
+        ['requests', 'request'], ['workspaceRequests', 'desktop request'], ['externalTools', 'external tool']
+    ] as const
+    const knownActivity = state.activity && labels.every(([key]) => Number.isSafeInteger(state.activity![key]) && state.activity![key] >= 0)
+    const blockers = live && knownActivity ? labels.flatMap(([key, label]) => {
+        const count = state.activity![key]
+        return count > 0 ? [`${count} ${label}${count === 1 ? '' : 's'}`] : []
+    }) : []
+    return {
+        codeState, blockers,
+        canActivate: codeState === 'pending' && blockers.length === 0 && state.errorCode !== 'AGENT_SERVER_AUTH_FAILED'
+    }
+}
 
 export function runtimeConnectionPresentation(state: RuntimeActivationStatus, now = Date.now()) {
     const age = state.lastConfirmedAt ? now - Date.parse(state.lastConfirmedAt) : Infinity

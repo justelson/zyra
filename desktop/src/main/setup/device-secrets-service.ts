@@ -81,6 +81,10 @@ export class DeviceSecretsService {
         return (await this.load()).unsplashAccessKey
     }
 
+    async getHostedAiStatus(): Promise<HostedAiSecretStatus> {
+        return this.status(await this.load())
+    }
+
     /** Test/support boundary; decrypted keys are never exposed through IPC. */
     async getHostedAiKeys(): Promise<{ secrets: HostedAiSecrets; status: HostedAiSecretStatus }> {
         const record = await this.load()

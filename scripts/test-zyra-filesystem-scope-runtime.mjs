@@ -10,6 +10,8 @@ import { createZyraPermissionGateExtension } from '../src/zyra-permission-gate.m
 import { HarnessConversation } from '../src/harness-conversation.mjs';
 import { createThreadTool } from '../src/threads/tool.mjs';
 import { createVisualizationTool } from '../src/visualizations/tool.mjs';
+import { createAppControlTools } from '../src/app-control-tool.mjs';
+import { createChatTitleController } from '../src/chat-title-tool.mjs';
 
 const sdkSource = await readFile(new URL('../src/zyra-sdk.mjs', import.meta.url), 'utf8');
 
@@ -70,6 +72,8 @@ function createStartupProbe(fixture) {
     HarnessConversation,
     createThreadTool,
     createVisualizationTool,
+    createAppControlTools,
+    createChatTitleController,
     existsSync,
     mkdirSync,
     realpathSync,

@@ -120,7 +120,7 @@ export function getAssistantThreadPhase(thread: AssistantThread | null): {
     if (thread.hasPendingApprovals || getAssistantPendingApprovals(thread).length > 0) {
         return { key: 'waiting-approval', label: 'Waiting for approval' }
     }
-    if (thread.hasPendingUserInputs || getAssistantPendingUserInputs(thread).length > 0) {
+    if (thread.hasPendingUserInputs || getAssistantPendingUserInputs(thread).some(input => input.mode !== 'async')) {
         return { key: 'waiting-input', label: 'Waiting for input' }
     }
 

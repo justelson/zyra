@@ -64,6 +64,7 @@ export type TimelineTurnWorkSummaryRow = {
 export type TimelineDisplayRow = TimelineRenderRow | TimelineTurnWorkSummaryRow
 
 export type ParsedUserAttachment = {
+    citation?: import('@shared/assistant/assistant-citations').AssistantCitation
     id: string
     name: string
     displayName: string
@@ -664,6 +665,7 @@ export function parseUserMessageAttachments(text: string): { body: string; attac
             preview: attachment.preview,
             note: attachment.note,
             origin: attachment.origin,
+            citation: attachment.citation,
             content: attachment.content,
             isClipboard: isSerializedClipboardAttachment(attachment)
         }))

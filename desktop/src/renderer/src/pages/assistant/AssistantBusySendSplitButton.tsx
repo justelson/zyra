@@ -5,36 +5,34 @@ import { ConnectedDropdownButton, type ConnectedDropdownButtonOption } from '@/c
 const BUSY_SEND_OPTIONS: ConnectedDropdownButtonOption[] = [
     {
         id: 'queue',
-        label: 'Queue',
+        label: 'Send next',
         icon: <ListEnd size={13} strokeWidth={2.2} />,
         tone: 'sky'
     },
     {
-        id: 'force',
-        label: 'Force',
+        id: 'steer',
+        label: 'Steer',
         icon: <Zap size={13} strokeWidth={2.5} />,
         tone: 'amber'
     }
 ]
 
-type BusySendMode = 'queue' | 'force'
+type BusySendMode = 'queue' | 'steer'
 
 export const AssistantBusySendSplitButton = memo(function AssistantBusySendSplitButton(props: {
     defaultMode: BusySendMode
     disabled?: boolean
     queuedCount?: number
-    onModeUsed: (mode: BusySendMode) => void
     onQueue: () => Promise<void> | void
     onForce: () => Promise<void> | void
 }) {
-    const { defaultMode, disabled = false, queuedCount = 0, onModeUsed, onQueue, onForce } = props
+    const { defaultMode, disabled = false, queuedCount = 0, onQueue, onForce } = props
 
     const runAction = useCallback((value: string) => {
         if (disabled) return
-        const mode: BusySendMode = value === 'force' ? 'force' : 'queue'
-        onModeUsed(mode)
+        const mode: BusySendMode = value === 'steer' ? 'steer' : 'queue'
         void (mode === 'queue' ? onQueue() : onForce())
-    }, [disabled, onForce, onModeUsed, onQueue])
+    }, [disabled, onForce, onQueue])
 
     return (
         <div className="w-[clamp(120px,26cqi,136px)] shrink-0">
@@ -46,7 +44,7 @@ export const AssistantBusySendSplitButton = memo(function AssistantBusySendSplit
                 primarySuffix={queuedCount > 0 ? <span className="text-[10px] font-semibold tabular-nums opacity-70" title={`${queuedCount} queued`}>{queuedCount}</span> : null}
                 disabled={disabled}
                 className="max-w-none"
-                menuLabel="Choose Queue or Force"
+                menuLabel="Send next or steer the current turn"
                 direction="up"
                 shape="pill"
                 size="composer"

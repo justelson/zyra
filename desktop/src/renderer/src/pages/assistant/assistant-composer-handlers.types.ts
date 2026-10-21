@@ -30,7 +30,7 @@ export type AssistantComposerHandlersArgs = {
         interactionMode: AssistantInteractionMode
         effort: AssistantComposerPreferenceEffort
         serviceTier?: 'fast'
-        dispatchMode?: 'immediate' | 'queue' | 'force'
+        dispatchMode?: 'immediate' | 'queue' | 'steer' | 'force'
     }) => Promise<boolean>
     text: string
     setText: SetStringState
@@ -74,7 +74,9 @@ export type AssistantComposerHandlersArgs = {
     setRemovingAttachmentIds: SetStringArrayState
     textareaRef: RefObject<HTMLTextAreaElement | null>
     onBlockedSend?: (message: string) => void
+    sendBlockedReason?: string | null
     onOptimisticSendClear?: () => void
+    canClearAcceptedDraft?: (submittedText: string, submittedFiles: ComposerContextFile[]) => boolean
     shouldRestoreAfterFailedSend?: () => boolean
     onRestoreFailedSendDraft?: (draft: string) => void
 }

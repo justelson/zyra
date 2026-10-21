@@ -25,7 +25,7 @@ import { chooseProjectFolder, useProjectCreation } from '@/lib/projects/project-
 import { resolveAssistantComposerContextUsage } from './assistant-composer-context-usage'
 import { buildAssistantTurnUsageIndex } from './assistant-turn-usage-index'
 import { buildPromptImageInputs, buildPromptWithContextFiles } from './assistant-composer-utils'
-import { ASSISTANT_USER_INPUT_CONTEXT_HEADING } from '@shared/assistant/user-input-continuation'
+import { ASSISTANT_USER_INPUT_CONTEXT_HEADING, formatAssistantUserInputContinuationPrompt } from '@shared/assistant/user-input-continuation'
 import { clearAssistantComposerSessionState } from './assistant-composer-session-state'
 import { projectVoiceLiveTimelineMessages } from './assistant-voice-live-timeline'
 import { resolveAssistantComposerLaunchConfiguration } from './assistant-new-chat-composer-config'
@@ -35,6 +35,7 @@ import { AssistantCanonicalVoiceStage } from './AssistantCanonicalVoiceStage'
 import { AssistantChatOnboardingOverlay } from './AssistantChatOnboardingOverlay'
 import { AssistantConnectionRecoveryBanner } from './AssistantConnectionRecoveryBanner'
 import { AssistantConversationHeader } from './AssistantConversationHeader'
+import { AssistantForkOriginNote } from './AssistantForkOriginNote'
 import { AssistantConversationComposerPane } from './AssistantConversationComposerPane'
 import { AssistantConversationTimelinePane, preloadAssistantTimeline } from './AssistantConversationTimelinePane'
 import type { AssistantConversationPaneProps } from './AssistantConversationPane.types'
@@ -55,6 +56,7 @@ import {
 import { readInstructorVoicePreferences } from './instructor-voice-preferences'
 import { useAssistantConnectionRecovery } from './useAssistantConnectionRecovery'
 import { useAssistantQueuedComposer, type AssistantQueuedComposerSessionState } from './useAssistantQueuedComposer'
+import { registerAppStopOwner } from './assistant-app-owner-state'
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { useInstructorVoiceSession } from './useInstructorVoiceSession'
 import { useAssistantPageTimelineScroll } from './useAssistantPageTimelineScroll'
@@ -95,6 +97,7 @@ function areQueuedComposerSessionStatesEqual(
             leftState.sessionId !== rightState.sessionId
             || leftState.threadState !== rightState.threadState
             || leftState.latestTurnState !== rightState.latestTurnState
+            || leftState.latestTurnId !== rightState.latestTurnId
             || leftState.pendingApprovalCount !== rightState.pendingApprovalCount
             || leftState.pendingUserInputCount !== rightState.pendingUserInputCount
             || leftState.compacting !== rightState.compacting
@@ -128,6 +131,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const [optimisticPromptStartedAt, setOptimisticPromptStartedAt] = useState<string | null>(null)
     const optimisticPromptStartedAtRef = useRef<string | null>(null)
     const [optimisticPromptSending, setOptimisticPromptSending] = useState(false)
+    const [stoppingSessions, setStoppingSessions] = useState<Record<string, boolean>>({})
+    const holdComposerQueueRef = useRef<(sessionId?: string | null) => unknown>(() => undefined)
+    const stopEpochRef = useRef<Record<string, number>>({})
+    const asyncAnswerQueueRef = useRef<{ held: boolean; send: (prompt: string, files: ComposerContextFile[], options: AssistantComposerSendOptions) => Promise<boolean>; resume: () => unknown } | null>(null)
     const [optimisticPromptBoundary, setOptimisticPromptBoundary] = useState<{
         sessionId: string
         threadId: string | null
@@ -248,9 +255,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                 sessionId: session.id,
                 threadState: activeThread?.state || 'idle',
                 latestTurnState: activeThread?.latestTurn?.state || null,
+                latestTurnId: activeThread?.latestTurn?.id || null,
                 compacting: hasActiveAssistantCompaction(activeThread?.activities || []),
                 pendingApprovalCount: activeThread?.pendingApprovals.filter((approval) => approval.status === 'pending').length || 0,
-                pendingUserInputCount: activeThread?.pendingUserInputs.filter((input) => input.status === 'pending').length || 0
+                pendingUserInputCount: activeThread?.pendingUserInputs.filter((input) => input.status === 'pending' && input.mode !== 'async').length || 0
             }
         })
     ), areQueuedComposerSessionStatesEqual)
@@ -766,6 +774,28 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         respondingUserInputRequestIdRef.current = requestId
         setRespondingUserInputRequestId(requestId)
         try {
+            const question = controller.pendingUserInputs.find(input => input.requestId === requestId)
+            if (question?.mode === 'async') {
+                const queue = asyncAnswerQueueRef.current
+                if (!queue) throw new Error('The answer queue is not ready. Your answer stays here.')
+                const wasHeld = queue.held
+                const answerSessionId = controller.selectedSession?.id
+                if (!answerSessionId) throw new Error('The answer Chat is unavailable.')
+                const epoch = stopEpochRef.current[answerSessionId] || 0
+                holdComposerQueueRef.current(answerSessionId)
+                const prompt = formatAssistantUserInputContinuationPrompt(question.questions, answers)
+                const accepted = await queue.send(prompt, files || [], {
+                    answerRequestId: requestId,
+                    model: controller.activeThread?.model || undefined,
+                    effort: controller.activeThread?.thinking || 'medium',
+                    runtimeMode: controller.activeThread?.runtimeMode || 'approval-required', interactionMode: 'default',
+                    dispatchMode: controller.activeThread?.latestTurn?.state === 'running' ? 'steer' : 'queue'
+                })
+                if (!accepted) throw new Error('Could not save your answer. It has not been submitted.')
+                await actions.respondUserInput(requestId, answers, { deferContinuation: true })
+                if (!wasHeld && epoch === (stopEpochRef.current[answerSessionId] || 0)) queue.resume()
+                return
+            }
             await actions.respondUserInput(requestId, answers, files?.length ? {
                 contextText: buildPromptWithContextFiles(ASSISTANT_USER_INPUT_CONTEXT_HEADING, files),
                 images: buildPromptImageInputs(files)
@@ -774,6 +804,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             if (respondingUserInputRequestIdRef.current === requestId) respondingUserInputRequestIdRef.current = null
             setRespondingUserInputRequestId((current) => current === requestId ? null : current)
         }
+    }, [actions, controller.pendingUserInputs, controller.activeThread, controller.selectedSession?.id])
+
+    const handleDismissUserInput = useCallback(async (requestId: string) => {
+        await actions.respondUserInput(requestId, {}, { cancelled: true })
     }, [actions])
 
     const handleApprovePendingPlaygroundLabRequest = useCallback(async (input: { title?: string; source: 'empty' | 'git-clone'; repoUrl?: string }) => {
@@ -793,12 +827,35 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         await actions.declinePendingPlaygroundLabRequest({ sessionId })
     }, [actions, controller.selectedSession?.id])
 
-    const handleStopTurn = useCallback(async () => {
-        await actions.interruptTurn(
-            controller.activeThread?.latestTurn?.id,
-            controller.selectedSession?.id || undefined
-        )
-    }, [actions, controller.activeThread?.latestTurn?.id, controller.selectedSession?.id])
+    const handleStopTurn = useCallback(async (requested?: { sessionId: string; turnId: string }) => {
+        const sessionId = requested?.sessionId || controller.selectedSession?.id
+        if (!sessionId || stoppingSessions[sessionId]) return { success: false as const, error: 'Stop is already pending or the Chat is unavailable.' }
+        stopEpochRef.current[sessionId] = (stopEpochRef.current[sessionId] || 0) + 1
+        holdComposerQueueRef.current(sessionId)
+        setStoppingSessions(current => ({ ...current, [sessionId]: true }))
+        try {
+            const result = await actions.interruptTurnResult(requested?.turnId || controller.activeThread?.latestTurn?.id, sessionId)
+            if (!result.success) props.onShowToast?.(result.error || 'Could not confirm Stop. Your queue is held.', 'error')
+            return result
+        } finally {
+            setStoppingSessions(current => ({ ...current, [sessionId]: false }))
+        }
+    }, [actions, controller.activeThread?.latestTurn?.id, controller.selectedSession?.id, props.onShowToast, stoppingSessions])
+
+    useEffect(() => registerAppStopOwner(async (sessionId, turnId) => {
+        const result = await handleStopTurn({ sessionId, turnId })
+        if (!result.success) throw new Error(result.error || 'Stop could not be confirmed; the queue remains held.')
+        return { stopped: true, sessionId, turnId, queueHeld: true }
+    }), [handleStopTurn])
+
+    const handleStopActiveTurnRecovery = useCallback(async () => {
+        const sessionId = controller.selectedSession?.id
+        if (!sessionId) throw new Error('Select a chat before stopping work.')
+        stopEpochRef.current[sessionId] = (stopEpochRef.current[sessionId] || 0) + 1
+        holdComposerQueueRef.current(sessionId)
+        const result = await actions.interruptTurnResult(undefined, sessionId)
+        if (!result.success) throw new Error(result.error || 'Could not stop the active turn.')
+    }, [actions, controller.selectedSession?.id])
 
     const handleReconnectAssistant = useCallback(() => {
         connectionRecovery.reconnect()
@@ -821,9 +878,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         sessionId: string,
         prompt: string,
         contextFiles: ComposerContextFile[],
-        options: AssistantComposerSendOptions
+        options: AssistantComposerSendOptions,
+        canSubmit: () => boolean = () => true
     ) => {
-        if (!sessionId) return false
+        if (!sessionId || !canSubmit()) return false
         if (pendingProjectSelectionsRef.current.get(sessionId)?.saving) {
             props.onShowToast?.('Project change is still saving. Try sending again in a moment.', 'error')
             return false
@@ -831,22 +889,22 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         let browserPrompt: string
         try { browserPrompt = await withExtensionTabContext(buildPromptWithContextFiles(prompt, contextFiles)) }
         catch (reason) { props.onShowToast?.(reason instanceof Error ? reason.message : 'Browser context is unavailable.', 'error'); return false }
+        if (!canSubmit()) return false
         if (pendingProjectSelectionsRef.current.get(sessionId)?.saving) {
             props.onShowToast?.('Project change is still saving. Try sending again in a moment.', 'error')
             return false
         }
         const startedAt = optimisticPromptStartedAtRef.current || new Date().toISOString()
         const previousUserMessageId = [...controller.timelineMessages].reverse().find((message) => message.role === 'user')?.id || null
-        setOptimisticPromptBoundary({
-            sessionId,
-            threadId: controller.activeThread?.id || null,
-            previousUserMessageId,
-            startedAt
-        })
-        setOptimisticPromptStartedAt((current) => current || startedAt)
+        if (options.dispatchMode !== 'steer') {
+            setOptimisticPromptBoundary({ sessionId, threadId: controller.activeThread?.id || null, previousUserMessageId, startedAt })
+            setOptimisticPromptStartedAt((current) => current || startedAt)
+        }
         const images = buildPromptImageInputs(contextFiles)
         const result = await actions.sendPromptResult(browserPrompt, {
             sessionId,
+            dispatchMode: options.dispatchMode === 'steer' ? 'steer' : 'immediate',
+            targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId : undefined,
             startInNewWorktree: options.startInNewWorktree,
             model: options.model,
             runtimeMode: options.runtimeMode,
@@ -855,10 +913,10 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             serviceTier: options.serviceTier,
             profile: activeRuntimeZyraProfile,
             images: images.length > 0 ? images : undefined
-        })
+        }, canSubmit)
         if (!result.success) {
             setOptimisticPromptBoundary((current) => current?.sessionId === sessionId ? null : current)
-            if (images.length > 0) props.onShowToast?.(`Could not send image: ${result.error}`, 'error')
+            props.onShowToast?.(images.length > 0 ? `Could not send image: ${result.error}` : result.error || 'Could not send. Your message is preserved.', 'error')
         }
         return result.success
     }, [actions, activeRuntimeZyraProfile, controller.activeThread?.id, controller.timelineMessages, props.onShowToast])
@@ -877,7 +935,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         handleSendPrompt,
         handleForceQueuedMessage,
         handleDeleteQueuedMessage,
-        handleMoveQueuedMessage
+        handleMoveQueuedMessage,
+        handleUpdateQueuedMessage,
+        handleHoldQueue,
+        handleResumeQueue,
+        queueHeld,
+        queuePersistenceError
     } = useAssistantQueuedComposer({
         selectedSessionId: activeComposerSessionId,
         sessionStates: queueSessionStates,
@@ -894,6 +957,9 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             if (!result.success) throw new Error(result.error || 'Could not interrupt the current turn.')
         }
     })
+    useEffect(() => { if (queuePersistenceError) props.onShowToast?.(queuePersistenceError, 'error') }, [queuePersistenceError, props.onShowToast])
+    holdComposerQueueRef.current = handleHoldQueue
+    asyncAnswerQueueRef.current = { held: queueHeld, send: handleSendPrompt, resume: handleResumeQueue }
     const handleImplementProposedPlan = useCallback(async (plan: AssistantProposedPlan) => {
         const planMarkdown = String(plan.planMarkdown || '').trim()
         if (!planMarkdown) return
@@ -1213,6 +1279,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             onChooseProject={handleChooseHeaderProject}
             onArchiveChat={handleArchiveChat}
             onDeleteChat={handleOpenDeleteChat}
+            onStopActiveTurn={handleStopActiveTurnRecovery}
             onToggleRightSidebar={handleToggleDetailsPanel}
             onShowToast={props.onShowToast}
         />
@@ -1239,6 +1306,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         handleCreateThread,
         handleOpenDeleteChat,
         handleOpenRenameChat,
+        handleStopActiveTurnRecovery,
         handleToggleDetailsPanel,
         headerActionPending,
         latestProjectLabel,
@@ -1270,6 +1338,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                     'relative flex min-h-0 flex-1 flex-col transition-[justify-content] duration-300',
                     composerIsCentered && 'justify-center'
                 )}>
+                    {controller.selectedSession?.forkOrigin ? <AssistantForkOriginNote origin={controller.selectedSession.forkOrigin} /> : null}
                     {connectionRecovery.showBanner && connectionRecovery.issue ? (
                         <AssistantConnectionRecoveryBanner
                             issue={connectionRecovery.issue}
@@ -1411,7 +1480,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         isConnecting={composerConnectionPresentation.connecting}
                         reconnectPending={composerConnectionPresentation.reconnectPending}
                         onOverflowWheel={handleComposerOverflowWheel}
-                        onStop={handleStopTurn}
+                        onStop={async () => { await handleStopTurn() }}
+                        isStopping={Boolean(stoppingSessions[activeComposerSessionId || ''])}
+                        queueHeld={queueHeld}
+                        onHoldQueue={() => handleHoldQueue()}
+                        onResumeQueue={() => handleResumeQueue()}
+                        onUpdateQueuedMessage={handleUpdateQueuedMessage}
                         onReconnect={handleReconnectAssistant}
                         onPrepareRealtimeVoice={handlePrepareCanonicalVoice}
                         onStartRealtimeVoice={handleStartCanonicalVoice}
@@ -1424,6 +1498,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         refreshModels={handleRefreshModels}
                         respondApproval={handleRespondApproval}
                         respondUserInput={handleRespondUserInput}
+                        onDismissUserInput={handleDismissUserInput}
                         setPlaygroundTerminalAccess={props.onPlaygroundTerminalAccessChange}
                         setPlaygroundTerminalAccessRequestMuted={props.onPlaygroundTerminalAccessRequestMutedChange}
                         approvePendingPlaygroundLabRequest={handleApprovePendingPlaygroundLabRequest}

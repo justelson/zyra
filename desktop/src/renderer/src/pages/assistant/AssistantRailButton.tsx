@@ -1,18 +1,25 @@
 import type { ReactNode } from 'react'
+import type { CommandId } from '@shared/keybindings'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/lib/settings'
+import { shortcutPlatform } from '@/lib/keybindings'
+import { ShortcutKeycaps } from '@/components/ui/ShortcutKeycaps'
 
 export function RailButton(props: {
     icon: ReactNode
     label: string
     shortcut?: string
+    shortcutCommand?: CommandId
     disabled?: boolean
     onClick: () => void
 }) {
-    const { icon, label, shortcut, disabled = false, onClick } = props
+    const { icon, label, shortcut, shortcutCommand, disabled = false, onClick } = props
+    const { settings } = useSettings()
 
     return (
         <button
             type="button"
+            data-shortcut-command={shortcutCommand}
             onClick={onClick}
             disabled={disabled}
             className={cn(
@@ -25,9 +32,9 @@ export function RailButton(props: {
                 {icon}
             </span>
             <span className="min-w-0 flex-1 truncate">{label}</span>
-            {shortcut ? (
-                <span className="pointer-events-none hidden shrink-0 rounded-md bg-[var(--surface-hover)] px-1.5 py-0.5 text-[10px] leading-none text-sparkle-text-secondary/80 group-hover:inline-flex">
-                    {shortcut}
+            {shortcutCommand || shortcut ? (
+                <span className="pointer-events-none hidden shrink-0 items-center gap-0.5 text-[10px] leading-none text-sparkle-text-secondary/80 group-hover:inline-flex">
+                    {shortcutCommand ? <ShortcutKeycaps id={shortcutCommand} platform={shortcutPlatform()} overrides={settings.keyboardShortcuts} /> : shortcut?.split(/[+\s]+/).map((key, index) => <kbd key={index} className="rounded border border-[var(--surface-divider)] bg-[var(--surface-hover)] px-1 py-0.5">{key}</kbd>)}
                 </span>
             ) : null}
         </button>

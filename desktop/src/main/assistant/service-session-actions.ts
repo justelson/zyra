@@ -21,6 +21,7 @@ import {
     isAssistantThreadProjectWarmupOnly
 } from '../../shared/assistant/session-project'
 import { normalizeAssistantRuntimePolicy } from '../../shared/assistant/runtime-policy'
+import { isAssistantReasoningEffort } from '../../shared/assistant/reasoning-efforts'
 import { is } from '../utils'
 import { prepareAssistantPromptImages, type PreparedAssistantPromptImage } from './prompt-images'
 import { isCanonicalPresenceActive } from './service-canonical-presence'
@@ -46,10 +47,6 @@ import {
 import { buildSessionHistoryMutationResult } from './session-mutation-utils'
 import { awaitCanonicalSessionTitleSaves, commitAssistantSessionTitle } from './session-title-updates'
 import { getAssistantCanonicalThreadId, matchesAssistantThreadId } from './thread-identity'
-import {
-    queueGeneratedSessionTitle,
-    shouldGenerateSessionTitleForPrompt
-} from './session-title-generation'
 import { respondToAssistantUserInputWithRuntime } from './user-input-response'
 import {
     createAssistantId,
@@ -113,7 +110,7 @@ export async function createAssistantSessionAction(
 ) {
     await deps.ensureReady()
     const previousThread = getActiveThread(getSelectedSession(deps.getSnapshot()))
-    if (previousThread) leaveAssistantThreadForNavigation(deps, previousThread)
+    if (previousThread && input?.select !== false) leaveAssistantThreadForNavigation(deps, previousThread)
     const createdAt = nowIso()
     const sessionId = options.sessionId || createAssistantId('assistant-session')
     const route = resolveAssistantSessionRoute({
@@ -125,6 +122,13 @@ export async function createAssistantSessionAction(
     const projectPath = route.projectPath
     const defaults = await deps.getNewChatExecutionDefaults()
     const thread = createAssistantThread(createdAt, null, projectPath || null, defaults)
+    if (input?.composer) {
+        if (typeof input.composer.model !== 'string' || !isAssistantReasoningEffort(input.composer.effort)
+            || !['approval-required', 'auto-review', 'edits-only', 'full-access'].includes(input.composer.runtimeMode)) throw new Error('Invalid new-chat composer choices.')
+        thread.model = input.composer.model.trim()
+        thread.thinking = input.composer.effort
+        thread.runtimeMode = input.composer.runtimeMode
+    }
     const session = createAssistantSessionRecord({
         sessionId,
         title: input?.title?.trim() || 'New Session',
@@ -136,7 +140,7 @@ export async function createAssistantSessionAction(
     })
     thread.cwd = deps.getSessionRuntimeCwd(session, thread)
     deps.appendEvent('session.created', createdAt, { session }, sessionId, thread.id)
-    deps.appendEvent('session.selected', createdAt, { sessionId }, sessionId, thread.id)
+    if (input?.select !== false) deps.appendEvent('session.selected', createdAt, { sessionId }, sessionId, thread.id)
     // Draft creation happens while composing. Prepare the selected local
     // transport without attaching a chat or delaying the creation response.
     if (deps.runtime.prepareChatRuntime) {
@@ -191,20 +195,22 @@ export async function selectAssistantThreadAction(deps: AssistantServiceActionDe
     return { success: true as const, sessionId, threadId: localThreadId }
 }
 
-export async function renameAssistantSessionAction(deps: AssistantServiceActionDeps, sessionId: string, title: string) {
+export async function renameAssistantSessionAction(deps: AssistantServiceActionDeps, sessionId: string, title: string, expectedTitle?: string) {
     await deps.ensureReady()
     return commitAssistantSessionTitle(sessionId, async () => {
         const session = requireSession(deps.getSnapshot(), sessionId)
+        if (expectedTitle !== undefined && session.title !== expectedTitle) throw new Error('The Chat title changed before this rename. Read it again.')
         const nextTitle = title.trim() || session.title
         await awaitCanonicalSessionTitleSaves(session.threads
             .map((thread) => thread.providerThreadId)
             .filter((threadId): threadId is string => Boolean(threadId))
-            .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle })))
+            .map((threadId) => deps.runtime.updateCanonicalChat(threadId, { title: nextTitle, ...(expectedTitle !== undefined ? { expectedTitle } : {}) })))
         const occurredAt = nowIso()
         deps.appendEvent('session.updated', occurredAt, {
             sessionId,
             patch: {
                 title: nextTitle,
+                titleManuallySet: true,
                 updatedAt: occurredAt
             }
         }, sessionId)
@@ -529,6 +535,18 @@ export async function sendAssistantPromptAction(
         : getSelectedSession(snapshot)
     if (!session) throw new Error('Assistant session not found.')
     const thread = requireActiveThread(session)
+    if (options?.dispatchMode === 'steer') {
+        const targetTurnId = options.targetTurnId || thread.latestTurn?.id
+        if (!targetTurnId || thread.latestTurn?.state !== 'running') throw new Error('The turn has ended. Send this message as a new turn instead.')
+        if (!deps.runtime.steerPrompt) throw new Error('This runtime does not support steering. Use Send next instead.')
+        const images = preparedImages ?? await prepareAssistantPromptImages(options.images)
+        const result = await deps.runtime.steerPrompt(getAssistantCanonicalThreadId(thread), input, { targetTurnId, images: images.length ? images : undefined })
+        const occurredAt = nowIso()
+        const message = createAssistantUserMessage(input, occurredAt, options.userMessageId || createAssistantId('assistant-message'))
+        message.turnId = result.turnId
+        deps.appendEvent('thread.message.user', occurredAt, { threadId: thread.id, message }, session.id, thread.id)
+        return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: result.turnId }
+    }
     // Check the canonical turn before persisting an optimistic user message.
     // A stale local busy flag is reconciled here; a genuinely running turn
     // rejects the prompt without adding an unsent duplicate to history.
@@ -548,20 +566,7 @@ export async function sendAssistantPromptAction(
             return undefined
         })
     )
-    const persistedFirstUserMessage = isDefaultSessionTitle(session.title)
-        ? null
-        : await deps.getFirstUserMessageText(session.id)
-    const shouldGenerateTitle = shouldGenerateSessionTitleForPrompt(session, persistedFirstUserMessage)
-    const titleModelPromise = shouldGenerateTitle
-        ? deps.getTitleGenerationModel().catch((error) => {
-            log.warn('[Assistant] Failed to read the chat-title model preference', error)
-            return null
-        })
-        : null
-    const titleProvider = { resolve: (_providerThreadId: string | null): void => {} }
-    const titleProviderReady = titleModelPromise
-        ? new Promise<string | null>((resolve) => { titleProvider.resolve = resolve })
-        : null
+    const hadNamedDraft = thread.messageCount === 0 && !isDefaultSessionTitle(session.title)
     const title = isDefaultSessionTitle(session.title) ? deriveSessionTitleFromPrompt(input) : session.title
     // Reconcile both directions. A selected user turn must not inherit a stale
     // background flag from a prior navigation or repaired catalog alias.
@@ -619,32 +624,10 @@ export async function sendAssistantPromptAction(
             deps.appendEvent('thread.message.user', occurredAt, { threadId: thread.id, message: userMessage }, session.id, thread.id)
         }
         deps.appendEvent('thread.latest-turn.updated', occurredAt, { threadId: thread.id, latestTurn: submittedTurn }, session.id, thread.id)
-        if (shouldGenerateTitle && titleModelPromise && titleProviderReady) {
-            // The title uses the sent user message and starts independently of
-            // session connection and the assistant's response.
-            void titleModelPromise.then((preferredModel) => queueGeneratedSessionTitle({
-                sessionId: session.id,
-                threadId: thread.id,
-                messageText: input,
-                seedTitle: title,
-                cwd: runtimeCwd,
-                preferredModel,
-                generateText: (titlePrompt, titleOptions) => deps.runtime.generateText(titlePrompt, titleOptions),
-                getSnapshot: deps.getSnapshot,
-                appendEvent: deps.appendEvent,
-                onApplied: async (nextTitle) => {
-                    const providerThreadId = await titleProviderReady
-                    if (providerThreadId) await deps.runtime.updateCanonicalChat(providerThreadId, { title: nextTitle })
-                }
-            })).catch((error) => {
-                log.warn('[Assistant] Session title generation task failed:', error)
-            })
-        }
         if (!hasLiveRuntimeSession) {
             await connectAssistantSessionRuntime(deps, session, { ...thread, ...updatedThreadPatch })
         }
         if (submission.cancelled) {
-            titleProvider.resolve(thread.providerThreadId || null)
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
         // Navigation or a concurrent canonical attach may replace the context
@@ -654,11 +637,15 @@ export async function sendAssistantPromptAction(
             await connectAssistantSessionRuntime(deps, session, { ...thread, ...updatedThreadPatch })
         }
         if (submission.cancelled) {
-            titleProvider.resolve(thread.providerThreadId || null)
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
+        // A rename may arrive while cold attachment is waiting. Read its
+        // durable local flag and latest name at the dispatch boundary.
+        const currentSession = requireSession(deps.getSnapshot(), session.id)
+        const initialManualTitle = currentSession.titleManuallySet || hadNamedDraft ? currentSession.title : undefined
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
+            initialManualTitle,
             startInNewWorktree: options?.startInNewWorktree,
             model: model || undefined,
             runtimeMode: options?.runtimeMode,
@@ -671,7 +658,6 @@ export async function sendAssistantPromptAction(
             contextCompactionThresholdTokens: runtimePolicy.contextCompactionThresholdTokens
         })
         if (submission.cancelled) await deps.runtime.interruptTurn(runtimeThreadId, result.turnId)
-        titleProvider.resolve(result.providerThreadId || thread.providerThreadId || runtimeThreadId)
         // Runtime events may already have completed the turn; do not rewind it.
         const currentTurn = requireSession(deps.getSnapshot(), session.id).threads.find(entry => entry.id === thread.id)?.latestTurn
         if (currentTurn?.id !== result.turnId) {
@@ -680,7 +666,6 @@ export async function sendAssistantPromptAction(
         }
         return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: result.turnId }
     } catch (error) {
-        titleProvider.resolve(null)
         if (submission.cancelled) {
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
@@ -730,10 +715,11 @@ export async function interruptAssistantTurnAction(
     await deps.ensureReady()
     const session = requireSession(deps.getSnapshot(), sessionId)
     const thread = requireActiveThread(session)
-    const effectiveTurnId = turnId || thread.latestTurn?.id
+    let effectiveTurnId = turnId || thread.latestTurn?.id
     const pendingSubmission = pendingPromptSubmissions.get(deps)?.get(thread.id)
     if (pendingSubmission && pendingSubmission.turnId === effectiveTurnId) {
         pendingSubmission.cancelled = true
+        await deps.runtime.cancelPendingPrompt?.(getAssistantCanonicalThreadId(thread), effectiveTurnId)
         const occurredAt = nowIso()
         if (thread.latestTurn?.id === effectiveTurnId) {
             deps.appendEvent('thread.latest-turn.updated', occurredAt, {
@@ -744,8 +730,18 @@ export async function interruptAssistantTurnAction(
         return { success: true as const }
     }
     const runtimeThreadId = getAssistantCanonicalThreadId(thread)
+    if (await deps.runtime.cancelPendingPrompt?.(runtimeThreadId, turnId)) return { success: true as const }
     if (!deps.runtime.hasSession(runtimeThreadId)) {
         await connectAssistantSessionRuntime(deps, session, thread)
+    }
+    if (deps.runtime.getCanonicalChat) {
+        const chat = await deps.runtime.getCanonicalChat(runtimeThreadId, deps.getSessionRuntimeCwd(session, thread))
+        if (!chat?.presence) throw new Error('The active turn could not be confirmed. Reconnect before stopping work.')
+        const observedTurnId = chat.presence.activeTurnId
+        // Pin this observation. An old Stop never rolls forward to a newer turn,
+        // and a confirmed idle chat never falls back to cached running history.
+        if (!observedTurnId || turnId && turnId !== observedTurnId) return { success: true as const }
+        effectiveTurnId = turnId || observedTurnId
     }
     await deps.runtime.interruptTurn(runtimeThreadId, effectiveTurnId)
     return { success: true as const }
@@ -780,6 +776,14 @@ export async function respondAssistantUserInputAction(
         if (!target) throw new Error(`Unknown user-input request ${input.requestId}.`)
         const pendingInput = target.thread.pendingUserInputs.find((entry) => entry.requestId === input.requestId)
         if (!pendingInput) throw new Error(`Unknown user-input request ${input.requestId}.`)
+        if ((input.cancelled || input.deferContinuation) && pendingInput.mode !== 'async') throw new Error('Only answer-later questions can be dismissed or delivered separately.')
+        if (input.cancelled) {
+            const runtimeId = getAssistantCanonicalThreadId(target.thread)
+            if (!deps.runtime.hasSession(runtimeId)) await connectAssistantSessionRuntime(deps, target.session, target.thread)
+            await deps.runtime.respondUserInput(runtimeId, input.requestId, {}, pendingInput.questions, { mode: 'async', cancelled: true })
+            deps.appendEvent('thread.user-input.updated', nowIso(), { threadId: target.thread.id, userInput: { ...pendingInput, status: 'resolved', answers: {}, resolvedAt: nowIso() } }, target.session.id, target.thread.id)
+            return { success: true as const }
+        }
         const contextText = input.contextText ?? ''
         if (typeof contextText !== 'string' || contextText.length > 256_000) throw new Error('Question attachments are too large.')
         const questionImages = await prepareAssistantPromptImages(input.images)
@@ -790,6 +794,7 @@ export async function respondAssistantUserInputAction(
             chatScope: target.session.chatScope,
             requestId: input.requestId,
             questions: pendingInput.questions,
+            mode: pendingInput.mode,
             answers: input.answers
         })
         const respondedAt = nowIso()
@@ -804,8 +809,11 @@ export async function respondAssistantUserInputAction(
                 resolvedAt: respondedAt
             }
         }, target.session.id, target.thread.id)
+        if (input.deferContinuation) return { success: true as const }
         return sendAssistantPromptAction(deps, contextText.trim() ? `${continuationPrompt}\n\n${contextText.trim()}` : continuationPrompt, {
             sessionId: target.session.id,
+            dispatchMode: pendingInput.mode === 'async' && target.thread.latestTurn?.state === 'running' ? 'steer' : 'immediate',
+            targetTurnId: pendingInput.mode === 'async' ? target.thread.latestTurn?.id : undefined,
             images: input.images,
             userMessageId: responseMessageId
         }, questionImages)

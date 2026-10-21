@@ -137,6 +137,7 @@ export type DevicePreferencesSnapshot = {
     revision: number
     surface: DevicePreferenceSurface
     settings: Record<string, unknown>
+    savedKeys?: string[]
     desktopLegacyMigrationComplete: boolean
     updatedAt: string
 }

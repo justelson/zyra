@@ -751,7 +751,13 @@ export interface DevScopeAssistantApi {
 export interface DevScopeApi {
     openDesktopSettings: () => Promise<DevScopeResult>
     mobileAccess?: import('../mobile-access').MobileAccessApi
-    runtimeActivation: { getState: () => Promise<RuntimeActivationStatus>; onStateChange: (listener: (state: RuntimeActivationStatus) => void) => () => void }
+    runtimeActivation: {
+        getState: () => Promise<RuntimeActivationStatus>
+        /** Desktop-only lifecycle controls. Browser and older hosts stay read-only. */
+        refresh?: () => Promise<RuntimeActivationStatus>
+        activateUpdate?: () => Promise<RuntimeActivationStatus>
+        onStateChange: (listener: (state: RuntimeActivationStatus) => void) => () => void
+    }
     // Settings + AI
     setStartupSettings: (settings: { openAtLogin: boolean; openAsHidden: boolean }) => Promise<DevScopeResult>
     getStartupSettings: () => Promise<DevScopeResult>

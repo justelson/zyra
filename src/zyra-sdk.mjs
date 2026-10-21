@@ -63,10 +63,12 @@ import { createZyraPermissionGateExtension } from "./zyra-permission-gate.mjs";
 import { AgentFleetController } from "./agents/runtime/fleet-controller.mjs";
 import { createFleetTools } from "./agents/tools.mjs";
 import { createThreadTool } from './threads/tool.mjs';
+import { createAppControlTools } from './app-control-tool.mjs';
 import { createVisualizationTool } from './visualizations/tool.mjs';
 import { WorkflowRuntime } from "./workflows/runtime.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
 import { removeZyraTitleGenerationMessages } from "./title-generation.mjs";
+import { createChatTitleController } from './chat-title-tool.mjs';
 import {
   checkModelAvailability,
   formatModelAvailabilitySummary,
@@ -115,6 +117,7 @@ import {
 } from "./tool-contracts.mjs";
 import { installZyraNextTurnCheckpoint } from "./zyra-next-turn-checkpoint.mjs";
 import { createRequestUserInputTool } from "./request-user-input-tool.mjs";
+import { installDeferredUserInputTurnStop } from './user-input-turn-stop.mjs';
 import {
   listZyraPromptResourceManifest,
   readZyraSkillSourceSettings,
@@ -873,20 +876,6 @@ export function applyZyraChatRetryPolicy(settingsManager) {
   });
 }
 
-function installDeferredUserInputTurnStop(session) {
-  const agent = session?.agent;
-  if (!agent) return;
-  const previousShouldStop = agent.shouldStopAfterTurn;
-  agent.shouldStopAfterTurn = async (context, signal) => {
-    const handedOffQuestions = Array.isArray(context?.toolResults)
-      && context.toolResults.some((result) => result?.toolName === "request_user_input" && result?.details?.deferred === true);
-    if (handedOffQuestions) return true;
-    return typeof previousShouldStop === "function"
-      ? Boolean(await previousShouldStop(context, signal))
-      : false;
-  };
-}
-
 export async function createZyraSession(options = {}) {
   const traceStartup = createRuntimeLatencyTrace('session-startup', options.onStartupMetric);
   const traceHarness = createRuntimeLatencyTrace('harness-turn', options.onHarnessMetric);
@@ -1014,6 +1003,8 @@ export async function createZyraSession(options = {}) {
   if (options.surface !== "memory-worker") applyZyraChatRetryPolicy(settingsManager);
   const fleetEnabled = options.enableFleet !== false && options.surface !== "memory-worker";
   const fleetHolder = {};
+  const chatTitle = typeof options.onChatTitle === 'function' && options.surface !== 'memory-worker'
+    ? createChatTitleController(options.onChatTitle) : null;
   const fleetTools = fleetEnabled ? createFleetTools(fleetHolder) : [];
   const browserSessionRef = { current: null };
   const browserTools = createBrowserToolSet({ client: options.controlBridgeClient, sessionRef: browserSessionRef });
@@ -1046,6 +1037,7 @@ export async function createZyraSession(options = {}) {
       }),
       createRequestUserInputTool({ requestUserInput: options.requestUserInput }),
       createAssistantActionBatchTool(),
+      ...(chatTitle ? [chatTitle.tool] : []),
       createZyraWebSearchTool(),
       createZyraWebFetchTool(),
       createZyraWriteTool({
@@ -1057,6 +1049,7 @@ export async function createZyraSession(options = {}) {
       }),
       ...fleetTools,
       ...createThreadTool(options.threadBridgeClient),
+      ...createAppControlTools(options.threadBridgeClient),
       createVisualizationTool({
         getContext: () => {
           const workingDirectory = sessionManager.getCwd?.() ?? cwd;
@@ -1217,6 +1210,7 @@ export async function createZyraSession(options = {}) {
   traceStartup('ready');
   return {
     session: result.session,
+    chatTitle,
     harnessHooks,
     memoryEnabled,
     resourceLoader: startupResources.resourceLoader,
@@ -1826,6 +1820,7 @@ function memoryRunner(root = defaults.dataRoot) {
 }
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
+  if (runtime.chatTitle) upsertSystemPromptBlock(runtime.session, 'ZYRA_CHAT_TITLE', runtime.chatTitle.prepare(options.chatTitleState));
   if (options.startInNewWorktree !== undefined && typeof options.startInNewWorktree !== 'boolean') throw new Error('Invalid worktree choice.');
   removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
   if (options.startInNewWorktree) upsertSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE', [
@@ -1862,6 +1857,8 @@ export async function runZyraPrompt(runtime, prompt, options = {}) {
     const lastMessage = assertFinalAssistantMessageSucceeded(runtime);
     await compactZyraContextAfterTurn(runtime, lastMessage);
   } finally {
+    runtime.chatTitle?.prepare(null);
+    removeSystemPromptBlock(runtime.session, 'ZYRA_CHAT_TITLE');
     removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
   }
 }

@@ -2,29 +2,29 @@ import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useAssistantQueuedComposer } from '../../src/renderer/src/pages/assistant/useAssistantQueuedComposer'
 
+// Legacy target name retained for existing CI callers. Force is now true steering.
 let actions: ReturnType<typeof useAssistantQueuedComposer>
 let rerender: () => void
-let completeInterrupt: (success: boolean) => void
+let completeDelivery: (success: boolean) => void
 let interrupts = 0
-const dispatched: string[] = []
+let attempts = 0
+let accepted = 0
+const modes: string[] = []
 function Harness() {
-    const [busy, setBusy] = useState(true)
-    const [pending, setPending] = useState(false)
     const [, setRevision] = useState(0)
     rerender = () => setRevision(value => value + 1)
     actions = useAssistantQueuedComposer({
-        selectedSessionId: 'session', isAssistantBusy: busy, isThreadWorking: busy,
-        commandPending: pending, activeTurnId: 'turn-1', busyMessageMode: 'force',
-        sessionStates: [{ sessionId: 'session', threadState: busy ? 'running' : 'ready', latestTurnState: busy ? 'running' : 'interrupted', pendingApprovalCount: 0, pendingUserInputCount: 0 }],
-        dispatchPrompt: async (_id, prompt) => { dispatched.push(prompt); return true },
-        interruptTurn: async () => {
-            interrupts++
-            setPending(true)
-            const success = await new Promise<boolean>(resolve => { completeInterrupt = resolve })
-            setPending(false)
-            if (!success) throw new Error('Unknown Zyra runtime session')
-            setBusy(false)
-        }
+        selectedSessionId: 'session', isAssistantBusy: true, isThreadWorking: true,
+        commandPending: false, activeTurnId: 'turn-1', busyMessageMode: 'steer',
+        sessionStates: [{ sessionId: 'session', threadState: 'running', latestTurnState: 'running', pendingApprovalCount: 0, pendingUserInputCount: 0 }],
+        dispatchPrompt: async (_id, _prompt, _files, options) => {
+            attempts++
+            modes.push(options.dispatchMode || 'immediate')
+            const success = await new Promise<boolean>(resolve => { completeDelivery = resolve })
+            if (success) accepted++
+            return success
+        },
+        interruptTurn: async () => { interrupts++; throw new Error('Steering must never call abort') }
     })
     return <div>{actions.queuedComposerMessageItems.map(item => <div key={item.id}>{item.prompt}: {item.status}</div>)}</div>
 }
@@ -34,28 +34,27 @@ const check = (condition: unknown, message: string) => { if (!condition) throw n
 async function until(predicate: () => boolean, label: string) {
     const deadline = performance.now() + 3000
     while (!predicate()) {
-        if (performance.now() > deadline) throw new Error(`Timed out: ${label} (interrupts=${interrupts})`)
+        if (performance.now() > deadline) throw new Error(`Timed out: ${label}`)
         await new Promise(resolve => setTimeout(resolve, 10))
     }
 }
 Object.assign(window, { runForceSendSmoke: async () => {
     await until(() => Boolean(actions), 'hook ready')
-    await actions.handleSendPrompt('Preserve my forced message', [], { dispatchMode: 'force' })
-    await until(() => interrupts > 0, 'first interruption')
+    await actions.handleSendPrompt('Preserve my correction', [], { dispatchMode: 'force' } as any)
+    await until(() => attempts === 1, 'first real steer')
     for (let i = 0; i < 5; i++) { rerender(); await new Promise(resolve => setTimeout(resolve, 15)) }
-    check(interrupts === 1, 'command-pending and unrelated rerenders must not duplicate an in-flight abort')
-    completeInterrupt(false)
-    await until(() => actions.queuedComposerMessageItems[0]?.status === 'paused', 'failed force message paused')
+    check(attempts === 1 && interrupts === 0, 'unrelated rerenders cannot duplicate steering or abort work')
+    check(actions.queuedComposerMessageCount === 1, 'pending acceptance retains the saved message')
+    completeDelivery(false)
+    await until(() => actions.queueHeld, 'failed delivery held')
     for (let i = 0; i < 10; i++) { rerender(); await new Promise(resolve => setTimeout(resolve, 10)) }
-    check(interrupts === 1, 'a failed interruption must not produce a retry storm')
-    check(dispatched.length === 0, 'a failed interruption must not send the message')
-    const item = actions.queuedComposerMessageItems[0]
-    check(item.prompt === 'Preserve my forced message', 'failure preserves the queued prompt')
-    await actions.handleForceQueuedMessage(item.id)
-    await until(() => interrupts === 2, 'explicit force retry')
-    completeInterrupt(true)
-    await until(() => dispatched.length === 1 && actions.queuedComposerMessageCount === 0, 'queued message sent after successful abort')
-    check(dispatched[0] === item.prompt, 'forced message sent exactly once')
+    check(attempts === 1 && accepted === 0, 'failure never retries automatically')
+    check(actions.queuedComposerMessageItems[0]?.prompt === 'Preserve my correction', 'failure preserves the prompt')
+    check(actions.handleResumeQueue(), 'explicit resume releases the held queue')
+    await until(() => attempts === 2, 'explicit retry')
+    completeDelivery(true)
+    await until(() => accepted === 1 && actions.queuedComposerMessageCount === 0, 'accepted steer consumed once')
+    check(interrupts === 0 && modes.every(mode => mode === 'steer'), 'legacy Force becomes steering, never interruption')
     root.unmount()
-    return { inFlightDeduplicated: true, failurePaused: true, retryStormStopped: true, explicitRetry: true, sentOnce: true }
+    return { realSteering: true, noAbort: true, savedUntilAccepted: true, failureHeld: true, explicitRetry: true, acceptedOnce: true }
 } })

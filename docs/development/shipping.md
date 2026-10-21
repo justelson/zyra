@@ -14,6 +14,34 @@ Source changes and installer publication are separate operations. Use short-live
 
 [Fast validation](fast-validation.md) names the owning tests. Quick checks are not full release acceptance. Unknown or cross-platform behavior needs explicit broader validation; do not claim it passed from a focused test.
 
+## Delivery evidence and active runtime
+
+Track five checkpoints separately. A later checkpoint is never inferred from an earlier one.
+
+| Checkpoint | Required evidence |
+| --- | --- |
+| Source fixed | Exact source revision and the original regression passing |
+| Build produced | Successful build identity, source SHA and artifact checksums |
+| App installed | Installed app identity matches that artifact |
+| Server active | Fresh namespace/instance observation and running runtime fingerprint match the installed runtime |
+| Bug verified | Original behavior exercised in that installed app and active server |
+
+Use **Settings → About → Background agent**, also reachable from the app menu's **Agent status and updates**, to compare installed and last-observed agent code. **Refresh status / Reconnect** refreshes observation. **Activate agent update** reuses verified retirement and only replaces an idle server. Active turns, background chats/processes, pending attention, in-flight requests and external tools prevent retirement. It does not cancel work. A verified Desktop connection automatically retries an update previously refused as busy on its next heartbeat, normally within 15 seconds of becoming idle. Modern activity counts must be known and clear; legacy format-1 servers without counts are polled through their existing verified retirement gate, which still refuses active work. Authentication failures, unsupported retirement and failed replacements do not loop automatically. Closing the connection cancels deferred retry. Browser and inspection clients remain read-only.
+
+On Windows, `scripts/runtime-restart-window.ps1` provides an independent, click-only window restart helper. Supply the exact executable, PID, process-start ticks, namespace state directory/channel and Node executable. It performs read-only status checks, requests a normal window close only after a click and fresh check, and reopens the same executable only after that exact process exits. It never installs source changes, reads Desktop authority secrets, kills the app/server or switches profiles. Known activity blocks the button. Legacy servers without activity reporting require an explicit confirmation that the current turn has finished; this permits a window-only restart, not forced background-agent termination. The reopened Desktop remains responsible for verified safe agent activation.
+
+For a machine-readable observation of an explicitly selected namespace:
+
+```sh
+npm run runtime:inspect -- --runtime-root "<installed-runtime-root>" --state-directory "<namespace-state-directory>" --channel "<channel>" --expected-runtime-revision "<64-character-runtime-fingerprint>"
+```
+
+The expected fingerprint is optional. Inspection fingerprints the selected runtime files and obtains fresh canonical identity with automatic startup/replacement disabled. It never starts, retires, attaches to or stops work. Output omits paths, tokens, session details and raw errors. Client count includes the inspector and is not an active-work count. A missing/stale/conflicting observation cannot verify activation. Fingerprint format 2 covers compiled JS/CJS engine code; an observation using the older fingerprint format remains unknown rather than being compared as if the algorithms matched.
+
+`stages.serverActive: verified` proves runtime identity agreement at the observation time, not application installation or a behavioral fix. Other stages remain `unknown` in this report until established separately. Save exact source/build/installation/runtime/acceptance evidence in the task's ignored `docs.local/` handoff. Do not call a local-only patch installed, active or accepted.
+
+Run `npm run test:runtime-deployment` for report and isolated transport checks; `npm run test:runtime-lifecycle` and `npm --prefix desktop run test:runtime-lifecycle` cover safe activation and user controls. These tests do not update the user's installation.
+
 ## Personal Windows preview
 
 Run `windows-preview.yml` in the configured helper repository. Supply the public source repository and its full 40-character commit SHA. Optionally supply `source_pr` to scope cancellation to that PR and `request_id` to identify an explicit relay request in provenance; neither is required for direct dispatch. Request IDs accept letters/digits and `.`, `_`, `:`, `-`, up to 128 characters starting with a letter or digit. `target` defaults to the only supported target, `windows-x64`. The workflow checks out that commit, not the helper branch's app code. Its own workflow revision is recorded separately.

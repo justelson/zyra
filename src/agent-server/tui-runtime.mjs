@@ -621,7 +621,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
     abortBash: () => undefined,
     async steer(prompt, images) {
       steering.push(String(prompt || ""));
-      try { return await request("steer", { prompt, images }); }
+      try {
+        if (!activeTurnId) throw new Error('The turn has ended. Send this message as a new turn instead.');
+        return await request("steer", { prompt, images, targetTurnId: activeTurnId });
+      }
       finally { steering.shift(); }
     },
     async followUp(prompt, images) {
@@ -1038,7 +1041,7 @@ export function projectHistoryEntries(entries) {
           visibleParts.push({ type: "text", text: `[Image ${partIndex + 1}: ${part.mimeType || part.mime_type || "image"}]` });
           continue;
         }
-        if (part?.type !== "toolCall") continue;
+        if (part?.type !== "toolCall" || part.name === 'set_chat_title') continue;
         flushVisibleParts();
         const toolCallId = asString(part.id) || `${id}:tool:${tools.size + 1}`;
         const toolEvent = {
@@ -1058,6 +1061,7 @@ export function projectHistoryEntries(entries) {
       continue;
     }
     if (role === "toolResult") {
+      if (message.toolName === 'set_chat_title') continue;
       const toolCallId = asString(message.toolCallId) || asString(message.tool_call_id) || `${id}:tool-result`;
       const started = tools.get(toolCallId) || {};
       const details = asRecord(message.details);

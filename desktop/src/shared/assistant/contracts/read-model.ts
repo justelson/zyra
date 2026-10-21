@@ -69,6 +69,8 @@ export interface AssistantPendingApproval {
 }
 
 export interface AssistantPendingUserInput {
+    /** Async questions do not block the running turn or normal composer. */
+    mode?: 'blocking' | 'async'
     id: string
     requestId: string
     questions: AssistantUserInputQuestion[]
@@ -116,6 +118,8 @@ export interface AssistantPlaygroundState {
 
 export interface AssistantLatestTurn {
     id: string
+    /** Last observed work awaiting fresh canonical presence after Desktop restart, not a terminal outcome. */
+    runtimeRecoveryPending?: boolean
     state: 'running' | 'completed' | 'interrupted' | 'error'
     requestedAt: string
     startedAt: string | null
@@ -396,6 +400,10 @@ export interface AssistantSession {
     id: string
     title: string
     titleGenerating?: boolean
+    /** Retains an explicit local rename before a canonical chat is attached. */
+    titleManuallySet?: boolean
+    /** History provenance only. This never asserts a historical filesystem checkpoint. */
+    forkOrigin?: { canonicalChatId: string; entryId: string; messageId?: string; createdAt: string; namespaceId?: string | null; worktree?: 'shared' | 'isolated' } | null
     /** Authoritative agent-server catalog state; absent for an unattached/legacy chat. */
     settled?: boolean
     settlementManual?: boolean

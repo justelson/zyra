@@ -130,6 +130,12 @@ try {
     await secondWorker.request('reload', {})
     assert.equal(repeatedAttachRequests, 0, 'already-attached workers must not attach again for every request')
 
+    await assert.rejects(worker.request('prompt', { prompt: 'cancel before pipe write', turnId: 'turn:cancelled-before-write' }, {
+        beforeDispatch: () => { throw new Error('Synthetic cancelled dispatch') }
+    }), /Synthetic cancelled dispatch/)
+    assert.equal(workers[0].activePrompt, null, 'cancelled attachment waits cannot dispatch a provider prompt')
+    assert.equal(events.length, 0, 'no server acceptance is generated for cancelled local work')
+
     const prompt = worker.request('prompt', { prompt: 'continue', turnId: 'turn:desktop-test' })
     await waitUntil(() => workers[0]?.activePrompt !== null)
     workers[0].emit('control', { type: 'control.request', requestId: 'control:desktop-owner', operation: { action: 'observe' } })
@@ -169,7 +175,9 @@ try {
     assert.equal(replay[0]?.replay, true)
     assert.equal(replay[0]?.turnId, 'turn:desktop-test')
     const latestSequence = reconnectWorker.latestSequence
-    reconnectWorker.markRemoteDetached()
+    const retiringClient = await (reconnectConnection as any).getClient()
+    retiringClient.close(undefined, 'restarting')
+    assert.equal(reconnectWorker.isAlive(), false, 'explicit server retirement invalidates idle Desktop worker bindings')
     assert.equal(reconnectWorker.latestSequence, latestSequence, 'transport reconnects must retain the replay watermark')
     reconnectWorker.dispose()
     reconnectConnection.close()

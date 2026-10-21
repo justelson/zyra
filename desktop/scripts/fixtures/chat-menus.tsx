@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { MemoryRouter } from 'react-router-dom'
+import { SettingsProvider } from '../../src/renderer/src/lib/settings'
 import { AssistantChatSessionsRail } from '../../src/renderer/src/pages/assistant/AssistantChatSessionsRail'
 import { AssistantConversationHeader } from '../../src/renderer/src/pages/assistant/AssistantConversationHeader'
 import { createChatActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-chat-actions-menu'
@@ -23,7 +24,16 @@ function session(id: string): AssistantSession {
 }
 const sessions = [session('selected'), session('other')]
 const calls: string[] = []
-;(window as any).devscope = { copyToClipboard: async (value: string) => { calls.push(`copy:${value}`); return { success: true } } }
+const stopToasts: string[] = []
+let recoveryCommandsPending = false
+let stopFails = false
+// Synthetic profile APIs for the real SettingsProvider and registry keycaps.
+// No installed preferences or credentials participate in this menu fixture.
+;(window as any).devscope = {
+    copyToClipboard: async (value: string) => { calls.push(`copy:${value}`); return { success: true } },
+    preferences: { onChanged: () => () => {}, get: async () => ({ success: true, snapshot: { revision: 0, settings: { assistantMemoryEnabled: false }, desktopLegacyMigrationComplete: true } }) },
+    secrets: { migrateLegacyHostedAiKeys: async () => ({ success: true, status: { groqConfigured: false, geminiConfigured: false, legacyMigrationComplete: true } }) }
+}
 function Header() {
     const target = sessions[0]
     const pins = usePinnedSessionIds()
@@ -33,14 +43,16 @@ function Header() {
         rightPanelOpen={false} rightPanelMode="none" selectedSessionTitle={target.title} canonicalThreadId="selected-canonical"
         activeThreadIsSubagent={false} activeThreadLabel={null} latestProjectLabel="Chat" selectedProjectTooltip="" selectedProjectPath={null}
         projectDirectoryLocked={false} pinned={pins.has(target.id)} settled={state.settled} settlementDisabled={state.priority}
+        actionsDisabled={recoveryCommandsPending} onShowToast={message => stopToasts.push(message)}
         onTogglePinned={() => { toggleChatPinned(target.id) }} onToggleSettlement={() => setChatSettlement(target, !state.settled)}
         onRegenerateTitle={() => { calls.push(`regenerate:${target.id}`) }}
         onCreateThread={() => { calls.push(`thread:${target.id}`) }} onRenameChat={() => { calls.push(`rename:${target.id}`) }}
         onCreateProjectChat={() => {}} onChooseProject={() => { calls.push(`project:${target.id}`) }}
+        onStopActiveTurn={async () => { if (stopFails) throw new Error('Synthetic failed Stop'); calls.push(`stop:${target.id}`) }}
         onArchiveChat={() => { calls.push(`archive:${target.id}`) }} onDeleteChat={() => { calls.push(`delete:${target.id}`) }} onToggleRightSidebar={() => {}} />
     </div>
 }
-function renderMenus() { flushSync(() => root.render(<MemoryRouter><Header /><div className="flex h-[620px]">
+function renderMenus() { flushSync(() => root.render(<SettingsProvider><MemoryRouter><Header /><div className="flex h-[620px]">
     <AssistantChatSessionsRail collapsed={false} width={322} previewPinned={false} agentInboxEnabled
         projectIconOverrides={{}} projects={[]} sessions={sessions} activeSessionId="selected" activeThreadId="selected-thread"
         commandPending={false} pendingControlThreadIds={new Set()} onCreateChat={() => {}} onCreateProjectChat={() => {}}
@@ -48,7 +60,7 @@ function renderMenus() { flushSync(() => root.render(<MemoryRouter><Header /><di
         onCreateThread={id => { calls.push(`thread:${id}`) }} onChooseSessionProject={target => { calls.push(`project:${target.id}`) }}
         onArchiveSession={id => { calls.push(`archive:${id}`) }} onDeleteSession={async () => ({ success: true })}
         onPreviewPinnedChange={() => {}} onShowToast={() => {}} />
-</div></MemoryRouter>)) }
+</div></MemoryRouter></SettingsProvider>)) }
 renderMenus()
 function PreferenceProbe() {
     const pins = usePinnedSessionIds()
@@ -110,6 +122,20 @@ async function header() {
     await sleep(250)
 }
 async function run() {
+    if ((window as any).stopRecoveryOnly) {
+        await sleep(150)
+        await header()
+        check(button('Stop active turn') && !button('Stop active turn').disabled, 'Recovery Stop is present without running UI state or presence')
+        button('Stop active turn').click(); await sleep(100)
+        check(calls.filter(call => call === 'stop:selected').length === 1, 'Recovery Stop invokes the owning chat once')
+        recoveryCommandsPending = true; renderMenus(); await sleep(100); await header()
+        check(button('Rename chat').disabled && !button('Stop active turn').disabled, 'A pending chat command cannot hide or disable recovery Stop')
+        stopFails = true; button('Stop active turn').click(); await sleep(100)
+        check(stopToasts.at(-1) === 'Synthetic failed Stop', 'Failed Stop is reported rather than claiming work stopped')
+        check(calls.filter(call => call === 'stop:selected').length === 1, 'Failed Stop is not reported as successful')
+        stopFails = false
+        return ['recovery Stop in terminal/unknown UI; owning chat targeted once; independent of pending commands; failures remain visible']
+    }
     const noop = () => {}
     const options = { canonicalThreadId: 'test', projectPath: null, projectLocked: false, onCopyThreadId: noop, onRename: noop, onArchive: noop, onDelete: noop }
     const flatten = (items: ReturnType<typeof createChatActionMenuItems>) => items.flatMap(item => [
@@ -123,6 +149,10 @@ async function run() {
     await sleep(150)
     await header()
     for (const label of ['Settle chat', 'Pin chat', 'Rename chat', 'Regenerate chat title', 'New thread', 'Copy thread ID', 'Attach project', 'Archive chat', 'Delete chat']) check(button(label), `Header contains ${label}`)
+    check(button('Stop active turn') && !button('Stop active turn').disabled, 'Stop remains reachable even when saved chat state is ready and presence is absent')
+    button('Stop active turn').click(); await sleep(100)
+    check(calls.includes('stop:selected'), 'Recovery Stop targets its owning chat')
+    await header()
     button('Pin chat').click(); await sleep(100)
     await sidebar('selected'); check(button('Unpin chat') && button('Unpin chat to settle').disabled, 'Header pin reaches sidebar and prevents settlement')
     button('Unpin chat').click(); await sleep(100)

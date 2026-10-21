@@ -141,6 +141,9 @@ export function AssistantComposerView({
     const showBusySendActions = capabilities.showBusySendActions
     const [textareaScrollTop, setTextareaScrollTop] = useState(0)
     const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState<string | null>(null)
+    const [queueEdit, setQueueEdit] = useState<{ id: string; text: string } | null>(null)
+    const [queueEditError, setQueueEditError] = useState<string | null>(null)
+    useEffect(() => { setQueueEdit(null); setQueueEditError(null) }, [controller.loadedSessionId])
     const [promptResources, setPromptResources] = useState<AssistantPromptResourcesPayload | null>(() =>
         readCachedPromptResources(controller.projectPath)
     )
@@ -164,7 +167,7 @@ export function AssistantComposerView({
         settings
     })
     const composerPlaceholder = capabilities.placeholder
-    const sendActionDisabled = capabilities.sendDisabled || (voiceBusy && !capabilities.canStop)
+    const sendActionDisabled = capabilities.sendDisabled || Boolean(controller.selectionUnavailableReason) || (voiceBusy && !capabilities.canStop)
     const currentSubmitLabel = controller.isDirty && controller.dirtySubmitLabel
         ? controller.dirtySubmitLabel
         : controller.submitLabel
@@ -499,6 +502,7 @@ export function AssistantComposerView({
                         removingAttachmentIds={controller.removingAttachmentIds}
                         onPreview={controller.setPreviewAttachment}
                         onRemove={controller.removeAttachment}
+                        onUpdate={controller.updateAttachment}
                     />
                 </div>
             ) : null}
@@ -559,25 +563,29 @@ export function AssistantComposerView({
                                 >
                                     <div className="flex items-center justify-between border-b border-white/[0.06] px-3.5 py-1.5">
                                         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/42">
-                                            Queued {controller.queuedMessages.length}
+                                            {controller.queueHeld ? 'Held' : 'Queued'} {controller.queuedMessages.length}
                                         </span>
+                                        {controller.queueHeld ? <button type="button" onClick={() => void controller.onResumeQueue?.()} disabled={!controller.onResumeQueue || controller.isStopping || !controller.isConnected} className="text-xs text-sparkle-text-secondary hover:text-sparkle-text disabled:opacity-40">Resume queue</button> : null}
                                     </div>
                                     <div className={cn(
                                         'custom-scrollbar overflow-y-auto',
                                         controller.queuedMessages.length >= 3 && 'max-h-[9.75rem]'
                                     )}>
                                         {controller.queuedMessages.map((queuedMessage, index) => {
-                                            const isForce = queuedMessage.dispatchMode === 'force'
-                                            const isPaused = queuedMessage.status === 'paused'
+                                            const isForce = queuedMessage.dispatchMode === 'steer'
+                                            const isPaused = queuedMessage.status === 'paused' || queuedMessage.status === 'held' || queuedMessage.status === 'failed'
+                                            const isSendingQueued = queuedMessage.status === 'sending'
                                             const waitingForCompaction = queuedMessage.status === 'compacting'
                                             const queuePromptLabel = queuedMessage.prompt.trim() || 'Attachment-only message'
                                             const queuedFileCount = queuedMessage.contextFiles.length
-                                            const canForceQueuedMessage = !waitingForCompaction && Boolean(controller.onForceQueuedMessage) && (!isForce || isPaused)
-                                            const canEditQueuedMessage = Boolean(controller.onDeleteQueuedMessage)
+                                            const canForceQueuedMessage = !isSendingQueued && !waitingForCompaction && Boolean(controller.onForceQueuedMessage) && (!isForce || isPaused)
+                                            const canEditQueuedMessage = Boolean(controller.onUpdateQueuedMessage) && queuedMessage.status !== 'sending'
+                                            const editing = queueEdit?.id === queuedMessage.id
                                             const editQueuedMessage = () => {
                                                 if (!canEditQueuedMessage) return
-                                                controller.restoreQueuedMessageToDraft(queuedMessage)
-                                                void controller.onDeleteQueuedMessage?.(queuedMessage.id)
+                                                controller.onHoldQueue?.()
+                                                setQueueEdit({ id: queuedMessage.id, text: queuedMessage.prompt })
+                                                setQueueEditError(null)
                                             }
                                             return (
                                                 <div
@@ -597,7 +605,7 @@ export function AssistantComposerView({
                                                         'relative flex items-start gap-2.5 px-3.5 py-2',
                                                         index > 0 && 'border-t border-white/[0.06]',
                                                         isForce && 'bg-amber-500/10',
-                                                        isPaused && 'bg-rose-500/10',
+                                                        isPaused && 'bg-white/[0.02]',
                                                         draggedQueuedMessageId === queuedMessage.id && 'opacity-45'
                                                     )}
                                                 >
@@ -623,12 +631,13 @@ export function AssistantComposerView({
                                                         <GripVertical size={14} />
                                                     </div>
                                                     <div className="min-w-0 flex-1">
-                                                        {isPaused || waitingForCompaction || queuedFileCount > 0 ? (
+                                                        {isPaused || isSendingQueued || waitingForCompaction || queuedFileCount > 0 ? (
                                                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                                {isSendingQueued ? <span className="text-[11px] text-sparkle-text-muted" role="status">Sending…</span> : null}
                                                                 {waitingForCompaction ? <span className="text-[11px] text-sparkle-text-muted" role="status">Letting compaction finish</span> : null}
                                                                 {isPaused ? (
                                                                     <span className="rounded-full bg-rose-500/12 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-rose-100/85">
-                                                                        Retry needed
+                                                                        Held
                                                                     </span>
                                                                 ) : null}
                                                                 {queuedFileCount > 0 ? (
@@ -638,7 +647,18 @@ export function AssistantComposerView({
                                                                 ) : null}
                                                             </div>
                                                         ) : null}
-                                                        <button
+                                                        {editing && queueEdit ? <div className="space-y-2 pt-1">
+                                                            <textarea aria-label="Edit queued message" value={queueEdit.text} onChange={event => setQueueEdit({ id: queuedMessage.id, text: event.target.value })} className="min-h-16 w-full resize-y rounded-md border border-[var(--surface-divider)] bg-transparent p-2 text-sm outline-none focus:border-[var(--accent-primary)]" />
+                                                            <div className="flex items-center gap-3 text-xs">
+                                                                <button type="button" onClick={async () => {
+                                                                    const saved = await controller.onUpdateQueuedMessage?.(queuedMessage.id, queueEdit.text)
+                                                                    if (saved === false) { setQueueEditError('Could not save. The queued message may have started or storage is unavailable.'); return }
+                                                                    setQueueEdit(null); setQueueEditError(null)
+                                                                }}>Save</button>
+                                                                <button type="button" onClick={() => { setQueueEdit(null); setQueueEditError(null) }}>Cancel</button>
+                                                            </div>
+                                                            {queueEditError ? <p role="alert" className="text-xs text-amber-200">{queueEditError}</p> : null}
+                                                        </div> : <button
                                                             type="button"
                                                             onClick={editQueuedMessage}
                                                             disabled={!canEditQueuedMessage}
@@ -652,7 +672,7 @@ export function AssistantComposerView({
                                                             }}
                                                         >
                                                             {queuePromptLabel}
-                                                        </button>
+                                                        </button>}
                                                     </div>
                                                     <div className="ml-2 flex shrink-0 items-center justify-end gap-1 self-center">
                                                         {controller.onMoveQueuedMessage && controller.queuedMessages.length > 1 ? <span className="flex flex-col">
@@ -688,13 +708,13 @@ export function AssistantComposerView({
                                                                     : 'bg-white/[0.05] text-white/35'
                                                             )}
                                                             title={canForceQueuedMessage
-                                                                ? 'Interrupt the current turn and send this queued message next'
+                                                                ? 'Steer the current turn with this message without stopping it'
                                                                 : isForce
-                                                                    ? 'This queued message is already forced'
-                                                                    : 'Force send is unavailable right now'}
+                                                                    ? 'This message is being delivered as a steer'
+                                                                    : 'Steer is unavailable while preparing or compacting'}
                                                         >
                                                             <Zap size={11} />
-                                                            <span>{canForceQueuedMessage ? 'Force' : 'Forced'}</span>
+                                                            <span>Steer</span>
                                                         </button>
                                                     </div>
                                                 </div>
@@ -710,6 +730,7 @@ export function AssistantComposerView({
                                 onOpenAttachmentPreview={controller.onOpenAttachmentPreview}
                                 onPreview={controller.setPreviewAttachment}
                                 onRemove={controller.removeAttachment}
+                                onUpdate={controller.updateAttachment}
                             /> : null}
                                 </>
                             )}
@@ -972,7 +993,6 @@ export function AssistantComposerView({
                                             defaultMode={controller.busyMessageMode}
                                             disabled={sendActionDisabled}
                                             queuedCount={controller.queuedMessageCount}
-                                            onModeUsed={(assistantBusyMessageMode) => updateSettings({ assistantBusyMessageMode })}
                                             onQueue={controller.handleQueueSend}
                                             onForce={controller.handleForceSend}
                                         />
@@ -980,6 +1000,7 @@ export function AssistantComposerView({
                                             disabled={sendActionDisabled}
                                             isConnected={controller.isConnected}
                                             isThinking={true}
+                                            isStopping={controller.isStopping}
                                             canSend={false}
                                             label={currentSubmitLabel}
                                             reconnectPending={controller.reconnectPending}
@@ -1004,6 +1025,7 @@ export function AssistantComposerView({
                                         disabled={sendActionDisabled}
                                         isConnected={controller.isConnected}
                                         isThinking={controller.isThinking}
+                                        isStopping={controller.isStopping}
                                         canSend={canSend}
                                         label={currentSubmitLabel}
                                         reconnectPending={controller.reconnectPending}
@@ -1017,6 +1039,7 @@ export function AssistantComposerView({
                             )}
                         </div>
                     </div>
+                    {controller.selectionUnavailableReason ? <p role="status" className="mt-1 px-2 text-xs text-amber-200">{controller.selectionUnavailableReason}</p> : null}
                     {speechError ? (
                         <div role="alert" className="mt-1.5 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1 px-2 text-[10px] leading-4 text-amber-200/80">
                             <span className="min-w-0 flex-1">{speechError}</span>

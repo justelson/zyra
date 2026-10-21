@@ -1,4 +1,5 @@
 import { useNativeAppShortcuts } from './keybindings'
+import { DEFAULT_DEVICE_SETTINGS } from '@shared/preferences/default-settings'
 import { configureShortcutOverrides, sanitizeShortcutOverrides, type ShortcutOverrides } from '@shared/keybindings'
 import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { ACCENT_COLORS, type AccentColor } from '@shared/preferences/accent-presets'
@@ -102,7 +103,7 @@ export type AssistantDefaultRuntimeMode = AssistantRuntimeMode
 export type AssistantDefaultEffort = AssistantReasoningEffort
 export type AssistantReasoningSummary = AssistantReasoningSummaryMode
 export type AssistantTranscriptionEngine = 'browser' | 'codex'
-export type AssistantBusyMessageMode = 'queue' | 'force'
+export type AssistantBusyMessageMode = 'queue' | 'steer'
 export type AssistantProductProfile = 'concise' | 'friendly' | 'direct' | 'thoughtful' | 'playful'
 export type AppearanceThemeMode = 'system' | 'light' | 'dark'
 export type AppearanceManagedFont = `managed:${string}`
@@ -325,115 +326,7 @@ export interface Settings {
     assistantTranscriptionEngine: AssistantTranscriptionEngine
 }
 
-const DEFAULT_SETTINGS: Settings = {
-    settingsSchemaVersion: 5,
-    keyboardShortcuts: {},
-    theme: DEFAULT_APPEARANCE_DARK_THEME,
-    appearanceThemeMode: 'system',
-    appearanceLightTheme: DEFAULT_APPEARANCE_LIGHT_THEME,
-    appearanceDarkTheme: DEFAULT_APPEARANCE_DARK_THEME,
-    appearanceResolvedMode: 'dark',
-    appearanceCustomTheme: null,
-    appearanceCustomThemeActive: false,
-    appearanceUiFont: DEFAULT_APPEARANCE_UI_FONT,
-    appearanceCodeFont: DEFAULT_APPEARANCE_CODE_FONT,
-    appearanceInterfaceScale: DEFAULT_APPEARANCE_INTERFACE_SCALE,
-    appearanceCodeScale: DEFAULT_APPEARANCE_CODE_SCALE,
-    appearanceContrastScale: DEFAULT_APPEARANCE_CONTRAST_SCALE,
-    appearanceAnimationSpeed: DEFAULT_APPEARANCE_ANIMATION_SPEED,
-    appearanceAnimationScale: DEFAULT_APPEARANCE_ANIMATION_SCALE,
-    accentColor: getThemePresetAccent(DEFAULT_APPEARANCE_DARK_THEME),
-    compactMode: false,
-    sidebarCollapsed: false,
-    sidebarHoverPreviewEnabled: true,
-    assistantAgentInboxSidebarEnabled: true,
-    explorerTabEnabled: false,
-    explorerHomePath: '',
-    defaultShell: 'powershell',
-    startMinimized: false,
-    startWithWindows: false,
-    browserViewMode: 'finder',
-    browserContentLayout: 'explorer',
-    filePreviewOpenInFullscreen: false,
-    filePreviewFullscreenShowLeftPanel: true,
-    filePreviewFullscreenShowRightPanel: false,
-    filePreviewDefaultMode: 'preview',
-    filePreviewPythonRunMode: 'terminal',
-    filePreviewExplorerNameLayout: 'wrap',
-    fileEditorWordWrap: 'on',
-    fileEditorMinimapEnabled: true,
-    fileEditorFontSize: 13,
-    fileCsvDistinctColorsEnabled: true,
-    fileDiffRenderMode: 'stacked',
-    packageRuntimePreference: 'auto',
-    filePreviewTerminalPanelHeight: 220,
-    terminalFontSize: 12,
-    terminalCursorBlink: true,
-    terminalScrollback: 5000,
-    assistantBrowserRestoreTabs: true,
-    assistantBrowserGoogleSuggestions: true,
-    assistantBrowserAdBlockEnabled: false,
-    assistantBrowserAdBlockPromptDismissed: false,
-    assistantBrowserNewTabBackgroundMode: 'built-in',
-    assistantBrowserNewTabBackgroundCategory: 'all',
-    assistantBrowserNewTabBackgroundRotation: 'every-tab',
-    assistantBrowserNewTabBackgroundId: '',
-    projectsFolder: '',
-    additionalFolders: [],
-    gitAutoRefreshOnProjectOpen: true,
-    gitInitDefaultBranch: 'main',
-    gitInitCreateGitignore: true,
-    gitInitCreateInitialCommit: false,
-    gitWarnOnAuthorMismatch: true,
-    gitBulkActionScope: 'repo',
-    gitPullRequestGlobalGuide: {
-        mode: 'text',
-        text: '',
-        filePath: ''
-    },
-    gitPullRequestDefaultGuideSource: 'global',
-    gitPullRequestDefaultTargetBranch: 'main',
-    gitPullRequestDefaultDraft: true,
-    gitPullRequestDefaultChangeSource: 'all-local-work',
-    gitProjectPullRequestConfigs: {},
-    gitAutoCreateBranchWhenTargetMatches: false,
-    groqApiKey: '',
-    geminiApiKey: '',
-    groqApiKeyConfigured: false,
-    geminiApiKeyConfigured: false,
-    gitCommitCodexModel: '',
-    gitPullRequestCodexModel: '',
-    commitAIProvider: 'codex',
-    assistantUsageDisplayMode: 'remaining',
-    assistantTextStreamingMode: 'stream',
-    assistantToolOutputDefaultMode: 'minimized',
-    assistantAllowCollapseWhileWorking: false,
-    assistantShowActionStats: false,
-    assistantChatDisplayMode: 'minimal',
-    assistantDefaultModel: '',
-    assistantTitleModel: DEFAULT_ASSISTANT_TITLE_MODEL,
-    assistantTitleAutoRegenerate: false,
-    assistantTitleAutoRegenerateTurns: DEFAULT_ASSISTANT_AUTO_TITLE_TURNS,
-    assistantDefaultPromptTemplate: '',
-    assistantProductProfile: 'concise',
-    assistantDefaultRuntimeMode: 'approval-required',
-    assistantDefaultEffort: 'medium',
-    assistantDefaultFastMode: false,
-    assistantReasoningSummary: DEFAULT_ASSISTANT_REASONING_SUMMARY,
-    assistantContextCompactionThresholdTokens: DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS,
-    assistantDefaultWebSearch: true,
-    assistantDefaultWebFetch: true,
-    assistantBusyMessageMode: 'queue',
-    assistantAutoReconnect: true,
-    assistantHistoryPrefetch: false,
-    assistantShowStatusDetails: true,
-    assistantShowDiagnostics: false,
-    accessibilityReduceMotion: false,
-    projectIconOverrides: {},
-    assistantTranscriptionEnabled: false,
-    assistantMemoryEnabled: false,
-    assistantTranscriptionEngine: 'browser'
-}
+const DEFAULT_SETTINGS = structuredClone(DEFAULT_DEVICE_SETTINGS) as Settings
 
 const STORAGE_KEY = 'devscope-settings'
 const LEGACY_ASSISTANT_COMPOSER_PREFERENCES_STORAGE_KEY = 'devscope:assistant-composer-preferences'
@@ -816,7 +709,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 ),
                 assistantDefaultWebSearch: candidate.assistantDefaultWebSearch !== false,
                 assistantDefaultWebFetch: candidate.assistantDefaultWebFetch !== false,
-                assistantBusyMessageMode: candidate.assistantBusyMessageMode === 'force' ? 'force' : 'queue',
+                assistantBusyMessageMode: candidate.assistantBusyMessageMode === 'steer' ? 'steer' : 'queue',
                 assistantAutoReconnect: candidate.assistantAutoReconnect !== false,
                 assistantHistoryPrefetch: Number(parsed.settingsSchemaVersion) >= 3
                     && candidate.assistantHistoryPrefetch === true,

@@ -39,11 +39,12 @@ export function createRequestUserInputTool(options = {}) {
   return {
     name: "request_user_input",
     label: "Request user input",
-    description: "Hand off one or more materially blocking questions using text, select, confirm, project-file, number, date, or ranking controls. The question set ends the current assistant turn; submitted answers arrive as a new user turn.",
-    promptSnippet: "Hand off blocking questions with purpose-built interactive controls",
+    description: "Ask materially necessary questions using text, select, confirm, project-file, number, date, or ranking controls. Blocking mode (default) ends this turn. Async mode leaves the questions pending while you continue independent work without assuming answers.",
+    promptSnippet: "Ask blocking or async questions with purpose-built interactive controls",
     promptGuidelines: [
-      "Use request_user_input only after inspecting available context and only when a user decision materially blocks useful work.",
-      "Before calling request_user_input, explain briefly why the answer is needed. The call ends the current assistant turn.",
+      "Use request_user_input only after inspecting available context and only for a materially necessary user decision.",
+      "Before calling request_user_input, explain briefly why the answer is needed. Default blocking mode ends this turn. Choose async only when useful independent work can continue while the answer is pending.",
+      "With async questions, continue only independent work. Do not assume answers or perform answer-dependent actions until the user responds.",
       "Never use request_user_input for discoverable facts, routine progress updates, or secrets.",
       "Use as many questions as are materially necessary; batch related decisions without manufacturing extra questions.",
       "Choose text for open answers, single_select for an obvious bounded choice, multi_select for several choices, confirm for a true yes/no decision, file_select for user choice among known project paths, number or date when validation matters, and ranking when order is the decision.",
@@ -51,10 +52,12 @@ export function createRequestUserInputTool(options = {}) {
       "When presenting meaningful tradeoffs, mark one option recommended and explain the consequence briefly.",
     ],
     parameters: Type.Object({
+      mode: Type.Optional(Type.Unsafe({ type: "string", enum: ["blocking", "async"], default: "blocking", description: "Blocking ends this turn; async keeps questions pending while independent work continues without assuming answers." })),
       questions: Type.Array(QuestionSchema, { description: "All materially necessary questions. No arbitrary maximum." }),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const questions = normalizeRequestUserInputQuestions(params?.questions);
+      const mode = params?.mode === "async" ? "async" : "blocking";
       if (questions.length === 0) throw new Error("request_user_input requires at least one valid question.");
       if (signal?.aborted) return { content: [{ type: "text", text: "Cancelled" }], details: { questions, answers: {}, cancelled: true } };
       if (!requestUserInput) {
@@ -63,7 +66,7 @@ export function createRequestUserInputTool(options = {}) {
           details: { questions, answers: {}, cancelled: true, unavailable: true },
         };
       }
-      const result = await requestUserInput({ questions, cwd: ctx?.cwd }, { signal });
+      const result = await requestUserInput({ questions, mode, cwd: ctx?.cwd }, { signal });
       const answers = result && typeof result === "object" && result.answers && typeof result.answers === "object"
         ? result.answers
         : {};
@@ -73,13 +76,15 @@ export function createRequestUserInputTool(options = {}) {
         content: [{
           type: "text",
           text: deferred
-            ? "Questions handed off to the user. End this turn now; their submitted answers will start a new user turn."
+            ? mode === "async"
+              ? "Questions are pending with the user. Continue useful independent work without assuming answers. Wait for their response before answer-dependent actions."
+              : "Questions handed off to the user. End this turn now; their submitted answers will start a new user turn."
             : cancelled
               ? "The user dismissed the questions without submitting answers. Do not assume answers."
               : `User answers:\n${formatRequestUserInputAnswers(questions, answers)}`,
         }],
-        details: { questions, answers, cancelled, deferred, requestId: result?.requestId },
-        ...(deferred ? { terminate: true } : {}),
+        details: { questions, answers, mode, cancelled, deferred, requestId: result?.requestId },
+        ...(deferred && mode === "blocking" ? { terminate: true } : {}),
       };
     },
   };

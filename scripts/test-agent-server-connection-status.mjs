@@ -7,7 +7,7 @@ import path from 'node:path';
 import { ZyraAgentServerClient } from '../src/agent-server/client.mjs';
 import { getAgentServerPaths } from '../src/agent-server/paths.mjs';
 import { createAgentServerLineReader, writeAgentServerMessage, AGENT_SERVER_PROTOCOL_VERSION } from '../src/agent-server/protocol.mjs';
-import { readRuntimeRevision } from '../src/agent-server/runtime-revision.mjs';
+import { readRuntimeRevision, RUNTIME_ACTIVATION_VERSION } from '../src/agent-server/runtime-revision.mjs';
 import { projectAgentServerInstance } from '../src/agent-server/connection-status.mjs';
 import { formatAgentConnectionStatus } from '../src/agent-server/status-presentation.mjs';
 
@@ -28,6 +28,8 @@ try {
     protocolVersion: AGENT_SERVER_PROTOCOL_VERSION, runtimeRevision: '0'.repeat(64), startedAt: new Date().toISOString() };
   let methods = ['server.status', 'server.retire'];
   let retirementCode = 'AGENT_SERVER_UPGRADE_BUSY';
+  let activationVersion = RUNTIME_ACTIVATION_VERSION;
+  let retirementVersion = null;
   let dropHeartbeat = false;
   let heldCatalogRequest;
   let retireCalls = 0;
@@ -37,9 +39,10 @@ try {
       if (message.type === 'hello') {
         assert.equal(message.token, token);
         writeAgentServerMessage(socket, { type: 'hello.ok', server: { version: AGENT_SERVER_PROTOCOL_VERSION,
-          methods, activationVersion: 1, runtimeRevision: instance.runtimeRevision, instance } });
+          methods, activationVersion, runtimeRevision: instance.runtimeRevision, instance } });
       } else if (message.method === 'server.retire') {
         retireCalls++;
+        retirementVersion = message.params.activationVersion;
         writeAgentServerMessage(socket, { type: 'response', id: message.id, ok: false,
           error: { code: retirementCode, message: 'Synthetic deferred update' } });
       } else if (message.method === 'server.status' && !dropHeartbeat) {
@@ -75,6 +78,12 @@ try {
     client.close();
     assert.equal(client.connectionStatus.connection, 'disconnected');
   }
+  activationVersion = 1;
+  const legacy = makeClient();
+  await legacy.connect();
+  assert.equal(legacy.connectionStatus.updatePending, true, 'legacy fingerprints are not silently treated as current');
+  assert.equal(retirementVersion, 1, 'format-1 retirement remains compatible without accepting its fingerprint as format-2');
+  legacy.close(); activationVersion = RUNTIME_ACTIVATION_VERSION;
   methods = ['server.status'];
   const noRetire = makeClient();
   await noRetire.connect();
@@ -91,7 +100,7 @@ try {
   assert.equal(connected, false);
   assert.equal(incompatible.socket, null);
   assert.equal(incompatible.connectionStatus.phase, 'failed');
-  assert.equal(retireCalls, 2, 'passive, unsupported and incompatible cases do not restart a service');
+  assert.equal(retireCalls, 3, 'passive, unsupported and incompatible cases do not restart a service');
 
   instance.namespaceId = 'other-namespace';
   await assert.rejects(makeClient({ autoStart: false }).connect(), { code: 'AGENT_SERVER_NAMESPACE_MISMATCH' });

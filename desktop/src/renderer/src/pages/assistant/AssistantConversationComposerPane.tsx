@@ -12,6 +12,7 @@ import { AssistantPendingControlApprovalPanel } from './AssistantPendingControlA
 import { AssistantPendingPlaygroundLabPanel } from './AssistantPendingPlaygroundLabPanel'
 import { AssistantPendingTerminalAccessPanel, getPendingTerminalAccessRequest } from './AssistantPendingTerminalAccessModal'
 import { AssistantPendingUserInputPanel } from './AssistantPendingUserInputPanel'
+import { AssistantAsyncQuestionCard } from './AssistantAsyncQuestionCard'
 import { deriveAssistantComposerDisabledReason } from './assistant-composer-capabilities'
 import { ASSISTANT_COMPOSER_OVERLAY_TOP_PADDING_PX } from './assistant-pane-layout'
 import type { AssistantComposerProjectRoot, AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
@@ -37,8 +38,8 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     queuedMessageCount: number
     queuedMessages: AssistantQueuedComposerMessage[]
     onForceQueuedMessage?: (messageId: string) => Promise<void> | void
-    onDeleteQueuedMessage?: (messageId: string) => Promise<void> | void
-    onMoveQueuedMessage?: (messageId: string, targetMessageId: string) => Promise<void> | void
+    onDeleteQueuedMessage?: (messageId: string) => boolean | Promise<void> | void
+    onMoveQueuedMessage?: (messageId: string, targetMessageId: string) => boolean | Promise<void> | void
     selectedSessionId: string | null
     configurationThreadId?: string | null
     useSettingsDefaults: boolean
@@ -72,6 +73,12 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     isConnecting?: boolean
     reconnectPending?: boolean
     onStop?: () => Promise<void> | void
+    isStopping?: boolean
+    queueHeld?: boolean
+    onHoldQueue?: () => unknown
+    onResumeQueue?: () => boolean | Promise<boolean> | void
+    onUpdateQueuedMessage?: (id: string, prompt: string) => boolean | Promise<boolean> | void
+    onDismissUserInput?: (requestId: string) => Promise<void> | void
     onReconnect?: () => Promise<void> | void
     onPrepareRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
     onStartRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
@@ -104,9 +111,9 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     const isWaitingForControlApproval = props.pendingControlActions.length > 0 || props.pendingControlGrants.length > 0
     const isWaitingForApproval = props.pendingApprovals.length > 0
     const pendingTerminalAccessRequest = getPendingTerminalAccessRequest(props.pendingUserInputs)
-    const pendingQuestionInputs = pendingTerminalAccessRequest
-        ? props.pendingUserInputs.filter((request) => request.requestId !== pendingTerminalAccessRequest.requestId)
-        : props.pendingUserInputs
+    const questionInputs = props.pendingUserInputs.filter(request => request.requestId !== pendingTerminalAccessRequest?.requestId)
+    const pendingQuestionInputs = questionInputs.filter(request => request.mode !== 'async')
+    const asyncQuestions = questionInputs.filter(request => request.mode === 'async')
     const hasPendingQuestions = pendingQuestionInputs.length > 0
     const isConnecting = props.isConnecting ?? (props.commandPending && !props.assistantConnected)
     const reconnectPending = props.reconnectPending ?? (props.commandPending && !props.assistantConnected)
@@ -190,7 +197,14 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     onDecline={props.declinePendingPlaygroundLabRequest}
                 />
             ) : null}
-            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingQuestions && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest ? (
+            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingQuestions && !pendingTerminalAccessRequest && asyncQuestions.length > 0 ? <AssistantAsyncQuestionCard
+                key={asyncQuestions[0]?.requestId}
+                pendingUserInputs={asyncQuestions} responding={props.userInputResponding} onRespond={props.respondUserInput} onDismiss={props.onDismissUserInput}
+                agentWorking={props.thinking} sessionId={props.selectedSessionId} assistantAvailable={props.assistantAvailable} assistantConnected={props.assistantConnected}
+                selectedProjectPath={props.selectedProjectPath} availableModels={props.availableModels} activeModel={props.activeModel} modelsLoading={props.modelsLoading}
+                runtimeMode={props.runtimeMode} interactionMode={props.interactionMode} activeProfile={props.activeProfile} activeStatusLabel={props.activeStatusLabel} isConnecting={isConnecting}
+            /> : null}
+            {!hasPendingQuestions && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest ? (
                 <div
                     className={cn(
                         'mx-auto w-full transition-[max-width] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
@@ -211,7 +225,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         disabled={Boolean(composerDisabledReason) || props.composerDisabled === true}
                         disabledReason={composerDisabledReason}
                         isSending={props.sending}
-                        isThinking={props.thinking}
+                        isThinking={props.thinking || isWaitingForApproval || isWaitingForControlApproval || props.isStopping === true}
                         thinkingLabel={props.activeStatusLabel}
                         queuedMessageCount={props.queuedMessageCount}
                         queuedMessages={props.queuedMessages}
@@ -254,6 +268,11 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         onDraftStarted={props.onDraftStarted}
                         onRefreshModels={props.refreshModels}
                         onStop={props.onStop}
+                        isStopping={props.isStopping}
+                        queueHeld={props.queueHeld}
+                        onHoldQueue={props.onHoldQueue}
+                        onResumeQueue={props.onResumeQueue}
+                        onUpdateQueuedMessage={props.onUpdateQueuedMessage}
                         onSend={props.sendPrompt}
                         reconnectPending={reconnectPending}
                     />

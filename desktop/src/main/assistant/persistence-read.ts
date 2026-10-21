@@ -222,10 +222,11 @@ function readThreadDetails(db: SqlDatabase, threadId: string): AssistantHydrated
     }
 }
 
-const userInputColumns = ['id', 'request_id', 'questions_json', 'status', 'answers_json', 'response_message_id', 'turn_id', 'created_at', 'resolved_at']
+const userInputColumns = ['id', 'request_id', 'questions_json', 'status', 'answers_json', 'response_message_id', 'turn_id', 'created_at', 'resolved_at', 'input_mode']
 
 function pendingUserInputFromRow(row: SqlValue[]): AssistantPendingUserInput {
     return {
+        mode: row[9] === 'async' ? 'async' : 'blocking',
         id: String(row[0] || ''),
         requestId: String(row[1] || ''),
         questions: parseJson(row[2], []),
@@ -244,7 +245,7 @@ function readAssistantPendingUserInputs(db: SqlDatabase, threadId: string): Assi
 
 export function readAssistantPendingUserInput(db: SqlDatabase, requestId: string): { threadId: string; userInput: AssistantPendingUserInput } | null {
     const row = db.exec(`SELECT ${userInputColumns.join(', ')}, thread_id FROM assistant_pending_user_inputs WHERE request_id = ? AND status = 'pending' LIMIT 1`, [requestId])[0]?.values?.[0]
-    return row ? { threadId: String(row[9]), userInput: pendingUserInputFromRow(row) } : null
+    return row ? { threadId: String(row[userInputColumns.length]), userInput: pendingUserInputFromRow(row) } : null
 }
 
 export function readAssistantSessionTurnUsage(db: SqlDatabase, sessionId?: string, since?: string): AssistantSessionTurnUsageEntry[] {
@@ -308,6 +309,16 @@ function readAssistantMeta(db: SqlDatabase): AssistantMetaRow {
 function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSnapshot['playground']): AssistantSession[] {
     const sessions = new Map<string, AssistantSession>()
     const chatScopes = readAssistantChatScopes(db)
+    const manualTitles = new Map<string, boolean>()
+    for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'manualTitle:%'")[0]?.values || []) {
+        const value = parseJson<unknown>(row[1], null)
+        if (typeof value === 'boolean') manualTitles.set(String(row[0]).slice('manualTitle:'.length), value)
+    }
+    const forkOrigins = new Map<string, AssistantSession['forkOrigin']>()
+    for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'forkOrigin:%'")[0]?.values || []) {
+        const value = parseJson<AssistantSession['forkOrigin']>(row[1], null)
+        if (value && typeof value.canonicalChatId === 'string' && typeof value.entryId === 'string' && typeof value.createdAt === 'string') forkOrigins.set(String(row[0]).slice('forkOrigin:'.length), value)
+    }
     const canonicalSettlement = new Map<string, Pick<AssistantSession, 'settled' | 'settlementManual'>>()
     for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'canonicalSettlement:%'")[0]?.values || []) {
         const cached = parseJson<Record<string, unknown> | null>(row[1], null)
@@ -335,6 +346,8 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
             id: sessionId,
             ...canonicalSettlement.get(sessionId),
             title: String(row[1] || 'New Session'),
+            titleManuallySet: manualTitles.get(sessionId),
+            forkOrigin: forkOrigins.get(sessionId),
             mode: String(row[2] || 'work') === 'playground' ? 'playground' : 'work',
             projectPath: toNullableString(row[3]),
             projectId: chatScope?.projectId || null,
@@ -388,7 +401,7 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
     const activityCountByThreadId = readCountMap('assistant_activities')
     const proposedPlanCountByThreadId = readCountMap('assistant_proposed_plans')
     const pendingApprovalCountByThreadId = readCountMap('assistant_pending_approvals', ` WHERE status = 'pending'`)
-    const pendingUserInputCountByThreadId = readCountMap('assistant_pending_user_inputs', ` WHERE status = 'pending'`)
+    const pendingUserInputCountByThreadId = readCountMap('assistant_pending_user_inputs', ` WHERE status = 'pending' AND COALESCE(input_mode, 'blocking') != 'async'`)
 
     const threadRows = db.exec(`
         SELECT

@@ -75,6 +75,14 @@ When a same-protocol server lacks required methods, verified Desktop may request
 
 Missing required capabilities still fail with `AGENT_SERVER_UPGRADE_REQUIRED`, or `AGENT_SERVER_UPGRADE_BUSY` when an incompatible busy service cannot retire. A content fingerprint difference alone is not incompatibility. A method-compatible service that is busy, lacks retirement support or refuses this client's retirement authority stays connected with `updatePending`; no retirement permission is bypassed. Project changes still check the permission contract before saving their new scope.
 
+### Explicit activation and recovery controls
+
+The existing client owns one replacement path for initial compatibility checks and explicit Desktop activation. Explicit socket close emits the same detachment notification as transport loss so Desktop invalidates old worker bindings; compatible wrong-revision replacements remain observable, while incompatible replacements are actually disconnected. `refreshRuntimeStatus` observes the authenticated instance and exposes the expected installed runtime fingerprint separately from the active fingerprint. `activateRuntimeUpdate` shares concurrent requests, pins the observed instance, and asks the existing verified `server.retire` gate. It does not kill processes or cancel turns. The server derives sanitized activity counts and retirement eligibility from the same calculation, including worker cleanup requests after a foreground answer completes and active memory consolidation. Accepted retirement freezes queued maintenance before shutdown.
+
+Desktop's About page has one Background agent section for connection, installed-versus-active code, blockers, refresh/reconnect and safe activation. The app menu links there. Code agreement is unknown without a fresh observation. A successful activation confirms the expected fingerprint on a replacement instance; it does not certify a particular bug fix. Older compatible busy servers stay connected. Unsupported lifecycle controls fail rather than gaining new authority. Browser status relay remains read-only.
+
+Chat actions expose **Stop active turn** independently of saved running state or diagnostics visibility. An untargeted recovery Stop resolves and pins the canonical active turn. An explicitly targeted Stop never substitutes a newer turn. Missing/failed observation does not establish an interruption. Pending local submissions retain their separate cancellation path. Cancellation is checked again immediately before writing a prompt after attachment/setup waits. Once written, Stop waits for that exact canonical admission before aborting, rather than interpreting momentary idle as proof no work can start. A missing admission confirmation produces an error, not a false terminal outcome. Managed background processes retain their existing explicit controls.
+
 ### Instance identity and live observations
 
 [ADR 0018](../adr/0018-separate-runtime-identity-compatibility-and-liveness.md) defines the status contract. The service advertises a stable `namespaceId` and a per-start `instanceId`, channel, protocol version, runtime revision and start time. Clients reject an advertised namespace mismatch and retain a bounded, sanitized public projection without tokens, paths or authority proofs.
@@ -111,13 +119,21 @@ An expanded historical tool card resolves that reference through `catalog.entry.
 
 This policy applies only to UI/catalog projection and transport. It does not truncate Pi `SessionManager` state, model context, compaction input, branching, exports, search, Review, or canonical JSONL. Explicit Review search scans deferred tool-result lines through the offset index and merges matching tool calls back into persisted turn results without hydrating every output. A future Pi runtime optimization requires an upstream-supported lazy session reader or a separately proven compatibility layer.
 
+## Chat title ownership
+
+For tool-enabled Chat turns, the foreground model sets the initial title with `set_chat_title` before its visible response. The bridge publishes a metadata event; the catalog persists `initial`, `provisional`, `model`, `manual`, or `refresh` ownership independently of the transcript. A greeting title remains provisional until a concrete task arrives. An omitted title action leaves initial ownership eligible on the next turn, without starting a competing utility model.
+
+The server supplies eligibility from canonical state, never from model arguments. A proposed title carries the expected prior title; the catalog rechecks both ownership and title after asynchronous reads. Manual names, including names chosen before first attachment, cannot be overwritten by a stale initial proposal. Unknown legacy names are conservatively locked rather than guessed automatic. Title tool evidence stays in canonical model history, but Desktop/TUI presentation and catalog action counts hide it.
+
+Explicit and periodic refreshes still use the separately configured title model and recent completed turns. Periodic refresh skips manual names and canonical writes recheck that protection. An explicit refresh remains a deliberate user override. Startup, navigation and ordinary completion no longer launch initial-title utility repairs. Realtime voice's existing non-tool title path is unchanged.
+
 ## Implemented Migration
 
 ### Server foundation
 
 - authenticated local named-pipe/Unix-socket protocol with a mode-0600 descriptor token;
 - detached server startup with stale-lock recovery;
-- server-owned bridge workers and separate utility work for model lists/title generation;
+- server-owned bridge workers and separate utility work for model lists and title refreshes;
 - canonical project/session catalog and alias tracking;
 - explicit attach, detach, interrupt, and stop semantics;
 - bounded in-memory replay plus bounded, compacted per-chat JSONL event journals;
@@ -142,6 +158,14 @@ This policy applies only to UI/catalog projection and transport. It does not tru
 - TUI exit detaches and closes its socket without stopping active server work;
 - `ZYRA_EMBEDDED_RUNTIME=1` remains a temporary compatibility fallback for focused debugging.
 
+### Questions, steering and Stop
+
+`request_user_input` defaults to `mode: "blocking"`: hand off questions and end the tool turn. `mode: "async"` returns a durable request without ending independent work. Canonical request metadata owns this mode; an answering client cannot upgrade a blocking question. Pending async requests survive turn completion and journal replay, but do not advertise blocking input presence. Explicit idle settlement dismisses unanswered async requests without sending answers.
+
+Message-capable answers include the original questions. A running answer uses exact-turn steering; idle continuation starts a normal prompt. Steer must name the current `targetTurnId` and never abort or change that turn's execution configuration. Durable response claims/completions prevent same-surface retries, competing surfaces or recovery from dispatching an answer twice. Stop increments a journaled continuation epoch; older async answers become held receipts instead of restarting work. An uncertain in-flight response is not automatically replayed after process loss.
+
+Desktop owns a separate profile-local composer queue. It saves the full message/configuration/attachments before acceptance, restores queues held, and holds synchronously before Stop. Async Desktop answers enter that queue before resolving the request with `deferContinuation: true`; the server must not dispatch a duplicate continuation. This queue and manual sidebar ordering are not cross-device server-owned state. The distinction is explicit rather than claiming T3's shared-queue behavior.
+
 ### Verification
 
 - `npm run test:agent-server` covers protocol authentication boundaries, canonical aliases, Desktop/TUI worker sharing, detach during an active prompt, durable replay, control routing, explicit stop, the real Pi bridge, and the Desktop adapter;
@@ -150,7 +174,7 @@ This policy applies only to UI/catalog projection and transport. It does not tru
 
 ## Remaining Follow-Up
 
-- Add an explicit user-facing agent-server status/restart command before release packaging.
+- Verify the local Background agent controls and read-only `runtime:inspect` command in the requested installed release. Source/isolated tests do not establish installed activation.
 - Add richer Pi tool/activity reconstruction when importing a chat that Desktop has never projected; message history is imported now, while future live and replayed activity remains rich.
 - Exercise a live provider turn across an actual Desktop-close/TUI-open cycle after the next normal Electron restart.
 - Remove `ZYRA_EMBEDDED_RUNTIME` after one compatibility cycle.

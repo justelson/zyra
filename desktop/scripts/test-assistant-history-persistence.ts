@@ -79,6 +79,7 @@ const thread: AssistantThread = {
 const session: AssistantSession = {
     id: 'session-history',
     title: 'History persistence test',
+    titleManuallySet: true,
     mode: 'work',
     projectPath: 'C:/project',
     playgroundLabId: null,
@@ -100,6 +101,7 @@ const SQL = await initSqlJs()
 const db = new SQL.Database()
 initializeAssistantPersistenceSchema(db)
 replaceAssistantSnapshot(db, snapshot)
+assert.equal(readAssistantPersistenceRecord(db).snapshot.sessions[0]?.titleManuallySet, true, 'A manual name survives restart even before canonical attachment')
 assert.equal(readAssistantPersistenceRecord(db).snapshot.sessions[0]?.settled, true, 'Cold desktop catalog retains server settlement without reapplying local age rules')
 assert.equal(readAssistantPersistenceRecord(db).snapshot.sessions[0]?.settlementManual, true, 'Canonical migration marker survives catalog cache hydration')
 const clearSettlementEvent: AssistantDomainEvent = {
@@ -280,6 +282,18 @@ const persistenceSource = readFileSync(new URL('../src/main/assistant/persistenc
 assert.match(persistenceSource, /this\.pendingEvents\.unshift\(\.\.\.eventsToPersist\)/, 'a failed persistence batch remains queued for retry')
 assert.match(persistenceSource, /async close\(\): Promise<void>[\s\S]*await this\.flush\(\)[\s\S]*this\.db\?\.close\(\)/, 'Assistant shutdown flushes pending events before closing SQLite')
 assert.match(persistenceSource, /if \(databaseWriteError\) throw databaseWriteError/, 'SQL.js shutdown cannot report success after its database export fails')
+
+const asyncQuestionEvent: AssistantDomainEvent = {
+    sequence: 100, eventId: 'async-question', type: 'thread.user-input.updated', occurredAt: createdAt, sessionId: session.id, threadId: thread.id,
+    payload: { threadId: thread.id, userInput: { id: 'async-input', requestId: 'async-request', mode: 'async',
+        questions: [{ id: 'choice', header: 'Choice', question: 'Which branch?', type: 'text', options: [], required: true, allowOther: true }],
+        status: 'pending', answers: null, turnId: null, createdAt, resolvedAt: null } }
+}
+const withAsync = applyAssistantDomainEvent(snapshot, asyncQuestionEvent)
+assert.equal(withAsync.sessions[0].threads[0].hasPendingUserInputs, false, 'Answer-later questions do not put the running thread into a blocking phase')
+replaceAssistantSnapshot(db, withAsync)
+assert.equal(readAssistantTimelineProjectionRows(db, thread.id).pendingUserInputs[0]?.mode, 'async', 'Async question mode survives SQLite history hydration')
+assert.equal(readAssistantPersistenceRecord(db).snapshot.sessions[0].threads[0].hasPendingUserInputs, false, 'Cold shell does not mistake async questions for blockers')
 
 db.close()
 console.log('Assistant history persistence contract: ok')

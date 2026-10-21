@@ -55,11 +55,24 @@ export function recoverPersistedSnapshot(snapshot: AssistantSnapshot): Assistant
         for (const thread of session.threads) {
             thread.messageCount = Number.isFinite(thread.messageCount) ? thread.messageCount : (thread.messages?.length || 0)
             thread.lastSeenCompletedTurnId = thread.lastSeenCompletedTurnId || null
-            thread.state = runtimeStateAfterRestore(thread.state)
+            const turn = thread.latestTurn
+            // Desktop is an observer. Closing it does not stop a canonical turn.
+            // Older builds persisted a synthetic interruption while retaining the
+            // same running presence; let a fresh observation resolve that ambiguity.
+            const needsCanonicalRecovery = Boolean(thread.providerThreadId && turn && (
+                turn.state === 'running'
+                || turn.state === 'interrupted'
+                    && thread.canonicalPresence?.activeTurnId === turn.id
+                    && thread.canonicalPresence.latestTurn?.id === turn.id
+                    && thread.canonicalPresence.latestTurn.state === 'running'
+            ))
+            thread.state = needsCanonicalRecovery ? 'running' : runtimeStateAfterRestore(thread.state)
             thread.pendingApprovals = clearResolvedApprovals(thread.pendingApprovals || [])
             // Resolved questions are durable answer-message receipts, not transient approvals.
             thread.pendingUserInputs = thread.pendingUserInputs || []
-            thread.latestTurn = settleRunningTurn(thread.latestTurn, recoveredAt)
+            thread.latestTurn = needsCanonicalRecovery
+                ? { ...turn!, state: 'running', completedAt: null, runtimeRecoveryPending: true }
+                : settleRunningTurn(turn, recoveredAt)
         }
     }
 

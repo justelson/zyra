@@ -61,8 +61,8 @@ export function ProviderModelSettings() {
         <>
             <SettingsSection title="Automatic titles" searchSection="Chat defaults" headerAction={<SettingsButton variant="ghost" onClick={() => void loadModels(true)} disabled={modelsLoading}><RefreshCw size={12} className={modelsLoading ? 'animate-spin' : ''} />Refresh</SettingsButton>}>
                 <SettingsRow
-                    title="Chat title model"
-                    description="Names new chats without adding the title request to the conversation."
+                    title="Title refresh model"
+                    description="Used for later title refreshes. Initial titles come from the chat model."
                     status={modelsError ? 'Catalog unavailable' : savedTitleUnavailable ? 'Saved model unavailable' : null}
                     statusTone={modelsError || savedTitleUnavailable ? 'warning' : 'muted'}
                     statusTitle={modelsError || undefined}

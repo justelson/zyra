@@ -10,6 +10,7 @@ export async function respondToAssistantUserInputWithRuntime(input: {
     chatScope?: AssistantChatScope | null
     requestId: string
     questions: AssistantUserInputQuestion[]
+    mode?: 'blocking' | 'async'
     answers: Record<string, AssistantUserInputAnswer>
 }): Promise<string> {
     const canonicalThreadId = getAssistantCanonicalThreadId(input.thread)
@@ -17,7 +18,7 @@ export async function respondToAssistantUserInputWithRuntime(input: {
         await input.runtime.connect(input.thread, input.cwd, input.chatScope)
     }
     try {
-        const result = await input.runtime.respondUserInput(canonicalThreadId, input.requestId, input.answers, input.questions)
+        const result = await input.runtime.respondUserInput(canonicalThreadId, input.requestId, input.answers, input.questions, { mode: input.mode })
         if (result?.continuationPrompt) return result.continuationPrompt
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

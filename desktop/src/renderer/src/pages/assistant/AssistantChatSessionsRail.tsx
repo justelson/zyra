@@ -774,7 +774,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                     <RailButton
                         icon={<SquarePen size={15} strokeWidth={1.7} />}
                         label="New chat"
-                        shortcut="Ctrl N"
+                        shortcutCommand="app.newChat"
                         disabled={commandPending}
                         onClick={() => void onCreateChat()}
                     />
@@ -784,11 +784,11 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                     <Search size={15} strokeWidth={1.7} />
                 </button>
             </div>
-            <RailButton icon={<Plug size={15} strokeWidth={1.7} />} label="Plugins" onClick={() => navigate('/plugins')} />
+            <RailButton icon={<Plug size={15} strokeWidth={1.7} />} shortcutCommand="app.plugins" label="Plugins" onClick={() => navigate('/plugins')} />
             <RailButton
                 icon={<NewProjectIcon />}
                 label="New project"
-                shortcut="Ctrl Shift N"
+                shortcutCommand="app.newProject"
                 disabled={commandPending}
                 onClick={() => void onCreateProjectChat()}
             />

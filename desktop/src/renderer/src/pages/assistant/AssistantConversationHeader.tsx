@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { Check, Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Radio } from 'lucide-react'
+import { Check, Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Radio, Square } from 'lucide-react'
 import { FileActionsMenu } from '@/components/ui/FileActionsMenu'
 import type { AssistantChatDisplayMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
@@ -47,6 +47,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
     onChooseProject: () => void
     onArchiveChat: () => void
     onDeleteChat: () => void
+    onStopActiveTurn?: () => Promise<void>
     onToggleRightSidebar: () => void
     onShowToast?: (message: string, tone?: 'success' | 'error' | 'info') => void
 }) {
@@ -79,6 +80,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
         onShowToast
     } = props
     const [threadIdCopied, setThreadIdCopied] = useState(false)
+    const [stopPending, setStopPending] = useState(false)
     const minimal = displayMode === 'minimal'
     const RightSidebarIcon = rightPanelOpen && rightPanelMode === 'review' ? PanelRightClose : PanelRightOpen
     const tuiOpen = showPresenceBadge && hasAssistantTuiPresence(canonicalPresence)
@@ -109,6 +111,20 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
         onTogglePinned: props.onTogglePinned, onToggleSettlement: props.onToggleSettlement,
         onRegenerateTitle: props.onRegenerateTitle,
         onArchive: onArchiveChat, onDelete: onDeleteChat
+    })
+
+    if (canonicalThreadId && props.onStopActiveTurn) headerMenuItems.push({
+        id: 'stop-active-turn', label: stopPending ? 'Checking active turn…' : 'Stop active turn',
+        icon: <Square size={13} />, separatorBefore: true, danger: true, disabled: stopPending,
+        onSelect: async () => {
+            setStopPending(true)
+            try {
+                await props.onStopActiveTurn!()
+                onShowToast?.('Stop request checked with the agent.', 'info')
+            } catch (error) {
+                onShowToast?.(error instanceof Error ? error.message : 'Could not stop the active turn. Reconnect and try again.', 'error')
+            } finally { setStopPending(false) }
+        }
     })
 
     return (

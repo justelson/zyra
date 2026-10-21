@@ -7,6 +7,7 @@ import { useWindowChrome } from '@/lib/useWindowChrome'
 import { getZyraPlatformLabel } from '@shared/platform-window-chrome'
 import { SettingsActionsMenu } from './SettingsActionsMenu'
 import { AboutLinks } from './AboutLinks'
+import { RuntimeLifecycleSection } from './RuntimeLifecycleSection'
 import { SettingsKeyValueList } from './SettingsKeyValueList'
 import { createSettingsRowTargetId } from './settings-search'
 import { getSettingsUpdateAction } from './settings-update-action'
@@ -107,6 +108,8 @@ export default function AboutSettings() {
                     ]} />
                 </SettingsDetails>
             </SettingsSection>
+
+            <RuntimeLifecycleSection />
 
             <SettingsSection title="About Zyra">
                 <SettingsKeyValueList label="About Zyra" items={[

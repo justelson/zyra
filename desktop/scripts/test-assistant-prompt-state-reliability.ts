@@ -135,4 +135,32 @@ for (const sendsEvents of ['all', 'user-only', 'none'] as const) {
     assert.equal(retained.getState().historyByThreadId[thread.id]?.pageInfo.oldestCursor, 'saved-start', 'recovery retains the earlier paging boundary')
     retained.release()
 }
-console.log('Prompt UI state: stale snapshot, pending frame, missed event and retained-history acknowledgement recovery: ok')
+// Stop during the newest-history preflight must still gate the eventual IPC.
+let newestReads = 0
+let releaseNewest: (() => void) | undefined
+let stoppedIpcCalls = 0
+Object.assign(window.devscope.assistant, {
+    bootstrap: async () => ({ snapshot: initial, status }),
+    getStatus: async () => status,
+    getThreadDetailBootstrap: async () => {
+        newestReads++
+        if (newestReads > 1) await new Promise<void>(resolve => { releaseNewest = resolve })
+        return { success: true, detail: { ...detail(), history: { ...detail().history, messages: [],
+            pageInfo: { oldestCursor: 'history', newestCursor: 'history', hasOlder: false, hasNewer: newestReads === 1, turnCount: 1 } } } }
+    },
+    sendPrompt: async () => { stoppedIpcCalls++; return { success: true, sessionId: session.id, threadId: thread.id, turnId: user.turnId } }
+})
+const stoppedPreflight = new AssistantStore()
+stoppedPreflight.retain(); await stoppedPreflight.hydrate()
+for (let tick = 0; tick < 40 && !stoppedPreflight.getState().historyByThreadId[thread.id]?.pageInfo.hasNewer; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+assert.equal(stoppedPreflight.getState().historyByThreadId[thread.id]?.pageInfo.hasNewer, true)
+let allowed = true
+const preparedSend = stoppedPreflight.sendPrompt('Preserve this stopped draft', undefined, () => allowed)
+for (let tick = 0; tick < 40 && !releaseNewest; tick++) await new Promise(resolve => setTimeout(resolve, 0))
+assert.ok(releaseNewest, 'the real send path waits for newest-history preflight')
+allowed = false
+releaseNewest!()
+assert.equal((await preparedSend).success, false, 'Stop invalidates a prepared send before submission')
+assert.equal(stoppedIpcCalls, 0, 'no prompt IPC runs after Stop during hydration')
+stoppedPreflight.release()
+console.log('Prompt UI state: stale snapshot, pending frame, missed event, retained-history acknowledgement recovery and Stop preflight guard: ok')

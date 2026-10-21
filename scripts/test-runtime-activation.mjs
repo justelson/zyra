@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import os from "node:os"; import path from "node:path";
-import { readRuntimeRevision } from "../src/agent-server/runtime-revision.mjs";
+import { readRuntimeRevision, RUNTIME_ACTIVATION_VERSION } from "../src/agent-server/runtime-revision.mjs";
 import { ZyraAgentServer } from "../src/agent-server/server.mjs";
 import { ZyraAgentServerClient } from "../src/agent-server/client.mjs";
 const directory = await mkdtemp(path.join(os.tmpdir(), "zyra-activation-"));
@@ -14,6 +14,10 @@ try {
  assert.equal(await readRuntimeRevision(packaged),first,'installed location does not affect revision');
  await writeFile(path.join(root,"src","entry.mjs"),'export const version=2;');
  assert.notEqual(await readRuntimeRevision(root),first,'code updates are detected without changing package version');
+ await writeFile(path.join(root,'src','compiled-engine.js'),'export const compiled=1;');
+ const beforeCompiledChange=await readRuntimeRevision(root);
+ await writeFile(path.join(root,'src','compiled-engine.js'),'export const compiled=2;');
+ assert.notEqual(await readRuntimeRevision(root),beforeCompiledChange,'compiled engine JavaScript is part of the active-runtime fingerprint');
  const options={root,stateDirectory:path.join(directory,"state"),channel:"activation",endpoint:0,desktopAuthorityToken:"fixture-proof"};
  let server = new ZyraAgentServer(options);servers.push(server);await server.start();server.runtimeRevision=first;
  const initialInstance=server.instanceIdentity();
@@ -26,7 +30,7 @@ try {
  const descriptor=JSON.parse(readFileSync(server.paths.descriptorFile,"utf8"));writeFileSync(server.paths.descriptorFile,JSON.stringify({...descriptor,pid:2147483646}));
  let finish;const retired=new Promise(resolve=>finish=resolve);server.once("retire",()=>void server.stop().then(finish));
  const next=createClient({autoStart:true});const nextPhases=[];next.on("runtime-status",s=>nextPhases.push(s.phase));next.startServer=()=>void retired.then(async()=>{server=new ZyraAgentServer(options);servers.push(server);await server.start()});
- const state=await next.request("server.status");assert.equal(state.runtimeRevision,await readRuntimeRevision(root));assert.equal(state.activationVersion,1);
+ const state=await next.request("server.status");assert.equal(state.runtimeRevision,await readRuntimeRevision(root));assert.equal(state.activationVersion,RUNTIME_ACTIVATION_VERSION);
  assert.equal(state.instance.namespaceId,initialInstance.namespaceId);assert.notEqual(state.instance.instanceId,initialInstance.instanceId,'a replacement has a fresh per-start identity');
  assert.deepEqual(nextPhases.slice(-3),["checking","restarting","ready"]);
  assert.ok(!JSON.stringify(phases).includes("fixture-proof"));

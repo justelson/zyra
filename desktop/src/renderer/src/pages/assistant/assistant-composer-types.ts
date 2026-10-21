@@ -6,6 +6,7 @@ import type { AssistantProjectChoice } from './assistant-project-choices'
 export type AssistantComposerProjectRoot = AssistantChatScopeRoot
 
 export type ComposerContextFile = {
+    citation?: import('@shared/assistant/assistant-citations').AssistantCitation
     selection?: import('./assistant-code-context').CodeSelectionSnapshot
     id: string
     path: string
@@ -30,21 +31,24 @@ export type AssistantElementBounds = {
 }
 
 export type AssistantComposerSendOptions = {
+    /** Stable request identity prevents duplicate queued copies on answer retries. */
+    answerRequestId?: string
+    targetTurnId?: string
     startInNewWorktree?: boolean
     model?: string
     runtimeMode: AssistantRuntimeMode
     interactionMode: AssistantInteractionMode
     effort: AssistantReasoningEffort
     serviceTier?: 'fast'
-    dispatchMode?: 'immediate' | 'queue' | 'force'
+    dispatchMode?: 'immediate' | 'queue' | 'steer' | 'force'
 }
 
 export type AssistantQueuedComposerMessage = {
     id: string
     prompt: string
     contextFiles: ComposerContextFile[]
-    dispatchMode: 'queue' | 'force'
-    status: 'queued' | 'paused' | 'compacting'
+    dispatchMode: 'queue' | 'steer' | 'force'
+    status: 'queued' | 'paused' | 'compacting' | 'held' | 'sending' | 'failed'
 }
 
 export type AssistantComposerDisabledReason = 'no-session' | 'project-required'
@@ -58,6 +62,10 @@ export type AssistantComposerProps = {
     onSend: (prompt: string, contextFiles: ComposerContextFile[], options: AssistantComposerSendOptions) => Promise<boolean>
     onDraftStarted?: () => void
     onStop?: () => Promise<void> | void
+    isStopping?: boolean
+    queueHeld?: boolean
+    onHoldQueue?: () => unknown
+    onResumeQueue?: () => boolean | Promise<boolean> | void
     onReconnect?: () => Promise<void> | void
     onPrepareRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
     onStartRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
@@ -111,9 +119,9 @@ export type AssistantComposerProps = {
     queuedMessageCount?: number
     queuedMessages?: AssistantQueuedComposerMessage[]
     onForceQueuedMessage?: (messageId: string) => Promise<void> | void
-    onDeleteQueuedMessage?: (messageId: string) => Promise<void> | void
-    onMoveQueuedMessage?: (messageId: string, targetMessageId: string) => Promise<void> | void
-    onUpdateQueuedMessage?: (messageId: string, prompt: string) => Promise<void> | void
+    onDeleteQueuedMessage?: (messageId: string) => boolean | Promise<void> | void
+    onMoveQueuedMessage?: (messageId: string, targetMessageId: string) => boolean | Promise<void> | void
+    onUpdateQueuedMessage?: (messageId: string, prompt: string) => boolean | Promise<boolean> | void
     busyMessageMode?: AssistantBusyMessageMode
     reconnectPending?: boolean
     latestTurnUsage?: AssistantTurnUsage | null

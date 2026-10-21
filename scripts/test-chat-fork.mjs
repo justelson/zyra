@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CanonicalChatCatalog } from '../src/agent-server/catalog.mjs';
 import { getAgentServerPaths } from '../src/agent-server/paths.mjs';
-import { forkCanonicalChat } from '../src/agent-server/chat-fork.mjs';
+import { forkCanonicalChat, preflightCanonicalChatFork } from '../src/agent-server/chat-fork.mjs';
 
 const temporary = mkdtempSync(path.join(tmpdir(), 'zyra-fork-test-'));
 try {
@@ -33,6 +33,10 @@ try {
   const source = await catalog.find('source', { project });
   assert.ok(source, 'real canonical index must discover the source');
   let server = { paths: getAgentServerPaths(options), catalog, sessions: new Map() };
+  await assert.rejects(preflightCanonicalChatFork(server, source, { operationId: 'invalid-preflight', entryId: 'missing', worktree: 'isolated' }), /persisted message boundary/);
+  await assert.rejects(preflightCanonicalChatFork(server, source, { operationId: 'tool-preflight', entryId: 'call', worktree: 'isolated' }), error => error.code === 'CHAT_FORK_UNSAFE_BOUNDARY');
+  assert.equal((await preflightCanonicalChatFork(server, source, { operationId: 'valid-preflight', entryId: 'answer', worktree: 'isolated' })).entryId, 'answer');
+  assert.equal(readdirSync(directory).length, 1, 'canonical preflight reads without saving history or requiring a worktree');
   await assert.rejects(forkCanonicalChat(server, source, { operationId: 'unsafe', entryId: 'call' }), error => error.code === 'CHAT_FORK_UNSAFE_BOUNDARY');
   await assert.rejects(forkCanonicalChat(server, source, { operationId: 'no-owner', entryId: 'answer', worktree: 'isolated' }), error => error.code === 'CHAT_FORK_WORKTREE_UNSUPPORTED');
   assert.equal(readdirSync(directory).length, 1, 'invalid boundaries cannot create history');
@@ -73,7 +77,9 @@ try {
   assert.equal(JSON.parse(readFileSync(isolated.sessionPath, 'utf8').split('\n')[0]).cwd, isolatedRoot);
   const oldUpdate = catalog.updateChat.bind(catalog);
   catalog.updateChat = async () => { throw new Error('synthetic registration failure'); };
-  await assert.rejects(forkCanonicalChat(server, source, { operationId: 'uncertain', entryId: 'answer' }), /synthetic/);
+  const effects = { historyMayExist: false };
+  await assert.rejects(forkCanonicalChat(server, source, { operationId: 'uncertain', entryId: 'answer' }, { effects }), /synthetic/);
+  assert.equal(effects.historyMayExist, true, 'pending/saved history prohibits workspace rollback');
   catalog.updateChat = oldUpdate;
   await assert.rejects(forkCanonicalChat(server, source, { operationId: 'uncertain', entryId: 'answer' }), error => error.code === 'CHAT_FORK_UNCERTAIN');
   await catalog.updateChat('source', { title: 'New manual title' });

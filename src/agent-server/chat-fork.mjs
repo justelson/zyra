@@ -18,6 +18,10 @@ function fail(message, code = 'CHAT_FORK_INVALID') { throw Object.assign(new Err
  * A durable pending receipt deliberately blocks automatic recovery after a crash
  * or partial catalog failure: retrying an uncertain operation must not duplicate it.
  */
+export function preflightCanonicalChatFork(server, sourceChat, input) {
+  return forkCanonicalChat(server, sourceChat, input, { preflight: true });
+}
+
 export async function forkCanonicalChat(server, sourceChat, input = {}, ownerContext = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('Invalid fork request.');
   for (const key of Object.keys(input)) {
@@ -28,8 +32,8 @@ export async function forkCanonicalChat(server, sourceChat, input = {}, ownerCon
   if (!sourceChat?.canonicalChatId || !sourceChat.sessionPath || !sourceChat.project || sourceChat.deleted) fail('Source chat is unavailable.');
   const isolated = input.worktree === 'isolated';
   if (input.worktree !== undefined && !['shared', 'isolated'].includes(input.worktree)) fail('Choose shared working files or an isolated worktree.');
-  if (isolated && (!ownerContext.workingRoot || !ownerContext.scope || ownerContext.scope.workingRoot !== ownerContext.workingRoot)) fail('An isolated fork requires preparation by the authorized Project/worktree owner.', 'CHAT_FORK_WORKTREE_UNSUPPORTED');
-  const workingRoot = path.resolve(isolated ? ownerContext.workingRoot : sourceChat.cwd || sourceChat.project);
+  if (isolated && !ownerContext.preflight && (!ownerContext.workingRoot || !ownerContext.scope || ownerContext.scope.workingRoot !== ownerContext.workingRoot)) fail('An isolated fork requires preparation by the authorized Project/worktree owner.', 'CHAT_FORK_WORKTREE_UNSUPPORTED');
+  const workingRoot = path.resolve(isolated && !ownerContext.preflight ? ownerContext.workingRoot : sourceChat.cwd || sourceChat.project);
   const overrides = {};
   if (own(input, 'title')) overrides.title = title(input.title);
   if (own(input, 'model')) {
@@ -50,7 +54,10 @@ export async function forkCanonicalChat(server, sourceChat, input = {}, ownerCon
   const fingerprint = digest(JSON.stringify(request));
   const receiptDirectory = path.join(server.paths.stateDirectory, 'chat-forks');
   const receiptPath = path.join(receiptDirectory, `${digest(operationId)}.json`);
-  if (existsSync(receiptPath)) return replayReceipt(server, receiptPath, fingerprint);
+  if (!ownerContext.preflight && existsSync(receiptPath)) {
+    if (ownerContext.effects) ownerContext.effects.historyMayExist = true;
+    return replayReceipt(server, receiptPath, fingerprint);
+  }
 
   // Strict, bounded, read-only snapshot. No lenient JSONL parser or SDK migration.
   const storageProject = path.resolve(sourceChat.storageProject || sourceChat.project);
@@ -63,6 +70,7 @@ export async function forkCanonicalChat(server, sourceChat, input = {}, ownerCon
   const inherited = inheritedSettings(branch, sourceChat, server);
   const settings = { ...inherited, ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'title')) };
   const forkTitle = overrides.title || title(`Fork of ${sourceChat.title || 'chat'}`);
+  if (ownerContext.preflight) return { sourceCanonicalChatId: sourceChat.canonicalChatId, entryId, sourceSnapshotSha256: snapshot.sha256 };
   const createdAt = new Date().toISOString();
   const canonicalChatId = `zyra_fork_${digest(`${path.resolve(server.paths.stateDirectory)}\0${operationId}`).slice(0, 32)}`;
   const sessionDirectory = getProjectSessionsDir(storageProject);
@@ -104,6 +112,7 @@ export async function forkCanonicalChat(server, sourceChat, input = {}, ownerCon
 
   mkdirSync(receiptDirectory, { recursive: true });
   // wx is the cross-process admission lock; no awaited work occurs before it.
+  if (ownerContext.effects) ownerContext.effects.historyMayExist = true;
   try {
     durableCreate(receiptPath, { version: 1, status: 'pending', fingerprint, canonicalChatId, sessionPath, createdAt });
   } catch (error) {

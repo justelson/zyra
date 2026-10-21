@@ -463,8 +463,8 @@ try {
     assert.equal(firstReview.index.turns[0]?.changes[0]?.additions, 1)
     assert.equal(firstReview.index.turns[0]?.changes[0]?.deletions, 1)
     assert.equal(historyBodyReads, 2, 'opening the Review index keeps every deferred historical body lazy')
-    assert.deepEqual(historyRequests.map((request) => request.before), ['128', null, '2'], 'one startup title lookup precedes the explicit canonical indexer backfill')
-    assert.equal(historyRequests[0]?.limit, 128, 'startup title eligibility never performs a full history backfill')
+    assert.deepEqual(historyRequests.map((request) => request.before), [null, '2'], 'canonical backfill is bounded and no competing startup title lookup runs')
+    assert.deepEqual(historyRequests.map((request) => request.limit), [2000, 2000], 'only the explicit bounded Review backfill reads history')
     const indexedEditActivity = await (service as any).persistence.readActivity(thread.id, 'zyra-tool-review-edit-call')
     assert.equal(indexedEditActivity?.turnId, firstReview.index.turns[0]!.id)
     assert.equal(indexedEditActivity?.payload?.patch, undefined, 'Review indexing keeps the exact provider patch lazy')
@@ -488,7 +488,7 @@ try {
     assert.equal(hydratedReviewIndex.turns[0]?.changes[0]?.deletions, 1)
 
     await service.getReviewIndex(thread.id)
-    assert.equal(historyRequests.length, 3, 'opening or refreshing Review adds no requests after startup and explicit indexing')
+    assert.equal(historyRequests.length, 2, 'opening or refreshing Review adds no requests after explicit indexing')
 
     const runtime = (service as any).runtime
     runtime.emit('catalog.changed', { canonicalChatId, presence: true })
@@ -501,7 +501,7 @@ try {
     assert.equal(updatedReview.index.totalTurns, 2)
     assert.equal(updatedReview.index.turns[0]?.prompt?.text, 'Review the follow-up')
     assert.equal(updatedReview.index.turns[1]?.changes.length, 1, 'incremental canonical refresh retains older indexed changes')
-    assert.equal(historyRequests.length, 4, 'the explicit indexer adds a later TUI turn from the latest page without rereading older pages')
+    assert.equal(historyRequests.length, 3, 'the explicit indexer adds a later TUI turn from the latest page without rereading older pages')
 } finally {
     await service.dispose()
     rmSync(userDataPath, { recursive: true, force: true })

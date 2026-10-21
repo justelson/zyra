@@ -20,7 +20,7 @@ import { resolveImportedAssistantProjectPath } from '../../shared/assistant/proj
 import { prepareDefaultChatWorkspace } from '../setup/default-chat-workspace'
 import { filterAssistantAutomaticProjectImports } from './assistant-project-persistence'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
@@ -1307,19 +1307,42 @@ export class AssistantService {
     }
 
     /** App-operation only: prepare a new fork workspace without selecting or running a Chat. */
-    async prepareAgentForkWorkspace(sourceSessionId: string, isolated: boolean): Promise<AssistantChatScope | null> {
+    async prepareAgentForkWorkspace(sourceSessionId: string, isolated: boolean, ready?: (rollback: () => Promise<void>) => void): Promise<AssistantChatScope | null> {
         await this.ensureReady()
         const source = this.state.snapshot.sessions.find(session => session.id === sourceSessionId)
         if (!source) throw new Error('The fork source is unavailable.')
         if (!isolated) return source.chatScope ? structuredClone(source.chatScope) : null
         const root = source.workingRoot || source.projectPath
         if (!source.projectId || !root || !source.chatScope?.roots.some(entry => entry.path === root && entry.access === 'read-write')) throw new Error('Isolated forks require a writable, associated Git Project.')
-        const { resolveChatWorktree, scopeChatWorktree } = await import('../services/developer-worktrees')
-        const workingRoot = await resolveChatWorktree(root, { kind: 'new-worktree' })
-        // This expansion is inside the exact user-approved fork operation. Other
-        // Chats retain their immutable scope snapshots; only the fork writes here.
-        await this.persistence.associateProjectFolder({ projectId: source.projectId, path: workingRoot, access: 'read-write' })
-        return scopeChatWorktree(await this.persistence.createProjectChatScope(source.projectId, workingRoot), workingRoot)
+        const { prepareChatWorktree, scopeChatWorktree } = await import('../services/developer-worktrees')
+        const { prepareAgentForkWorkspace, forkWorkspacePathKey: pathKey } = await import('./agent-fork-preparation')
+        const projectId = source.projectId
+        return prepareAgentForkWorkspace({
+            prepare: () => prepareChatWorktree(root, { kind: 'new-worktree' }),
+            project: async () => {
+                const project = (await this.persistence.listProjects()).projects.find(project => project.id === projectId)
+                if (!project) throw new Error('The fork Project is unavailable.')
+                return project
+            },
+            associate: path => this.persistence.associateProjectFolder({ projectId, path, access: 'read-write' }),
+            remove: folderId => this.persistence.removeProjectFolder({ projectId, folderId }),
+            scope: async path => scopeChatWorktree(await this.persistence.createProjectChatScope(projectId, path), path),
+            referenced: async path => {
+                const projects = (await this.persistence.listProjects()).projects
+                if (projects.some(project => project.id !== projectId && project.folders.some(folder => pathKey(folder.path) === pathKey(path)))) return true
+                if (this.state.snapshot.sessions.some(session => [session.workingRoot, session.projectPath, ...session.threads.map(thread => thread.cwd)].some(root => root && pathKey(root) === pathKey(path)))) return true
+                // Failure to read canonical state refuses cleanup, including pending forks.
+                return (await this.runtime.listCanonicalChats()).some(chat => pathKey(chat.cwd || chat.project) === pathKey(path))
+            },
+            ready
+        })
+    }
+
+    async confirmAgentForkWorkspace(scope: AssistantChatScope): Promise<void> {
+        await this.ensureReady()
+        if (!(await stat(scope.workingRoot)).isDirectory()) throw new Error('The prepared fork workspace is unavailable; do not automatically recreate it.')
+        const maximum = await this.persistence.createProjectChatScope(scope.projectId, scope.workingRoot)
+        if (maximum.workingRoot !== scope.workingRoot || scope.roots.some(root => !maximum.roots.some(ceiling => ceiling.path === root.path && (root.access === 'read-only' || ceiling.access === 'read-write')))) throw new Error('The prepared fork workspace scope changed; inspect the original operation.')
     }
 
     async completeAgentForkScope(canonicalChatId: string, sourceSessionId: string, scope: AssistantChatScope | null, config: { model?: unknown; effort?: unknown; runtimeMode?: unknown; expectedProjectPath?: unknown; expectedWorkingRoot?: unknown } = {}) {

@@ -3,6 +3,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { AppOperationReceipts } from '../src/main/assistant/app-operation-receipts'
 import { AgentAppService, type AgentAppDependencies, type AppActor } from '../src/main/assistant/agent-app-service'
 import { DevicePreferencesService } from '../src/main/setup/device-preferences-service'
 import { desktopNamespaceId } from '../src/main/assistant/agent-server-namespace'
@@ -97,6 +98,26 @@ try {
     chats.find(chat => chat.id === 'other')!.projectId = 'allowed'
     await assert.rejects(app.execute(patch, async () => { throw new Error('stopped cached delivery') }), /stopped cached delivery/, 'even a completed settings receipt rechecks the live owner before delivering cached values')
     assert.equal((await preferences.get({ surface: 'desktop' })).settings.appearanceCodeScale, 115, 'Stop before a queued owner operation starts prevents its side effect')
+    let rollbacks = 0
+    const forkScope = { projectId: 'allowed', workingRoot: '/projects/allowed/fork', roots: [] }
+    Object.assign(service, {
+        prepareAgentForkWorkspace: async (_id: string, _isolated: boolean, ready: (rollback: () => Promise<void>) => void) => { ready(async () => { rollbacks++ }); return forkScope },
+        confirmAgentForkWorkspace: async () => {},
+        completeAgentForkScope: async () => ({ sessionId: 'saved-fork' })
+    })
+    const preparation = operation('app', 'fork_prepare', { area: 'chats', input: { worktree: 'isolated', expectedSourceCanonicalChatId: 'canonical-origin' } })
+    const prepared = await app.execute(preparation)
+    const cleanup = operation('app', 'fork_rollback', { area: 'chats', input: { rollbackToken: prepared.rollbackToken, prepareOperationId: preparation.operationId } })
+    await app.execute(cleanup)
+    assert.equal(rollbacks, 1)
+    await assert.rejects(app.execute(preparation), /cancelled/, 'cancelled preparation cannot replay in process')
+    const reopenedReceipts = new AppOperationReceipts(join(directory, 'agent-app-receipts.json'))
+    await assert.rejects(reopenedReceipts.run({ ...preparation, actor: actor.canonicalChatId }, async () => { throw new Error('must not run') }), /cancelled/, 'rollback invalidation is durable across owner restart')
+    const publishedPreparation = operation('app', 'fork_prepare', { area: 'chats', input: { worktree: 'isolated', expectedSourceCanonicalChatId: 'canonical-origin' } })
+    const published = await app.execute(publishedPreparation)
+    await app.execute(operation('app', 'fork_attach', { area: 'chats', input: { canonicalChatId: 'saved-fork', scope: forkScope, rollbackToken: published.rollbackToken, prepareOperationId: publishedPreparation.operationId } }))
+    await assert.rejects(app.execute(operation('app', 'fork_rollback', { area: 'chats', input: { rollbackToken: published.rollbackToken, prepareOperationId: publishedPreparation.operationId } })), /unavailable/, 'saved history releases unpublished-only cleanup authority')
+    assert.equal(rollbacks, 1)
     originDeleted = true
     await assert.rejects(app.execute(patch), /originating Chat/)
     const journal = await readFile(join(directory, 'agent-app-receipts.json'), 'utf8')

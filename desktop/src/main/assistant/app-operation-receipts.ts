@@ -59,6 +59,18 @@ export class AppOperationReceipts {
         await this.load(); if (waitForWrites) await this.queue
         return structuredClone(this.records.filter(item => item.actor === actor).slice(-50))
     }
+    /** Compensation only, called inside run's serialized owner queue before cleanup. */
+    async invalidateForkPreparation(operationId: string, actor: string) {
+        await this.load()
+        const receipt = this.records.find(item => item.operationId === operationId)
+        if (!receipt || receipt.actor !== actor || receipt.domain !== 'app' || receipt.operation !== 'fork_prepare' || receipt.phase !== 'completed') throw new Error('The exact completed fork preparation is unavailable for cleanup.')
+        const previous = structuredClone(receipt)
+        receipt.phase = 'failed'
+        receipt.error = 'This fork preparation was cancelled. Inspect retained state before starting a new operation.'
+        delete receipt.result
+        try { await this.save() }
+        catch (error) { delete receipt.error; Object.assign(receipt, previous); throw error }
+    }
     run(request: { operationId: string; actor: string; domain: string; operation: string; params: unknown }, work: () => Promise<Record<string, unknown>>, authorize?: () => Promise<void>) {
         const execute = async () => {
             await this.load()

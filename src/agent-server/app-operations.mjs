@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { forkCanonicalChat } from './chat-fork.mjs';
+import { forkCanonicalChat, preflightCanonicalChatFork } from './chat-fork.mjs';
 import { isAppAreaOperation } from '../app-area-operations.mjs';
 
 const READS = new Set(['list', 'get', 'inspect', 'search', 'read', 'preview', 'history', 'refresh']);
@@ -67,19 +67,42 @@ export async function requestAgentAppOperation(server, source, message) {
   };
   if (input.domain !== 'app' || input.operation !== 'fork') return deliverAppOperation(server, desktop, source, request);
   if (request.params.area !== 'chats') throw new Error('Choose the chats area for a history fork.');
-  const forkInput = request.params.input || {};
-  if (!forkInput || typeof forkInput !== 'object' || Array.isArray(forkInput) || Object.keys(forkInput).some(key => !['entryId', 'title', 'model', 'effort', 'profile', 'worktree'].includes(key))) throw new Error('Choose an exact persisted entryId and supported fork configuration.');
+  const rawForkInput = request.params.input || {};
+  if (!rawForkInput || typeof rawForkInput !== 'object' || Array.isArray(rawForkInput)) throw new Error('Choose supported fork configuration.');
+  const { appScope: _scopeIntent, ...forkInput } = rawForkInput;
+  if (Object.keys(forkInput).some(key => !['entryId', 'title', 'model', 'effort', 'profile', 'worktree'].includes(key))) throw new Error('Choose an exact persisted entryId and supported fork configuration.');
   if (typeof forkInput.entryId !== 'string' || !forkInput.entryId.trim() || forkInput.entryId.length > 256 || forkInput.worktree && !['shared', 'isolated'].includes(forkInput.worktree)) throw new Error('Choose an exact persisted entryId and shared or isolated working files.');
   const phaseId = phase => createHash('sha256').update(`${operationId}\0${phase}`).digest('hex');
-  const prepared = await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('prepare'), operation: 'fork_prepare' });
+  // Resolve the authorized source without preparing any working files. Use the
+  // same bounded canonical reader and boundary/tool validation as the save path.
+  const authorized = await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('source'), operation: 'fork_source' });
   assertCurrent();
-  const sourceChat = await server.catalog.find(prepared.sourceCanonicalChatId, { allProjects: true });
+  const sourceChat = await server.catalog.find(authorized.sourceCanonicalChatId, { allProjects: true });
   if (!sourceChat || sourceChat.deleted) throw new Error('The authorized fork source is unavailable.');
+  await preflightCanonicalChatFork(server, sourceChat, { ...forkInput, operationId });
   assertCurrent();
-  const fork = await forkCanonicalChat(server, sourceChat, { ...forkInput, operationId }, { desktopOwned: true, scope: prepared.scope, workingRoot: prepared.workingRoot });
+  const prepared = await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('prepare'), operation: 'fork_prepare', params: { ...request.params, input: { ...forkInput, expectedSourceCanonicalChatId: sourceChat.canonicalChatId } } });
+  const effects = { historyMayExist: false };
+  let fork;
   try {
     assertCurrent();
-    const imported = await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('attach'), operation: 'fork_attach', params: { ...request.params, input: { canonicalChatId: fork.canonicalChatId, scope: prepared.scope || null, model: fork.model, effort: fork.effort, runtimeMode: fork.runtimeMode, expectedProjectPath: fork.chat.project, expectedWorkingRoot: fork.chat.cwd } } });
+    if (prepared.sourceCanonicalChatId !== sourceChat.canonicalChatId) throw new Error('The authorized fork source changed before preparation.');
+    fork = await forkCanonicalChat(server, sourceChat, { ...forkInput, operationId }, { desktopOwned: true, scope: prepared.scope, workingRoot: prepared.workingRoot, effects });
+  } catch (error) {
+    if (!effects.historyMayExist && prepared.rollbackToken) {
+      try {
+        assertCurrent();
+        await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('rollback'), operation: 'fork_rollback', params: { ...request.params, input: { rollbackToken: prepared.rollbackToken, prepareOperationId: phaseId('prepare') } } });
+      } catch {
+        throw new Error(`${error.message} Fork workspace cleanup is unconfirmed; inspect the retained preparation. Do not automatically recreate it.`);
+      }
+    }
+    if (effects.historyMayExist) throw Object.assign(new Error(`${error.message} Fork history may be saved; its workspace was retained. Inspect the operation receipt before retrying.`), { code: error.code, retryable: false });
+    throw error;
+  }
+  try {
+    assertCurrent();
+    const imported = await deliverAppOperation(server, desktop, source, { ...request, operationId: phaseId('attach'), operation: 'fork_attach', params: { ...request.params, input: { canonicalChatId: fork.canonicalChatId, scope: prepared.scope || null, model: fork.model, effort: fork.effort, runtimeMode: fork.runtimeMode, expectedProjectPath: fork.chat.project, expectedWorkingRoot: fork.chat.cwd, rollbackToken: prepared.rollbackToken, prepareOperationId: phaseId('prepare') } } });
     await server.catalog.updateChat(fork.canonicalChatId, { forkPending: false });
     server.broadcastCatalogChanged?.('chat-fork');
     return { ...fork, chat: { ...fork.chat, forkPending: false }, desktop: imported, scopeConfirmed: true, selectionUnchanged: true, autoPrompted: false };

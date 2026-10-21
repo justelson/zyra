@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { MemoryRouter } from 'react-router-dom'
+import { SettingsProvider } from '../../src/renderer/src/lib/settings'
 import { AssistantChatSessionsRail } from '../../src/renderer/src/pages/assistant/AssistantChatSessionsRail'
 import { AssistantConversationHeader } from '../../src/renderer/src/pages/assistant/AssistantConversationHeader'
 import { createChatActionMenuItems } from '../../src/renderer/src/pages/assistant/assistant-chat-actions-menu'
@@ -26,7 +27,13 @@ const calls: string[] = []
 const stopToasts: string[] = []
 let recoveryCommandsPending = false
 let stopFails = false
-;(window as any).devscope = { copyToClipboard: async (value: string) => { calls.push(`copy:${value}`); return { success: true } } }
+// Synthetic profile APIs for the real SettingsProvider and registry keycaps.
+// No installed preferences or credentials participate in this menu fixture.
+;(window as any).devscope = {
+    copyToClipboard: async (value: string) => { calls.push(`copy:${value}`); return { success: true } },
+    preferences: { onChanged: () => () => {}, get: async () => ({ success: true, snapshot: { revision: 0, settings: { assistantMemoryEnabled: false }, desktopLegacyMigrationComplete: true } }) },
+    secrets: { migrateLegacyHostedAiKeys: async () => ({ success: true, status: { groqConfigured: false, geminiConfigured: false, legacyMigrationComplete: true } }) }
+}
 function Header() {
     const target = sessions[0]
     const pins = usePinnedSessionIds()
@@ -45,7 +52,7 @@ function Header() {
         onArchiveChat={() => { calls.push(`archive:${target.id}`) }} onDeleteChat={() => { calls.push(`delete:${target.id}`) }} onToggleRightSidebar={() => {}} />
     </div>
 }
-function renderMenus() { flushSync(() => root.render(<MemoryRouter><Header /><div className="flex h-[620px]">
+function renderMenus() { flushSync(() => root.render(<SettingsProvider><MemoryRouter><Header /><div className="flex h-[620px]">
     <AssistantChatSessionsRail collapsed={false} width={322} previewPinned={false} agentInboxEnabled
         projectIconOverrides={{}} projects={[]} sessions={sessions} activeSessionId="selected" activeThreadId="selected-thread"
         commandPending={false} pendingControlThreadIds={new Set()} onCreateChat={() => {}} onCreateProjectChat={() => {}}
@@ -53,7 +60,7 @@ function renderMenus() { flushSync(() => root.render(<MemoryRouter><Header /><di
         onCreateThread={id => { calls.push(`thread:${id}`) }} onChooseSessionProject={target => { calls.push(`project:${target.id}`) }}
         onArchiveSession={id => { calls.push(`archive:${id}`) }} onDeleteSession={async () => ({ success: true })}
         onPreviewPinnedChange={() => {}} onShowToast={() => {}} />
-</div></MemoryRouter>)) }
+</div></MemoryRouter></SettingsProvider>)) }
 renderMenus()
 function PreferenceProbe() {
     const pins = usePinnedSessionIds()

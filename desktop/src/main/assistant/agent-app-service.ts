@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import type { AssistantService } from './service'
 import type { AssistantSessionShell, AssistantThreadShell, AssistantChatScope, AssistantCreateSessionInput } from '../../shared/assistant/contracts'
@@ -68,6 +69,7 @@ export function projectUsageWindow(value: unknown, observedAt?: string, now = Da
 export class AgentAppService {
     readonly receipts: AppOperationReceipts
     private readonly settings: AgentSettings
+    private readonly forkPreparations = new Map<string, { operationId: string; actor: string; sourceSessionId: string; rollback: () => Promise<void> }>()
     constructor(private readonly deps: AgentAppDependencies) {
         this.settings = new AgentSettings(deps.setup.preferences, deps.setup.secrets)
         this.receipts = new AppOperationReceipts(join(deps.stateDirectory, 'agent-app-receipts.json'))
@@ -107,7 +109,7 @@ export class AgentAppService {
         const request = raw as unknown as AppRequest
         if (!/^[a-f0-9]{64}$/.test(request.operationId || '') || !['settings', 'settings_action', 'app', 'usage'].includes(request.domain)) throw new Error('Invalid authenticated app operation envelope.')
         request.params = asRecord(request.params)
-        if (request.domain === 'app' && !['fork_prepare', 'fork_attach'].includes(request.operation) && !isAppAreaOperation(text(request.params.area, 80), request.operation)) throw new Error('Unsupported operation for this app area. Reads never change ordering or queues.')
+        if (request.domain === 'app' && !['fork_source', 'fork_prepare', 'fork_attach', 'fork_rollback'].includes(request.operation) && !isAppAreaOperation(text(request.params.area, 80), request.operation)) throw new Error('Unsupported operation for this app area. Reads never change ordering or queues.')
         const admission = await this.context(request.actor)
         // Recheck scope even when returning a completed receipt. Project movement
         // must not turn old receipt data into a cross-Project read capability.
@@ -132,7 +134,10 @@ export class AgentAppService {
         }
         try {
             if (!mutation) return await work()
-            return await this.receipts.run({ operationId: request.operationId, actor: request.actor.canonicalChatId, domain: request.domain, operation: request.operation, params: request.params }, work, async () => { await authorize() })
+            const result: Record<string, unknown> = await this.receipts.run({ operationId: request.operationId, actor: request.actor.canonicalChatId, domain: request.domain, operation: request.operation, params: request.params }, work, async () => { await authorize() })
+            // A completed preparation receipt must never resurrect a removed tree.
+            if (request.operation === 'fork_prepare' && result.replayed && result.rollbackToken && result.scope) await admission.service.confirmAgentForkWorkspace(result.scope as AssistantChatScope)
+            return result
         } catch (error) {
             throw new Error(String(redactAppData(error instanceof Error ? error.message : 'The app operation failed.')).slice(0, 2000))
         }
@@ -223,16 +228,41 @@ export class AgentAppService {
                 const after = input.after ? this.target(allowed, actor, input.after).chat.id : undefined
                 return this.deps.renderer({ ...request, params: { ...params, target: target.chat.id, input: { ...input, before, after, allowedIds: allowed.map(chat => chat.id) } } })
             }
+            if (operation === 'fork_source') {
+                if (!actor.approved || actor.child) throw new Error('Forks require actual user approval.')
+                const { chat, thread } = this.target(allowed, actor, params.target)
+                if (chat.mode === 'playground' || !thread.providerThreadId) throw new Error('Forks need a persisted non-Playground Chat.')
+                return { sourceCanonicalChatId: thread.providerThreadId }
+            }
+            if (operation === 'fork_rollback') {
+                if (!actor.approved || actor.child) throw new Error('Fork cleanup requires the original user-approved operation.')
+                const { chat } = this.target(allowed, actor, params.target)
+                const token = text(input.rollbackToken)
+                const preparation = this.forkPreparations.get(token)
+                if (!preparation || preparation.actor !== actor.canonicalChatId || preparation.sourceSessionId !== chat.id || preparation.operationId !== input.prepareOperationId) throw new Error('The exact fork preparation is unavailable; inspect retained state.')
+                await this.receipts.invalidateForkPreparation(preparation.operationId, actor.canonicalChatId)
+                this.forkPreparations.delete(token) // Single attempt; uncertain cleanup never replays.
+                await preparation.rollback()
+                return { rolledBack: true }
+            }
             if (operation === 'fork_prepare') {
                 if (!actor.approved || actor.child) throw new Error('Forks require actual user approval.')
                 const { chat, thread } = this.target(allowed, actor, params.target)
                 if (chat.mode === 'playground' || !thread.providerThreadId) throw new Error('Forks need a persisted non-Playground Chat.')
-                const scope = await service.prepareAgentForkWorkspace(chat.id, input.worktree === 'isolated')
-                return { sourceCanonicalChatId: thread.providerThreadId, scope, workingRoot: scope?.workingRoot || thread.cwd || chat.projectPath, filesystemRestored: false }
+                if (input.expectedSourceCanonicalChatId !== thread.providerThreadId) throw new Error('The authorized fork source changed before preparation.')
+                const rollbackToken = randomUUID()
+                let rollback: (() => Promise<void>) | undefined
+                const scope = await service.prepareAgentForkWorkspace(chat.id, input.worktree === 'isolated', cleanup => { rollback = cleanup })
+                if (rollback) this.forkPreparations.set(rollbackToken, { operationId: request.operationId, actor: actor.canonicalChatId, sourceSessionId: chat.id, rollback })
+                return { sourceCanonicalChatId: thread.providerThreadId, scope, workingRoot: scope?.workingRoot || thread.cwd || chat.projectPath, filesystemRestored: false, ...(rollback ? { rollbackToken } : {}) }
             }
             if (operation === 'fork_attach') {
                 if (!actor.approved || actor.child) throw new Error('Forks require actual user approval.')
                 const { chat } = this.target(allowed, actor, params.target)
+                // History has been saved before this private phase. Release the
+                // unpublished-only cleanup closure even if scope import fails.
+                const preparation = this.forkPreparations.get(text(input.rollbackToken))
+                if (preparation?.actor === actor.canonicalChatId && preparation.sourceSessionId === chat.id && preparation.operationId === input.prepareOperationId) this.forkPreparations.delete(text(input.rollbackToken))
                 return service.completeAgentForkScope(text(input.canonicalChatId), chat.id, input.scope as AssistantChatScope | null, input)
             }
             if (operation === 'list') return { chats: allowed.slice(0, 100).map(chat => ({ id: chat.id, canonicalChatId: chat.threads.find(thread => thread.id === chat.activeThreadId)?.providerThreadId || null, title: chat.title, titleManuallySet: chat.titleManuallySet === true, archived: chat.archived, settled: chat.settled, projectId: chat.projectId || null, updatedAt: chat.updatedAt })), navigation: await this.deps.renderer({ ...request, operation: 'inspect', params: { area: 'order', input: { allowedIds: allowed.map(chat => chat.id) } } }).catch(() => ({ available: false, reason: 'Visible sidebar owner is not connected.' })) }

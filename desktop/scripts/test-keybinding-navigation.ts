@@ -19,6 +19,11 @@ try {
     assert.equal(events.at(-1), 'zyra:toggle-assistant-sidebar')
     dispatchAppNavigation('app.chat', navigate)
     assert.equal(routes.at(-1), '/assistant')
+    for (const command of ['app.nextChat', 'app.previousChat', 'app.chat1'] as const) {
+        routes.length = 0
+        dispatchAppNavigation(command, navigate, '/settings/providers')
+        assert.deepEqual(routes, ['/assistant'], `${command} enters Assistant when no sidebar has ever registered`)
+    }
     dispatchAppNavigation('app.files', navigate)
     const requests: AssistantInspectorNavigationRequest[] = []
     const unsubscribe = subscribeAssistantInspectorNavigation(request => { requests.push(request); acknowledgeAssistantInspectorNavigation(request) })

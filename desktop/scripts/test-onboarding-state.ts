@@ -304,7 +304,7 @@ try {
     assert.equal((await readdir(join(root, 'setup'))).some((name) => name.includes('.tmp-')), false, 'atomic temp files must be cleaned up')
 
     const webDefaults = await preferences.getNewChatWebDefaults()
-    assert.deepEqual(webDefaults, { webSearch: true, webFetch: true }, 'new installs enable both web tools without adding an onboarding step')
+    assert.deepEqual(webDefaults, { webSearch: true, webFetch: true, model: '', effort: 'medium', runtimeMode: 'approval-required' }, 'new installs enable both web tools while retaining the safe shared execution defaults')
     assert.equal(await validateOnboardingProjectsFolder(projectsPath), await realpath(projectsPath))
     await assert.rejects(validateOnboardingProjectsFolder(join(root, 'missing')), /existing projects folder/)
     await assert.rejects(validateOnboardingProjectsFolder(parse(root).root), /bounded projects folder/)

@@ -49,7 +49,7 @@ function evaluateDialog(snapshot, click = true, count = 1) {
     }
     const result = runInNewContext(dialogExpression('0.7.0-dev.7', click), {
         document: { querySelectorAll: selector => {
-            assert.equal(selector, 'dialog.update-install-confirmation[open]')
+            assert.ok(['dialog.update-install-confirmation[open]', 'dialog.update-install-confirmation'].includes(selector))
             return Array(count).fill(dialog)
         } }
     })

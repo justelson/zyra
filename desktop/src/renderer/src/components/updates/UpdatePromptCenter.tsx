@@ -13,7 +13,6 @@ import {
 import type { DevScopeUpdateState, DevScopeUpdateStatus } from '@shared/contracts/devscope-api'
 import { getUpdateActionLabel, useAppUpdates } from '@/lib/app-updates'
 import { cn } from '@/lib/utils'
-import { UpdateInstallConfirmation } from './UpdateInstallConfirmation'
 
 function formatCheckedAt(checkedAt: string | null): string | null {
     if (!checkedAt) return null
@@ -555,7 +554,6 @@ export function UpdatePromptCenter() {
             {successToast}
             {prompt}
             {modal}
-            <UpdateInstallConfirmation />
         </>
     )
 }

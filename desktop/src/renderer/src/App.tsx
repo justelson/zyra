@@ -23,6 +23,7 @@ import LinkHoverStatus from './components/ui/LinkHoverStatus'
 import { DesktopLinkHost } from './components/ui/DesktopLinkHost'
 import { UpdatePromptCenter } from './components/updates/UpdatePromptCenter'
 import { AppUpdatesProvider } from './lib/app-updates'
+import { UpdateInstallConfirmation } from './components/updates/UpdateInstallConfirmation'
 import { ProjectCreationProvider } from './lib/projects/project-creation'
 import { AssistantTitleBarProvider } from './lib/assistant/assistant-title-bar'
 import { OnboardingProvider } from './lib/onboarding'
@@ -332,26 +333,24 @@ function AppContent() {
 
 function NormalDesktopApp() {
     return (
-        <AppUpdatesProvider>
-            <CommandPaletteProvider>
-                <TerminalContextProvider>
-                    <HashRouter>
-                        <AssistantTitleBarProvider>
-                            <ProjectCreationProvider>
-                                <AppMenuCommandHost />
-                                <ShortcutHints />
-                                <AgentAppOperations />
-                                <AppContent />
-                                <CommandPalette />
-                                <QuickOpenDialog />
-                                <UpdatePromptCenter />
-            <RuntimeActivationNotice />
-                            </ProjectCreationProvider>
-                        </AssistantTitleBarProvider>
-                    </HashRouter>
-                </TerminalContextProvider>
-            </CommandPaletteProvider>
-        </AppUpdatesProvider>
+        <CommandPaletteProvider>
+            <TerminalContextProvider>
+                <HashRouter>
+                    <AssistantTitleBarProvider>
+                        <ProjectCreationProvider>
+                            <AppMenuCommandHost />
+                            <ShortcutHints />
+                            <AgentAppOperations />
+                            <AppContent />
+                            <CommandPalette />
+                            <QuickOpenDialog />
+                            <UpdatePromptCenter />
+                            <RuntimeActivationNotice />
+                        </ProjectCreationProvider>
+                    </AssistantTitleBarProvider>
+                </HashRouter>
+            </TerminalContextProvider>
+        </CommandPaletteProvider>
     )
 }
 
@@ -385,11 +384,14 @@ function AppSurface() {
     }
     return (
         <SettingsProvider>
-            <OnboardingProvider>
-                <OnboardingGate loadingFallback={<AppBootSkeleton />}>
-                    <AssistantVoiceProvider><NormalDesktopApp /></AssistantVoiceProvider>
-                </OnboardingGate>
-            </OnboardingProvider>
+            <AppUpdatesProvider>
+                <OnboardingProvider>
+                    <OnboardingGate loadingFallback={<AppBootSkeleton />}>
+                        <AssistantVoiceProvider><NormalDesktopApp /></AssistantVoiceProvider>
+                    </OnboardingGate>
+                </OnboardingProvider>
+                <UpdateInstallConfirmation />
+            </AppUpdatesProvider>
         </SettingsProvider>
     )
 }

@@ -543,6 +543,14 @@ export async function resumePreviousAgent() {
         return buildActionResult(true, true)
     } catch { return rejectAction('The previous installation could not be verified. Repair it first.') }
 }
+export function hasCurrentManualInstallerRequest(): boolean {
+    const pending = updateState.externalInstaller
+    if (!pending || pending.agentServerUpdate !== true) return false
+    try {
+        const request = installerRequests?.assertCurrent()
+        return request?.id === pending.id && request.version === pending.version
+    } catch { return false }
+}
 export function receiveInstallerUpdateRequest(argv: string[]): boolean {
     if (isInstallingUpdate) return false
     installerRequests ||= createInstallerRequests(join(app.getPath('userData'), 'updates', 'installer-requests'))

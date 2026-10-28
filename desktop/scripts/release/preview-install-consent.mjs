@@ -19,9 +19,14 @@ export function dialogDecision(dialog, version) {
 
 export function dialogExpression(version, click = false) {
     return `(() => {
-        if (typeof document === 'undefined') return { decision: 'waiting' };
+        if (typeof document === 'undefined') return { decision: 'waiting', observed: { document: false } };
         const dialogs = [...document.querySelectorAll('dialog.update-install-confirmation[open]')];
-        if (!dialogs.length) return { decision: 'waiting' };
+        if (!dialogs.length) return { decision: 'waiting', observed: {
+            document: true, readyState: document.readyState,
+            closedDialogs: document.querySelectorAll('dialog.update-install-confirmation').length,
+            updateBridge: typeof window !== 'undefined' && !!window.devscope?.updates,
+            setupVisible: !!document.querySelector?.('.onboarding-step-heading')
+        } };
         if (dialogs.length !== 1) return { decision: 'reject', reason: 'Multiple confirmation dialogs' };
         const d = dialogs[0], b = d.querySelector('button.update-install-confirm');
         const text = e => e?.textContent?.trim() || '';
@@ -206,10 +211,11 @@ export async function manualConsentReinstall(policy, run) {
             assert.ok(!exitResult, 'Installed app exited before manual consent')
             assert.ok(!installerResult, `Installer exited before manual consent: ${installerResult?.error || installerResult?.ms}`)
             const pages = await targets(policy, base, browserEndpoint)
+            const observations = []
             for (const page of pages) {
                 const result = await evaluate(policy, page, port, dialogExpression(policy.version))
-                last = JSON.stringify(result)
-                assert.notEqual(result?.decision, 'reject', `Refusing non-idle/unknown/repair/mismatched confirmation: ${last}`)
+                observations.push({ type: page.type, ...result })
+                assert.notEqual(result?.decision, 'reject', `Refusing non-idle/unknown/repair/mismatched confirmation: ${JSON.stringify(result)}`)
                 if (result?.decision !== 'confirm') continue
                 nonce = await actualInstallerNonce(requests, beforeRequests, policy.version)
                 // Recheck and click atomically in the renderer; never click a stale observation.
@@ -224,6 +230,7 @@ export async function manualConsentReinstall(policy, run) {
                 clicked = true
                 break
             }
+            last = JSON.stringify(observations)
             if (!clicked) await pause(250)
         }
         assert.ok(clicked, `Timed out waiting for actual install confirmation: ${last}`)

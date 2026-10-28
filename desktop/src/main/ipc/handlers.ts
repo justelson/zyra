@@ -314,7 +314,8 @@ import {
     UPDATE_CHECK_CHANNEL,
     UPDATE_DOWNLOAD_CHANNEL,
     UPDATE_GET_STATE_CHANNEL,
-    UPDATE_INSTALL_CHANNEL
+    UPDATE_INSTALL_CHANNEL,
+    hasCurrentManualInstallerRequest
 } from '../update/manager'
 import type { DesktopSetupServices } from '../setup'
 import { configureBrowserAdBlockService } from '../browser-adblock-service'
@@ -326,6 +327,7 @@ import {
     registerSetupIpcHandlers
 } from './handlers/setup-handlers'
 import { createOnboardingGatedIpcMain } from './onboarding-ipc-gate'
+import { createManualInstallerUpdateGuard } from './manual-installer-update-gate'
 import { ipcMain as trustedIpcMain } from './trusted-ipc'
 
 const PRE_ONBOARDING_ALLOWED_INVOKE_CHANNELS = new Set([
@@ -385,6 +387,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
             ? handler(...args)
             : onboardingRequiredError()
     )
+    const guardManualInstallerUpdate = createManualInstallerUpdateGuard({
+        hasSetupAccess: setupServices.onboarding.isAccessAllowed.bind(setupServices.onboarding),
+        hasCurrentRequest: hasCurrentManualInstallerRequest,
+        blockedResult: onboardingRequiredError
+    })
     const controlHandlers = createAgentControlHandlers(mainWindow, getMainWindow, browserViews)
     ipcMain.handle(AGENT_CONTROL_IPC.getState, controlHandlers.getState)
     ipcMain.handle(AGENT_CONTROL_IPC.bindBrowserTab, controlHandlers.bindBrowserTab)
@@ -406,13 +413,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(AGENT_CONTROL_IPC.selectWindow, controlHandlers.selectWindow)
 
     ipcMain.handle('devscope:getFileSystemRoots', handleGetFileSystemRoots)
-    ipcMain.handle(UPDATE_GET_STATE_CHANNEL, requireCompletedSetup(handleGetUpdateState))
+    // A user must be able to update an incomplete/newer-schema installation.
+    // These four trusted-window exceptions never unlock ordinary setup-gated IPC.
+    trustedIpcMain.handle(UPDATE_GET_STATE_CHANNEL, handleGetUpdateState)
     ipcMain.handle(UPDATE_CHECK_CHANNEL, requireCompletedSetup(handleCheckForUpdates))
     ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, requireCompletedSetup(handleDownloadUpdate))
-    ipcMain.handle(UPDATE_PREFLIGHT_CHANNEL, requireCompletedSetup(handlePreflightUpdate))
-    ipcMain.handle(UPDATE_DEFER_CHANNEL, requireCompletedSetup(handleDeferUpdate))
+    trustedIpcMain.handle(UPDATE_PREFLIGHT_CHANNEL, guardManualInstallerUpdate(handlePreflightUpdate))
+    trustedIpcMain.handle(UPDATE_DEFER_CHANNEL, guardManualInstallerUpdate(handleDeferUpdate))
     ipcMain.handle('devscope:updates:resumePreviousAgent', requireCompletedSetup(handleResumePreviousAgent))
-    ipcMain.handle(UPDATE_INSTALL_CHANNEL, requireCompletedSetup(handleInstallUpdate))
+    trustedIpcMain.handle(UPDATE_INSTALL_CHANNEL, guardManualInstallerUpdate(handleInstallUpdate))
 
     ipcMain.handle('devscope:setStartupSettings', handleSetStartupSettings)
     ipcMain.handle('devscope:getStartupSettings', handleGetStartupSettings)

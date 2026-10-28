@@ -55,6 +55,7 @@ export interface AssistantRuntimeBridge {
         options?: {
             turnId?: string
             initialManualTitle?: string
+            beforeSubmit?: () => void
             model?: string
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
@@ -68,7 +69,7 @@ export interface AssistantRuntimeBridge {
             modelCompactionOverrides?: Record<string, number>
         }
     ): Promise<{ turnId: string; providerThreadId: string | null }>
-    steerPrompt?(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }>
+    steerPrompt?(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[]; beforeSubmit?: () => void }): Promise<{ turnId: string }>
     pingModel?(threadId: string, targetTurnId: string, requestId: string): Promise<void>
     cancelPendingPrompt?(threadId: string, turnId?: string): Promise<boolean>
     interruptTurn(threadId: string, turnId?: string): Promise<void>

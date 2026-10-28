@@ -27,7 +27,7 @@ try {
         const owner = new QueuedPromptDeliveryOwner(directory)
         const started = deferred(), release = deferred()
         let calls = 0
-        const first = owner.run(input, async mark => { calls++; started.resolve(); await release.promise; mark(); return result })
+        const first = owner.run(input, async mark => { calls++; started.resolve(); await release.promise; mark(); mark(); return result })
         const second = owner.run({ ...input, payload: { images: input.payload.images, prompt: input.payload.prompt } }, async () => { throw new Error('duplicate dispatch') })
         assert.equal(first, second)
         assert.equal(owner.pendingCount, 1)

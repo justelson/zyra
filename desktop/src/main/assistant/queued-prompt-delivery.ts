@@ -152,7 +152,9 @@ export class QueuedPromptDeliveryOwner {
             checkCancelled()
             const result = validateResult(await deliver(() => {
                 checkCancelled()
-                if (callbackClosed || submitted) throw new Error('Queued prompt dispatch claim is closed.')
+                if (callbackClosed) throw new Error('Queued prompt dispatch claim is closed.')
+                // The connection may retry an explicitly rejected attachment. Marking
+                // the same live delivery again is safe; cancellation still wins.
                 submitted = true
             }), scope.sessionId)
             callbackClosed = true

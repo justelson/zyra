@@ -2205,6 +2205,7 @@ export class ZyraRuntime extends EventEmitter {
         options?: {
             turnId?: string
             initialManualTitle?: string
+            beforeSubmit?: () => void
             model?: string
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
@@ -2222,6 +2223,7 @@ export class ZyraRuntime extends EventEmitter {
         const context = this.requireSession(threadId)
         if (context.activeTurnId) throw new Error('Zyra is already working in this thread.')
 
+        options?.beforeSubmit?.()
         const turnId = options?.turnId || randomUUID()
         context.activeTurnId = turnId
         let resolveReady!: () => void
@@ -2270,7 +2272,8 @@ export class ZyraRuntime extends EventEmitter {
             }
         })
 
-        void this.runPromptTurn(context, turnId, prompt, options)
+        const { beforeSubmit: _beforeSubmit, ...promptOptions } = options || {}
+        void this.runPromptTurn(context, turnId, prompt, options ? promptOptions : undefined)
         return { turnId, providerThreadId: context.providerThreadId }
     }
 
@@ -2284,7 +2287,7 @@ export class ZyraRuntime extends EventEmitter {
         await context.worker.request('model_ping', { targetTurnId, requestId })
     }
 
-    async steerPrompt(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }> {
+    async steerPrompt(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[]; beforeSubmit?: () => void }): Promise<{ turnId: string }> {
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
         const presence = context.worker.readPresence ? await context.worker.readPresence() : null
@@ -2295,7 +2298,7 @@ export class ZyraRuntime extends EventEmitter {
         if (context.pendingPrompt && !context.pendingPrompt.acknowledged) {
             throw new Error('The turn is still starting. Use Send next until it is ready.')
         }
-        await context.worker.request('steer', { prompt, images: options.images, targetTurnId: activeTurnId })
+        await context.worker.request('steer', { prompt, images: options.images, targetTurnId: activeTurnId }, { beforeDispatch: options.beforeSubmit })
         return { turnId: activeTurnId }
     }
 

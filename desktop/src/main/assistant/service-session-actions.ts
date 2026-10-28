@@ -565,8 +565,9 @@ async function sendAssistantPromptOnce(
         if (!targetTurnId || thread.latestTurn?.state !== 'running') throw new Error('The turn has ended. Send this message as a new turn instead.')
         if (!deps.runtime.steerPrompt) throw new Error('This runtime does not support steering. Use Send next instead.')
         const images = preparedImages ?? await prepareAssistantPromptImages(options.images)
-        markSubmitted?.()
-        const result = await deps.runtime.steerPrompt(getAssistantCanonicalThreadId(thread), input, { targetTurnId, images: images.length ? images : undefined })
+        const result = await deps.runtime.steerPrompt(getAssistantCanonicalThreadId(thread), input, {
+            targetTurnId, images: images.length ? images : undefined, beforeSubmit: markSubmitted
+        })
         const occurredAt = nowIso()
         const message = createAssistantUserMessage(input, occurredAt, options.userMessageId || createAssistantId('assistant-message'))
         message.turnId = result.turnId
@@ -669,9 +670,9 @@ async function sendAssistantPromptOnce(
         // durable local flag and latest name at the dispatch boundary.
         const currentSession = requireSession(deps.getSnapshot(), session.id)
         const initialManualTitle = currentSession.titleManuallySet || hadNamedDraft ? currentSession.title : undefined
-        markSubmitted?.()
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
+            beforeSubmit: markSubmitted,
             initialManualTitle,
             startInNewWorktree: options?.startInNewWorktree,
             model: model || undefined,

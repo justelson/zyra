@@ -6,7 +6,7 @@ import { QueuedPromptDeliveryOwner } from '../src/main/assistant/queued-prompt-d
 import { mock } from 'bun:test'
 const noop = () => undefined
 mock.module('electron-log', () => ({ default: { info: noop, warn: noop, error: noop, debug: noop } }))
-mock.module('../src/main/agent-control', () => ({ getAgentControlBroker: () => ({ revokePrincipal: noop }) }))
+mock.module('../src/main/agent-control', () => ({ getAgentControlBroker: () => ({ revokePrincipal: noop, authorizeUserWindowsTurn: noop, materializeUserAuthorizedBrowserGrant: noop }) }))
 mock.module('electron', () => ({
     app: { getPath: () => process.env.TEMP || process.cwd(), isReady: () => true, on: noop, once: noop },
     BrowserWindow: class { static getAllWindows() { return [] } static fromWebContents() { return null } },
@@ -58,7 +58,7 @@ try {
     let release!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
     const queueDeps = { ...deps, queuedPromptDeliveries: new QueuedPromptDeliveryOwner(receipts), runtime: { ...deps.runtime,
-        steerPrompt: async (_id: string, _prompt: string, input: any) => { deliveries++; await blocked; return { turnId: input.targetTurnId } } } }
+        steerPrompt: async (_id: string, _prompt: string, input: any) => { input.beforeSubmit?.(); deliveries++; await blocked; return { turnId: input.targetTurnId } } } }
     const shared = { sessionId: 'session', queueEntryId: 'shared-live-entry', dispatchMode: 'steer' as const, targetTurnId: 'turn-1' }
     const before = projected.length
     const first = sendAssistantPromptAction(queueDeps as never, 'Shared correction', shared, [])
@@ -108,6 +108,33 @@ try {
         await outcome
         assert.equal(deliveries, 3, stale ? 'an old Stop cannot cancel the new queue claim' : 'current Stop cancels receipt preparation before runtime dispatch')
     }
+    const realDeps = { ...deps, queuedPromptDeliveries: new QueuedPromptDeliveryOwner(receipts), runtime }
+    const beforePresenceRace = calls.length
+    canonical = null
+    await assert.rejects(sendAssistantPromptAction(realDeps as never, 'Retry after presence rejection', { ...shared, queueEntryId: 'runtime-presence-race' }, []), /active turn changed/)
+    assert.equal(calls.length, beforePresenceRace, 'canonical pre-submission rejection made no worker request')
+    canonical = 'turn-1'
+    context.worker.request = async (type: string, payload: unknown, guard?: { beforeDispatch?: () => void }) => {
+        guard?.beforeDispatch?.(); calls.push({ type, payload }); return {}
+    }
+    await sendAssistantPromptAction(realDeps as never, 'Retry after presence rejection', { ...shared, queueEntryId: 'runtime-presence-race' }, [])
+    assert.equal(calls.length, beforePresenceRace + 1, 'the same entry can retry after a definitive runtime preflight rejection')
+
+    // New turns are accepted by the runtime before their asynchronous prompt run.
+    // Their receipt marker belongs after the final busy guard, not before it.
+    const admitted: any = context
+    for (const name of ['completedTurnIds', 'assistantCompletedItemIds', 'internalCompletedItemIds']) admitted[name] = new Set()
+    for (const name of ['toolArgsByCallId', 'toolStartedAtByCallId', 'commandActivityIdByJobId', 'assistantTextByItemId', 'internalTextByItemId']) admitted[name] = new Map()
+    let runnerOptions: any
+    ;(runtime as any).runPromptTurn = async (_context: unknown, _turn: string, _prompt: string, value: unknown) => { runnerOptions = value }
+    admitted.activeTurnId = 'busy-turn'; canonical = 'busy-turn'
+    const admissionInput = { sessionId: 'session', entryId: 'runtime-admission-race', payload: { prompt: 'New turn after busy rejection' } }
+    const submit = (mark: () => void) => runtime.sendPrompt('zyra_remote', 'New turn after busy rejection', { turnId: 'admitted-once', beforeSubmit: mark })
+        .then(value => ({ success: true as const, sessionId: 'session', threadId: 'local', turnId: value.turnId }))
+    await assert.rejects(realDeps.queuedPromptDeliveries.run(admissionInput, submit), /already working/)
+    admitted.activeTurnId = null; canonical = null
+    assert.equal((await realDeps.queuedPromptDeliveries.run(admissionInput, submit)).turnId, 'admitted-once')
+    assert.equal('beforeSubmit' in runnerOptions, false, 'the long-running prompt must not retain the receipt marker closure')
 } finally { await rm(receipts, { recursive: true, force: true }) }
 context.activeTurnId = 'still-working'
 let asyncReceipt: any

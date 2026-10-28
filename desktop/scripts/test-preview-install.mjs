@@ -4,10 +4,88 @@ import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { runInNewContext } from 'node:vm'
+import { assertConsentReceipt, boundedCleanup, consentTargets, dialogDecision, dialogExpression, manualConsentReinstall } from './release/preview-install-consent.mjs'
 import { UUID } from 'builder-util-runtime'
 import { AppInfo } from 'app-builder-lib/out/appInfo.js'
 import { getWindowsInstallationDirName } from 'app-builder-lib/out/targets/targetUtil.js'
 import { previewInstallPolicy, installedValidatorArgs, assertHostedWindows, assertHostedInstallLocation } from './release/validate-preview-install.mjs'
+
+// Pure dialog/DOM policy only: no application, installer, native query, or protocol file.
+const idleDialog = { heading: 'Install update?', version: 'v0.7.0-dev.7', busy: false,
+    error: false, blocked: false, ready: true, readyText: 'No blocking work.',
+    buttonText: 'Restart and install', enabled: true }
+assert.equal(dialogDecision(null, '0.7.0-dev.7'), 'waiting')
+assert.equal(dialogDecision(idleDialog, '0.7.0-dev.7'), 'confirm')
+assert.equal(dialogDecision({ ...idleDialog, busy: true, version: 'Checking…', ready: false }, '0.7.0-dev.7'), 'waiting')
+const nonce = '{12345678-1234-1234-1234-123456789abc}'
+assert.doesNotThrow(() => assertConsentReceipt(nonce, nonce))
+for (const contents of ['bootstrap-complete', '12345678-1234-1234-1234-123456789abd', '']) {
+    assert.throws(() => assertConsentReceipt(contents, nonce))
+}
+assert.throws(() => assertConsentReceipt(nonce, 'not-a-request'))
+for (const changed of [
+    { blocked: true, buttonText: 'Stop all and update' },
+    { ready: false, readyText: 'Agent status is unconfirmed.', enabled: false },
+    { heading: 'Repair installation?', buttonText: 'Repair and restart' },
+    { readyText: 'Agent stopped. Ready to repair.' }, { version: 'v0.7.0-dev.8' },
+    { heading: 'Update agent?' }, { error: true }, { enabled: false },
+    { buttonText: 'Stop all and update' }, { readyText: 'Unknown' }
+]) assert.equal(dialogDecision({ ...idleDialog, ...changed }, '0.7.0-dev.7'), 'reject', JSON.stringify(changed))
+function evaluateDialog(snapshot, click = true, count = 1) {
+    let clicks = 0
+    const button = { textContent: snapshot.buttonText, disabled: !snapshot.enabled, click: () => { clicks++ } }
+    const dialog = {
+        getAttribute: name => name === 'aria-busy' ? String(snapshot.busy) : null,
+        querySelector: selector => {
+            if (selector === 'button.update-install-confirm') return button
+            if (selector === 'h2') return { textContent: snapshot.heading }
+            if (selector === '.agent-update-version') return { textContent: snapshot.version }
+            if (selector === '.agent-update-ready') return snapshot.ready ? { textContent: snapshot.readyText } : null
+            if (selector === '.agent-update-error') return snapshot.error ? {} : null
+            if (selector === '.agent-update-blockers, .agent-update-stop') return snapshot.blocked ? {} : null
+            throw new Error(`Unexpected selector: ${selector}`)
+        }
+    }
+    const result = runInNewContext(dialogExpression('0.7.0-dev.7', click), {
+        document: { querySelectorAll: selector => {
+            assert.equal(selector, 'dialog.update-install-confirmation[open]')
+            return Array(count).fill(dialog)
+        } }
+    })
+    return { result, clicks }
+}
+assert.equal(runInNewContext(dialogExpression('0.7.0-dev.7', true), {}).decision, 'waiting', 'Non-DOM targets must never click')
+const targetTypes = ['page', 'webview', 'iframe', 'other', 'service_worker', 'shared_worker', 'node', 'browser']
+assert.deepEqual(consentTargets(targetTypes.map(type => ({ type, webSocketDebuggerUrl: 'ws://127.0.0.1:123/devtools/page/test' })))
+    .map(target => target.type), ['page', 'webview', 'iframe', 'other'])
+assert.deepEqual(consentTargets([{ type: 'page' }, null]), [], 'Non-inspectable targets are ignored; selected sockets still require the owned loopback endpoint')
+assert.equal(evaluateDialog(idleDialog).clicks, 1, 'Actual expression clicks the idle exact-version button')
+assert.equal(evaluateDialog(idleDialog, false).clicks, 0, 'Observation must never click')
+assert.equal(evaluateDialog(idleDialog, true, 0).result.decision, 'waiting')
+assert.equal(evaluateDialog(idleDialog, true, 2).result.decision, 'reject')
+assert.equal(evaluateDialog({ ...idleDialog, busy: true, ready: false }).result.decision, 'waiting')
+assert.equal(evaluateDialog({ ...idleDialog, busy: true, ready: false }).clicks, 0)
+for (const changed of [{ blocked: true }, { ready: false },
+    { error: true }, { version: 'v0.7.0-dev.8' }, { heading: 'Repair installation?' }, { enabled: false }]) {
+    const { result, clicks } = evaluateDialog({ ...idleDialog, ...changed })
+    assert.equal(result.decision, 'reject')
+    assert.equal(clicks, 0)
+}
+// The operational entry fails before native actions outside the hosted Windows environment.
+if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true'
+    || process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.env.RUNNER_OS !== 'Windows') {
+    await assert.rejects(manualConsentReinstall({}, () => assert.fail('Must not run an installer')))
+}
+
+const timeoutCount = () => process.getActiveResourcesInfo().filter(name => name === 'Timeout').length
+const beforeTimeouts = timeoutCount()
+await boundedCleanup(Promise.resolve())
+assert.equal(timeoutCount(), beforeTimeouts, 'Resolved cleanup must clear its losing timer')
+await assert.rejects(boundedCleanup(Promise.reject(new Error('cleanup rejection'))), /cleanup rejection/)
+assert.equal(timeoutCount(), beforeTimeouts, 'Rejected cleanup must clear its losing timer')
+await boundedCleanup(new Promise(() => {}), 5)
+assert.equal(timeoutCount(), beforeTimeouts, 'Pending cleanup must remain time bounded')
 
 const sourceSha = 'a'.repeat(40)
 function fixture() {
@@ -119,4 +197,4 @@ assert.notEqual(rejectedBuild.status, 0, 'The invalid runner cannot build')
 assert.match(rejectedBuild.stderr, process.platform === 'win32'
     ? /Preview installation requires a hosted runner/ : /Preview installation requires Windows/,
     'The real CLI must reach the environment preflight instead of an ESM evaluation cycle or filesystem reads')
-console.log('Preview install policy: hosted-only known-folder preflight, actual builder directory/GUID/silent-launch contracts, exact identity and installed validator arguments passed (no installer or native query executed)')
+console.log('Preview install policy: hosted-only preflight, builder contracts, exact identity, installed validator arguments and actual-consent dialog/expression positive and fail-closed negatives passed (no app, installer or native query executed)')

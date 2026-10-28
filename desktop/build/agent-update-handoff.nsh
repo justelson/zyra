@@ -6,6 +6,7 @@ Var /GLOBAL ZyraAgentUpdateNonce
 Var /GLOBAL ZyraAgentUpdateConfirmed
 !endif
 
+; PRODUCT_NAME matches app.getPath('userData'); APP_FILENAME names the install folder.
 ; NSIS declares the agent update before replacing any installed files.
 !macro ZyraPrepareAgentUpdate
   StrCpy $ZyraAgentUpdateConfirmed 0
@@ -15,13 +16,13 @@ Var /GLOBAL ZyraAgentUpdateConfirmed
   StrCmp $0 0 zyraAgentUpdateAbort
   StrCmp $1 183 zyraAgentUpdateAbort
   ; An in-app update starts NSIS early, but permission arrives only at will-quit.
-  IfFileExists "$APPDATA\${APP_FILENAME}\updates\installer-pending-${VERSION}.flag" zyraAgentAutomaticUpdate
+  IfFileExists "$APPDATA\${PRODUCT_NAME}\updates\installer-pending-${VERSION}.flag" zyraAgentAutomaticUpdate
   ; Fresh and legacy installations bootstrap without the unavailable app protocol.
   IfFileExists "$INSTDIR\resources\zyra-runtime\src\agent-server\update-maintenance.mjs" 0 zyraAgentUpdateBootstrap
   IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 zyraAgentUpdateBootstrap
   System::Call 'ole32::CoCreateGuid(g .r0)'
   StrCpy $ZyraAgentUpdateNonce $0
-  StrCpy $R1 "$APPDATA\${APP_FILENAME}\updates\installer-requests"
+  StrCpy $R1 "$APPDATA\${PRODUCT_NAME}\updates\installer-requests"
   CreateDirectory "$R1"
   FileOpen $R2 "$R1\$ZyraAgentUpdateNonce.request" w
   FileWrite $R2 "${VERSION}"
@@ -48,23 +49,23 @@ Var /GLOBAL ZyraAgentUpdateConfirmed
     Delete "$R1\$ZyraAgentUpdateNonce.later"
     Abort
   zyraAgentAutomaticUpdate:
-    FileOpen $R2 "$APPDATA\${APP_FILENAME}\updates\installer-pending-${VERSION}.flag" r
+    FileOpen $R2 "$APPDATA\${PRODUCT_NAME}\updates\installer-pending-${VERSION}.flag" r
     FileRead $R2 $ZyraAgentUpdateNonce
     FileClose $R2
     StrCpy $R3 0
   zyraAgentAutomaticWait:
-    IfFileExists "$APPDATA\${APP_FILENAME}\updates\installer-pending-${VERSION}.flag" 0 zyraAgentUpdateAbort
-    IfFileExists "$APPDATA\${APP_FILENAME}\updates\installer-ready-${VERSION}.flag" zyraAgentAutomaticReady
+    IfFileExists "$APPDATA\${PRODUCT_NAME}\updates\installer-pending-${VERSION}.flag" 0 zyraAgentUpdateAbort
+    IfFileExists "$APPDATA\${PRODUCT_NAME}\updates\installer-ready-${VERSION}.flag" zyraAgentAutomaticReady
     Sleep 500
     IntOp $R3 $R3 + 1
     IntCmp $R3 600 zyraAgentUpdateAbort zyraAgentAutomaticWait zyraAgentUpdateAbort
   zyraAgentAutomaticReady:
-    FileOpen $R2 "$APPDATA\${APP_FILENAME}\updates\installer-ready-${VERSION}.flag" r
+    FileOpen $R2 "$APPDATA\${PRODUCT_NAME}\updates\installer-ready-${VERSION}.flag" r
     FileRead $R2 $R4
     FileClose $R2
     StrCmp $R4 $ZyraAgentUpdateNonce 0 zyraAgentUpdateAbort
-    Delete "$APPDATA\${APP_FILENAME}\updates\installer-ready-${VERSION}.flag"
-    Delete "$APPDATA\${APP_FILENAME}\updates\installer-pending-${VERSION}.flag"
+    Delete "$APPDATA\${PRODUCT_NAME}\updates\installer-ready-${VERSION}.flag"
+    Delete "$APPDATA\${PRODUCT_NAME}\updates\installer-pending-${VERSION}.flag"
     StrCpy $ZyraAgentUpdateConfirmed 1
     Goto zyraAgentUpdateBootstrap
   zyraAgentUpdateAbort:
@@ -96,9 +97,9 @@ Var /GLOBAL ZyraAgentUpdateConfirmed
   ${If} $ZyraAgentUpdateConfirmed != 1
     StrCpy $ZyraAgentUpdateNonce "bootstrap-complete"
   ${EndIf}
-    CreateDirectory "$APPDATA\${APP_FILENAME}\assistant\agent-server"
+    CreateDirectory "$APPDATA\${PRODUCT_NAME}\assistant\agent-server"
     ClearErrors
-    FileOpen $R2 "$APPDATA\${APP_FILENAME}\assistant\agent-server\install-success-${VERSION}.flag" w
+    FileOpen $R2 "$APPDATA\${PRODUCT_NAME}\assistant\agent-server\install-success-${VERSION}.flag" w
     IfErrors zyraSuccessReceiptFailed
     FileWrite $R2 "$ZyraAgentUpdateNonce"
     FileClose $R2

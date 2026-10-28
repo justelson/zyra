@@ -21,6 +21,7 @@ else {
 !include "LogicLib.nsh"
 !define PROJECT_DIR "${root}"
 !define APP_FILENAME "Zyra Syntax Fixture"
+!define PRODUCT_NAME "Zyra Syntax Profile"
 !define APP_EXECUTABLE_FILENAME "NonexistentFixture.exe"
 !define VERSION "0.8.0-dev.1"
 !include "\${PROJECT_DIR}\\build\\preview-installer.nsh"
@@ -43,6 +44,7 @@ SectionEnd
 !include "LogicLib.nsh"
 !define PROJECT_DIR "${root}"
 !define APP_FILENAME "Zyra Syntax Fixture"
+!define PRODUCT_NAME "Zyra Syntax Profile"
 !define APP_EXECUTABLE_FILENAME "NonexistentFixture.exe"
 !define VERSION "0.8.0-dev.1"
 !include "\${PROJECT_DIR}\\build\\preview-installer.nsh"
@@ -64,6 +66,10 @@ SectionEnd
     const result = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(existsSync(path.join(directory, 'fixture.exe')), true);
+    const expanded = spawnSync(executable, ['/PPO', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    assert.equal(expanded.status, 0, expanded.stdout + expanded.stderr);
+    assert.ok(expanded.stdout.includes('$APPDATA\\Zyra Syntax Profile\\updates\\installer-requests'), 'actual NSIS expansion must target the product profile, not the installation folder');
+    assert.ok(!expanded.stdout.includes('$APPDATA\\Zyra Syntax Fixture\\updates'), 'installation folder identity must never locate consent flags');
     console.log('PASS actual NSIS installer/uninstaller compilation with warnings-as-errors, manual/automatic flags, exact-file wait and success receipt. No installer executed.');
   } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 }

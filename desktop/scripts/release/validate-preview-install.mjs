@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/pro
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { previewRequestIdentity, previewVersion } from './build-preview.mjs'
+import { manualConsentReinstall } from './preview-install-consent.mjs'
 import { absoluteWindowsPath, assertHostedWindows, assertHostedInstallLocation } from './preview-install-environment.mjs'
 export { assertHostedWindows, assertHostedInstallLocation } from './preview-install-environment.mjs'
 
@@ -74,18 +75,33 @@ async function safeAncestors(target) {
     }
 }
 
-function run(command, args, env, timeoutMs = 600_000) {
+function run(command, args, env, timeoutMs = 600_000, signal) {
+    assertHostedWindows(process.platform, process.env)
     return new Promise((resolve, reject) => {
+        signal?.throwIfAborted()
         const started = performance.now()
         const child = spawn(command, args, { env, stdio: ['ignore', 'inherit', 'inherit'], shell: false, windowsHide: true })
-        const timer = setTimeout(() => {
+        let failure, killTimer
+        const stop = error => {
+            if (failure) return
+            failure = error
             child.kill()
-            reject(new Error(`${path.basename(command)} timed out`))
-        }, timeoutMs)
-        child.once('error', error => { clearTimeout(timer); reject(error) })
-        child.once('exit', (code, signal) => {
+            // Bound cleanup even if the OS fails to report this owned child's exit.
+            killTimer = setTimeout(() => { cleanup(); reject(failure) }, 5_000)
+        }
+        const abort = () => stop(new Error(`${path.basename(command)} aborted`))
+        signal?.addEventListener('abort', abort, { once: true })
+        const timer = setTimeout(() => stop(new Error(`${path.basename(command)} timed out`)), timeoutMs)
+        const cleanup = () => {
             clearTimeout(timer)
-            if (code !== 0) reject(new Error(`${path.basename(command)} exited ${code ?? signal}`))
+            clearTimeout(killTimer)
+            signal?.removeEventListener('abort', abort)
+        }
+        child.once('error', error => { cleanup(); reject(error) })
+        child.once('exit', (code, exitSignal) => {
+            cleanup()
+            if (failure) reject(failure)
+            else if (code !== 0) reject(new Error(`${path.basename(command)} exited ${code ?? exitSignal}`))
             else resolve(Math.round(performance.now() - started))
         })
     })
@@ -134,12 +150,12 @@ async function main() {
         console.log(`Preview fresh silent install: ${freshMs} ms`)
         await validateInstalled('Fresh installation')
         await writeFile(staleFile, 'Must be removed by the old-version uninstaller\n', { flag: 'wx' })
-        const reinstallMs = await run(policy.installer, ['/S', '--updated'], process.env)
-        console.log(`Preview same-version repeat silent install: ${reinstallMs} ms`)
+        const consent = await manualConsentReinstall(policy, run)
+        console.log(`Preview actual manual-consent smoke: app ready ${consent.readyMs} ms; consent clicked ${consent.consentMs} ms; app exit ${consent.appExitMs} ms; repeat installer ${consent.installerMs} ms; actual nonce receipt matched ${consent.manualReceiptMatched}`)
         await validateInstalled('Repeat installation')
         const remainingStaleFile = await lstat(staleFile).catch(error => { if (error.code === 'ENOENT') return null; throw error })
         assert.equal(remainingStaleFile, null, 'Repeat installation did not remove the old installed files')
-        console.log('Preview actual installer: fresh/repeat installed resource and launch checks, profile preservation passed')
+        console.log('Preview actual installer: fresh install, actual manual-consent repeat install, installed resource and launch checks, profile preservation and stale-file removal passed')
     } finally {
         if (ownsSentinel) {
             await safeAncestors(sentinel)

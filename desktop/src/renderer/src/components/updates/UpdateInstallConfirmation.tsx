@@ -1,43 +1,11 @@
-import { useEffect, useId, useRef } from 'react'
-import { addOverlayEventListener, NativeOverlayPortal } from '@/components/ui/native-overlay-portal'
-import { RefreshCw } from 'lucide-react'
 import { useAppUpdates } from '@/lib/app-updates'
-import './update-install-confirmation.css'
-
-function RestartDialog({ version, onCancel, onConfirm }: { version: string; onCancel: () => void; onConfirm: () => void }) {
-    const ref = useRef<HTMLDialogElement>(null)
-    const titleId = useId()
-    const descriptionId = useId()
-    useEffect(() => {
-        const overflow = document.body.style.overflow
-        document.body.style.overflow = 'hidden'
-        const removeEscape = addOverlayEventListener('keydown', event => {
-            if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onCancel() }
-        })
-        return () => {
-            removeEscape()
-            document.body.style.overflow = overflow
-        }
-    }, [onCancel])
-    return <NativeOverlayPortal onReady={() => { if (ref.current && !ref.current.open) ref.current.showModal() }}><dialog ref={ref} className="update-install-confirmation" aria-labelledby={titleId} aria-describedby={descriptionId}
-        onCancel={(event) => { event.preventDefault(); onCancel() }}
-        onClick={(event) => {
-            if (event.target !== event.currentTarget) return
-            const bounds = event.currentTarget.getBoundingClientRect()
-            if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onCancel()
-        }}>
-        <div className="update-install-confirmation-body">
-            <h2 id={titleId}>Restart to install?</h2>
-            <p id={descriptionId}>Zyra will close and restart to install v{version}. Save any unsent messages or unsaved work before continuing.</p>
-        </div>
-        <footer>
-            <button type="button" onClick={onCancel} autoFocus>Not now</button>
-            <button type="button" className="update-install-confirm" onClick={onConfirm}><RefreshCw size={14} aria-hidden="true" />Restart and install</button>
-        </footer>
-    </dialog></NativeOverlayPortal>
-}
+import { AgentUpdateDialog } from './AgentUpdateDialog'
 
 export function UpdateInstallConfirmation() {
-    const { installConfirmationVersion, cancelInstallUpdate, confirmInstallUpdate } = useAppUpdates()
-    return installConfirmationVersion ? <RestartDialog key={installConfirmationVersion} version={installConfirmationVersion} onCancel={cancelInstallUpdate} onConfirm={() => { void confirmInstallUpdate() }} /> : null
+    const { installConfirmationVersion, installPlan, installPreflightPending, pendingAction, actionError,
+        cancelInstallUpdate, confirmInstallUpdate, refreshInstallPlan } = useAppUpdates()
+    return installConfirmationVersion ? <AgentUpdateDialog key={installConfirmationVersion} kind="install" plan={installPlan}
+        checking={installPreflightPending} busy={pendingAction === 'install'} error={actionError}
+        onLater={cancelInstallUpdate} onRefresh={() => void refreshInstallPlan()}
+        onConfirm={stopBlockers => { void confirmInstallUpdate(stopBlockers) }} /> : null
 }

@@ -1,8 +1,14 @@
+import { normalizeModelCompactionOverrides } from '../../../../src/assistant-runtime-policy.mjs'
+export { resolveModelCompactionPolicy, getModelCompactionPresets, normalizeModelCompactionOverrides } from '../../../../src/assistant-runtime-policy.mjs'
+export type { CompactionModel, ModelCompactionPolicy, ModelCompactionOverrides } from '../../../../src/assistant-runtime-policy.mjs'
+
 export type AssistantReasoningSummaryMode = 'auto' | 'detailed' | 'concise'
 
 export type AssistantRuntimePolicy = {
     reasoningSummary: AssistantReasoningSummaryMode
+    /** Retained for legacy storage only; never applied to every model. */
     contextCompactionThresholdTokens: number
+    modelCompactionOverrides: Record<string, number>
 }
 
 export const DEFAULT_ASSISTANT_REASONING_SUMMARY: AssistantReasoningSummaryMode = 'detailed'
@@ -28,10 +34,7 @@ export function normalizeAssistantReasoningSummaryMode(value: unknown): Assistan
 export function normalizeAssistantContextCompactionThresholdTokens(value: unknown): number {
     const parsed = Number(value)
     if (!Number.isFinite(parsed)) return DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS
-    return Math.max(
-        MIN_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS,
-        Math.min(MAX_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS, Math.round(parsed))
-    )
+    return Math.max(1, Math.round(parsed))
 }
 
 export function resolveAssistantContextCompactionLimitTokens(
@@ -50,6 +53,7 @@ export function resolveAssistantContextCompactionLimitTokens(
 export function normalizeAssistantRuntimePolicy(value: Partial<AssistantRuntimePolicy> | null | undefined): AssistantRuntimePolicy {
     return {
         reasoningSummary: normalizeAssistantReasoningSummaryMode(value?.reasoningSummary),
+        modelCompactionOverrides: normalizeModelCompactionOverrides(value?.modelCompactionOverrides),
         contextCompactionThresholdTokens: normalizeAssistantContextCompactionThresholdTokens(
             value?.contextCompactionThresholdTokens
         )

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState, type CSSProperties, type RefObject } from 'react'
 import { getOverlayOwnerRect } from './native-overlay-events'
 
-export function useAnchoredMenuBounds(trigger: RefObject<HTMLElement | null>, open: boolean, preferredWidth: number, preferredHeight?: number) {
+export function useAnchoredMenuBounds(trigger: RefObject<HTMLElement | null>, open: boolean, preferredWidth: number, preferredHeight?: number, align: 'start' | 'end' = 'start') {
     const [bounds, setBounds] = useState<CSSProperties>({ width: preferredWidth, height: preferredHeight })
     useLayoutEffect(() => {
         const target = trigger.current
@@ -9,7 +9,7 @@ export function useAnchoredMenuBounds(trigger: RefObject<HTMLElement | null>, op
         const update = () => {
             const anchor = getOverlayOwnerRect(target)
             const width = Math.min(preferredWidth, Math.max(0, window.innerWidth - 16))
-            const left = Math.max(8 - anchor.left, Math.min(0, window.innerWidth - 8 - anchor.left - width))
+            const left = Math.max(8 - anchor.left, Math.min(align === 'end' ? anchor.width - width : 0, window.innerWidth - 8 - anchor.left - width))
             const below = window.innerHeight - anchor.bottom - 14, above = anchor.top - 14
             const up = below < (preferredHeight ?? 180) && above > below
             const maxHeight = Math.max(0, Math.min(window.innerHeight * .75, up ? above : below))
@@ -23,6 +23,6 @@ export function useAnchoredMenuBounds(trigger: RefObject<HTMLElement | null>, op
         const observer = new ResizeObserver(update)
         observer.observe(target)
         return () => { observer.disconnect(); window.removeEventListener('resize', update); owner.removeEventListener('scroll', update, true) }
-    }, [open, preferredWidth, preferredHeight, trigger])
+    }, [open, preferredWidth, preferredHeight, trigger, align])
     return bounds
 }

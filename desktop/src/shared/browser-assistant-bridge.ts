@@ -274,7 +274,7 @@ export function isBrowserDevscopeBridgePath(value: unknown): value is string[] {
     const method = value[value.length - 1]
     if (isNativeOverlayMethod(method) || FORBIDDEN_BROWSER_DEVSCOPE_METHODS.has(method)) return false
     if (value[0] === 'agentControl' && FORBIDDEN_BROWSER_AGENT_CONTROL_METHODS.has(method)) return false
-    if (value[0] === 'onboarding' || value[0] === 'runtimeActivation') return value.length === 2 && method === 'getState'
+    if (value[0] === 'onboarding' || value[0] === 'runtimeActivation' || value[0] === 'updates') return value.length === 2 && method === 'getState'
     return method !== 'getPathForFile' && !method.startsWith('on')
 }
 

@@ -27,7 +27,18 @@ class WorkActionsTest {
             Triple("custom_tool", "{}", "tool" to "Using custom tool")
         )
         for ((name,args,expected) in cases) { val action=project(name,args);assertEquals(name,expected.first,action.family);assertEquals(name,expected.second,action.title) }
-        assertEquals("Getting computer use tools",project("tool_search").title)
+        assertEquals("Getting available tools",project("tool_search").title)
+    }
+    @Test fun `tool discovery is plain across current and legacy loaders`() {
+        for (name in listOf("tool_search", "zyra_tool_search", "browser_use", "mcp__zyra__tool_search")) {
+            val action = project(name)
+            assertTrue(action.isToolDiscovery)
+            assertEquals("Getting available tools", action.title)
+            assertEquals("Couldn't get available tools", project(name, result="""{"isError":true}""").title)
+        }
+        assertFalse(project("computer_click").isToolDiscovery)
+        assertFalse(project("browser_act").isToolDiscovery)
+        assertFalse(project("mcp__another_plugin__tool_search").isToolDiscovery)
     }
     @Test fun `versioned canonical categories resolve opaque tool aliases`() {
         val value=project("bridge_adapter", "{}", surface="""{"version":1,"kind":"web-fetch","url":"https://example.com/page","lifecycle":"failed"}""")
@@ -42,7 +53,7 @@ class WorkActionsTest {
         val agent=project("agent","""{"action":"run","name":"Reviewer"}""",output="""{"agentRunId":"run-1","label":"Review layout","goal":"Check accessibility","status":"running"}""")
         assertEquals("Starting Review layout",agent.title);assertEquals("Check accessibility",agent.run?.goal);assertEquals("run-1",agent.run?.id)
         assertEquals("Drawing strokes",project("computer_action","""{"steps":[{"type":"stroke"},{"type":"drag"}]}""").title)
-        assertEquals("Getting browser tools",project("browser_use").title)
+        assertEquals("Getting available tools",project("browser_use").title)
     }
     @Test fun `managed command wrappers are removed while ordinary output is preserved`() {
         val body="Command completed\nCommand: npm test\n\nCurrent output:\n\n3 tests passed\nTo check again, use bash status."

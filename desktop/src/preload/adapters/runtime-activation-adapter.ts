@@ -4,7 +4,7 @@ export function createRuntimeActivationAdapter() {
     return {
         getState: (): Promise<RuntimeActivationStatus> => ipcRenderer.invoke(RUNTIME_ACTIVATION_GET),
         refresh: (): Promise<RuntimeActivationStatus> => ipcRenderer.invoke(RUNTIME_ACTIVATION_REFRESH),
-        activateUpdate: (): Promise<RuntimeActivationStatus> => ipcRenderer.invoke(RUNTIME_ACTIVATION_APPLY),
+        activateUpdate: (options?: { expectedInstanceId: string; stopBlockers: boolean }): Promise<RuntimeActivationStatus> => ipcRenderer.invoke(RUNTIME_ACTIVATION_APPLY, options),
         onStateChange: (listener: (state: RuntimeActivationStatus) => void) => {
             const handler = (_event: Electron.IpcRendererEvent, state: RuntimeActivationStatus) => listener(state)
             ipcRenderer.on(RUNTIME_ACTIVATION_CHANGED, handler)

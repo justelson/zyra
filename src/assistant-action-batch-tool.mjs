@@ -22,9 +22,11 @@ export function createAssistantActionBatchTool() {
     description: 'Declare the short intent shown after the next consecutive group of Actions settles. Call immediately before the Actions, after any user-facing narration. This marker is hidden from the Work timeline.',
     parameters: Type.Object({
       title: Type.String({
-        description: 'A concise present-participle phrase describing the shared intent, such as “Reviewing timeline behavior”.',
+        description: 'A concise present-participle phrase describing the shared intent, such as “Reviewing timeline behavior”. Display is shortened to 72 characters.',
         minLength: 1,
-        maxLength: ASSISTANT_ACTION_BATCH_INTENT_MAX_LENGTH,
+        // Keep generated input bounded without rejecting routine labels that
+        // the display normalizer already knows how to shorten.
+        maxLength: 1024,
       }),
     }, { additionalProperties: false }),
     async execute(_toolCallId, params) {

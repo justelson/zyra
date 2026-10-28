@@ -139,15 +139,16 @@ internal val LocalWorkDisclosure = staticCompositionLocalOf<() -> Unit> { {} }
     inspect: (WorkAction) -> Unit, media: @Composable (TimelineItem) -> Unit = {}) {
     val icon = when (action.family) { "command" -> R.drawable.ic_terminal; "read" -> R.drawable.ic_file; "edit" -> R.drawable.ic_pencil; "search", "web-search" -> R.drawable.ic_search; "web-fetch" -> R.drawable.ic_external_link; "skill" -> R.drawable.ic_puzzle; "browser", "computer" -> R.drawable.ic_monitor; else -> R.drawable.ic_workflow }
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(MaterialTheme.shapes.small).clickable(role = Role.Button, onClick = toggle).padding(horizontal = 4.dp),
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(MaterialTheme.shapes.small)
+            .then(if (action.isToolDiscovery) Modifier else Modifier.clickable(role = Role.Button, onClick = toggle)).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (running && action.item.pending) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp) else AppIcon(icon, modifier = Modifier.size(16.dp))
             Text(action.title, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 color = if (action.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (action.failed) AppIcon(R.drawable.ic_circle_alert, "Failed", Modifier.size(14.dp))
-            AppIcon(R.drawable.ic_chevron_right, if (expanded) "Hide output" else "Show output", Modifier.size(14.dp).rotate(if (expanded) 90f else 0f))
+            if (!action.isToolDiscovery) AppIcon(R.drawable.ic_chevron_right, if (expanded) "Hide output" else "Show output", Modifier.size(14.dp).rotate(if (expanded) 90f else 0f))
         }
-        WorkDisclosure(expanded) { Column(Modifier.padding(start = 28.dp, top = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!action.isToolDiscovery) WorkDisclosure(expanded) { Column(Modifier.padding(start = 28.dp, top = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             WorkActionEvidence(action)
             media(action.item)
             TextButton(onClick = { inspect(action) }, contentPadding = PaddingValues(0.dp)) { Text(if (action.family in setOf("read", "edit", "skill")) "Open captured source" else "Open details", style = MaterialTheme.typography.labelSmall) }

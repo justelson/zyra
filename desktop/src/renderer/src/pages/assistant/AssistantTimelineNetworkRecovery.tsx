@@ -1,4 +1,4 @@
-import { Loader2, Wifi, WifiOff } from 'lucide-react'
+import { Loader2, MessageCircle, Wifi, WifiOff } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { cn } from '@/lib/utils'
 import { isAssistantConnectionRecoveryActivity } from './assistant-timeline-helpers'
@@ -10,7 +10,7 @@ export function AssistantTimelineNetworkRecovery({ activity }: { activity: Assis
     const status = String(activity.payload?.['status'] || '').toLowerCase()
     const retrying = status === 'retrying'
     const paused = status === 'paused'
-    const Icon = retrying ? Loader2 : paused ? WifiOff : Wifi
+    const Icon = retrying ? Loader2 : activity.kind === 'model.ping' ? MessageCircle : paused ? WifiOff : Wifi
 
     return (
         <div

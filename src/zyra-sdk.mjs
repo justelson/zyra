@@ -1,6 +1,9 @@
 import { runtimeModelCost } from './model-pricing/index.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
-import { prepareSkillPromptContext } from './skill-prompt-context.mjs';
+import { aggregateSessionUsage } from './usage-aggregation.mjs';
+import { taskUsageBaseline, summarizeTaskUsage } from './task-usage.mjs';
+import { hiddenTurnContext, skillTurnContext, estimateContextContributions } from './turn-context.mjs';
+import { createContextManagementTool } from './context-management.mjs';
 import { refreshSavedProviderModels, registerSavedProviders, resolveHarnessModelSelection } from "./provider-connections.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -13,6 +16,7 @@ import { ZYRA_RETRY_BASE_DELAY_MS, ZYRA_RETRY_MAX_ATTEMPTS } from "./network-rec
 import { createBrowserOAuthLoginCallbacks } from "./oauth-login-callbacks.mjs";
 import { loginOpenAICodexAuth } from "./openai-codex-login.mjs";
 import { syncOpenAIModelCatalog, applyOpenAIModelCatalog } from "./openai-model-catalog.mjs";
+import { syncDirectApiModelCatalog, applyDirectApiModelCatalog, refreshDirectApiModelCatalog } from "./direct-api-model-catalog.mjs";
 import { createZyraAuthStorage, createZyraRuntime } from "./zyra-runtime.mjs";
 import { createZyraCredentialAuthReader, createZyraCredentialAuthStorage } from "./zyra-auth-store.mjs";
 import {
@@ -69,6 +73,7 @@ import { WorkflowRuntime } from "./workflows/runtime.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
 import { removeZyraTitleGenerationMessages } from "./title-generation.mjs";
 import { createChatTitleController } from './chat-title-tool.mjs';
+import { createWorkContextController } from './work-context-tool.mjs';
 import {
   checkModelAvailability,
   formatModelAvailabilitySummary,
@@ -108,6 +113,8 @@ import {
   normalizeAssistantContextCompactionThreshold,
   normalizeAssistantReasoningSummary,
   resolveAssistantContextCompactionThreshold,
+  resolveModelCompactionPolicy,
+  normalizeAssistantModelCompactionOverrides,
   shouldCompactAssistantContext,
 } from "./assistant-runtime-policy.mjs";
 import {
@@ -655,7 +662,21 @@ function writeSessionSystemPrompt(session, value) {
   }
 }
 
+function installStableZyraPromptBlocks(session) {
+  if (session._zyraPromptBlocks || typeof session.setActiveToolsByName !== 'function') return;
+  session._zyraPromptBlocks = new Map();
+  const setActiveTools = session.setActiveToolsByName.bind(session);
+  session.setActiveToolsByName = names => {
+    setActiveTools(names);
+    // Engine rebuilds the base tool guidance. Preserve app-owned instruction
+    // blocks rather than losing and then reinserting them on later turns.
+    for (const [marker, body] of session._zyraPromptBlocks) upsertSystemPromptBlock(session, marker, body);
+  };
+}
+
 function upsertSystemPromptBlock(session, marker, body, legacyMarkers = []) {
+  session?._zyraPromptBlocks?.set(marker, body);
+  for (const oldMarker of legacyMarkers) session?._zyraPromptBlocks?.delete(oldMarker);
   const addition = `\n\n<${marker}>\n${body}\n</${marker}>`;
   const currentBase = readSessionSystemPrompt(session);
   for (const candidate of [marker, ...legacyMarkers]) {
@@ -668,6 +689,7 @@ function upsertSystemPromptBlock(session, marker, body, legacyMarkers = []) {
 }
 
 function removeSystemPromptBlock(session, marker) {
+  session?._zyraPromptBlocks?.delete(marker);
   const currentBase = readSessionSystemPrompt(session);
   const nextBase = currentBase.replace(new RegExp(`\\n\\n<${marker}>[\\s\\S]*?</${marker}>`), "");
   if (nextBase !== currentBase) writeSessionSystemPrompt(session, nextBase);
@@ -811,7 +833,7 @@ export function prepareZyraBrowserToolsForPrompt(runtime, promptValue) {
   if (!runtime?.browserToolsAvailable || !isDirectBrowserControlPrompt(promptValue) || !session?.getActiveToolNames || !session?.setActiveToolsByName) return false;
   const active = new Set(session.getActiveToolNames());
   active.delete("browser_control");
-  active.delete(runtime.browserLoaderToolName || "browser_use");
+  active.add(runtime.browserLoaderToolName || "browser_use");
   for (const name of names) active.add(name);
   session.setActiveToolsByName([...active]);
   return true;
@@ -831,7 +853,7 @@ export function prepareZyraComputerToolsForPrompt(runtime, promptValue) {
   if (!runtime?.computerToolsAvailable || !isDirectComputerControlPrompt(promptValue) || !session?.getActiveToolNames || !session?.setActiveToolsByName) return false;
   const active = new Set(session.getActiveToolNames());
   active.delete("computer_control");
-  active.delete(runtime.computerToolSearchName || "tool_search");
+  active.add(runtime.computerToolSearchName || "tool_search");
   for (const name of names) active.add(name);
   session.setActiveToolsByName([...active]);
   return true;
@@ -1005,18 +1027,24 @@ export async function createZyraSession(options = {}) {
   const fleetHolder = {};
   const chatTitle = typeof options.onChatTitle === 'function' && options.surface !== 'memory-worker'
     ? createChatTitleController(options.onChatTitle) : null;
+  const workContext = typeof options.onWorkContext === 'function' && options.surface !== 'memory-worker'
+    ? createWorkContextController({ onUpdate: options.onWorkContext, canReadFolder: folder => visualizationPermissionGate.canReadWorkFolder(folder) }) : null;
   const fleetTools = fleetEnabled ? createFleetTools(fleetHolder) : [];
+  const contextSessionRef = { current: null };
   const browserSessionRef = { current: null };
   const browserTools = createBrowserToolSet({ client: options.controlBridgeClient, sessionRef: browserSessionRef });
   const computerSessionRef = { current: null };
   const computerTools = createComputerToolSet({ client: options.controlBridgeClient, sessionRef: computerSessionRef });
   // createZyraRuntime already applies the saved catalog. Only discovery needs a
   // second application; fast attachment must not rebuild the same registry.
-  if (options.skipModelAvailability !== true) await applyOpenAIModelCatalog(piRuntime.modelRegistry, await syncOpenAIModelCatalog({
-    authStorage: piRuntime.authStorage,
-    allowStale: true,
-    cacheOnly: false,
-  }));
+  if (options.skipModelAvailability !== true) {
+    await applyOpenAIModelCatalog(piRuntime.modelRegistry, await syncOpenAIModelCatalog({
+      authStorage: piRuntime.authStorage,
+      allowStale: true,
+      cacheOnly: false,
+    }));
+    await refreshDirectApiModelCatalog(piRuntime.modelRegistry, { signal: options.signal });
+  }
   registerZyraRuntimeModels(piRuntime.modelRegistry);
 
   const result = await createAgentSession({
@@ -1037,7 +1065,23 @@ export async function createZyraSession(options = {}) {
       }),
       createRequestUserInputTool({ requestUserInput: options.requestUserInput }),
       createAssistantActionBatchTool(),
+      ...(options.surface === 'memory-worker' ? [] : [createContextManagementTool({
+        getSession: () => contextSessionRef.current,
+        getDiagnostics: async () => {
+          const session = contextSessionRef.current;
+          const provider = session?.model?.provider;
+          const transport = provider === 'openai-codex'
+            ? await import('./runtime/providers/src/api/openai-codex-responses.js') : null;
+          return {
+            policy: resolveModelCompactionPolicy(session?.model, session?._zyraModelCompactionOverrides),
+            contributions: estimateContextContributions(session),
+            taskUsage: contextSessionRef.runtime ? getRuntimeTaskUsage(contextSessionRef.runtime) : null,
+            requests: transport?.getOpenAICodexRequestDiagnostics?.(session?.sessionId) ?? [],
+          };
+        },
+      })]),
       ...(chatTitle ? [chatTitle.tool] : []),
+      ...(workContext ? [workContext.tool] : []),
       createZyraWebSearchTool(),
       createZyraWebFetchTool(),
       createZyraWriteTool({
@@ -1089,14 +1133,21 @@ export async function createZyraSession(options = {}) {
     if (filteredMessages.length !== contextMessages.length) contextMessages.splice(0, contextMessages.length, ...filteredMessages);
   }
 
+  contextSessionRef.current = result.session;
+  contextSessionRef.overrides = normalizeAssistantModelCompactionOverrides(options.modelCompactionOverrides);
+  result.session._zyraModelCompactionOverrides = contextSessionRef.overrides;
+  result.session.getContextCompactionPolicy = () => resolveModelCompactionPolicy(result.session.model, result.session._zyraModelCompactionOverrides);
   browserSessionRef.current = result.session;
   computerSessionRef.current = result.session;
-  installBrowserToolTurnCleanup(result.session);
-  installComputerToolTurnCleanup(result.session);
+  installStableZyraPromptBlocks(result.session);
+  installBrowserToolTurnCleanup(result.session, { preserveLoadedTools: true });
+  installComputerToolTurnCleanup(result.session, { preserveLoadedTools: true });
   installDeferredUserInputTurnStop(result.session);
   installZyraNextTurnCheckpoint(result.session, managedBash, {
     intervalMs: options.managedBashAutoPollMs ?? DEFAULT_MANAGED_BASH_AUTO_POLL_MS,
     waitForUpdate: waitForManagedBashAutoUpdate,
+    // Engine owns safe-point compaction; this wrapper only polls managed jobs.
+    checkCompaction: async () => false,
   });
   registerZyraRuntimeModels(result.session.modelRegistry);
   applyWebToolState(result.session, startupPreferences);
@@ -1208,9 +1259,10 @@ export async function createZyraSession(options = {}) {
   }
 
   traceStartup('ready');
-  return {
+  const runtime = {
     session: result.session,
     chatTitle,
+    workContext,
     harnessHooks,
     memoryEnabled,
     resourceLoader: startupResources.resourceLoader,
@@ -1230,6 +1282,7 @@ export async function createZyraSession(options = {}) {
     reasoningSummary: reasoningSummaryState.value,
     reasoningSummaryState,
     contextCompactionThresholdTokens,
+    modelCompactionOverrides: contextSessionRef.overrides,
     webSearch: startupPreferences.webSearch,
     webFetch: startupPreferences.webFetch,
     statusLine: startupPreferences.statusLine,
@@ -1249,6 +1302,8 @@ export async function createZyraSession(options = {}) {
     workflows,
     modelFallbackMessage: result.modelFallbackMessage,
   };
+  contextSessionRef.runtime = runtime;
+  return runtime;
 }
 
 async function createSessionManager(options) {
@@ -1398,10 +1453,12 @@ export async function listAvailableModels(options = {}) {
       signal: options.signal,
       refreshTimeoutMs: options.catalogRefreshTimeoutMs,
     }) : Promise.resolve();
-  const [providerCatalog] = await Promise.all([syncOpenAIModelCatalog({ ...options, authStorage: modelRegistry.authStorage,
+  const [providerCatalog, directApiCatalog] = await Promise.all([syncOpenAIModelCatalog({ ...options, authStorage: modelRegistry.authStorage,
     fetchImpl: options.fetchImpl ?? options.fetch,
     forceRefresh: Boolean(options.forceRefresh || options.refreshOpenAICatalog),
     refreshTimeoutMs: options.catalogRefreshTimeoutMs,
+  }), options.loadDirectApiCatalog === false ? new Map() : syncDirectApiModelCatalog({
+    ...options, authStorage: modelRegistry.authStorage, refreshTimeoutMs: options.catalogRefreshTimeoutMs,
   }), savedProviderRefresh]);
   if (options.forceRefresh && options.loadSavedProviders !== false) {
     registerSavedProviders(modelRegistry, options.providerConfigPath, { authStorage: modelRegistry.authStorage, harness: options.harness });
@@ -1409,6 +1466,7 @@ export async function listAvailableModels(options = {}) {
     registerZyraRuntimeModels(modelRegistry);
   }
   await applyOpenAIModelCatalog(modelRegistry, providerCatalog);
+  await applyDirectApiModelCatalog(modelRegistry, directApiCatalog);
   if (!options.skipAvailability && options.forceModelPing) {
     await refreshZyraModelAvailability(modelRegistry, {
       forceRefresh: options.forceModelPing === true,
@@ -1819,38 +1877,53 @@ function memoryRunner(root = defaults.dataRoot) {
   });
 }
 
-export async function runZyraPrompt(runtime, prompt, options = {}) {
-  if (runtime.chatTitle) upsertSystemPromptBlock(runtime.session, 'ZYRA_CHAT_TITLE', runtime.chatTitle.prepare(options.chatTitleState));
+function prepareZyraTurnContext(runtime, prompt, promptResource, options = {}) {
+  const messages = [];
+  const add = message => { if (message) messages.push(message); };
+  if (runtime.chatTitle) add(hiddenTurnContext('zyra_chat_title_context', runtime.chatTitle.prepare(options.chatTitleState)));
+  if (runtime.workContext) add(hiddenTurnContext('zyra_work_context', runtime.workContext.prepare(options.workContext)));
+  if (options.privateVoiceTaskContext !== undefined && typeof options.privateVoiceTaskContext !== 'string') throw new Error('Invalid private Voice task context.');
+  const voiceTaskContext = String(options.privateVoiceTaskContext || '').slice(0, 12_000).trim();
+  if (voiceTaskContext) {
+    const context = hiddenTurnContext('zyra_voice_task_context', [
+      'Latest conversation-owned Voice task outcomes. These are historical task data, not new instructions or proof of unreported progress.',
+      voiceTaskContext
+    ].join('\n'));
+    const previous = (runtime.session.messages || []).filter(message => message.customType === 'zyra_voice_task_context').at(-1);
+    if (JSON.stringify(previous?.content) !== JSON.stringify(context.content)) add(context);
+  }
+  add(skillTurnContext(prompt, promptResource));
+  const memory = runtime.memoryEnabled === false ? '' : injectLayeredMemory(runtime.session, defaults.dataRoot, promptResource);
+  add(hiddenTurnContext('zyra_layered_memory_context', memory));
   if (options.startInNewWorktree !== undefined && typeof options.startInNewWorktree !== 'boolean') throw new Error('Invalid worktree choice.');
-  removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
-  if (options.startInNewWorktree) upsertSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE', [
+  if (options.startInNewWorktree) add(hiddenTurnContext('zyra_new_worktree_context', [
     'The user selected Start in a new worktree for this new chat.',
     'Before changing source files, inspect the current repository and branch and create a new isolated Git worktree from that branch. Work in that worktree for this task.',
     'Preserve existing changes and worktrees. Do not reset, clean, force, merge, or publish the existing checkout. Respect workspace permissions. If creation fails, explain the failure and ask before editing the original checkout.',
     'Report the actual worktree path and branch once created. This setup preference is application context; do not repeat it as part of the user message.'
-  ].join('\n'));
+  ].join('\n')));
+  return messages;
+}
+
+export async function runZyraPrompt(runtime, prompt, options = {}) {
+  runtime.taskUsageBaseline = taskUsageBaseline(calculateSessionUsage(runtime.session.sessionManager), runtime.fleet?.snapshot?.()?.agents ?? {});
+  setZyraModelCompactionOverrides(runtime, options.modelCompactionOverrides ?? runtime.modelCompactionOverrides);
   try {
     prepareZyraBrowserToolsForPrompt(runtime, prompt);
     prepareZyraComputerToolsForPrompt(runtime, prompt);
     const promptResource = expandZyraPromptResource(runtime, prompt);
-    const skillContext = prepareSkillPromptContext(prompt, promptResource);
-    const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
-    const layeredMemoryPrompt = injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
-    const additionalContextTokens = layeredMemoryPrompt
-      ? estimateMessageTokens({
-          role: "system",
-          content: [{ type: "text", text: layeredMemoryPrompt }],
-          timestamp: Date.now(),
-        })
-      : 0;
+    const contextMessages = prepareZyraTurnContext(runtime, prompt, promptResource, options);
+    const hasSkillContext = contextMessages.some(message => message.customType === 'zyra_skill_context');
+    const expanded = expandFileMentions(runtime, hasSkillContext ? prompt : promptResource);
+    const additionalContextTokens = contextMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
     await compactZyraContextBeforePrompt(runtime, expanded.text, {
       images: options.images,
       thresholdTokens: options.contextCompactionThresholdTokens,
-      additionalContextTokens: additionalContextTokens + (skillContext ? estimateMessageTokens({ role: 'user', content: [{ type: 'text', text: skillContext.content }], timestamp: Date.now() }) : 0),
+      additionalContextTokens,
     });
     const beforeEntryCount = sessionEntries(runtime).length;
     try {
-      await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images, ...(skillContext ? { expandPromptTemplates: false, contextMessages: [skillContext] } : {}) });
+      await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images, contextMessages, ...(hasSkillContext ? { expandPromptTemplates: false } : {}) });
     } finally {
       markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
     }
@@ -1884,16 +1957,10 @@ export async function queueZyraMidRunInput(runtime, prompt, options = {}) {
   prepareZyraComputerToolsForPrompt(runtime, prompt);
   const mode = normalizeInterruptModePreference(options.mode) ?? runtime.interruptMode ?? "steer";
   const promptResource = expandZyraPromptResource(runtime, prompt);
-  const skillContext = prepareSkillPromptContext(prompt, promptResource);
-  const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
-  injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
-  if (skillContext) {
-    await runtime.session.prompt(expanded.text, { source: 'interactive', images: options.images, expandPromptTemplates: false, contextMessages: [skillContext], streamingBehavior: mode === 'queue' ? 'followUp' : 'steer' });
-  } else if (mode === "queue") {
-    await runtime.session.followUp(expanded.text, options.images);
-  } else {
-    await runtime.session.steer(expanded.text, options.images);
-  }
+  const contextMessages = prepareZyraTurnContext(runtime, prompt, promptResource, options);
+  const hasSkillContext = contextMessages.some(message => message.customType === 'zyra_skill_context');
+  const expanded = expandFileMentions(runtime, hasSkillContext ? prompt : promptResource);
+  await runtime.session.prompt(expanded.text, { source: 'interactive', images: options.images, contextMessages, ...(hasSkillContext ? { expandPromptTemplates: false } : {}), streamingBehavior: mode === 'queue' ? 'followUp' : 'steer' });
   markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, sessionEntries(runtime).length);
   return mode;
 }
@@ -1911,7 +1978,9 @@ export async function runZyraBackgroundTextPrompt(runtime, prompt) {
   }
   prepareZyraBrowserToolsForPrompt(runtime, normalizedPrompt);
   prepareZyraComputerToolsForPrompt(runtime, normalizedPrompt);
-  await runtime.session.prompt(normalizedPrompt, { source: 'print' });
+  const contextMessages = prepareZyraTurnContext(runtime, normalizedPrompt, normalizedPrompt);
+  await compactZyraContextBeforePrompt(runtime, normalizedPrompt, { additionalContextTokens: contextMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0) });
+  await runtime.session.prompt(normalizedPrompt, { source: 'print', contextMessages });
   const lastMessage = assertFinalAssistantMessageSucceeded(runtime);
   if (lastMessage?.role !== 'assistant') return '';
   return extractAssistantText(lastMessage.content);
@@ -1936,15 +2005,12 @@ export async function runZyraHarnessBackgroundTextPrompt(modelSelector, prompt, 
 export async function runZyraPrintPrompt(runtime, prompt, options = {}) {
   const beforeEntryCount = sessionEntries(runtime).length;
   const promptResource = expandZyraPromptResource(runtime, prompt);
-  const skillContext = prepareSkillPromptContext(prompt, promptResource);
-  const expanded = expandFileMentions(runtime, skillContext ? prompt : promptResource);
-  injectLayeredMemory(runtime.session, defaults.dataRoot, expanded.text);
-  if (skillContext) await compactZyraContextBeforePrompt(runtime, expanded.text, {
-    images: options.images, thresholdTokens: options.contextCompactionThresholdTokens,
-    additionalContextTokens: estimateMessageTokens({ role: 'user', content: [{ type: 'text', text: skillContext.content }], timestamp: Date.now() }),
-  });
+  const contextMessages = prepareZyraTurnContext(runtime, prompt, promptResource, options);
+  const hasSkillContext = contextMessages.some(message => message.customType === 'zyra_skill_context');
+  const expanded = expandFileMentions(runtime, hasSkillContext ? prompt : promptResource);
+  await compactZyraContextBeforePrompt(runtime, expanded.text, { images: options.images, thresholdTokens: options.contextCompactionThresholdTokens, additionalContextTokens: contextMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0) });
   try {
-    await runtime.session.prompt(expanded.text, { source: "print", images: options.images, ...(skillContext ? { expandPromptTemplates: false, contextMessages: [skillContext] } : {}) });
+    await runtime.session.prompt(expanded.text, { source: "print", images: options.images, contextMessages, ...(hasSkillContext ? { expandPromptTemplates: false } : {}) });
   } finally {
     removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
     markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
@@ -2029,13 +2095,10 @@ export function buildSessionInfo(runtime) {
     toolResults: 0,
     total: entries.length,
   };
-  const tokens = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    total: 0,
-  };
   const pricedUsage = calculateSessionUsage(sessionManager);
+  const tokens = { input: pricedUsage.input, output: pricedUsage.output,
+    cacheRead: pricedUsage.cacheRead, cacheWrite: pricedUsage.cacheWrite,
+    reasoning: pricedUsage.reasoning, total: pricedUsage.total };
 
   for (const entry of entries) {
     if (entry?.type !== "message") continue;
@@ -2046,14 +2109,7 @@ export function buildSessionInfo(runtime) {
       if (part?.type === "toolCall") messages.toolCalls += 1;
       if (part?.type === "toolResult") messages.toolResults += 1;
     }
-    const usage = message?.usage;
-    if (usage) {
-      tokens.input += numberValue(usage.input);
-      tokens.output += numberValue(usage.output);
-      tokens.cacheRead += numberValue(usage.cacheRead);
-    }
   }
-  tokens.total = tokens.input + tokens.output + tokens.cacheRead;
 
   const threadId = sessionManager.getSessionId?.();
   return {
@@ -2069,10 +2125,17 @@ export function buildSessionInfo(runtime) {
 
 // Streaming needs these in-memory counters, not the filesystem-backed memory,
 // prompt and theme descriptions assembled by describeRuntime.
+export function getRuntimeTaskUsage(runtime) {
+  return summarizeTaskUsage(calculateSessionUsage(runtime.session.sessionManager), runtime.fleet?.snapshot?.()?.agents ?? {}, runtime.taskUsageBaseline);
+}
+
 export function getRuntimeUsageSnapshot(runtime, options = {}) {
+  const policy = resolveModelCompactionPolicy(runtime.session.model, runtime.modelCompactionOverrides);
+  const contextUsage = getRuntimeContextUsage(runtime);
   return {
     usage: calculateSessionUsage(runtime.session.sessionManager, options.completedMessage),
-    contextUsage: getRuntimeContextUsage(runtime),
+    contextUsage: contextUsage ? { ...contextUsage, contextWindow: policy.contextWindow,
+      compactionThresholdTokens: policy.thresholdTokens, compactionPolicySource: policy.source } : contextUsage,
   };
 }
 
@@ -2650,6 +2713,14 @@ export function setZyraReasoningSummary(runtime, value) {
   return mode;
 }
 
+export function setZyraModelCompactionOverrides(runtime, value) {
+  const overrides = normalizeAssistantModelCompactionOverrides(value);
+  runtime.modelCompactionOverrides = overrides;
+  if (runtime.session) runtime.session._zyraModelCompactionOverrides = overrides;
+  if (runtime.fleet?.sessionFactory) runtime.fleet.sessionFactory.modelCompactionOverrides = overrides;
+  return overrides;
+}
+
 export function setZyraContextCompactionThreshold(runtime, value) {
   const thresholdTokens = normalizeAssistantContextCompactionThreshold(value);
   runtime.contextCompactionThresholdTokens = thresholdTokens;
@@ -2676,6 +2747,8 @@ function hasUncompactedConversationEntries(runtime) {
  */
 export async function compactZyraContextAfterTurn(runtime, lastMessage) {
   const session = runtime?.session;
+  const contextState = session?.inspectContext?.();
+  if (contextState?.automaticCompactionAttempted || contextState?.compaction?.status && contextState.compaction.status !== 'idle') return { compacted: false };
   if (lastMessage?.role !== "assistant" || lastMessage.stopReason !== "stop"
     || session?.autoCompactionEnabled === false || session?.isStreaming
     || session?.isCompacting || session?.isIdle === false) return { compacted: false };
@@ -2689,27 +2762,34 @@ export async function compactZyraContextAfterTurn(runtime, lastMessage) {
 }
 
 export async function compactZyraContextBeforePrompt(runtime, prompt, options = {}) {
-  const thresholdTokens = setZyraContextCompactionThreshold(
-    runtime,
-    options.thresholdTokens ?? runtime.contextCompactionThresholdTokens,
-  );
+  const policy = resolveModelCompactionPolicy(runtime?.session?.model, runtime.modelCompactionOverrides);
+  // The legacy global preference is retained for compatibility, not imposed on
+  // every model. Only an explicit per-call threshold overrides the model policy.
+  const thresholdTokens = options.thresholdTokens != null
+    ? normalizeAssistantContextCompactionThreshold(options.thresholdTokens) : policy.thresholdTokens;
   const usage = getRuntimeContextUsage(runtime);
   const contextTokens = Number(usage?.tokens);
-  const contextWindow = Number(usage?.contextWindow ?? runtime?.session?.model?.contextWindow);
+  const contextWindow = policy.contextWindow ?? Number(usage?.contextWindow ?? runtime?.session?.model?.contextWindow);
   const promptTokens = estimateMessageTokens({
     role: "user",
     content: [{ type: "text", text: String(prompt || "") }],
     timestamp: Date.now(),
   });
-  const shouldCompact = shouldCompactAssistantContext({
-    contextTokens,
-    contextWindow,
-    configuredThreshold: thresholdTokens,
-    promptTokens,
+  const pendingTokens = promptTokens + Math.max(0, Number(options.additionalContextTokens) || 0)
+    + (Array.isArray(options.images) ? options.images.length * 8_192 : 0);
+  const usableWindow = policy.usableContextWindow ?? policy.contextWindow;
+  const headroom = usableWindow ? Math.min(16_000, Math.floor(usableWindow * 0.1)) : 16_000;
+  if (usableWindow && pendingTokens + headroom >= usableWindow) throw new Error('This prompt exceeds the selected model’s usable context. Send a smaller prompt or choose a model with a larger supported window.');
+  if (thresholdTokens == null) return { compacted: false, contextTokens, contextWindow: policy.contextWindow, effectiveThresholdTokens: null, source: policy.source };
+  // Provider/model policies already reserve headroom. Do not subtract another
+  // global 16k from the advertised model-specific trigger.
+  const shouldCompact = options.thresholdTokens != null ? shouldCompactAssistantContext({
+    contextTokens, contextWindow, configuredThreshold: thresholdTokens, promptTokens,
     additionalContextTokens: options.additionalContextTokens,
     imageCount: Array.isArray(options.images) ? options.images.length : 0,
-  });
-  const effectiveThresholdTokens = resolveAssistantContextCompactionThreshold(contextWindow, thresholdTokens);
+  }) : Number.isFinite(contextTokens) && contextTokens > 0 && contextTokens + pendingTokens >= thresholdTokens;
+  const effectiveThresholdTokens = options.thresholdTokens != null
+    ? resolveAssistantContextCompactionThreshold(contextWindow, thresholdTokens) : thresholdTokens;
   if (!shouldCompact || !hasUncompactedConversationEntries(runtime)) {
     return { compacted: false, contextTokens, contextWindow, effectiveThresholdTokens };
   }
@@ -2732,6 +2812,10 @@ export async function compactZyraContextBeforePrompt(runtime, prompt, options = 
     if (runtime?.reasoningSummaryState && previousReasoningSummary) {
       runtime.reasoningSummaryState.value = previousReasoningSummary;
     }
+  }
+  const after = Number(getRuntimeContextUsage(runtime)?.tokens);
+  if (usableWindow && Number.isFinite(after) && after + pendingTokens + headroom >= usableWindow) {
+    throw new Error('The next request still exceeds the selected model’s usable context after compaction. Send a smaller prompt.');
   }
   return { compacted: true, contextTokens, contextWindow, effectiveThresholdTokens };
 }
@@ -2760,70 +2844,13 @@ export function estimateRuntimeContextUsage(runtime) {
 }
 
 export function calculateSessionUsage(sessionManager, completedMessage) {
-  const usage = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    reasoning: 0,
-    cost: 0,
-    costComplete: false,
-    cacheHitPercent: null,
-    assistantMessages: 0,
-  };
-  let meteredUsageCount = 0;
-  let missingCostCount = 0;
-
-  let entries = typeof sessionManager.getEntries === "function" ? sessionManager.getEntries() : [];
-  // Engine listeners run before appendMessage. Include the just-completed
-  // response in the published total without writing it or counting it twice.
-  if (completedMessage?.role === 'assistant' && !entries.some(entry => entry?.type === 'message'
-    && (entry.message === completedMessage || entry.message?.role === 'assistant'
-      && ((completedMessage.responseId && entry.message.responseId === completedMessage.responseId)
-        || (completedMessage.timestamp != null && entry.message.timestamp === completedMessage.timestamp))))) {
-    entries = [...entries, { type: 'message', message: completedMessage }];
-  }
-  for (const entry of entries) {
-    const role = entry?.type === "message" ? entry.message?.role : null;
-    const messageUsage = role === "assistant" || role === "toolResult"
-      ? entry.message?.usage
-      : entry?.type === "branch_summary" || entry?.type === "compaction"
-        ? entry.usage
-        : null;
-    if (!messageUsage) continue;
-    if (role === "assistant") {
-      usage.assistantMessages += 1;
-      const latestPromptTokens = numberValue(messageUsage.input) + numberValue(messageUsage.cacheRead) + numberValue(messageUsage.cacheWrite);
-      usage.cacheHitPercent = latestPromptTokens > 0
-        ? (numberValue(messageUsage.cacheRead) / latestPromptTokens) * 100
-        : null;
-    }
-    const input = numberValue(messageUsage.input);
-    const output = numberValue(messageUsage.output);
-    const cacheRead = numberValue(messageUsage.cacheRead);
-    const cacheWrite = numberValue(messageUsage.cacheWrite);
-    const hasMeteredUsage = input + output + cacheRead + cacheWrite > 0;
-    const messageCost = role === 'assistant' ? assistantMessageCost(entry.message) : null;
-    if (messageCost?.source === 'api-equivalent') usage.costSource = 'api-equivalent';
-    const reportedCost = role === 'assistant' ? messageCost?.total
-      : messageUsage.cost?.source === 'unpriced' ? undefined : messageUsage.cost?.total;
-    usage.input += input;
-    usage.output += output;
-    usage.cacheRead += cacheRead;
-    usage.cacheWrite += cacheWrite;
-    usage.reasoning += extractReasoningTokens(messageUsage);
-    if (hasMeteredUsage) {
-      meteredUsageCount += 1;
-      if (typeof reportedCost === "number" && Number.isFinite(reportedCost)) usage.cost += reportedCost;
-      else missingCostCount += 1;
-    } else if (typeof reportedCost === "number" && Number.isFinite(reportedCost)) {
-      usage.cost += reportedCost;
-    }
-  }
-
-  usage.total = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-  usage.costComplete = meteredUsageCount > 0 && missingCostCount === 0;
-  return usage;
+  return aggregateSessionUsage(sessionManager?.getEntries?.() ?? [], {
+    completedMessage,
+    costForMessage: message => {
+      if (message.role === 'assistant' && !['compaction', 'branch_summary'].includes(message.type)) return assistantMessageCost(message);
+      return message.usage?.cost?.source === 'unpriced' ? null : message.usage?.cost;
+    },
+  });
 }
 
 function numberValue(value) {
@@ -2947,6 +2974,7 @@ export async function setModel(runtime, selector, options = {}) {
 
   registerSavedProviders(runtime.session.modelRegistry, undefined, { harness: runtime.harnessHooks });
   if (runtime.session.modelRegistry.zyraOpenAIModelCatalogOptions) await applyOpenAIModelCatalog(runtime.session.modelRegistry, await syncOpenAIModelCatalog({ ...runtime.session.modelRegistry.zyraOpenAIModelCatalogOptions, authStorage: runtime.session.modelRegistry.authStorage, allowStale: true }));
+  await refreshDirectApiModelCatalog(runtime.session.modelRegistry);
   await runtime.session.modelRegistry.refresh?.({ allowNetwork: false });
   const available = getZyraAvailableModels(runtime.session.modelRegistry);
   const exact = available.find((model) => {
@@ -2962,6 +2990,12 @@ export async function setModel(runtime, selector, options = {}) {
   if (!fuzzy && runtime.session.modelRegistry.zyraOpenAIModelCatalogOptions && /^(?:openai(?:-codex)?[/:]|gpt-|codex-|o\d)/.test(query)) {
     const registry = runtime.session.modelRegistry;
     await applyOpenAIModelCatalog(registry, await syncOpenAIModelCatalog({ ...registry.zyraOpenAIModelCatalogOptions, authStorage: registry.authStorage, forceRefresh: true }));
+    fuzzy = getZyraAvailableModels(registry).find(model => [`${model.provider}/${model.id}`, `${model.provider}:${model.id}`, model.id].some(id => id.toLowerCase() === query));
+  }
+
+  if (!fuzzy && /^(?:google[/:]|groq[/:]|gemini-|gemma-)/.test(query)) {
+    const registry = runtime.session.modelRegistry;
+    await refreshDirectApiModelCatalog(registry, { forceRefresh: true });
     fuzzy = getZyraAvailableModels(registry).find(model => [`${model.provider}/${model.id}`, `${model.provider}:${model.id}`, model.id].some(id => id.toLowerCase() === query));
   }
 
@@ -3058,7 +3092,9 @@ function injectLayeredMemory(session, root, query = "") {
   if (!memory.prompt) return "";
   session._zyraMemoryContext = memory;
   session._zyraMemoryCitation = memory.citation;
-  upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory.prompt);
+  // Retrieval depends on the current query. Deliver it atomically with this turn
+  // instead of replacing instructions before the reusable conversation prefix.
+  removeSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER);
   return memory.prompt;
 }
 

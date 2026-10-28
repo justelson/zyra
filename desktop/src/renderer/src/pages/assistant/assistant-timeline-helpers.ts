@@ -80,6 +80,7 @@ export type ParsedUserAttachment = {
 }
 
 export function shouldRenderActivity(activity: AssistantActivity): boolean {
+    if (activity.kind === 'model.ping') return true
     if (activity.kind === 'thread-message') return !isSupportingAgentMessage(activity.payload)
     if (activity.payload?.approvalPending === true) return false
     if (isInternalAssistantActivity(activity)) return false
@@ -158,7 +159,8 @@ function isToolLikeActivity(activity: AssistantActivity): boolean {
 }
 
 export function isAssistantConnectionRecoveryActivity(activity: AssistantActivity): boolean {
-    return activity.kind === 'connection.recovery'
+    return activity.kind === 'model.ping'
+        || activity.kind === 'connection.recovery'
         || activity.kind === 'provider.recovery'
         || readActivityString(activity.payload?.category) === 'connection-recovery'
 }
@@ -640,6 +642,8 @@ export function areActivitiesEquivalent(left: AssistantActivity, right: Assistan
         && getActivityElapsed(left) === getActivityElapsed(right)
         && left.payload?.actionBatchIntent === right.payload?.actionBatchIntent
         && left.payload?.relatedCommandActivityId === right.payload?.relatedCommandActivityId
+        // Read rows also depend on media bytes, type/range metadata and lazy body references.
+        && (left.kind !== 'file-read' || left.payload === right.payload)
 }
 
 export function areActivityListsEqual(left: AssistantActivity[], right: AssistantActivity[]): boolean {

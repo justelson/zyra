@@ -80,6 +80,53 @@ body.zyra-reduce-motion *::after {
   transition-duration: 0.01ms !important;
 }
 
+/* Compact numeric-answer scrubber: full-height fill and a narrow vertical handle. */
+.zyra-question-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  outline: none;
+  cursor: ew-resize;
+}
+.zyra-question-slider::-webkit-slider-runnable-track {
+  height: 32px;
+  background: transparent;
+}
+.zyra-question-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 3px;
+  height: 18px;
+  margin-top: 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+}
+.zyra-question-slider::-moz-range-track {
+  height: 32px;
+  background: transparent;
+}
+.zyra-question-slider::-moz-range-thumb {
+  width: 3px;
+  height: 18px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+}
+.zyra-question-slider:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+.zyra-question-number-value {
+  -moz-appearance: textfield;
+}
+.zyra-question-number-value::-webkit-inner-spin-button,
+.zyra-question-number-value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Settings sliders. Fill is painted from a --slider-fill percentage. */
 .zyra-settings-slider {
   -webkit-appearance: none;
@@ -2026,23 +2073,12 @@ html[data-file-preview-titlebar-navigator='true'] [data-file-preview-local-navig
 }
 
 .markdown-audio-frame {
-  max-width: 32rem;
-  padding-top: 0.5rem;
-}
-
-.markdown-audio-frame audio {
   display: block;
-  width: calc(100% - 1rem);
-  margin: 0 0.5rem 0.5rem;
-  color-scheme: dark;
+  width: min(100%, 32rem);
+  margin-block: 1rem;
 }
 
-body.light .markdown-audio-frame audio {
-  color-scheme: light;
-}
-
-.markdown-video-caption,
-.markdown-audio-caption {
+.markdown-video-caption {
   display: block;
   overflow: hidden;
   border-top: 1px solid var(--color-border-secondary);

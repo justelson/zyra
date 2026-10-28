@@ -51,7 +51,7 @@ export class ServerMemoryQueue {
   schedule() {
     if (this.timer !== null) this.clearTimer(this.timer);
     this.timer = null;
-    if (!this.disposed && !this.active && !this.busy.size && this.pending.size) {
+    if (!this.disposed && !this.paused && !this.active && !this.busy.size && this.pending.size) {
       const [session, entry] = [...this.pending].sort((a, b) => a[1].due - b[1].due)[0];
       this.timer = this.setTimer(() => { this.timer = null; void this.execute(session, entry); }, Math.max(0, entry.due - this.now()));
       this.timer?.unref?.();
@@ -59,7 +59,7 @@ export class ServerMemoryQueue {
     this.notify();
   }
   async execute(session, entry) {
-    if (this.disposed || this.busy.size || this.active || !this.pending.has(session)) return this.schedule();
+    if (this.disposed || this.paused || this.busy.size || this.active || !this.pending.has(session)) return this.schedule();
     this.pending.delete(session);
     const controller = new AbortController(); this.active = { session, controller }; this.notify();
     try {
@@ -80,5 +80,7 @@ export class ServerMemoryQueue {
       }
     } finally { this.active = null; this.schedule(); }
   }
+  pause(abortActive = false) { this.paused = true; if (abortActive) this.active?.controller.abort(); this.schedule(); }
+  resume() { this.paused = false; this.schedule(); }
   dispose() { this.disposed = true; this.pending.clear(); this.busy.clear(); this.active?.controller.abort(); this.schedule(); }
 }

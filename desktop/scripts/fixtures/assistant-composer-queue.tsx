@@ -22,6 +22,7 @@ let root: Root | null = null
 let container: HTMLDivElement | null = null
 let failWrite = false
 let interrupts = 0
+let dispatchProfile = 'fixture-original-profile'
 let dispatch: (prompt: string, opts: AssistantComposerSendOptions) => Promise<boolean>
 let prepare: () => Promise<void> = async () => {}
 const sent: { prompt: string; options: AssistantComposerSendOptions; files: ComposerContextFile[] }[] = []
@@ -34,7 +35,7 @@ function Harness({ busy, missing = false }: { busy: boolean; missing?: boolean }
     updateState = patch => setState(current => ({ ...current, ...patch }))
     const working = state.threadState === 'running'
     actions = useAssistantQueuedComposer({ selectedSessionId: 'chat', sessionStates: missing ? [] : [state], isAssistantBusy: working,
-        isThreadWorking: working, commandPending: false, activeTurnId: working ? 'active' : null, busyMessageMode: 'queue', queueStorage: storage,
+        isThreadWorking: working, commandPending: false, activeTurnId: working ? 'active' : null, busyMessageMode: 'queue', dispatchProfile, queueStorage: storage,
         dispatchPrompt: async (_sessionId, prompt, files, opts, canSubmit) => {
             await prepare()
             if (canSubmit && !canSubmit()) return false
@@ -50,7 +51,7 @@ function mount(busy: boolean, missing = false) {
     flushSync(() => root!.render(<Harness busy={busy} missing={missing} />))
 }
 function unmount() { flushSync(() => root?.unmount()); container?.remove(); root = null; container = null }
-function reset() { unmount(); localStorage.clear(); failWrite = false; interrupts = 0; sent.length = 0; dispatch = async () => true; prepare = async () => {} }
+function reset() { unmount(); localStorage.clear(); failWrite = false; interrupts = 0; dispatchProfile = 'fixture-original-profile'; sent.length = 0; dispatch = async () => true; prepare = async () => {} }
 function ready() { updateState({ threadState: 'ready', latestTurnState: 'completed' }) }
 function saved() { return JSON.parse(localStorage.getItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY) || '{}') }
 
@@ -61,6 +62,7 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     const accepted = actions.handleSendPrompt('first', [inputFile], options)
     check(saved().entries.chat[0].contextFiles[0].previewDataUrl === file.previewDataUrl, 'attachment must be durable before send returns acceptance')
     check(await accepted, 'queue accepted')
+    check(saved().entries.chat[0].options.profile === 'fixture-original-profile', 'queue captures the accepting Chat profile')
     inputFile.content = 'mutated draft'
     check(saved().entries.chat[0].contextFiles[0].content === 'inline body', 'saved attachments are detached from draft')
     const rapid = [actions.handleSendPrompt('second', [], options), actions.handleSendPrompt('third', [], options)]
@@ -80,13 +82,14 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     check(saved().entries.chat.map((entry: any) => entry.id).join() === ids.slice(0, 2).join(), 'reorder/delete durable')
     results.push('durable acceptance with full attachments, rapid sends, in-place Save and unchanged Cancel')
 
-    unmount(); mount(false)
+    unmount(); dispatchProfile = 'fixture-other-profile'; mount(false)
     await sleep()
     check(actions.queueHeld && actions.queuedComposerMessageCount === 2 && sent.length === 0, 'restart restores held queue even when chat idle')
     let release!: (success: boolean) => void
     dispatch = () => new Promise(resolve => { release = resolve })
     check(actions.handleResumeQueue(), 'explicit resume accepted')
     await until(() => sent.length === 1, 'resumed first dispatch')
+    check(sent[0].options.profile === 'fixture-original-profile', 'delayed dispatch never inherits the newly selected profile')
     check(saved().entries.chat.length === 2, 'in-flight message remains persisted until acceptance')
     check(!actions.handleUpdateQueuedMessage(ids[0]!, 'too late'), 'in-flight edit cannot race dispatched payload')
     check(actions.handleHoldQueue(), 'Stop holds synchronously')
@@ -204,6 +207,16 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     updateState({ latestTurnId: 'completed-after-ack' })
     await until(() => sent.length === 2 && actions.queuedComposerMessageCount === 0, 'terminal receipt clears optimistic dispatch latch')
     results.push('terminal receipt after acknowledgement advances queue without an intermediate busy render')
+
+    reset(); mount(true)
+    const detachedDictationSend = actions.handleSendPrompt
+    unmount(); dispatchProfile = 'fixture-new-profile'; mount(true)
+    check(await actions.handleSendPrompt('new queue work', [], options), 'replacement owner accepts newer work')
+    check(await detachedDictationSend('late dictation', [file], options), 'detached dictation remains accepted')
+    await until(() => actions.queuedComposerMessageCount === 2, 'live queue observes a detached completion')
+    check(saved().entries.chat.map((entry: any) => entry.prompt).join('|') === 'new queue work|late dictation', 'detached completion merges rather than overwriting newer queued work')
+    check(saved().entries.chat[0].options.profile === 'fixture-new-profile' && saved().entries.chat[1].options.profile === 'fixture-original-profile', 'each accepted request retains its own profile')
+    results.push('detached dictation merges into the current queue without losing newer work or transferring profiles')
 
     reset()
     localStorage.setItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY, '{broken')

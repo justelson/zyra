@@ -98,7 +98,7 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
         }
         pendingMessages = [];
       }
-      const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
+      const message = await streamAssistantResponse(currentContext, newMessages, config, signal, emit, streamFunction);
       newMessages.push(message);
       if (message.stopReason === "error" || message.stopReason === "aborted") {
         await emit({ type: "turn_end", message, toolResults: [] });
@@ -153,77 +153,136 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
   }
   await emit({ type: "agent_end", messages: newMessages });
 }
-async function streamAssistantResponse(context, config, signal, emit, streamFunction) {
-  let messages = context.messages;
-  if (config.transformContext) {
-    messages = await config.transformContext(messages, signal);
-  }
-  const llmMessages = await config.convertToLlm(messages);
-  const llmContext = {
-    systemPrompt: context.systemPrompt,
-    messages: llmMessages,
-    tools: context.tools
-  };
-  const resolvedApiKey = (config.getApiKey ? await config.getApiKey(config.model.provider) : void 0) || config.apiKey;
-  const response = await streamFunction(config.model, llmContext, {
-    ...config,
-    apiKey: resolvedApiKey,
-    signal
-  });
-  let partialMessage = null;
-  let addedPartial = false;
-  for await (const event of response) {
-    switch (event.type) {
-      case "start":
-        partialMessage = event.partial;
-        context.messages.push(partialMessage);
-        addedPartial = true;
-        await emit({ type: "message_start", message: { ...partialMessage } });
-        break;
-      case "text_start":
-      case "text_delta":
-      case "text_end":
-      case "thinking_start":
-      case "thinking_delta":
-      case "thinking_end":
-      case "toolcall_start":
-      case "toolcall_delta":
-      case "toolcall_end":
-        if (partialMessage) {
-          partialMessage = event.partial;
-          context.messages[context.messages.length - 1] = partialMessage;
-          await emit({
-            type: "message_update",
-            assistantMessageEvent: event,
-            message: { ...partialMessage }
-          });
+async function streamAssistantResponse(context, newMessages, config, signal, emit, streamFunction) {
+  const control = config.modelRequestControl;
+  while (true) {
+    let requestSignal = signal;
+    let partialMessage = null;
+    let partialIndex = -1;
+    let finalMessage;
+    let failure;
+    let failed = false;
+    const checkCancelled = () => {
+      if (requestSignal?.aborted) throw new Error("Model request aborted");
+    };
+    try {
+      checkCancelled();
+      let messages = context.messages;
+      if (config.transformContext) messages = await config.transformContext(messages, requestSignal);
+      checkCancelled();
+      const llmMessages = await config.convertToLlm(messages);
+      checkCancelled();
+      const llmContext = {
+        systemPrompt: context.systemPrompt,
+        messages: llmMessages,
+        tools: context.tools
+      };
+      const resolvedApiKey = (config.getApiKey ? await config.getApiKey(config.model.provider) : void 0) || config.apiKey;
+      checkCancelled();
+      requestSignal = control ? await control.begin(signal) : signal;
+      checkCancelled();
+      const response = await streamFunction(config.model, llmContext, {
+        ...config,
+        apiKey: resolvedApiKey,
+        signal: requestSignal
+      });
+      const result = response.result();
+      void result.catch(() => {
+      });
+      try {
+        for await (const event of response) {
+          if (requestSignal?.aborted) continue;
+          const content = "partial" in event ? event.partial.content : event.type === "done" ? event.message.content : event.type === "error" ? event.error.content : [];
+          const unsafe = event.type.startsWith("text_") || event.type.startsWith("toolcall_") || event.type === "done" || event.type === "error" || content.some((part) => part.type === "toolCall" || part.type === "text" && part.text.length > 0);
+          await control?.activity(unsafe);
+          if (requestSignal?.aborted) continue;
+          switch (event.type) {
+            case "start":
+              partialMessage = { ...event.partial };
+              partialIndex = context.messages.length;
+              context.messages.push(partialMessage);
+              await emit({ type: "message_start", message: partialMessage });
+              break;
+            case "text_start":
+            case "text_delta":
+            case "text_end":
+            case "thinking_start":
+            case "thinking_delta":
+            case "thinking_end":
+            case "toolcall_start":
+            case "toolcall_delta":
+            case "toolcall_end":
+              if (partialMessage) {
+                partialMessage = { ...event.partial };
+                context.messages[partialIndex] = partialMessage;
+                await emit({ type: "message_update", assistantMessageEvent: event, message: partialMessage });
+              }
+              break;
+          }
         }
-        break;
-      case "done":
-      case "error": {
-        const finalMessage2 = await response.result();
-        if (addedPartial) {
-          context.messages[context.messages.length - 1] = finalMessage2;
-        } else {
-          context.messages.push(finalMessage2);
-        }
-        if (!addedPartial) {
-          await emit({ type: "message_start", message: { ...finalMessage2 } });
-        }
-        await emit({ type: "message_end", message: finalMessage2 });
-        return finalMessage2;
+      } finally {
+        finalMessage = await result;
+      }
+    } catch (error) {
+      failed = true;
+      failure = error;
+    }
+    await control?.flush();
+    const recovery = control?.recovery;
+    const requestId = control?.requestId;
+    if (recovery && requestId && partialMessage) {
+      context.messages.splice(partialIndex, 1);
+      await emit({ type: "message_discarded", message: partialMessage, reason: "model_ping", requestId });
+      partialMessage = null;
+      partialIndex = -1;
+    }
+    await control?.end();
+    if (recovery && requestId && !signal?.aborted) {
+      await emit({ type: "message_start", message: recovery });
+      await emit({ type: "message_end", message: recovery });
+      context.messages.push(recovery);
+      newMessages.push(recovery);
+      if (!signal?.aborted) {
+        await emit({ type: "model_ping", requestId, status: "resumed" });
+        if (!signal?.aborted) continue;
       }
     }
+    if (signal?.aborted) {
+      finalMessage = recovery ? abortedModelMessage(config) : {
+        ...finalMessage ?? partialMessage ?? abortedModelMessage(config),
+        stopReason: "aborted",
+        errorMessage: "Operation aborted"
+      };
+    } else if (failed) {
+      throw failure;
+    }
+    if (!finalMessage) throw new Error("Model request settled without a result");
+    if (partialIndex >= 0) context.messages[partialIndex] = finalMessage;
+    else context.messages.push(finalMessage);
+    if (!partialMessage) await emit({ type: "message_start", message: { ...finalMessage } });
+    await emit({ type: "message_end", message: finalMessage });
+    return finalMessage;
   }
-  const finalMessage = await response.result();
-  if (addedPartial) {
-    context.messages[context.messages.length - 1] = finalMessage;
-  } else {
-    context.messages.push(finalMessage);
-    await emit({ type: "message_start", message: { ...finalMessage } });
-  }
-  await emit({ type: "message_end", message: finalMessage });
-  return finalMessage;
+}
+function abortedModelMessage(config) {
+  return {
+    role: "assistant",
+    content: [],
+    api: config.model.api,
+    provider: config.model.provider,
+    model: config.model.id,
+    stopReason: "aborted",
+    errorMessage: "Operation aborted",
+    timestamp: Date.now(),
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    }
+  };
 }
 async function failToolCallsFromTruncatedMessage(toolCalls, emit) {
   const messages = [];

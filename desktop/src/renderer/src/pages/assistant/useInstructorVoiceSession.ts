@@ -177,6 +177,8 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
     const startPendingRef = useRef(false)
     const terminalHandledRef = useRef(false)
     const readyCuePlayedRef = useRef(false)
+    const microphoneMutedRef = useRef(false)
+    const speakerMutedRef = useRef(false)
     const activeThreadIdRef = useRef<string | null>(null)
     const adapterSessionIdRef = useRef<string | null>(null)
     const realtimeClientBindingRef = useRef<RealtimeVoiceClientCommandBinding | null>(null)
@@ -193,6 +195,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
     const [realtimeVersion, setRealtimeVersion] = useState<string | null>(null)
     const [activityLevel, setActivityLevel] = useState(0)
     const [microphoneMuted, setMicrophoneMuted] = useState(false)
+    const [speakerMuted, setSpeakerMuted] = useState(false)
 
     const flushClientCommands = useCallback(() => {
         const binding = realtimeClientBindingRef.current
@@ -415,7 +418,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
     const endWithError = useCallback((message: string) => {
         if (terminalHandledRef.current) return
         sendLocalSessionClose()
-        if (readyCuePlayedRef.current) playVoiceCue(voiceEndedCueUrl)
+        if (readyCuePlayedRef.current && !speakerMutedRef.current) playVoiceCue(voiceEndedCueUrl)
         readyCuePlayedRef.current = false
         terminalHandledRef.current = true
         generationRef.current += 1
@@ -493,7 +496,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
                 return
             }
             if (event.type === 'session.closed') {
-                if (readyCuePlayedRef.current) playVoiceCue(voiceEndedCueUrl)
+                if (readyCuePlayedRef.current && !speakerMutedRef.current) playVoiceCue(voiceEndedCueUrl)
                 readyCuePlayedRef.current = false
                 terminalHandledRef.current = true
                 generationRef.current += 1
@@ -505,6 +508,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
         })
 
         return () => {
+            const ownsRemote = !terminalHandledRef.current && Boolean(activeThreadIdRef.current || startPendingRef.current)
             mountedRef.current = false
             terminalHandledRef.current = true
             generationRef.current += 1
@@ -512,7 +516,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
             adapterSessionIdRef.current = null
             unsubscribe()
             releaseLocalMedia()
-            stopRemoteSilently()
+            if (ownsRemote) stopRemoteSilently()
         }
     }, [endWithError, queueClientCommand, releaseLocalMedia, stopRemoteSilently])
 
@@ -534,7 +538,10 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
         setError(null)
         setRealtimeVersion(null)
         setTranscript([])
+        microphoneMutedRef.current = false
+        speakerMutedRef.current = false
         setMicrophoneMuted(false)
+        setSpeakerMuted(false)
         releaseLocalMedia()
 
         const isCurrent = () => mountedRef.current
@@ -571,6 +578,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
                 return
             }
 
+            for (const track of stream.getAudioTracks()) track.enabled = !microphoneMutedRef.current
             beginActivityMeter(stream)
 
             const readiness: RealtimeReadiness = {
@@ -583,6 +591,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
             const dataChannel = peer.createDataChannel('oai-events')
             const audio = new Audio()
             audio.autoplay = true
+            audio.muted = speakerMutedRef.current
 
             const queueCanonicalPayload = (payload: Record<string, unknown>) => {
                 const adapterSessionId = adapterSessionIdRef.current
@@ -654,7 +663,7 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
                     setStatus('active')
                     if (!readyCuePlayedRef.current) {
                         readyCuePlayedRef.current = true
-                        playVoiceCue(voiceReadyCueUrl)
+                        if (!speakerMutedRef.current) playVoiceCue(voiceReadyCueUrl)
                     }
                 }
                 return ready
@@ -874,12 +883,20 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
     }, [attachOutputActivityMeter, beginActivityMeter, binding, endWithError, flushClientCommands, releaseLocalMedia, stopRemoteSilently])
 
     const toggleMicrophone = useCallback(() => {
-        const stream = mediaStreamRef.current
-        if (!stream) return
-        const nextMuted = !microphoneMuted
-        for (const track of stream.getAudioTracks()) track.enabled = !nextMuted
+        const nextMuted = !microphoneMutedRef.current
+        microphoneMutedRef.current = nextMuted
+        for (const track of mediaStreamRef.current?.getAudioTracks() || []) track.enabled = !nextMuted
         setMicrophoneMuted(nextMuted)
-    }, [microphoneMuted])
+    }, [])
+
+    const toggleSpeaker = useCallback(() => {
+        setSpeakerMuted(current => {
+            const muted = !current
+            speakerMutedRef.current = muted
+            if (audioRef.current) audioRef.current.muted = muted
+            return muted
+        })
+    }, [])
 
     const sendMessage = useCallback(async (input: AssistantSendRealtimeVoiceMessageInput) => {
         if (status !== 'active') {
@@ -921,14 +938,17 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
     }, [status])
 
     const stop = useCallback(async () => {
-        if (status === 'idle' || status === 'stopping') return
+        if (status === 'idle') return true
+        if (status === 'stopping') return false
 
         sendLocalSessionClose()
         terminalHandledRef.current = true
         generationRef.current += 1
-        if (readyCuePlayedRef.current) playVoiceCue(voiceEndedCueUrl)
+        if (readyCuePlayedRef.current && !speakerMutedRef.current) playVoiceCue(voiceEndedCueUrl)
         readyCuePlayedRef.current = false
         setStatus('stopping')
+        // Stop microphone and speaker immediately, not after network cleanup.
+        releaseLocalMedia()
 
         try {
             const bridgeError = await bridgeQueueRef.current.then(() => null).catch((error) => error)
@@ -936,10 +956,12 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
             if (!result.success) throw new Error(result.error || 'ChatGPT Voice could not stop cleanly.')
             if (bridgeError) throw bridgeError
             if (mountedRef.current) setStatus('idle')
+            return true
         } catch (stopError) {
-            if (!mountedRef.current) return
+            if (!mountedRef.current) return false
             setError(stopError instanceof Error ? stopError.message : 'Voice session could not stop cleanly.')
             setStatus('error')
+            return false
         } finally {
             activeThreadIdRef.current = null
             adapterSessionIdRef.current = null
@@ -955,6 +977,8 @@ export function useInstructorVoiceSession(binding?: CanonicalVoiceBinding) {
         realtimeVersion,
         activityLevel,
         microphoneMuted,
+        speakerMuted,
+        toggleSpeaker,
         start,
         stop,
         sendMessage,

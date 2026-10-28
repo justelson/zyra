@@ -21,6 +21,7 @@ import {
 } from '../../shared/assistant/title-generation'
 import {
     normalizeAssistantRuntimePolicy,
+    normalizeModelCompactionOverrides,
     type AssistantRuntimePolicy
 } from '../../shared/assistant/runtime-policy'
 import { isDarkThemeId, isLightThemeId, LIGHT_THEME_IDS, DARK_THEME_IDS } from '../../shared/preferences/theme-contract'
@@ -116,7 +117,7 @@ const NUMBER_RANGES: Record<string, readonly [number, number]> = {
     terminalFontSize: [10, 24],
     terminalScrollback: [1_000, 50_000],
     filePreviewTerminalPanelHeight: [140, 720],
-    assistantContextCompactionThresholdTokens: [64_000, 372_000],
+    assistantContextCompactionThresholdTokens: [1, Number.MAX_SAFE_INTEGER],
     assistantTitleAutoRegenerateTurns: [3, 100]
 }
 
@@ -198,6 +199,7 @@ export function describeDevicePreferenceValue(key: string): Record<string, unkno
 export function sanitizeDevicePreferenceValue(key: string, value: unknown): unknown {
     if (key === 'assistantBusyMessageMode' && value === 'force') return 'queue'
     if (key === 'keyboardShortcuts') return sanitizeShortcutOverrides(value)
+    if (key === 'assistantModelCompactionOverrides') return isRecord(value) ? normalizeModelCompactionOverrides(value) : undefined
     if (key === 'appearanceLightTheme') return isLightThemeId(value) ? value : undefined
     if (key === 'appearanceDarkTheme') return value === 'dark' ? 'vercel' : isDarkThemeId(value) ? value : undefined
     if (BOOLEAN_KEYS.has(key)) return typeof value === 'boolean' ? value : undefined
@@ -438,6 +440,7 @@ export class DevicePreferencesService {
         const record = await this.requireReadyRecord()
         return normalizeAssistantRuntimePolicy({
             reasoningSummary: record.shared.assistantReasoningSummary as AssistantRuntimePolicy['reasoningSummary'],
+            modelCompactionOverrides: normalizeModelCompactionOverrides(record.shared.assistantModelCompactionOverrides),
             contextCompactionThresholdTokens: record.shared.assistantContextCompactionThresholdTokens as number
         })
     }

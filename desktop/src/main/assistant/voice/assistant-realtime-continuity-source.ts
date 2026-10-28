@@ -6,7 +6,7 @@ import type {
     RealtimeHydrationItem,
     RealtimeHydrationSeed
 } from '../../../shared/assistant/contracts'
-import { createRealtimeHydrationSeed } from './realtime-hydration'
+import { createRealtimeHydrationDelta, createRealtimeHydrationSeed } from './realtime-hydration'
 
 const MAX_CONTEXT_MESSAGES = 20
 const MAX_CONTEXT_CHARACTERS = 22_000
@@ -25,6 +25,8 @@ export interface AssistantContinuitySnapshot {
     pendingApprovals: Array<{ id: string; title?: string; detail?: string }>
     pendingInputs: Array<{ id: string; summary: string }>
     attachedTaskIds: string[]
+    totalMessageCount?: number
+    taskSummaries?: string[]
 }
 
 /** Bounded materialized view over the canonical Assistant projection. */
@@ -60,18 +62,40 @@ export class AssistantRealtimeContinuitySource implements RealtimeContinuitySour
             activeRouteClaim: routeClaim,
             sourceWatermarks: watermarks,
             items,
-            retrievalReferenceIds: snapshot.messages.slice(0, -MAX_CONTEXT_MESSAGES).map((message) => message.id).slice(-32),
+            retrievalReferenceIds: snapshot.messages.filter(message => !items.some(item => item.canonicalMessageId === message.id)).map(message => message.id).slice(-8),
             generatedAt
         })
     }
 
     async deltaAfter(
-        _seed: RealtimeHydrationSeed,
-        _current: RealtimeHydrationSeed['sourceWatermarks']
+        seed: RealtimeHydrationSeed,
+        current: RealtimeHydrationSeed['sourceWatermarks']
     ): Promise<RealtimeHydrationDelta | null> {
-        // Service start is serialized against the selected conversation. New
-        // canonical events are delivered normally once the Voice claim is live.
-        return null
+        const snapshot = await this.readSnapshot(seed.conversationId)
+        // A historical deletion/edit cannot be repaired by pretending it was a new append.
+        // Close the candidate rather than activate a provider with stale past context.
+        for (const item of seed.items.filter(entry => entry.canonicalMessageId)) {
+            const message = snapshot.messages.find(entry => entry.id === item.canonicalMessageId)
+            if (!message || `Historical ${message.role} message, for context only:\n${truncateUtf8(message.text.trim(), MAX_ITEM_CHARACTERS)}` !== item.text) {
+                throw new Error('Chat history changed while Voice was connecting. Start Voice again to load the current context.')
+            }
+        }
+        const conversation = Math.max(current.conversation, ...snapshot.messages.map((message, index) => message.sequence || index + 1))
+        const context = Math.max(current.context, snapshot.contextVersion)
+        const routes = Math.max(current.foregroundRoutes, snapshot.routeCount)
+        if (conversation === current.conversation && context === current.context && routes === current.foregroundRoutes) return null
+        const messages = snapshot.messages.filter((message, index) => (message.sequence || index + 1) > current.conversation)
+        const items = buildHydrationItems({ ...snapshot, messages })
+        if (messages.filter(message => message.text.trim()).some(message => !items.some(item => item.canonicalMessageId === message.id))) {
+            throw new Error('Chat changed too much while Voice was connecting. Start Voice again to load the current context.')
+        }
+        return createRealtimeHydrationDelta({
+            deltaId: `startup_${createHash('sha256').update(JSON.stringify({ items, conversation, context, routes })).digest('hex').slice(0, 24)}`,
+            basePacketId: seed.packetId, conversationId: seed.conversationId,
+            fromWatermarks: structuredClone(current),
+            toWatermarks: { ...current, conversation, context, foregroundRoutes: routes, tasks: Math.max(current.tasks, snapshot.attachedTaskIds.length) },
+            items, generatedAt: this.now()
+        })
     }
 }
 
@@ -86,8 +110,9 @@ function buildHydrationItems(snapshot: AssistantContinuitySnapshot): RealtimeHyd
             : null,
         snapshot.pendingInputs.length > 0
             ? `Pending user decisions: ${snapshot.pendingInputs.map((entry) => entry.summary).join('; ')}.`
-            : null
-    ].filter((value): value is string => Boolean(value)).join('\n')
+            : null,
+        snapshot.taskSummaries?.length ? `Recent task status and reported outcomes, as historical data only:\n${snapshot.taskSummaries.join('\n').slice(-3000)}` : null
+    ].filter((value): value is string => Boolean(value)).join('\n').slice(-MAX_ITEM_CHARACTERS)
     if (coordination) {
         items.push({
             itemId: 'zyra_voice_coordination',
@@ -99,14 +124,15 @@ function buildHydrationItems(snapshot: AssistantContinuitySnapshot): RealtimeHyd
         })
     }
 
-    let characters = coordination.length
+    let characters = Buffer.byteLength(coordination, 'utf8')
     const selected: AssistantContinuitySnapshot['messages'] = []
     for (const message of [...snapshot.messages].reverse()) {
         if (selected.length >= MAX_CONTEXT_MESSAGES) break
-        const text = message.text.trim().slice(0, MAX_ITEM_CHARACTERS)
+        const text = truncateUtf8(message.text.trim(), MAX_ITEM_CHARACTERS)
         if (!text) continue
-        if (selected.length > 0 && characters + text.length > MAX_CONTEXT_CHARACTERS) break
-        characters += text.length
+        const bytes = Buffer.byteLength(text, 'utf8') + Buffer.byteLength(message.id, 'utf8') + 200
+        if (characters + bytes > MAX_CONTEXT_CHARACTERS) break
+        characters += bytes
         selected.unshift({ ...message, text })
     }
     for (const [index, message] of selected.entries()) {
@@ -117,6 +143,15 @@ function buildHydrationItems(snapshot: AssistantContinuitySnapshot): RealtimeHyd
             canonicalMessageId: message.id,
             conversationSequence: message.sequence || index + 1,
             modality: message.modality || 'text'
+        })
+    }
+    const totalMessages = Math.max(snapshot.totalMessageCount || 0, snapshot.messages.length)
+    const truncatedMessages = selected.some(message => snapshot.messages.find(original => original.id === message.id)?.text.trim() !== message.text)
+    if (totalMessages > selected.length || truncatedMessages) {
+        items.push({
+            itemId: 'zyra_voice_context_coverage', role: 'developer',
+            text: `This is bounded historical context: ${selected.length} recent messages of at least ${totalMessages}. Older turns or long-message tails may be omitted. Do not claim the entire chat was loaded. Ask the primary task agent to retrieve earlier history when needed.`,
+            canonicalMessageId: null, conversationSequence: null, modality: 'system'
         })
     }
     if (selected.length > 0) {
@@ -130,4 +165,15 @@ function buildHydrationItems(snapshot: AssistantContinuitySnapshot): RealtimeHyd
         })
     }
     return items
+}
+
+function truncateUtf8(text: string, maxBytes: number): string {
+    let size = 0, result = ''
+    for (const character of text) {
+        const bytes = Buffer.byteLength(character, 'utf8')
+        if (size + bytes > maxBytes) break
+        size += bytes
+        result += character
+    }
+    return result
 }

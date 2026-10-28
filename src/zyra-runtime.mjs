@@ -4,6 +4,7 @@ import { getChatGptAccountPool } from './chatgpt-account-pool.mjs';
 import { createChatGptRequestCredentials, installChatGptAccountRouting } from './chatgpt-account-runtime.mjs';
 import { loginOpenAICodexAuth } from './openai-codex-login.mjs';
 import { syncOpenAIModelCatalog, applyOpenAIModelCatalog } from "./openai-model-catalog.mjs";
+import { syncDirectApiModelCatalog, applyDirectApiModelCatalog } from "./direct-api-model-catalog.mjs";
 import {
   getZyraCredentialAuthStatus,
   migrateLegacyPiCredentials,
@@ -90,6 +91,12 @@ export async function createZyraRuntime(options = {}) {
     modelRegistry.zyraOpenAIModelCatalogOptions = { authPath };
     const catalog = await syncOpenAIModelCatalog({ ...options, authPath, authStorage: zyraAuthStorage, cacheOnly: true });
     await applyOpenAIModelCatalog(modelRegistry, catalog);
+  }
+
+  if (options.loadDirectApiCatalog !== false) {
+    modelRegistry.zyraDirectApiModelCatalogOptions = { authPath, ...(options.catalogDirectory ? { catalogDirectory: options.catalogDirectory } : {}) };
+    const catalog = await syncDirectApiModelCatalog({ ...options, authPath, authStorage, cacheOnly: true });
+    await applyDirectApiModelCatalog(modelRegistry, catalog);
   }
 
   return { authStorage, modelRegistry, modelRuntime };

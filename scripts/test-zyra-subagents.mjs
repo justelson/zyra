@@ -62,7 +62,8 @@ test('live aliases and generation policy accept new models and reject retired ca
   assert.equal(router.route({ model: 'sol' }).selectedKey, 'openai-codex/gpt-5.6-sol');
   assert.throws(() => router.route({ model: { prefer: 'sol', allowPreviousGenerations: false } }), FleetModelRouteError);
   const web = attenuateAgentCapabilities({ tools: ['read', 'web_search', 'web_fetch'], permissionMode: 'full-access', writeScope: ['src'] });
-  assert.deepEqual(web.tools, ['read']);
+  assert.deepEqual(web.tools, ['read', 'context']);
+  assert.deepEqual(attenuateAgentCapabilities({ tools: ['read'], disallowedTools: ['context'] }).tools, ['read'], 'Explicit policy can disable own-context tools without weakening attenuation');
   assert(web.denied.some(item => item.tool === 'web_search'));
 })
 
@@ -72,7 +73,7 @@ test('child capability attenuation denies recursive/control tools and unenforcea
     capabilities: ['computer-use', 'spawn-agent', 'safe-domain-capability'],
     permissionMode: 'read-only',
   })
-  assert.deepEqual(result.tools, ['read'])
+  assert.deepEqual(result.tools, ['read', 'context'])
   assert.deepEqual(result.capabilities, ['safe-domain-capability'])
   assert(result.denied.some((entry) => entry.tool === 'agent' && entry.reason === 'child_control_denied'))
   assert(result.denied.some((entry) => entry.capability === 'spawn-agent'))
@@ -80,7 +81,7 @@ test('child capability attenuation denies recursive/control tools and unenforcea
   assert.equal(commandRequiresExplicitApproval('git reset --hard HEAD').required, true)
   assert.equal(commandRequiresExplicitApproval('npm test').required, false)
   const writer = attenuateAgentCapabilities({ tools: ['read', 'bash', 'edit'], permissionMode: 'writer', writeScope: ['src'] })
-  assert.deepEqual(writer.tools, ['read', 'edit'])
+  assert.deepEqual(writer.tools, ['read', 'edit', 'context'])
   assert(writer.denied.some((entry) => entry.tool === 'bash' && entry.reason === 'shell_cannot_enforce_child_scope'))
 })
 

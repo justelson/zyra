@@ -6,6 +6,7 @@ import {
     parseAssistantBrowserAnnotation
 } from './assistant-browser-annotation-composer'
 import type { ComposerContextFile } from './assistant-composer-types'
+import { getAssistantVideoMimeType } from './assistant-clipboard-files'
 
 export const SLASH_COMMANDS = [
     { command: '/yolo', description: 'Switch this thread to full access.' },
@@ -139,7 +140,7 @@ export function toKbLabel(bytes?: number): string {
 export function getContextFileMeta(file: Partial<ComposerContextFile>): {
     name: string
     ext: string
-    category: 'image' | 'code' | 'doc'
+    category: 'image' | 'video' | 'code' | 'doc'
 } {
     const rawPath = String(file.path || '').trim()
     const rawName = String(file.name || '').trim()
@@ -158,6 +159,9 @@ export function getContextFileMeta(file: Partial<ComposerContextFile>): {
         'css', 'scss', 'sass', 'html', 'xml', 'yml', 'yaml', 'toml', 'sh', 'ps1', 'sql', 'md'
     ])
 
+    if (file.kind === 'video' || getAssistantVideoMimeType(name, mimeType)) {
+        return { name, ext: ext || 'video', category: 'video' }
+    }
     if (file.kind === 'image' || mimeType.startsWith('image/') || imageExts.has(ext)) {
         return { name, ext: ext || 'img', category: 'image' }
     }
@@ -262,6 +266,7 @@ export function getContentTypeTag(file: ComposerContextFile): string {
     if (parseAssistantCitation(file.citation)) return 'CITATION'
     const meta = getContextFileMeta(file)
     if (meta.category === 'image') return 'IMAGE'
+    if (meta.category === 'video') return 'VIDEO'
     if (meta.category === 'code') return 'CODE'
     if (isPastedTextAttachment(file)) return 'TEXT'
     return 'FILE'
@@ -279,6 +284,7 @@ function getClipboardAttachmentDisplayName(file: ComposerContextFile, category: 
     const mime = String(file.mimeType || '').toLowerCase()
     if (parseAssistantBrowserAnnotation(file.content)) return 'Browser annotation'
     if (category === 'image') return 'Pasted image'
+    if (category === 'video') return 'Pasted video'
     if (
         category === 'code'
         || isPastedTextAttachment(file)
@@ -309,6 +315,17 @@ export function buildPromptWithContextFiles(prompt: string, contextFiles: Compos
             ? getClipboardAttachmentDisplayName(file, meta.category)
             : meta.name
         const header = `${index + 1}. ${headerLabel} [${getContentTypeTag(file)}]`
+        // Videos are durable files for explicit analysis tools, not native model
+        // inputs. Keep an accessible path rather than an image-only inline ref.
+        if (meta.category === 'video') {
+            const details = [
+                file.path ? `path: ${file.path}` : '',
+                file.mimeType ? `mime: ${file.mimeType}` : '',
+                Number.isFinite(file.sizeBytes) ? `size: ${Number(file.sizeBytes)} bytes` : '',
+                'note: video file attached; use explicit video/file analysis tools to inspect it. Video understanding is not implied by attachment.'
+            ].filter(Boolean)
+            return `${header}\n${details.join('\n')}`
+        }
         const details = meta.category === 'image'
             ? [
                 isClipboardAttachment

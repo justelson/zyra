@@ -70,6 +70,7 @@ export class AgentFleetController {
     this.sessionFactory = options.sessionFactory ?? new ChildSessionFactory({
       project: this.project,
       managedBash: options.managedBash,
+      modelCompactionOverrides: options.modelCompactionOverrides ?? this.rootSession?._zyraModelCompactionOverrides,
       transcriptDirectory,
       modelRuntime: options.modelRuntime ?? this.rootSession?.modelRuntime,
       authStorage: options.authStorage ?? this.rootSession?.modelRegistry?.authStorage,
@@ -299,6 +300,8 @@ export class AgentFleetController {
       readScope: capability.readScope,
       writeScope: capability.writeScope,
       maxTurns: request.maxTurns ?? definition.maxTurns,
+      // A retry/resume keeps lifetime usage even when it opens a new transcript.
+      usage: request.retryOfAttemptId ? request.usage : undefined,
       cwd: parentRun?.cwd || this.project,
     });
     let delegatedControl = null;
@@ -677,6 +680,7 @@ export class AgentFleetController {
       this.completedHosts.set(agentRunId, result.host);
       this.resolveWaiters(agentRunId, this.snapshot().agents[agentRunId]);
     } catch (error) {
+      if (error?.usage) await this.emit('agent.usage.updated', { usage: error.usage }, { agentRunId });
       const cancelled = error?.name === "AbortError" || error?.code === 'CHILD_MAX_TURNS' || this.cancellation.signal(agentRunId)?.aborted;
       await this.emit("agent.failed", {
         status: cancelled ? "cancelled" : "failed",

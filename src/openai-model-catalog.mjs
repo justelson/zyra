@@ -33,6 +33,23 @@ async function identityFor(authStorage, provider, signal) {
   return { fingerprint: digest(identity.account && identity.subject ? `${identity.account}:${identity.subject}` : key) };
 }
 
+const COMPAT_FIELDS = ['supportsAdditionalTools', 'supportsToolSearch', 'supportsOpenAIGrammarTools', 'supportsStrictMode', 'supportsExplicitPromptCacheMode'];
+const manifestCompat = model => Object.fromEntries(COMPAT_FIELDS.flatMap(key => {
+  const snake = key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`);
+  const value = model.compat?.[key] ?? model[snake];
+  return typeof value === 'boolean' ? [[key, value]] : [];
+}));
+
+/** Transport support is independent of account availability and pricing. Only
+ * preserve the same model's flags or documented protocol-family support. */
+export function resolveOpenAITransportCompat(provider, model, existing) {
+  const documentedAdditionalTools = /^gpt-(?:5\.6-(?:luna|sol|terra)|6(?:\.\d+)?-(?:astra|sol|luna))(?:-\d{4}-\d{2}-\d{2})?$/.test(model.id);
+  const compat = { ...(existing?.compat ?? {}),
+    ...(documentedAdditionalTools ? { supportsAdditionalTools: true, ...(provider === 'openai' ? { supportsExplicitPromptCacheMode: true } : {}) } : {}),
+    ...manifestCompat(model) };
+  return Object.keys(compat).length ? compat : undefined;
+}
+
 const hasRetired = (date, now) => typeof date === 'string' && Number.isFinite(Date.parse(date)) && Date.parse(date) <= now;
 
 export function normalizeOpenAIManifest(body, provider, now = Date.now()) {
@@ -45,7 +62,14 @@ export function normalizeOpenAIManifest(body, provider, now = Date.now()) {
       || hasRetired(model.upgrade?.retirement_at, now) || hasRetired(model.shutdown_date, now)
       || (provider === 'openai' && model.supported_in_api === false)) return [];
     const efforts = [...new Set((model.supported_reasoning_levels ?? []).map(level => level.effort).filter(effort => EFFORTS.has(effort)))];
-    return [{ id: model.slug, label: model.display_name || model.slug,
+    const tokens = value => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    return [{ id: model.slug, provider, label: model.display_name || model.slug,
+      metadataSource: 'openai-models-manifest',
+      compat: manifestCompat(model),
+      auto_compact_token_limit: tokens(model.auto_compact_token_limit),
+      context_window: tokens(model.context_window),
+      max_context_window: tokens(model.max_context_window),
+      effective_context_window_percent: tokens(model.effective_context_window_percent),
       description: typeof model.description === 'string' ? model.description : provider,
       supportedEfforts: efforts,
       inputModes: Array.isArray(model.input_modalities) ? model.input_modalities.filter(mode => ['text', 'image'].includes(mode)) : ['text', 'image'],
@@ -86,7 +110,9 @@ async function discoverModels(provider, options) {
     metadata.has(model.id) || (/^(?:gpt-|chatgpt-|o\d|ft:(?:gpt-|o\d))/.test(model.id)
       && !/(?:embedding|realtime|audio|transcrib|tts|image)/i.test(model.id))
   )).map(model => metadata.get(model.id) ?? {
-    id: model.id, label: model.id, description: 'OpenAI', supportedEfforts: [], inputModes: ['text'], contextWindow: null, maxTokens: 4096,
+    id: model.id, provider, label: model.id, description: 'OpenAI', supportedEfforts: [], inputModes: ['text'], contextWindow: null, maxTokens: 4096,
+    metadataSource: 'openai-models-api', context_window: null, max_context_window: null,
+    auto_compact_token_limit: null, effective_context_window_percent: null,
   });
 }
 
@@ -163,14 +189,18 @@ async function readOrRefreshCatalog(options, cacheFailure) {
 export async function applyOpenAIModelCatalog(registry, catalog) {
   registry.zyraOpenAIModelCatalog = catalog;
   for (const [provider, models] of catalog) {
+    const existing = new Map((registry.getAll?.() ?? []).filter(model => model.provider === provider).map(model => [model.id, model]));
     registry.registerProvider(provider, { models: models.map(model => ({
+      compat: resolveOpenAITransportCompat(provider, model, existing.get(model.id)),
       id: model.id, name: model.label, api: provider === 'openai' ? 'openai-responses' : 'openai-codex-responses',
       baseUrl: provider === 'openai' ? 'https://api.openai.com/v1' : 'https://chatgpt.com/backend-api',
       reasoning: model.supportedEfforts.length > 0,
       zyraSupportedEfforts: model.supportedEfforts,
       zyraModelInfo: model,
       thinkingLevelMap: Object.fromEntries(model.supportedEfforts.filter(effort => effort !== 'max' || !model.supportedEfforts.includes('xhigh')).map(effort => [effort === 'max' ? 'xhigh' : effort === 'none' ? 'off' : effort, effort])),
-      input: model.inputModes, contextWindow: model.contextWindow ?? 8192, maxTokens: model.maxTokens,
+      // Unknown is retained, not fabricated as an 8k model. Extended capacity
+      // requires a separate provider/runtime configuration, never a higher limit.
+      input: model.inputModes, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
       // The discovery API does not supply prices. Do not borrow a different model's price.
       cost: runtimeModelCost(model.id, model.pricing),
     })) });

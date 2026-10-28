@@ -1041,7 +1041,7 @@ export function projectHistoryEntries(entries) {
           visibleParts.push({ type: "text", text: `[Image ${partIndex + 1}: ${part.mimeType || part.mime_type || "image"}]` });
           continue;
         }
-        if (part?.type !== "toolCall" || part.name === 'set_chat_title') continue;
+        if (part?.type !== "toolCall" || ['set_chat_title', 'set_work_context'].includes(part.name)) continue;
         flushVisibleParts();
         const toolCallId = asString(part.id) || `${id}:tool:${tools.size + 1}`;
         const toolEvent = {
@@ -1061,7 +1061,7 @@ export function projectHistoryEntries(entries) {
       continue;
     }
     if (role === "toolResult") {
-      if (message.toolName === 'set_chat_title') continue;
+      if (['set_chat_title', 'set_work_context'].includes(message.toolName)) continue;
       const toolCallId = asString(message.toolCallId) || asString(message.tool_call_id) || `${id}:tool-result`;
       const started = tools.get(toolCallId) || {};
       const details = asRecord(message.details);

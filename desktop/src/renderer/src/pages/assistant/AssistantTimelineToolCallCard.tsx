@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FilePenLine, FileText, MessageSquareQuote, Puzzle, Search, SquareTerminal, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronRight, FilePenLine, MessageSquareQuote, Puzzle, Search, Settings, SquareTerminal, Wrench } from 'lucide-react'
+import { isZyraAppToolActivity } from './assistant-app-tool'
 import { bundledPluginLogo } from '../plugins/bundled-plugin-logos'
 import { isAssistantBackgroundProcessActivity } from '@shared/assistant/activity-settlement'
 import { parseAssistantHistoryBodyRef, type AssistantActivity, type AssistantHistoryBody, type AssistantUserInputQuestion, type FileChangeKind } from '@shared/assistant/contracts'
@@ -23,7 +24,8 @@ import {
     resolveAssistantFileChangeStatus
 } from './AssistantFileChangeStatusPill'
 import { getAssistantRelativeFilePath } from './assistant-file-navigation'
-import { stripAssistantCommandEnvelope } from './assistant-action-presentation'
+import { getAssistantReadEvidence, stripAssistantCommandEnvelope } from './assistant-action-presentation'
+import { AssistantReadFileIcon, AssistantReadFilePreview } from './AssistantReadFilePreview'
 import { formatAssistantActionTime } from './AssistantTimelineActionShell'
 import { getTerminalOutputHeightClass } from './assistant-timeline-layout'
 import { useAssistantVisibleText } from './useAssistantVisibleText'
@@ -173,7 +175,7 @@ function getReadActivityMetadata(
         readRequestedLimit: readOptionalActivityNumber(payload.readRequestedLimit) ?? analyzed.readRequestedLimit,
         readComplete: typeof payload.readComplete === 'boolean' ? payload.readComplete : analyzed.readComplete,
         readTruncated: typeof payload.readTruncated === 'boolean' ? payload.readTruncated : analyzed.readTruncated,
-        readIsImage: typeof payload.readIsImage === 'boolean' ? payload.readIsImage : analyzed.readIsImage
+        readIsImage: payload.readIsImage === true || analyzed.readIsImage
     }
 }
 
@@ -189,10 +191,11 @@ function getActivityIcon(activity: AssistantActivity) {
         const logo = bundledPluginLogo(slug)
         return logo ? <img src={logo} alt="" className="h-[14px] w-[14px] rounded-[3px] object-contain" /> : <Puzzle size={13} />
     }
+    if (isZyraAppToolActivity(activity)) return <Settings size={13} />
     if (isCommandActivity(activity)) return <SquareTerminal size={13} />
     if (activity.kind === 'user-input.resolved') return <MessageSquareQuote size={13} />
     if (activity.kind === 'search') return <Search size={13} />
-    if (activity.kind === 'file-read') return <FileText size={13} />
+    if (activity.kind === 'file-read') return <AssistantReadFileIcon kind={getAssistantReadEvidence(activity).kind} />
     if (activity.kind === 'file-change') return <FilePenLine size={13} />
     return <Wrench size={13} />
 }
@@ -290,7 +293,7 @@ export const TimelineToolCallCard = memo(({
     )
     const readLineRangeLabel = useMemo(() => readMetadata ? getReadLineRangeLabel(readMetadata) : null, [readMetadata])
     const readPreview = useMemo(
-        () => isReadActivity(activity) ? buildAssistantReadPreview(authoritativeRawOutput) : null,
+        () => isReadActivity(activity) && getAssistantReadEvidence(activity).kind === 'text' ? buildAssistantReadPreview(authoritativeRawOutput) : null,
         [activity, authoritativeRawOutput]
     )
     const outputPresentation = useAssistantVisibleText({
@@ -854,6 +857,8 @@ export const TimelineToolCallCard = memo(({
                             hideHeader
                             onOpenFullDiff={canViewDiff ? handleOpenInlineDiff : undefined}
                         />
+                    ) : expanded && isRead && !readPreview ? (
+                        <AssistantReadFilePreview key={activity.id} activity={activity} projectRootPath={projectRootPath} onClose={() => setExpanded(false)} />
                     ) : isRead && readPreview ? (
                         <div className="mt-2 overflow-hidden rounded-md border border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--color-bg)_80%,var(--color-card))]">
                             <div className="custom-scrollbar max-h-[32rem] overflow-auto px-3 py-2.5">

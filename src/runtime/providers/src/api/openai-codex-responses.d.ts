@@ -1,5 +1,6 @@
 import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
 import type { SimpleStreamOptions, StreamFunction, StreamOptions } from "../types.js";
+export { getOpenAICodexRequestDiagnostics, type OpenAICodexRequestDiagnostic } from "./codex-request-diagnostics.js";
 export interface OpenAICodexResponsesOptions extends StreamOptions {
     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
     reasoningSummary?: "auto" | "concise" | "detailed" | "off" | "on" | null;
@@ -24,6 +25,13 @@ export interface OpenAICodexWebSocketDebugStats {
     sseFallbacks: number;
     websocketFallbackActive?: boolean;
     lastWebSocketError?: string;
+    websocketRetryAt?: number;
+    lastRequestBytes?: number;
+    lastFullRequestBytes?: number;
+    lastLatencyMs?: number;
+    lastRetries?: number;
+    lastCacheRead?: number;
+    lastUncachedInput?: number;
 }
 export declare function getOpenAICodexWebSocketDebugStats(sessionId: string): OpenAICodexWebSocketDebugStats | undefined;
 export declare function resetOpenAICodexWebSocketDebugStats(sessionId?: string): void;

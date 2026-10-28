@@ -28,7 +28,7 @@ function createRuntime(finalMessage) {
       entries.push({ type: "message", message: finalMessage });
     },
   };
-  return { project: process.cwd(), session };
+  return { project: process.cwd(), session, memoryEnabled: false };
 }
 
 function createClientRuntime(project) {
@@ -96,11 +96,12 @@ console.log("Zyra prompt error propagation checks passed.");
 const worktreeRuntime = createRuntime({ role: 'assistant', content: [{ type: 'text', text: 'ok' }], stopReason: 'stop' });
 await runZyraPrompt(worktreeRuntime, 'Fix the selected file.', { startInNewWorktree: true });
 assert.equal(worktreeRuntime.session.observedPrompt, 'Fix the selected file.', 'The setup preference does not alter the visible user prompt');
-assert.match(worktreeRuntime.session.observedSystemPrompt, /ZYRA_NEW_WORKTREE/);
-assert.match(worktreeRuntime.session.observedSystemPrompt, /create a new isolated Git worktree/);
-assert.doesNotMatch(worktreeRuntime.session.agent.state.systemPrompt, /ZYRA_NEW_WORKTREE/, 'Setup context is removed after the turn');
+const worktreeContext = worktreeRuntime.session.observedPromptOptions.contextMessages.find(message => message.customType === 'zyra_new_worktree_context');
+assert.equal(worktreeContext.display, false);
+assert.match(worktreeContext.content[0].text, /create a new isolated Git worktree/);
+assert.doesNotMatch(worktreeRuntime.session.observedSystemPrompt, /new isolated Git worktree/, 'Turn context cannot rewrite the reusable system prefix');
 await runZyraPrompt(worktreeRuntime, 'Continue.');
-assert.doesNotMatch(worktreeRuntime.session.observedSystemPrompt, /ZYRA_NEW_WORKTREE/, 'Later prompts cannot inherit the setup request');
+assert.equal(worktreeRuntime.session.observedPromptOptions.contextMessages.some(message => message.customType === 'zyra_new_worktree_context'), false, 'Later prompts do not append the setup request again');
 const failedWorktreeRuntime = createRuntime(usageLimitMessage);
 await assert.rejects(runZyraPrompt(failedWorktreeRuntime, 'Fix it.', { startInNewWorktree: true }), /usage limit/);
 assert.doesNotMatch(failedWorktreeRuntime.session.agent.state.systemPrompt, /ZYRA_NEW_WORKTREE/, 'A failed turn also clears the temporary request');
@@ -124,7 +125,8 @@ try {
   assert.equal(skillMessages.length, 1);
   assert.equal(skillMessages[0].display, false);
   assert.equal(skillRuntime.session.observedPromptOptions.contextMessages.length, 1, 'Skill context is submitted as part of the accepted original prompt, not as an independent turn');
-  assert.match(skillMessages[0].content, /Synthetic skill instructions/);
+  const contextText = message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text || '').join('\n');
+  assert.match(contextText(skillMessages[0]), /Synthetic skill instructions/);
   assert.equal(skillRuntime.session.observedPromptOptions.expandPromptTemplates, false, 'The native SDK cannot expand the visible reference again');
   const modelRequestText = convertToLlm(skillRuntime.session.state.messages).flatMap(message => typeof message.content === 'string' ? [message.content] : message.content.filter(block => block.type === 'text').map(block => block.text)).join('\n');
   assert.equal(modelRequestText.split('whats this for?').length - 1, 1, 'Actual model context must receive the skill request only once');
@@ -146,14 +148,14 @@ try {
   await runZyraPrintPrompt(skillRuntime, '/skill:fixture-skill describe it');
   assert.equal(skillRuntime.session.observedPrompt, '/skill:fixture-skill describe it', 'Print prompts retain the same context boundary');
   assert.equal(skillMessages.length, 2);
-  assert.doesNotMatch(skillMessages.at(-1).content, /User: describe it/, 'Print skill context excludes the repeated user request');
+  assert.doesNotMatch(contextText(skillMessages.at(-1)), /User: describe it/, 'Print skill context excludes the repeated user request');
   skillRuntime.session.isStreaming = true;
   for (const mode of ['steer', 'queue']) {
     assert.equal(await queueZyraMidRunInput(skillRuntime, '/skill:fixture-skill continue', { mode }), mode);
     const delivery = mode === 'queue' ? 'followUp' : 'steer';
     assert.equal(skillRuntime.session.observedPromptOptions.streamingBehavior, delivery, 'Skill context shares the original queued prompt delivery');
     assert.equal(skillRuntime.session.observedPrompt, '/skill:fixture-skill continue');
-    assert.doesNotMatch(skillMessages.at(-1).content, /User: continue/, 'Queued and steering skill context excludes the repeated request');
+    assert.doesNotMatch(contextText(skillMessages.at(-1)), /User: continue/, 'Queued and steering skill context excludes the repeated request');
     assert.equal(skillRuntime.session.observedPromptOptions.streamingBehavior, delivery);
     assert.equal(skillRuntime.session.observedPromptOptions.expandPromptTemplates, false);
   }

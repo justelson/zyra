@@ -35,3 +35,19 @@ The Full Send task helper writes private records below the current project's `.z
 - `node scripts/test-installed-agent-tooling.mjs [installed-pi-package-root]`: optional local installation check using Pi's bundled SDK, without a model request.
 
 These checks do not prove real Windows/Chrome control or OS notification delivery. Those require an activated Desktop host and an authorized target.
+
+## Offline tool-log benchmarks
+
+`npm run test:tool-log-benchmark` covers action-label validation, compact fleet responses and the offline replay analyzer. Action labels accept bounded generated text and retain a 72-character display limit. Fleet JSON removes formatting whitespace while preserving values and the existing output budget.
+
+`scripts/benchmark-chat-tools.mjs` consumes a private frozen corpus and a pre-change schema snapshot:
+
+```sh
+node scripts/benchmark-chat-tools.mjs --corpus <private-corpus.json> --baseline <private-baseline.json> --out <private-report.json>
+```
+
+The corpus is `{version:1, selection:"description", sessions:[{path:"absolute-session.jsonl", bytes:1234}]}`. Freeze each source's byte length before a run. The baseline is `{actionBatchSchema:<pre-change tool parameter schema>}`. Keep both files under ignored `docs.local/`. The reader streams only the frozen prefix, records its SHA-256, deduplicates inherited tool-call/result IDs and separates text from image data. Reports contain counts, sizes and validation outcomes, without chat text, arguments, file paths, model reasoning or tool output. Source logs are never written, and historical external tools are never executed.
+
+The replay validates recorded action-label arguments against both schemas and passes recorded JSON values through the current local fleet serializer. It cannot establish model accuracy, end-to-end task success, token savings or future subscription cost. Errors and incomplete/non-JSON responses remain explicit exclusions from the serialization comparison.
+
+Desktop `npm run test:tool-discovery` checks current and historical loader names, both display modes, lifecycle states and real hidden Electron rendering at desktop and narrow widths. Discovery rows have no details control, lazy hydration or payload rendering. Real control actions retain their details. Android uses the same plain-row rule; the focused JVM targets are `WorkActionsTest` and `WorkSegmentsTest`.

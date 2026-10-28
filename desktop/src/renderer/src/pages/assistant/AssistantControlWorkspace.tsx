@@ -175,8 +175,8 @@ export function AssistantThreadDetailsWorkspace({
         selection.threadId,
         selection.knownModels,
         sessionTurnUsage?.totals || null,
-        settings.assistantContextCompactionThresholdTokens
-    ), [selection.knownModels, selection.threadId, sessionTurnUsage?.totals, sessionTurnUsage?.turns, settings.assistantContextCompactionThresholdTokens])
+        settings.assistantModelCompactionOverrides
+    ), [selection.knownModels, selection.threadId, sessionTurnUsage?.totals, sessionTurnUsage?.turns, settings.assistantModelCompactionOverrides])
     const threadControl = useMemo(
         () => selectAssistantThreadControl(controlState, selection.threadId),
         [controlState, selection.threadId]

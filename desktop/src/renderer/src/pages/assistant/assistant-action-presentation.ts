@@ -4,9 +4,11 @@ import { splitAssistantReadOutput } from '@shared/assistant/read-activity'
 import {
     getActivityCommand,
     getActivityOutput,
-    getActivityPaths
+    getActivityPaths,
+    getActivityStatus
 } from './assistant-timeline-helpers'
 import { getAssistantRelativeFilePath } from './assistant-file-navigation'
+import { getAssistantReadFilePresentation } from './assistant-read-presentation'
 
 export type AssistantActionFamily =
     | 'command'
@@ -65,6 +67,11 @@ export function getAssistantActivityToolName(activity: AssistantActivity): strin
 
 export function getAssistantActivityArgs(activity: AssistantActivity): Record<string, unknown> {
     return record(activity.payload?.args) || {}
+}
+
+/** Loading definitions is a status row, not an inspectable computer action. */
+export function isAssistantToolDiscoveryActivity(activity: AssistantActivity): boolean {
+    return /^(?:mcp__zyra__|functions\.)?(?:tool_search|zyra_tool_search|browser_use)$/i.test(getAssistantActivityToolName(activity))
 }
 
 function getResultDetails(activity: AssistantActivity): Record<string, unknown> {
@@ -179,7 +186,7 @@ export function getAssistantActionTitle(
     projectRootPath?: string | null
 ): string {
     if (isPluginActivity(activity)) return describePluginActivity(activity).title
-    if (getAssistantActivityToolName(activity) === 'tool_search') return 'Getting computer use tools'
+    if (isAssistantToolDiscoveryActivity(activity)) return 'Getting available tools'
     const family = getAssistantActionFamily(activity)
     const args = getAssistantActivityArgs(activity)
     const paths = getActivityPaths(activity)
@@ -198,7 +205,6 @@ export function getAssistantActionTitle(
     }
     if (family === 'search') return query ? `Searching ${query}` : 'Searching the project'
     if (family === 'browser') {
-        if (getAssistantActivityToolName(activity) === 'browser_use') return 'Getting browser tools'
         const stageIntent = shortIntentTarget(text(record(args.stage)?.summary))
         return stageIntent || operationIntent(text(record(args.action)?.type) || operation || getAssistantActivityToolName(activity).replace(/^browser_/, ''), hostLabel(readActionUrl(activity)), 'browser')
     }
@@ -303,19 +309,25 @@ export function getAssistantSkillName(activity: AssistantActivity): string | nul
     return skillPath?.replace(/\\/g, '/').match(/\/skills\/([^/]+)\/SKILL\.md$/i)?.[1] || null
 }
 
-export function getAssistantCapturedRead(activity: AssistantActivity): {
+export function getAssistantReadEvidence(activity: AssistantActivity) {
+    const path = getActivityPaths(activity)[0] || ''
+    const output = typeof activity.payload?.output === 'string' ? activity.payload.output : getActivityOutput(activity)
+    return {
+        path, output,
+        ...getAssistantReadFilePresentation({ path, output, result: activity.payload?.result, partialResult: activity.payload?.partialResult, readIsImage: activity.payload?.readIsImage, imageAttachments: activity.payload?.imageAttachments, historyImageCount: record(activity.payload?.historyBodyRef)?.imageCount })
+    }
+}
+
+export function getAssistantCapturedRead(activity: AssistantActivity, evidence = getAssistantReadEvidence(activity)): {
     path: string
     content: string
     startLine: number | null
     endLine: number | null
     totalLines: number | null
 } | null {
-    const path = getActivityPaths(activity)[0]
-    if (!path) return null
-    const rawOutput = typeof activity.payload?.output === 'string'
-        ? activity.payload.output
-        : getActivityOutput(activity)
-    const split = splitAssistantReadOutput(rawOutput)
+    const { path } = evidence
+    if (!path || evidence.kind !== 'text' || getActivityStatus(activity) !== 'success') return null
+    const split = splitAssistantReadOutput(evidence.output)
     return {
         path,
         content: split.content,

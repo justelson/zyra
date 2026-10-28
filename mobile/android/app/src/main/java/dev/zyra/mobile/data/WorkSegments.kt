@@ -16,7 +16,7 @@ fun workSegments(group: ChatRailRow.Work, showThoughtProcesses: Boolean, showQue
         val action = actions[item.id]
         if (action != null) {
             val previous = result.lastOrNull() as? WorkSegment.Actions
-            if (previous != null) result[result.lastIndex] = WorkSegment.Actions(previous.actions + action)
+            if (previous != null && !action.isToolDiscovery && previous.actions.none { it.isToolDiscovery }) result[result.lastIndex] = WorkSegment.Actions(previous.actions + action)
             else result.add(WorkSegment.Actions(listOf(action)))
         } else if (if (item.kind == "user_input_requested") showQuestions
             else item.kind != "resolved" && (item.text.isNotBlank() || showThoughtProcesses && item.reasoning.isNotBlank())) {

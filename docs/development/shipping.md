@@ -14,6 +14,14 @@ Source changes and installer publication are separate operations. Use short-live
 
 [Fast validation](fast-validation.md) names the owning tests. Quick checks are not full release acceptance. Unknown or cross-platform behavior needs explicit broader validation; do not claim it passed from a focused test.
 
+## Pre-install agent handoff
+
+Native update entry points flag the bundled agent update before installation. A custom Zyra dialog lists observed blockers and offers **Stop all and update** or **Later**. Stop applies only to the selected Runtime namespace and instance. Unknown state, older connected clients or unconfirmed cleanup block installation. Later does not schedule installation when a turn ends.
+
+Manual Windows installers notify an already capable installed app with an installation-scoped nonce, never an executable/path argument. The app shows the same dialog, persists state and acknowledges only at normal `will-quit`. Automatic Windows updates also wait for a matching post-save permission. The installer waits for the exact application image to release its lock rather than using image-name process kills. A success receipt is written after file installation and before launch. First/legacy installations cannot use a dialog absent from the old app; bootstrap/migration and actual OS-upgrade acceptance must be verified separately. The one-off WinForms turn-end helper is not a production path.
+
+If installation fails before code changes, Settings can resume the verified previous agent after confirming the installer is absent. Partially replaced or unknown code stays blocked and requires repair. These are source contracts, not evidence of an installed upgrade; run the owning gates in [fast validation](fast-validation.md).
+
 ## Delivery evidence and active runtime
 
 Track five checkpoints separately. A later checkpoint is never inferred from an earlier one.

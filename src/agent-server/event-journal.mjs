@@ -8,7 +8,7 @@ const MAX_JOURNAL_BYTES = 8 * 1024 * 1024;
 const MAX_DURABLE_EVENT_BYTES = 1024 * 1024;
 // Live sessions replay these from ServerOwnedSession memory. Persisting every token/update
 // synchronously blocks the shared server event loop and delays the turn completion itself.
-const TRANSIENT_EVENT_TYPES = new Set(["message_update", "tool_execution_update"]);
+const TRANSIENT_EVENT_TYPES = new Set(["message_update", "tool_execution_update", "model_request_progress"]);
 
 export class AgentEventJournal {
   get entries() { return this.window.entries; }

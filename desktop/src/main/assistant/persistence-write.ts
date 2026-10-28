@@ -1,4 +1,5 @@
 import { encodeApprovalScope } from './approval-persistence'
+import { readChatWorkContext } from '../../shared/assistant/work-context'
 import { reconcileAssistantPersistedRequestIdentity } from './persistence-request-identity'
 import { readFleetSnapshot, writeFleetSnapshot } from './fleet-persistence'
 import { remapAssistantFleetRoot, shouldApplyAssistantFleetSnapshot } from '../../shared/assistant/fleet-projection'
@@ -115,6 +116,7 @@ export function persistAssistantEvent(db: SqlDatabase, event: AssistantDomainEve
                 db.run('DELETE FROM assistant_meta WHERE key = ?', [`canonicalSettlement:${event.payload['sessionId']}`])
                 db.run('DELETE FROM assistant_meta WHERE key = ?', [`manualTitle:${event.payload['sessionId']}`])
                 db.run('DELETE FROM assistant_meta WHERE key = ?', [`forkOrigin:${event.payload['sessionId']}`])
+                db.run('DELETE FROM assistant_meta WHERE key = ?', [`workContext:${event.payload['sessionId']}`])
                 break
             case 'thread.created':
                 if (session && thread) {
@@ -262,6 +264,7 @@ export function replaceAssistantSnapshot(db: SqlDatabase, snapshot: AssistantSna
         db.run("DELETE FROM assistant_meta WHERE key LIKE 'canonicalSettlement:%'")
         db.run("DELETE FROM assistant_meta WHERE key LIKE 'manualTitle:%'")
         db.run("DELETE FROM assistant_meta WHERE key LIKE 'forkOrigin:%'")
+        db.run("DELETE FROM assistant_meta WHERE key LIKE 'workContext:%'")
         db.run('DELETE FROM assistant_playground_labs')
 
         persistAssistantSnapshotMeta(db, snapshot)
@@ -334,6 +337,7 @@ function upsertAssistantSession(db: SqlDatabase, session: AssistantSession): voi
     ])
     if (session.chatScope !== undefined) upsertAssistantChatScope(db, session.id, session.chatScope)
     if (session.forkOrigin) upsertAssistantMeta(db, `forkOrigin:${session.id}`, jsonStringify(session.forkOrigin))
+    if (session.workContext !== undefined) upsertAssistantMeta(db, `workContext:${session.id}`, jsonStringify(readChatWorkContext(session.workContext)))
     if (typeof session.titleManuallySet === 'boolean') upsertAssistantMeta(db, `manualTitle:${session.id}`, jsonStringify(session.titleManuallySet))
     // This is a cached server projection, never a local settlement decision.
     if (typeof session.settled === 'boolean') upsertAssistantMeta(db, `canonicalSettlement:${session.id}`, jsonStringify({ settled: session.settled, settlementManual: session.settlementManual === true }))

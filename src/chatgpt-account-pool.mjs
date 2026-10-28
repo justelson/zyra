@@ -5,6 +5,18 @@ import { readChatGptRouting, chatGptUsageAvailability } from './chatgpt-routing-
 export const CHATGPT_PROVIDER = 'openai-codex';
 const ACCOUNT_PREFIX = 'openai-codex.account.';
 const pools = new Map();
+const AFFINITY_TTL_MS = 24 * 60 * 60_000;
+const MAX_AFFINITIES = 256;
+const affinityKey = sessionId => typeof sessionId === 'string' && sessionId.length > 0
+  ? createHash('sha256').update(sessionId).digest('hex') : undefined;
+
+function readAffinities(entries, now) {
+  const owner = entries.find(entry => entry.key === CHATGPT_PROVIDER) || entries[0];
+  const known = new Set(entries.map(entry => entry.id));
+  return Object.fromEntries(Object.entries(owner?.credential.pool?.conversationAffinities || {})
+    .filter(([, value]) => value?.usedAt > now - AFFINITY_TTL_MS && known.has(value.id))
+    .sort((a, b) => b[1].usedAt - a[1].usedAt).slice(0, MAX_AFFINITIES));
+}
 
 function claims(token) {
   try { return JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8')); }
@@ -46,7 +58,8 @@ export async function updateChatGptAccount(store, id, update, options = {}) {
       if (entry.key !== CHATGPT_PROVIDER) {
         const previous = values[CHATGPT_PROVIDER];
         values[CHATGPT_PROVIDER] = { ...entry.credential, pool: { ...entry.credential.pool,
-          ...(previous?.pool?.lastPickedByModel ? { lastPickedByModel: previous.pool.lastPickedByModel } : {}) } };
+          ...(previous?.pool?.lastPickedByModel ? { lastPickedByModel: previous.pool.lastPickedByModel } : {}),
+          ...(previous?.pool?.conversationAffinities ? { conversationAffinities: previous.pool.conversationAffinities } : {}) } };
         if (previous) values[entry.key] = previous;
         else delete values[entry.key];
       }
@@ -54,7 +67,8 @@ export async function updateChatGptAccount(store, id, update, options = {}) {
       delete values[entry.key];
       if (entry.key === CHATGPT_PROVIDER) {
         const replacement = chatGptAccountEntries(values)[0];
-        if (replacement) { values[CHATGPT_PROVIDER] = replacement.credential; delete values[replacement.key]; }
+        if (replacement) { values[CHATGPT_PROVIDER] = { ...replacement.credential, pool: { ...replacement.credential.pool,
+          ...(entry.credential.pool?.conversationAffinities ? { conversationAffinities: entry.credential.pool.conversationAffinities } : {}) } }; delete values[replacement.key]; }
       }
     } else {
       if (typeof update.enabled !== 'boolean') throw new TypeError('Choose whether this ChatGPT account is enabled.');
@@ -86,10 +100,12 @@ export class ChatGptAccountPool {
 
   now() { return typeof this.options.now === 'function' ? this.options.now() : this.options.now ?? Date.now(); }
 
-  async resolve(model = '*', signal) {
+  async resolve(model = '*', signal, sessionId) {
     const [values, policy] = await Promise.all([this.store.snapshot({ signal }), readChatGptRouting(this.store.authPath)]);
     const entries = chatGptAccountEntries(values).filter(entry => !entry.credential.pool?.disabled && !entry.credential.pool?.requiresLogin
       && (policy.accountMode === 'all' || policy.accountIds.includes(entry.id)) && !chatGptUsageAvailability(entry.credential.pool, model, this.now()).until);
+    const preferredId = readAffinities(chatGptAccountEntries(values), this.now())[affinityKey(sessionId)]?.id;
+    entries.sort((a, b) => Number(b.id === preferredId) - Number(a.id === preferredId));
     for (const entry of entries) {
       try { return { id: entry.id, credential: await this.credential(entry.id, { signal }) }; }
       catch (error) { signal?.throwIfAborted(); if (error.code !== 'ZYRA_AUTH_REAUTH_REQUIRED') throw error; await this.markFailure(entry.id, '*', { status: 401, expectedAccess: entry.credential.access }); }
@@ -115,7 +131,7 @@ export class ChatGptAccountPool {
     });
   }
 
-  async acquire(model, excluded = new Set(), signal) {
+  async acquire(model, excluded = new Set(), signal, sessionId) {
     signal?.throwIfAborted();
     let selected, credential;
     const reservation = randomUUID();
@@ -145,14 +161,26 @@ export class ChatGptAccountPool {
         }
         const primary = entries.find(entry => entry.key === CHATGPT_PROVIDER);
         const previous = primary?.credential.pool.lastPickedByModel?.[model] || '';
-        selected = policy.strategy === 'fill-first'
+        const conversation = affinityKey(sessionId);
+        const affinities = readAffinities(entries, now);
+        const preferred = conversation && available.find(entry => entry.id === affinities[conversation]?.id);
+        selected = preferred || (policy.strategy === 'fill-first'
           ? available.find(entry => entry.id === policy.preferredAccountId) || available.find(entry => entry.key === CHATGPT_PROVIDER) || ready[0]
-          : ready.find(entry => entry.id > previous) || ready[0];
+          : ready.find(entry => entry.id > previous) || ready[0]);
         // Selection and reservation share a file lock across session workers and processes.
         const refreshed = openAICodexCredentialNeedsRefresh(selected.credential, { now, refreshWindowMs: 300_000 })
           ? await refreshOpenAICodexCredential(selected.credential, { ...this.options, now }) : selected.credential;
         signal?.throwIfAborted();
-        if (primary) primary.credential.pool.lastPickedByModel = { ...primary.credential.pool.lastPickedByModel, [model]: selected.id };
+        // Follow-ups do not advance the start cursor, so active conversations cannot skew new starts.
+        if (primary) {
+          if (!preferred) primary.credential.pool.lastPickedByModel = { ...primary.credential.pool.lastPickedByModel, [model]: selected.id };
+          if (conversation) {
+            delete affinities[conversation];
+            affinities[conversation] = { id: selected.id, usedAt: now };
+            primary.credential.pool.conversationAffinities = Object.fromEntries(Object.entries({ [conversation]: affinities[conversation], ...affinities })
+              .sort((a, b) => b[1].usedAt - a[1].usedAt).slice(0, MAX_AFFINITIES));
+          }
+        }
         credential = { ...refreshed, pool: { ...selected.credential.pool, id: selected.id, lastUsedAt: new Date(now).toISOString(), requestCount: (selected.credential.pool.requestCount || 0) + 1,
           leases: { ...selected.credential.pool.leases, [reservation]: now + Math.max(1_800_000, Number(this.options.requestLeaseMs) || 0) } } };
         values[selected.key] = credential;

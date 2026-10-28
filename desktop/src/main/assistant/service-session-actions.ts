@@ -58,6 +58,10 @@ import {
 
 const activeUserInputResponses = new WeakMap<AssistantServiceActionDeps, Set<string>>()
 const pendingPromptSubmissions = new WeakMap<AssistantServiceActionDeps, Map<string, { turnId: string; cancelled: boolean }>>()
+export function countPendingAssistantSubmissions(deps: AssistantServiceActionDeps): number { return pendingPromptSubmissions.get(deps)?.size || 0 }
+export function cancelPendingAssistantSubmissions(deps: AssistantServiceActionDeps): void {
+    for (const submission of pendingPromptSubmissions.get(deps)?.values() || []) submission.cancelled = true
+}
 
 async function connectAssistantSessionRuntime(
     deps: AssistantServiceActionDeps,
@@ -655,7 +659,7 @@ export async function sendAssistantPromptAction(
             profile: options?.profile,
             images: promptImages.length > 0 ? promptImages : undefined,
             reasoningSummary: runtimePolicy.reasoningSummary,
-            contextCompactionThresholdTokens: runtimePolicy.contextCompactionThresholdTokens
+            modelCompactionOverrides: runtimePolicy.modelCompactionOverrides
         })
         if (submission.cancelled) await deps.runtime.interruptTurn(runtimeThreadId, result.turnId)
         // Runtime events may already have completed the turn; do not rewind it.
@@ -705,6 +709,20 @@ export async function sendAssistantPromptAction(
     } finally {
         if (pendingSubmissions.get(thread.id) === submission) pendingSubmissions.delete(thread.id)
     }
+}
+
+export async function pingAssistantModelAction(
+    deps: AssistantServiceActionDeps,
+    input: { sessionId: string; turnId: string; requestId: string }
+) {
+    await deps.ensureReady()
+    if (!input || !input.sessionId || !input.turnId || !input.requestId || input.requestId.length > 200) throw new Error('An exact Chat, turn and model request are required.')
+    const session = requireSession(deps.getSnapshot(), input.sessionId)
+    const thread = requireActiveThread(session)
+    if (thread.latestTurn?.id !== input.turnId || thread.latestTurn.state !== 'running') throw new Error('The active turn changed. Nothing was pinged.')
+    if (!deps.runtime.pingModel) throw new Error('This agent version does not support Ping.')
+    await deps.runtime.pingModel(getAssistantCanonicalThreadId(thread), input.turnId, input.requestId)
+    return { success: true as const }
 }
 
 export async function interruptAssistantTurnAction(

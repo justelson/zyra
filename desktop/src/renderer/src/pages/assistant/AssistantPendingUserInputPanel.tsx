@@ -10,6 +10,7 @@ import {
     type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { Plus } from 'lucide-react'
+import { getAssistantClipboardFiles } from './assistant-clipboard-files'
 import AssistantAttachmentPreviewModal from './AssistantAttachmentPreviewModal'
 import {
     buildTextAttachmentFromPaste,
@@ -26,6 +27,10 @@ import type {
     AssistantUserInputAnswer,
 } from '@shared/assistant/contracts'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/lib/settings'
+import { useAssistantSpeechInput } from './useAssistantSpeechInput'
+import { AssistantQuestionTransition } from './AssistantQuestionTransition'
+import { ASSISTANT_COMPOSER_FOCUS_CLASS_NAME } from './assistant-composer-focus'
 import {
     AssistantPendingUserInputFooter,
     AssistantPendingUserInputStage,
@@ -72,6 +77,9 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     isConnecting?: boolean
 }) {
     const { pendingUserInputs, responding, onRespond } = props
+    const { settings } = useSettings()
+    const questionVoiceBusyRef = useRef(false)
+    const [voiceAdvance, setVoiceAdvance] = useState<{ requestId: string; questionId: string; text: string } | null>(null)
     const activePrompt = useMemo(() => {
         const prompt = pendingUserInputs[0]
         return prompt
@@ -94,6 +102,14 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     const submittingRef = useRef(false)
     const [pasteError, setPasteError] = useState<string | null>(null)
     const [attaching, setAttaching] = useState(0)
+    const attachmentRequestRef = useRef(questionComposerSessionId)
+    attachmentRequestRef.current = questionComposerSessionId
+    useEffect(() => {
+        attachmentRequestRef.current = questionComposerSessionId
+        setAttaching(0)
+        setPasteError(null)
+        return () => { attachmentRequestRef.current = null }
+    }, [questionComposerSessionId])
     const composerDisabledReason = deriveAssistantComposerDisabledReason({
         sessionId: props.sessionId,
     })
@@ -107,9 +123,8 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     const [questionShellOpen, setQuestionShellOpen] = useState(false)
     const [questionShellMinimized, setQuestionShellMinimized] = useState(false)
     const [returnToReview, setReturnToReview] = useState(false)
-    const [expandedOptionKey, setExpandedOptionKey] = useState<string | null>(null)
+    const [finishingQuestions, setFinishingQuestions] = useState(false)
     const customTextareaRef = useRef<HTMLTextAreaElement | null>(null)
-    const animatedStepRef = useRef<HTMLDivElement | null>(null)
     const suppressDraftPersistenceRequestIdRef = useRef<string | null>(null)
 
     const composerController = useAssistantComposerController({
@@ -178,9 +193,10 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
 
     useLayoutEffect(() => {
         if (!activePrompt) {
+            setQuestionShellOpen(false)
             setQuestionIndex(0)
             setReturnToReview(false)
-            setExpandedOptionKey(null)
+            setFinishingQuestions(false)
             setQuestionShellMinimized(false)
             return
         }
@@ -203,10 +219,10 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             [activePrompt.requestId]:
                 persistedDraft?.customQuestionId ?? current[activePrompt.requestId] ?? null,
         }))
-        setQuestionShellOpen(false)
+        setQuestionShellOpen(true)
         setQuestionShellMinimized(false)
         setReturnToReview(persistedDraft?.returnToReview ?? false)
-        setExpandedOptionKey(null)
+        setFinishingQuestions(persistedDraft?.finishingQuestions ?? false)
         setQuestionIndex(restoredQuestionIndex)
     }, [activePrompt?.requestId])
 
@@ -221,6 +237,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             questionIndex,
             customQuestionId: customQuestionIdByRequestId[activePrompt.requestId] || null,
             returnToReview,
+            finishingQuestions,
         })
     }, [
         activeDraftAnswers,
@@ -228,17 +245,8 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         customQuestionIdByRequestId,
         questionIndex,
         returnToReview,
+        finishingQuestions,
     ])
-
-    useEffect(() => {
-        setExpandedOptionKey(null)
-    }, [activePrompt?.requestId, questionIndex])
-
-    useEffect(() => {
-        if (!activePrompt) return
-        const frame = window.requestAnimationFrame(() => setQuestionShellOpen(true))
-        return () => window.cancelAnimationFrame(frame)
-    }, [activePrompt?.requestId])
 
     const updateDraftAnswer = useCallback(
         (questionId: string, answer: AssistantUserInputAnswer) => {
@@ -380,7 +388,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     )
 
     const handleAdvance = useCallback(async () => {
-        if (!activePrompt || !progress || attaching || responding || submittingRef.current) return
+        if (!activePrompt || !progress || attaching || responding || submittingRef.current || questionVoiceBusyRef.current) return
         const nextAnswers =
             !progress.isReviewStep && stepQuestion && !progress.hasAnswer
                 ? {
@@ -397,7 +405,14 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             nextAnswers,
         )
 
-        if (progress.isReviewStep || activePrompt.questions.length === 1 && canAdvanceStep && composerController.contextFiles.length === 0 && stepQuestion && !isAssistantUserInputMultiValueQuestion(stepQuestion)) {
+        if (progress.isReviewStep && !resolvedAnswers) {
+            setQuestionIndex(findFirstUnansweredAssistantPendingUserInputQuestionIndex(activePrompt.questions, nextAnswers))
+            setReturnToReview(true)
+            setFinishingQuestions(true)
+            return
+        }
+
+        if (progress.isReviewStep || !finishingQuestions && activePrompt.questions.length === 1 && canAdvanceStep && composerController.contextFiles.length === 0 && stepQuestion && !isAssistantUserInputMultiValueQuestion(stepQuestion)) {
             if (!resolvedAnswers) return
             submittingRef.current = true
             try {
@@ -422,6 +437,16 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         if (!canAdvanceStep) return
         if (stepQuestion && nextAnswers !== activeDraftAnswers)
             updateDraftAnswer(stepQuestion.id, nextAnswers[stepQuestion.id])
+        if (finishingQuestions) {
+            if (!resolvedAnswers) {
+                setQuestionIndex(findFirstUnansweredAssistantPendingUserInputQuestionIndex(activePrompt.questions, nextAnswers))
+                return
+            }
+            setFinishingQuestions(false)
+            setReturnToReview(false)
+            setQuestionIndex(activePrompt.questions.length)
+            return
+        }
         if (returnToReview) {
             setQuestionIndex(activePrompt.questions.length)
             setReturnToReview(false)
@@ -445,6 +470,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         questionComposerSessionId,
         responding,
         returnToReview,
+        finishingQuestions,
         stepQuestion,
         updateDraftAnswer,
     ])
@@ -464,6 +490,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         if (!activePrompt || !activeQuestion || responding) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (questionVoiceBusyRef.current) return
             if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing || event.key === 'Process') return
             const target = event.target
             if (target instanceof HTMLElement && target.isContentEditable) return
@@ -533,7 +560,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         const textarea = customTextareaRef.current
         if (!textarea) return
         textarea.style.height = 'auto'
-        textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 180)}px`
+        textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 67.2), 120)}px`
     }, [progress?.selectedAnswer, progress?.isReviewStep])
 
     const activeQuestion = progress?.activeQuestion || null
@@ -541,12 +568,8 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     const activeCustomQuestionId = activePrompt
         ? customQuestionIdByRequestId[activePrompt.requestId] || null
         : null
-    const showAnswerComposer = Boolean(
-        activeQuestion &&
-        (activeQuestion.type === 'text' ||
-            (activeQuestion.allowOther &&
-                !['number', 'date', 'ranking'].includes(activeQuestion.type))),
-    )
+    const showAnswerComposer = Boolean(activeQuestion && !['ranking', 'number', 'date'].includes(activeQuestion.type))
+    const canDictateAnswer = Boolean(activeQuestion && activeQuestion.type !== 'ranking')
     const customAnswerValue =
         activeQuestion && Array.isArray(progress?.selectedAnswer)
             ? progress.selectedAnswer.find(
@@ -565,18 +588,18 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
     const actionLabel = responding
         ? 'Submitting'
         : isReviewStep
-          ? 'Submit'
+          ? answeredAllQuestions ? 'Submit' : 'Finish questions'
           : attaching
             ? 'Adding files'
             : canSkipStep
               ? 'Skip'
-              : activePrompt?.questions.length === 1 && composerController.contextFiles.length === 0 && activeQuestion && !isAssistantUserInputMultiValueQuestion(activeQuestion) ? 'Submit answer' : 'Continue'
-    const canAdvance = isReviewStep ? answeredAllQuestions && !attaching : canAdvanceStep
-    const reviewAnswers = (activePrompt?.questions || []).map((question, index) => ({
-        question,
-        index,
-        answer: formatAssistantUserInputAnswer(question, activeDraftAnswers[question.id]),
-    }))
+              : !finishingQuestions && activePrompt?.questions.length === 1 && composerController.contextFiles.length === 0 && activeQuestion && !isAssistantUserInputMultiValueQuestion(activeQuestion) ? 'Submit answer' : 'Continue'
+    const canAdvance = isReviewStep ? !attaching : canAdvanceStep
+    const reviewAnswers = (activePrompt?.questions || []).map((question, index) => {
+        const complete = isAssistantUserInputAnswerComplete(question, activeDraftAnswers[question.id], Object.prototype.hasOwnProperty.call(activeDraftAnswers, question.id))
+        const answer = formatAssistantUserInputAnswer(question, activeDraftAnswers[question.id])
+        return { question, index, answer: !complete && answer === 'Skipped' ? 'Not answered' : answer, complete }
+    })
     const composerCapabilities = deriveAssistantComposerCapabilities({
         mode: 'guided',
         disabled: composerController.disabled,
@@ -592,6 +615,38 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         isResponding: responding,
         isReviewStep,
     })
+    const questionVoiceDisabled = !settings.assistantTranscriptionEnabled || !canDictateAnswer || composerCapabilities.voiceDisabled
+    const setDictatedAnswer = useCallback((value: string | ((current: string) => string)) => {
+        if (!activeQuestion) return
+        handleCustomAnswerChange(activeQuestion.id, typeof value === 'function' ? value(customAnswerValue) : value)
+    }, [activeQuestion, customAnswerValue, handleCustomAnswerChange])
+    const questionVoiceInput = useAssistantSpeechInput({
+        text: customAnswerValue,
+        setText: setDictatedAnswer,
+        setComposerCursor: composerController.setComposerCursor,
+        textareaRef: customTextareaRef,
+        disabled: questionVoiceDisabled,
+        isConnected: props.assistantConnected,
+        engine: settings.assistantTranscriptionEngine,
+        scopeKey: `${questionComposerSessionId}:${activeQuestion?.id || 'review'}`,
+        onSubmitTranscript: text => {
+            if (activePrompt && activeQuestion) setVoiceAdvance({ requestId: activePrompt.requestId, questionId: activeQuestion.id, text })
+        },
+    })
+    const questionVoiceBusy = questionVoiceInput.isStarting || questionVoiceInput.isRecording || questionVoiceInput.isTranscribing
+    questionVoiceBusyRef.current = questionVoiceBusy
+    const showQuestionRecorder = settings.assistantTranscriptionEngine === 'codex' && (questionVoiceInput.isRecording || questionVoiceInput.isTranscribing)
+    useEffect(() => {
+        if (!voiceAdvance) return
+        if (voiceAdvance.requestId !== activePrompt?.requestId || voiceAdvance.questionId !== activeQuestion?.id || questionVoiceDisabled) {
+            setVoiceAdvance(null)
+            return
+        }
+        if (questionVoiceBusy || customAnswerValue !== voiceAdvance.text) return
+        setVoiceAdvance(null)
+        void handleAdvance()
+    }, [voiceAdvance, activePrompt?.requestId, activeQuestion?.id, questionVoiceDisabled, questionVoiceBusy, customAnswerValue, handleAdvance])
+
     const composerStatusToneClass =
         composerCapabilities.tone === 'warning'
             ? 'text-amber-200'
@@ -622,44 +677,16 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         [activeQuestion, canAdvanceStep, handleAdvance, isReviewStep, responding],
     )
 
-    useEffect(() => {
-        const container = animatedStepRef.current
-        if (!container || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-
-        const animatedNodes = Array.from(
-            container.querySelectorAll<HTMLElement>('[data-guided-animate]'),
-        )
-        animatedNodes.forEach((node, index) => {
-            node.animate(
-                [
-                    {
-                        opacity: 0,
-                        transform: 'translateY(14px) scale(0.982)',
-                        filter: 'blur(3px)',
-                    },
-                    {
-                        opacity: 1,
-                        transform: 'translateY(0) scale(1)',
-                        filter: 'blur(0px)',
-                    },
-                ],
-                {
-                    duration: 280 + index * 48,
-                    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-                    fill: 'both',
-                },
-            )
-        })
-    }, [animatedStageKey])
-
     const attachQuestionFile = async (file: File, source: 'paste' | 'manual') => {
+        const owner = questionComposerSessionId
         setAttaching((count) => count + 1)
         try {
+            // Shares the composer binary-video persistence/classification path.
             await composerController.attachFile(file, source)
         } catch {
-            setPasteError('Could not attach this file. Try again.')
+            if (attachmentRequestRef.current === owner) setPasteError('Could not attach this file. Try again.')
         } finally {
-            setAttaching((count) => count - 1)
+            if (attachmentRequestRef.current === owner) setAttaching((count) => Math.max(0, count - 1))
         }
     }
 
@@ -690,7 +717,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             return
         }
         setPasteError(null)
-        const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file')
+        const files = getAssistantClipboardFiles(event.clipboardData)
         const text = event.clipboardData.getData('text/plain')
         if (composerCapabilities.attachDisabled && (files.length > 0 || isLargeTextPaste(text))) {
             event.preventDefault()
@@ -701,10 +728,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         }
         if (files.length > 0) {
             event.preventDefault()
-            for (const item of files) {
-                const file = item.getAsFile()
-                if (file) void attachQuestionFile(file, 'paste')
-            }
+            for (const file of files) void attachQuestionFile(file, 'paste')
             return
         }
         if (text) {
@@ -718,47 +742,38 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         <div className="mx-auto w-full max-w-3xl" data-assistant-composer-hitbox="true">
             <div
                 ref={composerController.composerRootRef}
-                className="pointer-events-auto relative z-10"
+                className="pointer-events-none relative isolate"
             >
-                <div className="group rounded-[20px] border border-white/10 bg-sparkle-card transition-[border-color,box-shadow] duration-200">
-                    <div className="relative px-3 pb-1.5 pt-2 sm:px-4 sm:pt-2">
-                        <AssistantPendingUserInputStage
-                            questionShellOpen={questionShellOpen}
-                            questionShellMinimized={questionShellMinimized}
-                            animatedStepRef={animatedStepRef}
-                            isReviewStep={isReviewStep}
-                            activeQuestion={activeQuestion}
-                            activePrompt={activePrompt}
-                            pendingUserInputsLength={pendingUserInputs.length}
-                            progress={{
-                                questionIndex: progress.questionIndex,
-                                answeredQuestionCount: progress.answeredQuestionCount,
-                                hasAnswer: progress.hasAnswer,
-                                isReviewStep: progress.isReviewStep,
-                                isCustomAnswer: progress.isCustomAnswer,
-                                selectedAnswer: progress.selectedAnswer,
-                            }}
-                            reviewAnswers={reviewAnswers}
-                            responding={responding}
-                            returnToReview={returnToReview}
-                            expandedOptionKey={expandedOptionKey}
-                            customTextareaRef={customTextareaRef}
-                            composerCapabilities={composerCapabilities}
-                            setQuestionIndex={setQuestionIndex}
-                            setReturnToReview={setReturnToReview}
-                            setExpandedOptionKey={setExpandedOptionKey}
-                            onToggleQuestionShellMinimized={() =>
-                                setQuestionShellMinimized((current) => !current)
-                            }
-                            handleSelectOption={handleSelectOption}
-                            handleToggleOption={handleToggleOption}
-                            handleCustomAnswerChange={handleCustomAnswerChange}
-                            handleRankingChange={handleRankingChange}
-                            handleCustomTextareaKeyDown={handleCustomTextareaKeyDown}
-                        />
-
-                        {showAnswerComposer ? (
-                            <div data-guided-animate className="flex min-h-10 items-start gap-2">
+                <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 -mb-[17px]" data-question-shelf>
+                    <AssistantPendingUserInputStage
+                        questionShellOpen={questionShellOpen}
+                        questionShellMinimized={questionShellMinimized}
+                        motionKey={animatedStageKey}
+                        isReviewStep={isReviewStep}
+                        activeQuestion={activeQuestion}
+                        activePrompt={activePrompt}
+                        pendingUserInputsLength={pendingUserInputs.length}
+                        progress={progress}
+                        reviewAnswers={reviewAnswers}
+                        responding={responding || questionVoiceBusy}
+                        returnToReview={returnToReview}
+                        setQuestionIndex={setQuestionIndex}
+                        setReturnToReview={setReturnToReview}
+                        onToggleQuestionShellMinimized={() => setQuestionShellMinimized(current => !current)}
+                        handleSelectOption={handleSelectOption}
+                        handleToggleOption={handleToggleOption}
+                        handleCustomAnswerChange={handleCustomAnswerChange}
+                        handleRankingChange={handleRankingChange}
+                    />
+                </div>
+                <div data-question-composer="true" data-assistant-composer-frame="true"
+                    className={cn('pointer-events-auto group relative z-40 overflow-visible border transition-[background-color,border-radius,box-shadow,min-height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', ASSISTANT_COMPOSER_FOCUS_CLASS_NAME, showQuestionRecorder ? 'rounded-full' : 'rounded-[18px]', 'border-white/[0.09] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_18px_54px_rgba(0,0,0,0.30),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.045),inset_0_-1px_0_rgba(0,0,0,0.18)] backdrop-blur-md')}>
+                    <div className="pointer-events-none absolute inset-0 rounded-[inherit] bg-[linear-gradient(116deg,rgba(255,255,255,0.04),rgba(255,255,255,0.014)_26%,transparent_58%)] opacity-55" aria-hidden="true" />
+                    <div className="pointer-events-none absolute inset-x-4 top-0 h-px rounded-full bg-white/[0.08]" aria-hidden="true" />
+                    <AssistantQuestionTransition sectionKey={`${animatedStageKey}:${showQuestionRecorder ? 'voice' : 'answer'}`} animateContent={false}>
+                    <div className={cn('relative', !showQuestionRecorder && (showAnswerComposer ? 'px-3 pb-1.5 pt-2.5 sm:px-3.5 sm:pt-3' : 'px-3 pt-1.5'))}>
+                        {showAnswerComposer && !showQuestionRecorder ? (
+                            <div className="flex min-h-[50px] items-start gap-2">
                                 <button
                                     type="button"
                                     disabled={composerCapabilities.attachDisabled}
@@ -766,7 +781,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
                                         composerController.filePickerRef.current?.click()
                                     }
                                     aria-label="Attach files"
-                                    className="mt-0.5 rounded-full p-1 text-sparkle-text-muted hover:text-sparkle-text disabled:opacity-35"
+                                    className="mt-0.5 rounded-md p-1 text-sparkle-text-muted transition-colors hover:bg-sparkle-card-hover hover:text-sparkle-text disabled:opacity-50"
                                     title={
                                         composerCapabilities.attachDisabled
                                             ? composerCapabilities.detailLabel ||
@@ -774,17 +789,18 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
                                             : 'Attach files'
                                     }
                                 >
-                                    <Plus size={18} />
+                                    <Plus size={15} />
                                 </button>
                                 <div className="relative min-w-0 flex-1">
                                     <textarea
                                         key={activeQuestion?.id}
                                         ref={customTextareaRef}
                                         autoFocus={activeQuestion?.type === 'text'}
-                                        rows={1}
+                                        rows={3}
                                         value={customAnswerValue}
                                         onChange={(event) => {
                                             if (!activeQuestion) return
+                                            questionVoiceInput.stopBrowserOnInput()
                                             handleCustomAnswerChange(
                                                 activeQuestion.id,
                                                 event.target.value,
@@ -802,16 +818,17 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
                                         onKeyDown={handleCustomTextareaKeyDown}
                                         onPaste={handleAnswerPaste}
                                         aria-label="Your answer"
-                                        className="relative min-h-10 w-full resize-none overflow-y-auto bg-transparent pl-[3px] pr-2 text-[14px] leading-[1.45rem] text-sparkle-text outline-none placeholder:text-sparkle-text/20 selection:bg-white/15"
+                                        className="relative min-h-[67.2px] max-h-[120px] w-full resize-none overflow-y-auto bg-transparent pl-[3px] pr-2 text-[14.5px] font-normal leading-[1.4rem] tracking-normal text-sparkle-text caret-sparkle-text outline-none placeholder:font-normal placeholder:tracking-normal placeholder:text-sparkle-text-muted placeholder:opacity-80 selection:bg-sparkle-card-hover"
                                         placeholder={
                                             activeQuestion?.placeholder ||
-                                            composerCapabilities.placeholder
+                                            'Message Zyra...'
                                         }
                                         disabled={composerCapabilities.inputDisabled}
                                     />
                                 </div>
                             </div>
                         ) : null}
+                        {questionVoiceInput.speechError ? <p role="alert" className="px-2 py-1 text-xs text-amber-300">{questionVoiceInput.speechError}</p> : null}
                         {pasteError ? (
                             <p role="alert" className="text-xs text-amber-300">
                                 {pasteError}
@@ -841,7 +858,11 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
 
                     <AssistantPendingUserInputFooter
                         composerController={composerController}
-                        composerCapabilities={composerCapabilities}
+                        composerCapabilities={{ ...composerCapabilities, sendDisabled: composerCapabilities.sendDisabled || questionVoiceBusy }}
+                        voiceInput={questionVoiceInput}
+                        voiceEnabled={settings.assistantTranscriptionEnabled}
+                        voiceDisabled={questionVoiceDisabled}
+                        showRecorder={showQuestionRecorder}
                         responding={responding}
                         progressQuestionIndex={progress.questionIndex}
                         isReviewStep={isReviewStep}
@@ -852,12 +873,14 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
                             if (returnToReview) {
                                 setQuestionIndex(activePrompt.questions.length)
                                 setReturnToReview(false)
+                                setFinishingQuestions(false)
                                 return
                             }
                             setQuestionIndex((current) => Math.max(0, current - 1))
                         }}
                         onAdvance={() => void handleAdvance()}
                     />
+                    </AssistantQuestionTransition>
                 </div>
                 <AssistantAttachmentPreviewModal
                     file={composerController.previewAttachment}

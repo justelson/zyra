@@ -1,4 +1,4 @@
-const SAFE_READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const SAFE_READ_TOOLS = new Set(["read", "grep", "find", "ls", "context"]);
 const PERMISSION_MODES = new Set(["read-only", "writer", "full-access"]);
 const PERMISSION_MODE_ALIASES = new Map([["workspace-write", "writer"]]);
 const DELEGATABLE_CONTROL_TOOLS = new Set(["browser_control", "computer_control"]);
@@ -6,7 +6,7 @@ const CONTROL_CAPABILITIES = new Set([
   "observe.structure", "observe.screenshot", "navigate", "pointer.click", "pointer.move", "pointer.drag",
   "keyboard.type", "keyboard.key", "scroll", "form.select", "window.focus",
 ]);
-const KNOWN_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "edit", "write", ...DELEGATABLE_CONTROL_TOOLS]);
+const KNOWN_TOOLS = new Set(["read", "grep", "find", "ls", "context", "bash", "edit", "write", ...DELEGATABLE_CONTROL_TOOLS]);
 const CONTROL_TOOL_RE = /(?:browser|chrome|computer|windows|desktop|agent[_-]?control|pair|click|navigate|screenshot)/i;
 const DESTRUCTIVE_GIT_RE = /\bgit\s+(?:reset\s+--hard|clean\s+-[a-z]*f|push\s+--force|rebase|merge|cherry-pick)\b/i;
 const SENSITIVE_COMMAND_RE = /\b(?:deploy|publish|release|terraform\s+apply|kubectl\s+(?:apply|delete)|rm\s+-rf|format\s+[a-z]:|drop\s+(?:database|table))\b/i;
@@ -17,7 +17,7 @@ export const DEFAULT_CHILD_DENIED_CAPABILITIES = Object.freeze([
 
 export function attenuateAgentCapabilities(definition = {}, request = {}, policy = {}) {
   const permissionMode = normalizePermissionMode(request.permissionMode ?? definition.permissionMode);
-  const requestedTools = uniqueStrings(request.tools ?? definition.tools ?? ["read", "grep", "find", "ls"]);
+  const requestedTools = uniqueStrings([...(request.tools ?? definition.tools ?? ["read", "grep", "find", "ls"]), 'context']);
   const disallowed = new Set(uniqueStrings([...(definition.disallowedTools ?? []), ...(request.disallowedTools ?? []), ...(policy.disallowedTools ?? [])]));
   const warnings = [];
   const denied = [];

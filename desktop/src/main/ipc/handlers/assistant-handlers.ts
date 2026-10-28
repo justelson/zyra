@@ -501,6 +501,10 @@ export function handleAssistantStopBackgroundProcesses(_event: Electron.IpcMainI
     return withAssistantResult(() => getAssistantService().stopBackgroundProcesses(input))
 }
 
+export function handleAssistantPingModel(_event: Electron.IpcMainInvokeEvent, input: { sessionId: string; turnId: string; requestId: string }) {
+    return withAssistantResult(() => getAssistantService().pingModel(input))
+}
+
 export function handleAssistantInterruptTurn(_event: Electron.IpcMainInvokeEvent, turnId?: string, sessionId?: string) {
     log.info('IPC: assistant:interruptTurn', { turnId, sessionId })
     return withAssistantResult(() => getAssistantService().interruptTurn(turnId, sessionId))
@@ -558,7 +562,8 @@ export function handleAssistantGetVoiceTranscriptionState() {
     }))
 }
 
-const voiceTranscriptionJobs = new VoiceTranscriptionJobs(transcribeVoiceAndSave)
+const voiceTranscriptionJobs = new VoiceTranscriptionJobs(transcribeVoiceAndSave,
+    (recording, error) => saveVoiceHistory({ engine: 'codex', recording, error: error.message }))
 
 export function handleAssistantCancelVoiceTranscription(event: Electron.IpcMainInvokeEvent, requestId: string) {
     return { success: true as const, cancelled: voiceTranscriptionJobs.cancel(`desktop:${event.sender.id}`, requestId) }
@@ -586,8 +591,8 @@ export function handleAssistantSaveVoiceHistory(_event: Electron.IpcMainInvokeEv
     })
 }
 
-export function handleAssistantListVoiceHistory() {
-    return withAssistantResult(async () => ({ success: true as const, entries: await listVoiceHistory() }))
+export function handleAssistantListVoiceHistory(_event: Electron.IpcMainInvokeEvent, input?: { page?: number }) {
+    return withAssistantResult(async () => ({ success: true as const, ...await listVoiceHistory(input || {}) }))
 }
 
 export function handleAssistantGetFailedVoiceRecording(_event: Electron.IpcMainInvokeEvent, id: string) {

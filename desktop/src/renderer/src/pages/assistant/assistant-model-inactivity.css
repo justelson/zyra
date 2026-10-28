@@ -1,0 +1,54 @@
+.assistant-model-inactivity {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    width: 100%;
+    padding: 10px 12px;
+    color: var(--color-text);
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: auto;
+}
+
+.assistant-model-inactivity__message {
+    flex: 1 1 240px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.assistant-model-inactivity p { margin: 0; }
+
+.assistant-model-inactivity .assistant-model-inactivity__hint,
+.assistant-model-inactivity .assistant-model-inactivity__error {
+    margin-top: 4px;
+    font-size: 11px;
+}
+
+.assistant-model-inactivity__hint { color: var(--color-text-secondary); }
+.assistant-model-inactivity__error { color: var(--status-danger); }
+
+.assistant-model-inactivity__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.assistant-model-inactivity button {
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 1px solid var(--surface-divider);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.assistant-model-inactivity button:hover:not(:disabled) { background: var(--surface-hover); }
+.assistant-model-inactivity button:disabled { opacity: 0.45; cursor: not-allowed; }
+.assistant-model-inactivity button:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}

@@ -1,6 +1,7 @@
 import type { AssistantMessage } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantDiffTarget } from './assistant-diff-types'
+import type { AssistantToastAction } from './AssistantToast'
 
 export type AssistantConversationPaneProps = {
     rightPanelOpen: boolean
@@ -28,5 +29,5 @@ export type AssistantConversationPaneProps = {
     onOpenAssistantLink?: (href: string) => Promise<boolean | void> | boolean | void
     onOpenEditedFile?: (filePath: string) => Promise<void> | void
     onViewDiff?: (target: AssistantDiffTarget) => void
-    onShowToast?: (message: string, tone?: 'success' | 'error' | 'info') => void
+    onShowToast?: (message: string, tone?: 'success' | 'error' | 'info', action?: AssistantToastAction) => void
 }

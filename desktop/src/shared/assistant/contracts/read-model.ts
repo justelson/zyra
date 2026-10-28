@@ -1,4 +1,5 @@
 import type { FileChangeKind } from './file-change'
+import type { ChatWorkContext } from '../work-context'
 import type { FleetSnapshot } from './fleet'
 import type { AssistantChatScope } from './project'
 import type {
@@ -176,6 +177,8 @@ export interface AssistantThreadShell {
     webSearch?: boolean | null
     webFetch?: boolean | null
     state: AssistantThreadState
+    /** Live model wait state; never used as persisted liveness evidence. */
+    modelRequestProgress?: import('../model-progress').AssistantModelRequestProgress | null
     canonicalHistoryModifiedAt?: string | null
     canonicalHistoryEntryCount?: number | null
     /** Live mobile adapter state; cleared on process startup, never inferred from attached clients. */
@@ -188,6 +191,7 @@ export interface AssistantThreadShell {
         backgroundWorkActive: boolean
         attention?: 'approval' | 'input' | 'user-input' | null
         latestTurn?: AssistantLatestTurn | null
+        modelRequestProgress?: import('../model-progress').AssistantModelRequestProgress | null
         /** Highest canonical event sequence applied to the Desktop projection. */
         latestSequence?: number
         /** Server-observed high-water mark; never used as a replay acknowledgement. */
@@ -400,6 +404,8 @@ export interface AssistantSession {
     id: string
     title: string
     titleGenerating?: boolean
+    /** Agent-reported display context only; never execution cwd or Project authority. */
+    workContext?: ChatWorkContext | null
     /** Retains an explicit local rename before a canonical chat is attached. */
     titleManuallySet?: boolean
     /** History provenance only. This never asserts a historical filesystem checkpoint. */
@@ -434,6 +440,13 @@ export interface AssistantModelInfo {
     supportedEfforts?: AssistantReasoningEffort[]
     inputModes?: string[]
     contextWindow?: number | null
+    provider?: string
+    maxTokens?: number | null
+    context_window?: number | null
+    max_context_window?: number | null
+    auto_compact_token_limit?: number | null
+    effective_context_window_percent?: number | null
+    metadataSource?: string | null
     pricing?: import('../../../../../src/model-pricing/index.mjs').ModelPricing | null
     pricingFetchedAt?: string
     pricingSource?: string
@@ -519,7 +532,11 @@ export interface AssistantAccountOverview {
 export interface AssistantSessionUsageTotals extends AssistantTurnUsage {
     threadId: string
     contextTokens?: number | null
+    /** Weighted cache reuse over this session, not its latest response. */
     cacheHitPercent?: number | null
+    latestRequestCacheHitPercent?: number | null
+    cacheInputTokens?: number | null
+    compactionThresholdTokens?: number | null
     costComplete?: boolean | null
     autoCompactionEnabled?: boolean | null
 }

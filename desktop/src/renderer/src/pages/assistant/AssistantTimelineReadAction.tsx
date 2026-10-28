@@ -1,5 +1,8 @@
-import { useState } from 'react'
-import { FileText, Loader2 } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { addOverlayEventListener } from '@/components/ui/native-overlay-events'
+import { useAssistantReadPreviewSelection } from './AssistantReadPreviewScope'
+import { Loader2 } from 'lucide-react'
+import { AssistantReadFileIcon, AssistantReadFilePreview } from './AssistantReadFilePreview'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import FilePreviewModal from '@/components/ui/FilePreviewModal'
 import SyntaxPreview from '@/components/ui/file-preview/SyntaxPreview'
@@ -7,7 +10,8 @@ import { detectCodeLanguage } from '@/components/ui/file-preview/utils'
 import { AssistantTimelineActionShell, formatAssistantActionTime } from './AssistantTimelineActionShell'
 import {
     getAssistantActionTitle,
-    getAssistantCapturedRead
+    getAssistantCapturedRead,
+    getAssistantReadEvidence
 } from './assistant-action-presentation'
 import { getActivityElapsed, getActivityStatus } from './assistant-timeline-helpers'
 import { getAssistantRelativeFilePath } from './assistant-file-navigation'
@@ -26,12 +30,12 @@ export function AssistantCapturedReadPreview(props: {
     onClose: () => void
 }) {
     const captured = getAssistantCapturedRead(props.activity)
-    if (!captured) return null
+    if (!captured) return <AssistantReadFilePreview {...props} />
     const language = readLanguage(captured.path)
     const normalizedPath = captured.path.replace(/\\/g, '/')
     const fileName = normalizedPath.split('/').pop() || normalizedPath
     const startLine = captured.startLine || 1
-    const lineCount = captured.content.replace(/\n$/, '').split('\n').length
+    const lineCount = captured.content ? captured.content.replace(/\n$/, '').split('\n').length : 0
     const range = captured.endLine
         ? `Lines ${startLine}–${captured.endLine}${captured.totalLines ? ` of ${captured.totalLines}` : ''}`
         : `${lineCount} captured ${lineCount === 1 ? 'line' : 'lines'}`
@@ -75,26 +79,31 @@ export function AssistantTimelineReadAction(props: {
     projectRootPath?: string | null
 }) {
     const hydrated = useAssistantHydratedActivity(props.activity)
-    const [previewActivity, setPreviewActivity] = useState<AssistantActivity | null>(null)
-    const captured = getAssistantCapturedRead(hydrated.activity)
-    const open = async () => setPreviewActivity(await hydrated.hydrate())
-    const target = captured
-        ? `${getAssistantRelativeFilePath(captured.path, props.projectRootPath)}${captured.startLine && captured.endLine ? ` · L${captured.startLine}–${captured.endLine}` : ''}`
+    const { activityId: previewFor, select: setPreviewFor } = useAssistantReadPreviewSelection()
+    const evidence = useMemo(() => getAssistantReadEvidence(hydrated.activity), [hydrated.activity])
+    const captured = useMemo(() => getAssistantCapturedRead(hydrated.activity, evidence), [hydrated.activity, evidence])
+    const open = () => { setPreviewFor(props.activity.id); void hydrated.hydrate() }
+    useEffect(() => {
+        if (previewFor !== props.activity.id || hydrated.loaded) return
+        return addOverlayEventListener('keydown', (event) => { if (event.key === 'Escape') setPreviewFor(null) })
+    }, [previewFor, props.activity.id, hydrated.loaded, setPreviewFor])
+    const target = evidence.path
+        ? `${getAssistantRelativeFilePath(evidence.path, props.projectRootPath)}${captured?.startLine && captured.endLine ? ` · L${captured.startLine}–${captured.endLine}` : ''}`
         : null
     return (
         <>
             <AssistantTimelineActionShell
                 activityId={props.activity.id}
-                icon={hydrated.loading ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+                icon={hydrated.loading ? <Loader2 size={13} className="animate-spin" /> : <AssistantReadFileIcon kind={evidence.kind} />}
                 title={getAssistantActionTitle(hydrated.activity, props.projectRootPath)}
-                target={target || readLanguage(captured?.path || '')}
+                target={target}
                 createdAt={props.activity.createdAt}
                 elapsed={getActivityElapsed(hydrated.activity)}
                 status={getActivityStatus(hydrated.activity)}
-                onToggle={() => { void open() }}
+                onToggle={evidence.path ? open : undefined}
             />
-            {hydrated.error ? <p className="pl-6 text-[10px] text-[color-mix(in_srgb,var(--status-danger)_68%,var(--color-text))]">{hydrated.error}</p> : null}
-            {previewActivity ? <AssistantCapturedReadPreview activity={previewActivity} projectRootPath={props.projectRootPath} onClose={() => setPreviewActivity(null)} /> : null}
+            {hydrated.error ? <p role="alert" data-assistant-read-load-error={props.activity.id} className="pl-6 text-[10px] text-[color-mix(in_srgb,var(--status-danger)_68%,var(--color-text))]">{hydrated.error}</p> : null}
+            {previewFor === props.activity.id && hydrated.loaded ? <AssistantCapturedReadPreview key={props.activity.id} activity={hydrated.activity} projectRootPath={props.projectRootPath} onClose={() => setPreviewFor(null)} /> : null}
         </>
     )
 }

@@ -1,0 +1,28 @@
+.usage-color-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; flex-shrink: 0; vertical-align: middle; }
+button.usage-tool-summary { width: 100%; text-align: left; border-radius: 3px; }
+button.usage-tool-summary .usage-tool-name { flex: 1; }
+button.usage-tool-summary > .usage-color-dot { margin-right: -6px; }
+button.usage-table-name { width: 100%; text-align: left; }
+.usage-breakdown-table tbody tr { cursor: pointer; }
+.usage-series-controls { display: flex; gap: 10px; margin: 0 0 12px 60px; font-size: 10px; color: var(--settings-text-muted); }
+.usage-series-controls button[aria-pressed="true"] { color: var(--settings-text); text-decoration: underline; text-underline-offset: 4px; }
+.usage-series-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; padding: 0; margin: 12px 0 0 60px; font-size: 10px; color: var(--settings-text-secondary); }
+.usage-series-legend button { text-align: left; }
+.usage-detail-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; border: 1px solid var(--settings-border); border-radius: 10px; padding: 22px; background: var(--settings-bg); color: var(--settings-text); box-shadow: 0 16px 64px #0006; }
+.usage-detail-dialog::backdrop { background: #0008; }
+.usage-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.usage-detail-header h2 { margin: 0; overflow-wrap: anywhere; font-size: 16px; font-weight: 500; }
+.usage-detail-header button { font-size: 12px; padding: 5px 9px; border: 1px solid var(--settings-border); border-radius: 5px; background: var(--settings-control); }
+.usage-detail-description { margin: 8px 0 20px; font-size: 11px; color: var(--settings-text-muted); }
+.usage-detail-stats { display: flex; flex-wrap: wrap; gap: 20px 36px; margin: 0 0 24px; }
+.usage-detail-stats dt, .usage-detail-token-mix dt { font-size: 11px; color: var(--settings-text-muted); }
+.usage-detail-stats dd { margin: 4px 0 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.usage-detail-dialog > section, .usage-detail-dialog > dl.usage-measurement-coverage { margin-top: 24px; }
+.usage-detail-token-mix { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 14px 0 24px; }
+.usage-detail-token-mix dd { margin: 5px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.usage-detail-rows { padding: 0; margin: 12px 0 0; list-style: none; font-size: 12px; }
+.usage-detail-rows li { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--settings-divider); }
+.usage-detail-rows li > span:first-child { overflow-wrap: anywhere; }
+.usage-detail-rows li > span:last-child { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.usage-detail-dialog :is(button,a):focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 3px; }
+@media (max-width: 420px) { .usage-detail-dialog { padding: 16px; } }

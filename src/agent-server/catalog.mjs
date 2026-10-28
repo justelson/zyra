@@ -11,6 +11,7 @@ import { getAgentServerPaths } from "./paths.mjs";
 import { appendCanonicalMessage, findCanonicalMessageReceipt } from "./canonical-message-ledger.mjs";
 import { ZyraSessionManager } from "./zyra-session-manager.mjs";
 import { projectChatSettlement, automaticSettlementDeadline, currentChatSettlementChoice } from './chat-settlement.mjs';
+import { normalizeWorkContextInput, readChatWorkContext } from '../chat-work-context.mjs';
 import {
   EAGER_HISTORY_TOOL_RESULTS,
   HISTORY_TOOL_RESULT_BODY_POLICY,
@@ -33,6 +34,7 @@ export class CanonicalChatCatalog {
     this.index = options.index || new CanonicalChatIndex(options);
     this.record = readCatalog(this.paths.catalogFile);
     this.legacyAgentKinds = new Map();
+    this.workContextUpdates = new Map();
   }
 
   registerProject(projectValue) {
@@ -289,11 +291,27 @@ export class CanonicalChatCatalog {
     return SessionManager.open(chat.sessionPath, sessionDirectory);
   }
 
+  setWorkContext(selector, input) {
+    const canonicalChatId = this.resolveAlias(selector);
+    const next = normalizeWorkContextInput(input);
+    // Preserve arrival order even when indexing/find awaits filesystem work.
+    const previous = this.workContextUpdates.get(canonicalChatId) || Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      const saved = readChatWorkContext(this.record.metadata[canonicalChatId]?.workContext);
+      if (saved && saved.folderPath === next.folderPath && saved.kind === next.kind) return this.find(canonicalChatId, { allProjects: true });
+      return this.updateChat(canonicalChatId, { workContext: { ...next, updatedAt: new Date().toISOString() } });
+    });
+    this.workContextUpdates.set(canonicalChatId, pending);
+    void pending.finally(() => { if (this.workContextUpdates.get(canonicalChatId) === pending) this.workContextUpdates.delete(canonicalChatId); }).catch(() => {});
+    return pending;
+  }
+
   async updateChat(selector, patch = {}) {
     const canonicalChatId = this.resolveAlias(selector);
     const chat = await this.find(canonicalChatId, { allProjects: true, includeDeleted: true });
     if (patch.settled !== undefined && typeof patch.settled !== 'boolean') throw new TypeError('Choose whether to settle this chat.');
     if (patch.settled !== undefined && !chat) throw new Error('Chat not found.');
+    if (patch.workContext !== undefined && !readChatWorkContext(patch.workContext)) throw new Error('Invalid work context metadata.');
     if (patch.project !== undefined) this.registerProject(patch.project);
     const existing = this.record.metadata[canonicalChatId] || {};
     if (!patch.initialTitleOnly && patch.expectedTitle !== undefined && String(existing.title || chat?.title || '') !== patch.expectedTitle) throw new Error('The Chat title changed before this rename. Read it again.');
@@ -307,6 +325,7 @@ export class CanonicalChatCatalog {
     )) return null;
     const next = {
       ...existing,
+      ...(patch.workContext !== undefined ? { workContext: readChatWorkContext(patch.workContext) } : {}),
       ...(patch.settled !== undefined && !(patch.settlementIfAbsent && currentChatSettlementChoice(chat, existing)) ? { settlement: {
         state: patch.settled ? 'settled' : 'active', messageCount: Math.max(0, Number(chat.messageCount) || 0), changedAt: new Date().toISOString()
       } } : {}),
@@ -400,6 +419,7 @@ function applyMetadata(chat, metadata = {}, record = {}) {
     titleSource: metadata.titleSource || null,
     forkPending: metadata.forkPending === true,
     forkOrigin: metadata.forkOrigin || null,
+    workContext: readChatWorkContext(metadata.workContext),
     agentCreatedBy: metadata.agentCreatedBy || null,
     agentLabel: metadata.agentLabel || null,
     agentRunId: metadata.agentRunId || null,

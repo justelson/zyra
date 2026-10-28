@@ -319,8 +319,10 @@ export function applyComputerSearchOnlyState(session) {
   return [...active];
 }
 
-export function installComputerToolTurnCleanup(session) {
-  if (!session?.subscribe) return () => {};
+export function installComputerToolTurnCleanup(session, options = {}) {
+  // Retaining definitions does not retain access. Exact-window grants, expiry,
+  // revocation and critical-action approval still belong to the control owner.
+  if (options.preserveLoadedTools === true || !session?.subscribe) return () => {};
   return session.subscribe((event) => {
     if (event?.type === "agent_end") applyComputerSearchOnlyState(session);
   });

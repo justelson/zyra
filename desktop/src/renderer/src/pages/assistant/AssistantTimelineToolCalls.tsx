@@ -12,12 +12,14 @@ import {
     isIssueActivity,
     isAssistantConnectionRecoveryActivity
 } from './assistant-timeline-helpers'
-import { getAssistantActionFamily, getAssistantActionTitle } from './assistant-action-presentation'
+import { getAssistantActionFamily, getAssistantActionTitle, isAssistantToolDiscoveryActivity } from './assistant-action-presentation'
 import { groupAssistantControlActionRuns } from './assistant-control-action-runs'
 import { AssistantTimelineActionBatch } from './AssistantTimelineActionBatch'
 import { AssistantTimelineAgentAction } from './AssistantTimelineAgentAction'
 import { AssistantTimelineControlAction } from './AssistantTimelineControlAction'
+import { AssistantTimelineToolDiscovery } from './AssistantTimelineToolDiscovery'
 import { AssistantTimelineReadAction } from './AssistantTimelineReadAction'
+import { AssistantReadPreviewScope } from './AssistantReadPreviewScope'
 import { AssistantTimelineSearchAction } from './AssistantTimelineSearchAction'
 import { AssistantTimelineSkillAction } from './AssistantTimelineSkillAction'
 import { AssistantTimelineWebAction } from './AssistantTimelineWebAction'
@@ -113,6 +115,7 @@ export const TimelineToolCallList = memo(({
     const activeRunningCommandCount = runningCommandCount ?? localRunningCommandCount
 
     const renderActivity = (activity: AssistantActivity) => {
+        if (isAssistantToolDiscoveryActivity(activity)) return <AssistantTimelineToolDiscovery key={activity.id} activity={activity} />
         if (isPluginActivity(activity)) return <PluginToolCallCard key={activity.id} activity={activity} onOpenUrl={onOpenUrl}/>
         if (activity.kind === 'thread-message' || activity.kind === 'thread-collaboration') return <AssistantTimelineThreadMessage key={activity.id} activity={activity} displayMode={displayMode} />
         if (isAssistantConnectionRecoveryActivity(activity)) return <AssistantTimelineNetworkRecovery key={activity.id} activity={activity} />
@@ -158,13 +161,15 @@ export const TimelineToolCallList = memo(({
     ) : renderActivity(run[0]!))
 
     return (
+        <AssistantReadPreviewScope>
         <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
-            {actionRuns.length > 1 && !displayActivities.some(activity => activity.kind === 'thread-message' || activity.kind === 'thread-collaboration') ? (
+            {actionRuns.length > 1 && !displayActivities.some(activity => activity.kind === 'thread-message' || activity.kind === 'thread-collaboration' || isAssistantToolDiscoveryActivity(activity)) ? (
                 <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
                     {renderActionRows}
                 </AssistantTimelineActionBatch>
             ) : renderActionRows()}
         </div>
+        </AssistantReadPreviewScope>
     )
 }, (prev, next) => {
     return prev.projectRootPath === next.projectRootPath

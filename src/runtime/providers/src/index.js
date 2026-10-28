@@ -1,6 +1,7 @@
 // Generated from the maintained TypeScript in ../source by scripts/build-owned-runtime.mjs.
 import { Type } from "typebox";
 export * from "./api/lazy.js";
+import { getOpenAICodexRequestDiagnostics } from "./api/codex-request-diagnostics.js";
 export * from "./auth/context.js";
 export * from "./auth/credential-store.js";
 export * from "./auth/helpers.js";
@@ -23,5 +24,6 @@ export * from "./utils/validation.js";
 export {
   Type,
   contentText,
+  getOpenAICodexRequestDiagnostics,
   uuidv7
 };

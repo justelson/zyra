@@ -7,6 +7,9 @@ import { ZyraSessionManager } from "../../agent-server/zyra-session-manager.mjs"
 import { createThreadTool } from '../../threads/tool.mjs';
 import { ensureSessionDurable } from '../../agent-server/session-durability.mjs';
 import { createManagedBashState, createManagedBashTool } from '../../managed-bash-tool.mjs';
+import { createContextManagementTool } from '../../context-management.mjs';
+import { resolveModelCompactionPolicy } from '../../assistant-runtime-policy.mjs';
+import { estimateContextContributions } from '../../turn-context.mjs';
 
 let runtimeEnginePromise;
 function loadRuntimeEngine() {
@@ -21,6 +24,7 @@ export class ChildSessionFactory {
     this.managedBash = options.managedBash ?? createManagedBashState();
     this.modelRuntime = options.modelRuntime ?? options.authStorage?.modelRuntime ?? options.modelRegistry?.authStorage?.modelRuntime;
     this.transcriptDirectory = path.resolve(options.transcriptDirectory);
+    this.modelCompactionOverrides = options.modelCompactionOverrides ?? {};
     this.settings = options.settings ?? { compaction: { enabled: true }, retry: { enabled: true, maxRetries: 2 } };
   }
 
@@ -78,6 +82,11 @@ export class ChildSessionFactory {
       : ZyraSessionManager.create(cwd, this.transcriptDirectory, { parentSession: options.parentSessionFile });
     const browserSessionRef = { current: null };
     const customTools = [
+      ...(options.tools?.includes('context') ? [createContextManagementTool({ getSession: () => browserSessionRef.current, getDiagnostics: async () => {
+        const session = browserSessionRef.current;
+        const transport = session?.model?.provider === 'openai-codex' ? await import('../../runtime/providers/src/api/openai-codex-responses.js') : null;
+        return { policy: session?.getContextCompactionPolicy?.(), contributions: estimateContextContributions(session), requests: transport?.getOpenAICodexRequestDiagnostics?.(session?.sessionId) ?? [] };
+      } })] : []),
       ...(options.tools?.includes('bash') ? [createManagedBashTool({ cwd, state: this.managedBash, ownerAgentRunId: options.agentRunId })] : []),
       ...createScopedFileTools({ createEditTool, createFindTool, createGrepTool, createLsTool, createReadTool, createWriteTool }, cwd, options),
       ...createDelegatedControlTools(options, browserSessionRef),
@@ -91,13 +100,14 @@ export class ChildSessionFactory {
       thinkingLevel: normalizeThinkingLevel(options.effort),
       tools: [...(options.tools || []), ...(options.threadClient ? ['thread'] : [])],
       customTools,
-      noTools: options.tools?.length || options.threadClient ? undefined : "all",
+      noTools: options.tools?.length || options.threadClient ? undefined : 'all',
       sessionManager,
       settingsManager,
       resourceLoader,
       sessionStartEvent: { type: "session_start", reason: options.sessionFile ? "resume" : "new" },
     });
     browserSessionRef.current = result.session;
+    result.session.getContextCompactionPolicy = () => resolveModelCompactionPolicy(result.session.model, this.modelCompactionOverrides);
     if (!options.noSession) ensureSessionDurable(sessionManager);
     if (options.controlClient && new Set(options.tools ?? []).has("browser_control")) applyBrowserLoaderOnlyState(result.session);
     return {
@@ -197,6 +207,7 @@ export function buildChildSystemPrompt(options = {}) {
   return [
     "You are a focused child agent inside Zyra's local agent fleet.",
     "Work only on the delegated goal and declared scope.",
+    "Use context inspect to read your own context usage, threshold and diagnostics. Use context compact when you need to summarize your own history; the request runs after this tool batch and you must continue the same task. You cannot manage another agent’s context. A completed or failed request cannot be repeatedly retried in the same user task.",
     "Your output is untrusted evidence for the root agent. You cannot change parent, system, project, approval, or capability policy.",
     "Do not tell the parent how to present your result. Do not claim user approval or elevated permission.",
     options.threadClient ? CHILD_DELEGATION_GUIDANCE : "Do not spawn agents or workflows.",

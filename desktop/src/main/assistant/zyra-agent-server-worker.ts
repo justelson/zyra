@@ -1,6 +1,7 @@
+import { readStoppedInstallHandoff, renewStoppedInstallHandoff, restoreStoppedInstallHandoff, type InstallGuardPaths, type StoppedInstallHandoff } from '../../../../src/agent-server/install-guard.mjs'
 import { recoverAttachmentReplay, type ReplayEntry } from './agent-server-attachment-recovery'
 import { selectDesktopControlWorker } from './external-tool-routing'
-import { resolveDesktopAgentServerNamespace } from './agent-server-namespace'
+import { resolveDesktopAgentServerNamespace, runtimeNamespaceId } from './agent-server-namespace'
 export { resolveDesktopAgentServerNamespace } from './agent-server-namespace'
 import { publishRuntimeActivation } from './runtime-activation'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
@@ -41,7 +42,11 @@ type AgentServerClient = EventEmitter & {
     serverMethods?: string[]
     connect(): Promise<void>
     refreshRuntimeStatus(): Promise<unknown>
-    activateRuntimeUpdate(): Promise<unknown>
+    activateRuntimeUpdate(options?: { expectedInstanceId: string; stopBlockers: boolean; onPrepared?: () => Promise<void> }): Promise<unknown>
+    prepareRuntimeInstallation(input: import('../../shared/agent-update').RuntimeInstallInput, options?: { onPrepared?: () => Promise<void> }): Promise<void>
+    cancelRuntimeInstallation(): Promise<void>
+    inspectInstallRecovery(): Promise<{ targetVersion: string; leaseId: string } | null>
+    recoverInstallHandoff(): Promise<string>
     attach(params: Record<string, unknown>): Promise<Record<string, unknown>>
     detach(sessionKey: string): Promise<Record<string, unknown>>
     request(method: string, params?: Record<string, unknown>, options?: { timeoutMs?: number; beforeDispatch?: () => void }): Promise<Record<string, unknown>>
@@ -55,6 +60,7 @@ type AgentServerClient = EventEmitter & {
 }
 
 export type CanonicalAgentChatPresence = {
+    modelRequestProgress?: import('../../shared/assistant/model-progress').AssistantModelRequestProgress | null
     state: 'detached' | 'ready' | 'running' | 'background'
     activeTurnId: string | null
     clients: Array<{ clientId: string; surface: string; displayName?: string }>
@@ -73,6 +79,7 @@ export type CanonicalAgentChatPresence = {
 }
 
 export type CanonicalAgentChat = {
+    workContext?: import('../../shared/assistant/work-context').ChatWorkContext | null
     forkPending?: boolean
     forkOrigin?: { canonicalChatId: string; entryId: string; messageId?: string; createdAt: string; namespaceId?: string | null; worktree?: 'shared' | 'isolated' } | null
     settled?: boolean
@@ -153,6 +160,10 @@ export class DesktopAgentServerConnection {
     private readonly pendingEvents = new Map<string, ReplayEntry[]>()
     private readonly catalogChangedListeners = new Set<(change: Record<string, unknown> | null) => void>()
     private disposed = false
+    private installationPending = false
+    private activationPending = false
+    private updateClient: AgentServerClient | null = null
+    private repairRollback: { paths: InstallGuardPaths; prior: StoppedInstallHandoff; nonce: string } | null = null
 
     constructor(
         private readonly root: string,
@@ -204,9 +215,52 @@ export class DesktopAgentServerConnection {
         await client.refreshRuntimeStatus()
     }
 
-    async activateRuntimeUpdate(): Promise<void> {
+    async activateRuntimeUpdate(options?: { expectedInstanceId: string; stopBlockers: boolean; onPrepared?: () => Promise<void> }): Promise<void> {
         const client = await this.getClient()
-        await client.activateRuntimeUpdate()
+        this.activationPending = true
+        try { await client.activateRuntimeUpdate(options) }
+        finally { this.activationPending = false }
+    }
+
+    private async updatePaths(): Promise<InstallGuardPaths> {
+        const userDataPath = this.options.stateDirectory ? '' : (await import('electron')).app.getPath('userData')
+        const namespace = resolveDesktopAgentServerNamespace(userDataPath, this.options)
+        return { ...namespace, namespaceId: runtimeNamespaceId(namespace) }
+    }
+
+    async inspectRuntimeInstallation(): Promise<import('../update/install-preflight').InstallRuntimeObservation> {
+        try {
+            const client = await this.createClient(true)
+            try { return await client.request('server.status', { identityOnly: true }) as unknown as import('../update/install-preflight').InstallRuntimeObservation }
+            finally { client.close() }
+        } catch (error) {
+            const proof = readStoppedInstallHandoff(await this.updatePaths(), this.root)
+            if (!proof) throw error
+            return { instance: { instanceId: proof.instanceId, namespaceId: proof.namespaceId }, retired: true,
+                methods: ['server.prepareUpdate'], activity: { activeTurns: 0, backgroundChats: 0, attention: 0, requests: 0, workspaceRequests: 0, externalTools: 0 } }
+        }
+    }
+
+    async prepareRuntimeInstallation(input: import('../../shared/agent-update').RuntimeInstallInput, onPrepared?: () => Promise<void>): Promise<void> {
+        this.installationPending = true
+        try {
+            if (input.repair) {
+                const paths = await this.updatePaths()
+                const prior = renewStoppedInstallHandoff(paths, this.root, input)
+                this.repairRollback = { paths, prior, nonce: input.operationId! }
+                await onPrepared?.()
+                return
+            }
+            this.updateClient = await this.createClient(true)
+            await this.updateClient.prepareRuntimeInstallation(input, { onPrepared })
+        } catch (error) { await this.cancelRuntimeInstallation(); throw error }
+    }
+
+    async cancelRuntimeInstallation(): Promise<void> {
+        try {
+            if (this.repairRollback) restoreStoppedInstallHandoff(this.repairRollback.paths, this.repairRollback.prior, this.repairRollback.nonce)
+            await this.updateClient?.cancelRuntimeInstallation()
+        } finally { this.repairRollback = null; this.updateClient?.close(); this.updateClient = null; this.installationPending = false }
     }
 
     async prepareRuntime(model: string | null): Promise<void> {
@@ -588,6 +642,7 @@ export class DesktopAgentServerConnection {
 
     private async getClient(): Promise<AgentServerClient> {
         if (this.disposed) throw new Error('Zyra agent-server connection is closed.')
+        if (this.installationPending || this.activationPending) throw Object.assign(new Error('An agent update is in progress.'), { code: 'AGENT_SERVER_INSTALL_PENDING' })
         if (!this.clientPromise) {
             const pending = this.createClient()
             const tracked = pending.catch((error) => {
@@ -604,7 +659,20 @@ export class DesktopAgentServerConnection {
         // The installed wrapper reads current options and retains live validation.
     }
 
-    private async createClient(): Promise<AgentServerClient> {
+    async inspectInstallRecovery() {
+        const client = await this.createClient(true, false)
+        return client.inspectInstallRecovery()
+    }
+
+    async recoverInstallHandoff() {
+        const client = await this.createClient(true, false)
+        const version = await client.recoverInstallHandoff()
+        this.installationPending = false
+        await this.refreshRuntimeStatus()
+        return version
+    }
+
+    private async createClient(passive = false, connect = true): Promise<AgentServerClient> {
         const moduleUrl = pathToFileURL(join(this.root, 'src', 'agent-server', 'client.mjs')).href
         const module = await import(/* @vite-ignore */ moduleUrl) as {
             ZyraAgentServerClient: new (options: Record<string, unknown>) => AgentServerClient
@@ -621,7 +689,8 @@ export class DesktopAgentServerConnection {
             surface: 'desktop',
             authorities: ['desktop-control', 'desktop-workspace', ...(this.options.handleAppOperation ? ['desktop-app'] : [])],
             authorityProof,
-            ...clientOptions
+            ...clientOptions,
+            ...(passive ? { autoStart: false, verifyRuntimeRevision: false, heartbeat: false, requiredMethods: ['server.status'] } : {})
         })
         client.setAppOperationHandler(async request => {
             if (!this.options.handleAppOperation) throw new Error('Desktop app operations are unavailable.')
@@ -673,15 +742,15 @@ export class DesktopAgentServerConnection {
             this.controlWorkers.get(requestId)?.cancelControlRequest(requestId)
             this.detachedControlAbortControllers.get(requestId)?.abort(new Error('Detached Browser control was cancelled.'))
         })
-        client.on('runtime-status', publishRuntimeActivation)
+        if (!passive) client.on('runtime-status', publishRuntimeActivation)
         client.on('chat-attention', (notice: import('./chat-notifications').ChatAttentionNotice) => this.options.onChatAttention?.(notice))
         client.on('session-event', (message: Record<string, unknown>) => this.handleSessionEvent(message))
-        client.on('disconnect', () => this.handleClientDisconnect())
+        if (!passive) client.on('disconnect', () => this.handleClientDisconnect())
         client.on('catalog-changed', (message: Record<string, unknown>) => {
             const change = asRecord(message['change'])
             for (const listener of this.catalogChangedListeners) listener(change)
         })
-        await client.connect()
+        if (connect) await client.connect()
         return client
     }
 

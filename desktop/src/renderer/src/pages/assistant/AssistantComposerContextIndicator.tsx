@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from 'react'
-import type { AssistantTurnUsage } from '@shared/assistant/contracts'
-import { resolveAssistantContextCompactionLimitTokens } from '@shared/assistant/runtime-policy'
+import type { AssistantModelInfo, AssistantTurnUsage } from '@shared/assistant/contracts'
+import { resolveModelCompactionPolicy } from '@shared/assistant/runtime-policy'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { formatCompactMetric } from './AssistantPageHelpers'
@@ -44,10 +44,12 @@ function getContextTone(percent: number | null): {
 
 export const AssistantComposerContextIndicator = memo(function AssistantComposerContextIndicator({
     usage,
-    modelContextWindow
+    modelContextWindow,
+    model
 }: {
     usage?: AssistantTurnUsage | null
     modelContextWindow?: number | null
+    model?: AssistantModelInfo | null
 }) {
     const { settings } = useSettings()
     const [visible, setVisible] = useState(readAssistantComposerUsageVisibility)
@@ -55,20 +57,21 @@ export const AssistantComposerContextIndicator = memo(function AssistantComposer
     const usedTokens = usage?.totalTokens ?? null
     const contextWindowTokens = modelContextWindow ?? usage?.modelContextWindow ?? null
     const hasContextWindow = contextWindowTokens != null && Number.isFinite(contextWindowTokens) && contextWindowTokens > 0
-    const compactionLimitTokens = resolveAssistantContextCompactionLimitTokens(
-        contextWindowTokens,
-        settings.assistantContextCompactionThresholdTokens
-    )
-    const rawPercent = usedTokens != null && Number.isFinite(usedTokens)
+    const policy = resolveModelCompactionPolicy(model ?? { contextWindow: contextWindowTokens }, settings.assistantModelCompactionOverrides)
+    const compactionLimitTokens = policy.thresholdTokens
+    const sourceLabel = policy.source === 'provider' ? 'Provider default' : policy.source === 'override' ? 'Customized' : policy.source === 'fallback' ? 'Safe-headroom fallback' : 'Limit unknown'
+    const rawPercent = compactionLimitTokens != null && usedTokens != null && Number.isFinite(usedTokens)
         ? (usedTokens / compactionLimitTokens) * 100
         : null
     const displayPercent = rawPercent != null ? Math.max(0, Math.min(100, Math.round(rawPercent))) : null
     const visualPercent = rawPercent != null ? Math.max(0, Math.min(100, rawPercent)) : 0
     const tone = getContextTone(displayPercent)
     const centerLabel = displayPercent != null ? `${displayPercent}` : '--'
-    const usageLabel = usedTokens != null
-        ? `${formatCompactMetric(usedTokens)} / ${formatCompactMetric(compactionLimitTokens)} before compaction`
-        : `Compaction limit: ${formatCompactMetric(compactionLimitTokens)} tokens`
+    const usageLabel = compactionLimitTokens == null
+        ? usedTokens == null ? 'Context usage unavailable' : `${formatCompactMetric(usedTokens)} tokens · limit unknown`
+        : usedTokens != null
+            ? `${formatCompactMetric(usedTokens)} / ${formatCompactMetric(compactionLimitTokens)} before compaction`
+            : `Compaction limit: ${formatCompactMetric(compactionLimitTokens)} tokens`
     const windowLabel = hasContextWindow
         ? `Model window ${formatCompactMetric(contextWindowTokens)}`
         : 'Model window not reported'
@@ -108,7 +111,7 @@ export const AssistantComposerContextIndicator = memo(function AssistantComposer
                         <p className="text-[10px] font-medium leading-3.5 text-sparkle-text">{usageLabel}</p>
                     </div>
                     <p className="mt-1.5 text-[9px] font-medium leading-3.5 text-sparkle-text-secondary">
-                        {windowLabel} · auto-compacts at {formatCompactMetric(compactionLimitTokens)}
+                        {windowLabel} · {sourceLabel}{compactionLimitTokens != null ? ` · auto-compacts at ${formatCompactMetric(compactionLimitTokens)}` : ''}
                     </p>
                 </div>
             </div>

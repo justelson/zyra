@@ -17,11 +17,12 @@ export type AssistantComposerQueueSnapshot = {
 }
 
 export interface AssistantComposerQueueStorage {
-    read(): AssistantComposerQueueSnapshot
+    read(options?: { recover?: boolean }): AssistantComposerQueueSnapshot
     write(snapshot: AssistantComposerQueueSnapshot): void
 }
 
 export const ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY = 'zyra.assistant.composer-queue.v1'
+export const ASSISTANT_COMPOSER_QUEUE_CHANGED = 'zyra:assistant-composer-queue-changed'
 export const emptyAssistantComposerQueue = (): AssistantComposerQueueSnapshot => ({ version: 1, entries: {}, held: {} })
 
 // Device/profile-local recovery, not canonical server storage. Keep all attachment
@@ -30,7 +31,7 @@ export function createAssistantComposerQueueStorage(
     getStorage: () => Pick<Storage, 'getItem' | 'setItem'> = () => window.localStorage
 ): AssistantComposerQueueStorage {
     return {
-        read() {
+        read(options = {}) {
             const raw = getStorage().getItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY)
             if (!raw) return emptyAssistantComposerQueue()
             const parsed = JSON.parse(raw) as AssistantComposerQueueSnapshot
@@ -38,7 +39,9 @@ export function createAssistantComposerQueueStorage(
                 throw new Error('Unsupported composer queue data')
             }
             const entries: Record<string, PendingComposerDispatch[]> = {}
-            const held: Record<string, boolean> = {}
+            if (options.recover === false && (!parsed.held || typeof parsed.held !== 'object' || Array.isArray(parsed.held))) throw new Error('Invalid composer queue holds')
+            const held: Record<string, boolean> = options.recover === false
+                ? Object.fromEntries(Object.entries(parsed.held).filter(([, value]) => typeof value === 'boolean')) : {}
             for (const [sessionId, messages] of Object.entries(parsed.entries)) {
                 if (!Array.isArray(messages)) throw new Error('Invalid composer queue')
                 entries[sessionId] = messages.map(message => {
@@ -51,10 +54,11 @@ export function createAssistantComposerQueueStorage(
                     // Legacy Force is recovered as Steer; never interrupt a turn.
                     return { ...message, contextFiles: message.contextFiles.map(file => ({ ...file, ...(file.citation !== undefined ? { citation: parseAssistantCitation(file.citation) || undefined } : {}) })), options: { ...message.options, dispatchMode: message.options.dispatchMode === 'force' ? 'steer' : message.options.dispatchMode } }
                 })
-                if (messages.length) held[sessionId] = true
+                if (messages.length) held[sessionId] = options.recover === false
+                    ? parsed.held?.[sessionId] === true : true
             }
-            // Recovery always holds. Delivery may have been accepted just before a
-            // renderer crash; resuming is an explicit user decision, not a replay.
+            // Default recovery always holds because delivery may have been accepted
+            // just before a crash. Explicit live reads preserve the current hold state.
             return { version: 1, entries, held }
         },
         write(snapshot) {
@@ -64,6 +68,7 @@ export function createAssistantComposerQueueStorage(
             if (storage.getItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY) !== serialized) {
                 throw new Error('Composer queue could not be saved')
             }
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event(ASSISTANT_COMPOSER_QUEUE_CHANGED))
         }
     }
 }

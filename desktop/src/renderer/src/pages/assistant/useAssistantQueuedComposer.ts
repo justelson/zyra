@@ -6,6 +6,8 @@ import type { AssistantComposerSendOptions, AssistantQueuedComposerMessage, Comp
 import { parseDevAssistantQueuePreviewCommand, type AssistantQueuePreviewCommand } from './assistant-queue-preview-protocol'
 import {
     cloneComposerQueueValue,
+    ASSISTANT_COMPOSER_QUEUE_CHANGED,
+    ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY,
     createAssistantComposerQueueStorage,
     emptyAssistantComposerQueue,
     moveQueuedDispatch,
@@ -52,6 +54,7 @@ export function useAssistantQueuedComposer(args: {
     isThreadWorking: boolean
     activeTurnId: string | null
     busyMessageMode: AssistantBusyMessageMode
+    dispatchProfile?: string
     onSendingChange?: (sending: boolean) => void
     canDispatchPrompt?: (sessionId: string) => boolean
     dispatchPrompt: (sessionId: string, prompt: string, contextFiles: ComposerContextFile[], options: AssistantComposerSendOptions, canSubmit?: () => boolean) => Promise<boolean>
@@ -59,15 +62,23 @@ export function useAssistantQueuedComposer(args: {
     queueStorage?: AssistantComposerQueueStorage
 }) {
     const { selectedSessionId, sessionStates, isAssistantBusy, commandPending, isThreadWorking, activeTurnId,
-        busyMessageMode, onSendingChange, canDispatchPrompt, dispatchPrompt } = args
+        busyMessageMode, dispatchProfile, onSendingChange, canDispatchPrompt, dispatchPrompt } = args
     const storage = useMemo(() => args.queueStorage || createAssistantComposerQueueStorage(), [args.queueStorage])
-    const initialErrorRef = useRef<string | null>(null)
+    const startupErrorRef = useRef<string | null>(null)
+    const needsRecoveryRef = useRef(false)
     const [snapshot, setSnapshot] = useState(() => {
-        try { return storage.read() }
-        catch (error) { initialErrorRef.current = String(error); return emptyAssistantComposerQueue() }
+        try {
+            const recovered = storage.read()
+            needsRecoveryRef.current = Object.values(recovered.entries).some(entries => entries.length > 0)
+            return recovered
+        } catch (error) {
+            startupErrorRef.current = String(error)
+            return emptyAssistantComposerQueue()
+        }
     })
+    const startupError = startupErrorRef.current
     const snapshotRef = useRef(snapshot)
-    const [queuePersistenceError, setQueuePersistenceError] = useState(initialErrorRef.current)
+    const [queuePersistenceError, setQueuePersistenceError] = useState(startupError)
     const [sendingCount, setSendingCount] = useState(0)
     const activeDispatchRef = useRef(new Map<string, string>())
     const dispatchEpochRef = useRef(new Map<string, number>())
@@ -82,10 +93,40 @@ export function useAssistantQueuedComposer(args: {
     const awaitingTurnRef = useRef(new Map<string, { key: string; busyRevision: number }>())
     const mountedRef = useRef(true)
     useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
+    useEffect(() => {
+        if (startupError || !needsRecoveryRef.current) return
+        try {
+            // Persist recovery holds before subscribing to live updates. Otherwise a
+            // detached dictation's live read could resume pre-crash entries implicitly.
+            // Re-read so recovery never overwrites entries accepted since render.
+            const recovered = storage.read()
+            storage.write(recovered)
+            needsRecoveryRef.current = false
+            snapshotRef.current = recovered
+            setSnapshot(recovered)
+        } catch (error) { setQueuePersistenceError(`Could not save recovered queue holds: ${String(error)}`) }
+    }, [startupError, storage])
+    useEffect(() => {
+        const changed = (event: Event) => {
+            if ('key' in event && event.key !== null && event.key !== ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY) return
+            try {
+                const next = storage.read({ recover: false })
+                snapshotRef.current = next
+                setSnapshot(next)
+                setQueuePersistenceError(null)
+            } catch (error) { setQueuePersistenceError(`Could not refresh queued messages: ${String(error)}`) }
+        }
+        window.addEventListener(ASSISTANT_COMPOSER_QUEUE_CHANGED, changed)
+        window.addEventListener('storage', changed)
+        return () => {
+            window.removeEventListener(ASSISTANT_COMPOSER_QUEUE_CHANGED, changed)
+            window.removeEventListener('storage', changed)
+        }
+    }, [storage])
 
     const commit = useCallback((next: AssistantComposerQueueSnapshot): boolean => {
         try {
-            if (initialErrorRef.current) throw new Error(initialErrorRef.current)
+            if (startupError) throw new Error(startupError)
             storage.write(next)
             snapshotRef.current = next
             if (mountedRef.current) { setSnapshot(next); setQueuePersistenceError(null) }
@@ -94,7 +135,7 @@ export function useAssistantQueuedComposer(args: {
             if (mountedRef.current) setQueuePersistenceError(`Could not save queued messages: ${String(error)}`)
             return false
         }
-    }, [storage])
+    }, [startupError, storage])
 
     const handleHoldQueue = useCallback((sessionId = selectedSessionId): boolean => {
         if (!sessionId) return false
@@ -132,14 +173,16 @@ export function useAssistantQueuedComposer(args: {
 
     const enqueue = useCallback((messages: PendingComposerDispatch[], prepend = false): boolean => {
         if (!selectedSessionId) return false
-        const current = snapshotRef.current
-        const existing = current.entries[selectedSessionId] || []
         try {
+            // A detached dictation may retain an older hook. Merge into the current
+            // durable queue rather than overwrite work accepted after that hook unmounted.
+            const current = storage.read({ recover: false })
+            const existing = current.entries[selectedSessionId] || []
             // Copy before acknowledging: edits to the cleared draft cannot mutate saved attachments/options.
             return commit({ ...current, entries: { ...current.entries,
                 [selectedSessionId]: cloneComposerQueueValue(prepend ? [...messages, ...existing] : [...existing, ...messages]) } })
         } catch { return false }
-    }, [commit, selectedSessionId])
+    }, [commit, selectedSessionId, storage])
 
     const enqueuePreviewPrompt = useCallback((command: AssistantQueuePreviewCommand, files: ComposerContextFile[], options: AssistantComposerSendOptions) => {
         if (!selectedSessionId) return false
@@ -155,6 +198,8 @@ export function useAssistantQueuedComposer(args: {
 
     const handleSendPrompt = useCallback(async (prompt: string, files: ComposerContextFile[], options: AssistantComposerSendOptions) => {
         if (!selectedSessionId) return false
+        const profile = options.profile || dispatchProfile
+        if (profile) options = { ...options, profile }
         if (parseDevContextCompactionTestCommand(prompt, { enabled: import.meta.env.DEV })) {
             return handleDispatchPrompt(selectedSessionId, prompt, files, options)
         }
@@ -174,7 +219,7 @@ export function useAssistantQueuedComposer(args: {
             }], mode === 'steer')
         }
         return handleDispatchPrompt(selectedSessionId, prompt, files, options)
-    }, [selectedSessionId, sessionStates, isAssistantBusy, busyMessageMode, activeTurnId, enqueue, enqueuePreviewPrompt, handleDispatchPrompt])
+    }, [selectedSessionId, sessionStates, isAssistantBusy, busyMessageMode, dispatchProfile, activeTurnId, enqueue, enqueuePreviewPrompt, handleDispatchPrompt])
 
     const updateEntries = useCallback((update: (entries: PendingComposerDispatch[]) => PendingComposerDispatch[]): boolean => {
         if (!selectedSessionId || activeDispatchRef.current.has(selectedSessionId)) return false
@@ -212,6 +257,7 @@ export function useAssistantQueuedComposer(args: {
             const awaited = awaitingTurnRef.current.get(sessionId)
             if (busy || awaited && (`${state.latestTurnId || ''}:${state.latestTurnState || ''}` !== awaited.key
                 || (busyTransitionsRef.current.get(sessionId)?.revision || 0) > awaited.busyRevision)) {
+
                 awaitingTurnRef.current.delete(sessionId)
             }
             const liveTurnId = state.latestTurnId || (sessionId === selectedSessionId ? activeTurnId : null)
@@ -243,6 +289,7 @@ export function useAssistantQueuedComposer(args: {
                         [sessionId]: (current.entries[sessionId] || []).filter(entry => entry.id !== next.id) } })
                     if (!saved) handleHoldQueue(sessionId)
                 } else handleHoldQueue(sessionId)
+
                 activeDispatchRef.current.delete(sessionId)
             })()
         }

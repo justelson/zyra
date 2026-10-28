@@ -105,7 +105,7 @@ function sanitizeComposerContextFile(value: unknown, index: number): ComposerCon
     const id = typeof record.id === 'string' && record.id.trim().length > 0
         ? record.id.trim()
         : `persisted_attachment_${index}_${Date.now()}`
-    const kind = record.kind === 'image' || record.kind === 'doc' || record.kind === 'code' || record.kind === 'file'
+    const kind = record.kind === 'image' || record.kind === 'video' || record.kind === 'doc' || record.kind === 'code' || record.kind === 'file'
         ? record.kind
         : undefined
     const source = record.source === 'manual' || record.source === 'paste' ? record.source : undefined
@@ -136,7 +136,7 @@ function sanitizeComposerContextFile(value: unknown, index: number): ComposerCon
     }
 }
 
-function areComposerContextFilesEqual(
+export function areComposerContextFilesEqual(
     left: ComposerContextFile[] | undefined,
     right: ComposerContextFile[] | undefined
 ): boolean {

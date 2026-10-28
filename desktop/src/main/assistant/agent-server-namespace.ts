@@ -7,10 +7,10 @@ export function resolveDesktopAgentServerNamespace(userDataPath: string, options
         channel: String(options.channel || 'desktop').trim().toLowerCase()
     }
 }
-export function desktopNamespaceId(userDataPath: string): string {
-    const { stateDirectory, channel } = resolveDesktopAgentServerNamespace(userDataPath)
+export function runtimeNamespaceId({ stateDirectory, channel }: { stateDirectory: string; channel: string }): string {
     return createHash('sha256').update(`${process.platform === 'win32' ? stateDirectory.toLowerCase() : stateDirectory}\0${channel}`).digest('hex').slice(0, 20)
 }
+export function desktopNamespaceId(userDataPath: string): string { return runtimeNamespaceId(resolveDesktopAgentServerNamespace(userDataPath)) }
 let terminalEnvironment: Record<string, string> = {}
 export function configureDesktopTerminalEnvironment(userDataPath: string): void {
     const namespace = resolveDesktopAgentServerNamespace(userDataPath)

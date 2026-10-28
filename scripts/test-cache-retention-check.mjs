@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { createRetentionBaseline, evaluateRetentionContinuation } from '../src/cache-retention-check.mjs';
+const now = Date.now();
+const response = (timestamp, cached = 0, model = 'test') => ({ type: 'message', message: { role: 'assistant', provider: 'test-provider', model, timestamp, content: [{ type: 'text', text: 'private output' }], usage: { input: 100, output: 10, cacheRead: cached } } });
+const entries = [{ type: 'message', message: { role: 'user', content: 'private input' } }, response(now - 1000)];
+const baseline = createRetentionBaseline(entries, now);
+assert.equal(JSON.stringify(baseline).includes('private'), false);
+assert.equal(evaluateRetentionContinuation(baseline, entries).status, 'pending');
+const resumed = [...entries, response(now + 13 * 3_600_000, 900)];
+assert.equal(evaluateRetentionContinuation(baseline, resumed).retainedCacheObserved, true);
+assert.equal(evaluateRetentionContinuation(baseline, [...entries, response(now + 1000, 900)]).status, 'inconclusive');
+assert.equal(evaluateRetentionContinuation(baseline, [...entries, response(now + 13 * 3_600_000, 0), response(now + 14 * 3_600_000, 900)]).retainedCacheObserved, false);
+assert.equal(evaluateRetentionContinuation(baseline, [...entries, response(now + 13 * 3_600_000, 900, 'different')]).status, 'inconclusive');
+assert.equal(evaluateRetentionContinuation(baseline, [response(now), ...resumed.slice(1)]).prefixUnchanged, false);
+assert.equal(evaluateRetentionContinuation(baseline, [...resumed, { type: 'compaction' }]).status, 'inconclusive');
+assert.throws(() => evaluateRetentionContinuation(baseline, resumed, NaN));
+console.log('Retention check: private baseline, delayed first request, cold result, changes and inconclusive outcomes: ok');

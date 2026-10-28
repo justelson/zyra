@@ -1,5 +1,5 @@
 import { addOverlayEventListener } from '@/components/ui/native-overlay-portal'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createOverlayPortal as createPortal } from '@/components/ui/native-overlay-portal'
 import { AlertCircle, Check, ChevronDown, Copy, EyeOff, Loader2, Trash2, X } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
@@ -11,16 +11,8 @@ import { formatAssistantDateTime, formatAssistantRelativeTime } from '@/lib/assi
 
 export type UsageMetricTone = 'low' | 'normal' | 'high' | 'neutral'
 export type LogDetailsTab = 'rendered' | 'raw'
-export type AssistantToastTone = 'success' | 'error' | 'info'
-export type AssistantToastState = {
-    message: string
-    visible: boolean
-    tone?: AssistantToastTone
-}
-export type AssistantToastInput = {
-    message: string
-    tone?: AssistantToastTone
-}
+export { AssistantTransientToast, useAssistantTransientToast } from './AssistantToast'
+export type { AssistantToastAction, AssistantToastInput, AssistantToastState, AssistantToastTone } from './AssistantToast'
 export type IssueActivityGroup = {
     activity: AssistantActivity
     activities: AssistantActivity[]
@@ -35,62 +27,6 @@ type PersistedIssueDismissState = {
 }
 
 const ISSUE_DISMISS_STORAGE_KEY = 'devscope.assistant.dismissed-issues.v1'
-
-export function useAssistantTransientToast() {
-    const [toast, setToast] = useState<AssistantToastState | null>(null)
-
-    const showToast = useCallback((input: string | AssistantToastInput, tone: AssistantToastTone = 'success') => {
-        const nextToast = typeof input === 'string'
-            ? { message: input, tone }
-            : { message: input.message, tone: input.tone ?? 'success' }
-
-        setToast({ ...nextToast, visible: false })
-        window.setTimeout(() => {
-            setToast((current) => current ? { ...current, visible: true } : current)
-        }, 10)
-    }, [])
-
-    useEffect(() => {
-        if (!toast?.visible) return
-
-        const hideTimer = window.setTimeout(() => {
-            setToast((current) => current ? { ...current, visible: false } : current)
-        }, 2600)
-        const removeTimer = window.setTimeout(() => {
-            setToast(null)
-        }, 3000)
-
-        return () => {
-            window.clearTimeout(hideTimer)
-            window.clearTimeout(removeTimer)
-        }
-    }, [toast?.visible])
-
-    return { toast, showToast }
-}
-
-export function AssistantTransientToast({ toast }: { toast: AssistantToastState | null }) {
-    if (!toast) return null
-
-    return (
-        <div
-            className={cn(
-                'fixed bottom-4 right-4 z-[110] w-[min(24rem,calc(100vw-2rem))] rounded-xl px-4 py-3 text-sm shadow-lg backdrop-blur-md transition-all duration-300',
-                toast.tone === 'error'
-                    ? 'border border-red-500/30 bg-red-500/10 text-red-200'
-                    : toast.tone === 'success'
-                        ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                        : 'border border-amber-500/30 bg-amber-500/10 text-amber-300',
-                toast.visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'
-            )}
-        >
-            <div className="flex min-w-0 items-start gap-2">
-                <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{toast.message}</span>
-            </div>
-        </div>
-    )
-}
 
 export function formatCompactMetric(value: number | null | undefined): string {
     if (value == null || !Number.isFinite(value)) return 'n/a'

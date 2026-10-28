@@ -1,3 +1,5 @@
+import { prepareAgentUpdate, cancelAgentUpdate, releaseAgentUpdate } from './update-maintenance.mjs';
+import { assertRuntimeStartAllowed, recordInstallHandoff } from './install-guard.mjs';
 import { normalizePromptImages } from '../prompt-images.mjs';
 import { initialChatTitleState } from '../chat-title-tool.mjs';
 import { normalizeChatModel } from './chat-model.mjs';
@@ -45,7 +47,7 @@ const DESKTOP_WORKSPACE_TIMEOUT_MS = 15_000;
 const DESKTOP_WORKSPACE_KINDS = new Set(["browser", "details", "explorer", "resources", "agents", "diff", "terminal"]);
 const DESKTOP_WORKSPACE_OPERATIONS = new Set(["open", "list", "show"]);
 const ACTIVE_FLEET_STATUSES = new Set(["queued", "starting", "running", "waiting", "blocked", "paused", "recovering"]);
-const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.global\.configure|auth\.refresh|abort|steer|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|managed_bash\.(?:list|stop)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
+const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.global\.configure|auth\.refresh|abort|steer|model_ping|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|managed_bash\.(?:list|stop)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
 
 function hashAuthorityProof(value) {
   return createHash("sha256").update(String(value || "")).digest("base64url");
@@ -120,6 +122,7 @@ export class ZyraAgentServer extends EventEmitter {
     if (this.server) return this.descriptor();
     mkdirSync(this.paths.stateDirectory, { recursive: true });
     this.assertNoIncompatibleServer();
+    await assertRuntimeStartAllowed(this.paths, this.root);
     this.runtimeRevision = await readRuntimeRevision(this.root);
     this.instanceId = randomUUID();
     if (!this.desktopAuthorityHash) {
@@ -153,6 +156,7 @@ export class ZyraAgentServer extends EventEmitter {
     clearTimeout(this.settlementTimer);
     this.settlementTimer = null;
     this.settlementDeadline = null;
+    clearTimeout(this.updateMaintenance?.timer);
     this.sessionWorkerPool?.dispose(reason);
     this.externalTools.dispose();
     this.memoryQueue.dispose();
@@ -237,6 +241,7 @@ export class ZyraAgentServer extends EventEmitter {
       instance: this.instanceIdentity(),
       sessions: uniqueSessions.map((session) => session.summary()),
       activity: this.runtimeActivity()
+
     };
   }
 
@@ -251,6 +256,10 @@ export class ZyraAgentServer extends EventEmitter {
       workspaceRequests: this.desktopWorkspaceRequests.size + this.appRequests.size,
       externalTools: this.externalTools.sessions.size
     };
+  }
+
+  assertWorkAdmission() {
+    if (this.updateMaintenance || this.retiring) throw new AgentServerProtocolError('An agent update is being prepared.', 'AGENT_SERVER_UPDATE_PENDING');
   }
 
   instanceIdentity() {
@@ -312,6 +321,7 @@ export class ZyraAgentServer extends EventEmitter {
       const id = assertAgentServerIdentifier(message.id, "request id");
       const method = assertAgentServerMethod(message.method);
       if (this.retiring) throw new AgentServerProtocolError("Zyra's background service is restarting. Try again shortly.", "AGENT_SERVER_RESTARTING");
+      if (this.updateMaintenance && !['server.status', 'server.retire', 'server.cancelUpdate'].includes(method)) throw new AgentServerProtocolError('An agent update is being prepared.', 'AGENT_SERVER_UPDATE_PENDING');
       this.pendingRequests++;
       let result;
       try { result = await this.handleRequest(client, method, message.params || {}); }
@@ -337,6 +347,7 @@ export class ZyraAgentServer extends EventEmitter {
     const verifiedDesktop = client.surface === "desktop"
       && Boolean(expectedAuthorityHash)
       && tokensMatch(hashAuthorityProof(message.authorityProof), expectedAuthorityHash);
+    client.updateMaintenanceVersion = message.updateMaintenanceVersion === 1 ? 1 : 0;
     client.canControl = verifiedDesktop && message.authorities?.includes?.("desktop-control") === true;
     client.canOpenWorkspace = verifiedDesktop && message.authorities?.includes?.("desktop-workspace") === true;
     client.canOperateApp = verifiedDesktop && message.authorities?.includes?.('desktop-app') === true;
@@ -362,6 +373,8 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   async handleRequest(client, method, params) {
+    if (method === 'server.prepareUpdate') return prepareAgentUpdate(this, client, params);
+    if (method === 'server.cancelUpdate') return cancelAgentUpdate(this, client, params);
     if (method === 'tools.status') return this.externalTools.status();
     if (method === 'tools.open') return this.externalTools.open(client, params);
     if (method === 'tools.control') return this.externalTools.control(client, params);
@@ -376,9 +389,13 @@ export class ZyraAgentServer extends EventEmitter {
       if (params.expectedInstanceId !== undefined && params.expectedInstanceId !== this.instanceId) {
         throw new AgentServerProtocolError('The running Zyra instance changed. Refresh its status before updating.', 'AGENT_SERVER_INSTANCE_CHANGED');
       }
+      const lease = this.updateMaintenance;
+      if (lease && (lease.preparing || lease.owner !== client.connectionId || lease.leaseId !== params.leaseId)) throw new AgentServerProtocolError('The update confirmation changed.', 'AGENT_SERVER_UPDATE_PENDING');
       const busy = Object.values(this.runtimeActivity()).some(count => count > 0);
       if (busy) throw new AgentServerProtocolError("Zyra's background service needs an update. Let active work finish, then try again.", "AGENT_SERVER_UPGRADE_BUSY");
       if (this.listenerCount("retire") === 0) throw new AgentServerProtocolError("Restart Zyra's background service to finish updating.", "AGENT_SERVER_UPGRADE_REQUIRED");
+      if (lease && params.targetVersion) recordInstallHandoff(this.paths, this.root, lease, params.targetVersion, this.runtimeRevision, params.receiptNonce);
+      clearTimeout(lease?.timer);
       this.retiring = true;
       // Freeze queued maintenance in the same tick as admission closes. A timer
       // must not start a new job between the idle check and process shutdown.
@@ -718,6 +735,7 @@ export class ZyraAgentServer extends EventEmitter {
       attention: [...session.pendingUserInputRequestIds].some(id => session.pendingUserInputModes.get(id) !== 'async') ? "user-input" : session.pendingApprovalRequestIds.size > 0 ? "approval" : null,
       pendingQuestionCount: [...session.pendingUserInputRequestIds].filter(id => session.pendingUserInputModes.get(id) === 'async').length,
       latestTurn: session.latestTurn ? { ...session.latestTurn } : null,
+      modelRequestProgress: turnRunning ? session.modelRequestProgress || null : null,
       latestSequence: session.sequence
     };
   }
@@ -742,6 +760,7 @@ export class ZyraAgentServer extends EventEmitter {
   }
 
   async attachSession(client, params) {
+    this.assertWorkAdmission();
     const project = this.catalog.registerProject(params.project || params.cwd);
     // A retry of an acknowledged-or-lost creation resolves its durable alias,
     // including after this canonical server has restarted.
@@ -755,6 +774,7 @@ export class ZyraAgentServer extends EventEmitter {
     }
     if (requestedCandidate?.forkPending) throw new AgentServerProtocolError('The fork history is saved, but its owning Desktop has not confirmed its scope. Inspect the original operation receipt.', 'CHAT_FORK_SCOPE_PENDING');
     const requested = requestedCandidate;
+    this.assertWorkAdmission();
     if (requested?.agentThread || requested?.agentCreatedBy) {
       let linked = this.findAgentOwner(requested.canonicalChatId);
       if (!linked && requested.agentConversationKind === 'thread' && requested.agentCreatedBy) {
@@ -797,6 +817,7 @@ export class ZyraAgentServer extends EventEmitter {
       this.removeSession(session);
       session = null;
     }
+    this.assertWorkAdmission();
     if (!session) {
       session = new ServerOwnedSession({
         server: this,
@@ -818,6 +839,7 @@ export class ZyraAgentServer extends EventEmitter {
         threadId: requested?.sessionPath || params.session,
         providerThreadId: requested?.sessionPath || params.session
       });
+      this.assertWorkAdmission();
       // Avoid loading another complete execution graph while this chat attaches.
       this.sessionWorkerPool?.prepare();
       const canonicalChatId = String(connected.threadId || connected.providerThreadId || requestedCanonicalId || provisionalKey);
@@ -950,6 +972,7 @@ export class ZyraAgentServer extends EventEmitter {
   dropClient(client) {
     this.chatAttention.drop(client);
     this.externalTools.dropClient(client);
+    if (!this.retiring && this.updateMaintenance?.owner === client.connectionId && !this.updateMaintenance.preparing) releaseAgentUpdate(this);
     clearTimeout(client.handshakeTimer);
     client.cleanupReader?.();
     this.clients.delete(client.connectionId);
@@ -1125,9 +1148,15 @@ class ServerOwnedSession {
     });
     this.worker.on("stderr", (text) => this.server.emit("worker-stderr", { sessionKey: this.sessionKey, text }));
     this.worker.on("worker-error", (error) => this.server.emit("worker-error", { sessionKey: this.sessionKey, error }));
-    this.worker.on("exit", ({ error }) => {
-      this.publish({ type: "server.worker.exited", error: error.message });
-      this.server.removeSession(this);
+    this.worker.on("exit", ({ error, code }) => {
+      if (this.worker.shutdownReason && code === 0) {
+        const owned = [this, ...new Set(this.server.sessions.values())].filter((value, index, all) => all.indexOf(value) === index && (value === this || value.parentOwner === this));
+        for (const session of owned) if (session.latestTurn?.state === 'running') session.publish({ type: 'zyra_server_turn_completed', turnId: session.latestTurn.id, outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } });
+        for (const session of owned) { session.dispose('Stopped for agent update.'); this.server.removeSession(session); }
+      } else {
+        this.publish({ type: "server.worker.exited", error: error.message });
+        this.server.removeSession(this);
+      }
     });
   }
 
@@ -1137,6 +1166,7 @@ class ServerOwnedSession {
   }
 
   connect(payload) {
+    this.server.assertWorkAdmission();
     if (this.connectedResult) {
       this.memoryEligibilityBase = !payload.noSession && payload.surface !== "memory-worker" && process.env.ZYRA_MEMORY_BACKGROUND !== "0";
       this.memoryEligible = payload.memoryEnabled !== false && this.memoryEligibilityBase;
@@ -1160,6 +1190,7 @@ class ServerOwnedSession {
         ...connectionPayload, ...(usesHarness ? { harnessTransport: { deferred: true } } : {}), memoryQueueOwner: 'server'
       }, { timeoutMs: BRIDGE_CONNECT_TIMEOUT_MS });
       this.connectPromise = Promise.all([transport, connection]).then(async ([harnessTransport, result]) => {
+        this.server.assertWorkAdmission();
         if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('Chat authority was revoked during connect.', 'AGENT_SERVER_PLUGIN_AUTHORITY_REVOKED');
         if (harnessTransport) await this.worker.request('harness.transport', harnessTransport);
         this.harnessTransportDescriptor = harnessTransport;
@@ -1265,6 +1296,8 @@ class ServerOwnedSession {
   }
 
   async request(client, typeValue, payload, requestContextValue) {
+    this.server.assertWorkAdmission();
+    if (this.worker.shutdownReason) throw new AgentServerProtocolError('This chat is still closing after an update request.', 'AGENT_SERVER_UPDATE_PENDING');
     if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('Chat Plugin authority was revoked.', 'AGENT_SERVER_PLUGIN_AUTHORITY_REVOKED');
     this.server.pluginAuthority.assertAllowed(this.sessionKey, this.pluginSkillSources);
     const type = String(typeValue || "");
@@ -1274,6 +1307,7 @@ class ServerOwnedSession {
     if (['prompt', 'configure'].includes(type)
       && String(payload?.model || this.connectedResult?.model || '').startsWith('opencode-harness/')) {
       const transport = await this.server.harnessTransport.get();
+      this.server.assertWorkAdmission();
       if (this.harnessTransportDescriptor !== transport) {
         await this.worker.request('harness.transport', transport);
         this.harnessTransportDescriptor = transport;
@@ -1286,10 +1320,10 @@ class ServerOwnedSession {
     if (type === 'abort' && payload?.turnId && String(payload.turnId) !== stoppingTurnId) {
       return { aborted: false, reason: 'The requested turn is no longer active.' };
     }
-    if (type === 'steer' && (!payload?.targetTurnId
+    if (['steer', 'model_ping'].includes(type) && (!payload?.targetTurnId
       || String(payload.targetTurnId) !== this.activeRequestContext?.turnId
       || this.isTurnTerminal(this.activeRequestContext?.turnId))) {
-      throw new AgentServerProtocolError('Steering requires the exact active turn.', 'AGENT_SERVER_SESSION_BUSY');
+      throw new AgentServerProtocolError(`${type === 'model_ping' ? 'Ping' : 'Steering'} requires the exact active turn.`, 'AGENT_SERVER_SESSION_BUSY');
     }
     const approvalResponsePromise = type === "approval.respond" ? this.approvalResponses.respond(client.clientId, payload, () => this.worker.request(type, payload)) : null;
     const continuationEpoch = this.userInputContinuationEpoch;
@@ -1348,6 +1382,7 @@ class ServerOwnedSession {
       if (this.disposed || this.revocationPromise) throw new AgentServerProtocolError('The session ended before the prompt could start.', 'AGENT_SERVER_SESSION_NOT_FOUND');
       this.server.pluginAuthority.assertAllowed(this.sessionKey, this.pluginSkillSources);
     }
+    this.server.assertWorkAdmission();
     clearTimeout(this.idleTimer);
     this.idleTimer = null;
     this.activeRequests += 1;
@@ -1385,8 +1420,9 @@ class ServerOwnedSession {
         if (initialChatTitleState(chat, metadata).eligible && !metadata.titleSource) {
           await this.server.catalog.updateChat(this.sessionKey, { title: chat.title, titleSource: 'initial', initializeTitle: true });
         }
-        payload = { ...payload, chatTitleState: initialChatTitleState(chat, this.server.catalog.record.metadata[this.sessionKey] || {}) };
+        payload = { ...payload, chatTitleState: initialChatTitleState(chat, this.server.catalog.record.metadata[this.sessionKey] || {}), workContext: chat.workContext || metadata.workContext || null };
       }
+      this.server.assertWorkAdmission();
       const result = await (approvalResponsePromise || userInputResponsePromise || this.worker.request(type, payload));
       if (type === 'abort' && result?.aborted !== false && stoppingTurnId
         && this.activeRequestContext?.turnId === stoppingTurnId
@@ -1472,6 +1508,8 @@ class ServerOwnedSession {
   }
 
   publish(event) {
+    if (event?.type === 'model_request_progress') this.modelRequestProgress = event.progress ? { ...event.progress, turnId: this.activeRequestContext?.turnId } : null;
+    if (['agent_start', 'agent_end', 'compaction_start', 'tool_execution_start', 'zyra_server_turn_completed'].includes(event?.type)) this.modelRequestProgress = null;
     if (event?.type === 'user_input_requested') event = { ...event, mode: event.mode === 'async' ? 'async' : 'blocking', continuationEpoch: this.userInputContinuationEpoch };
     if (event?.type === 'zyra_agent_interruption') this.pendingAgentInterruption = event.interruption;
     if (event?.type === 'agent_start') {
@@ -1489,6 +1527,7 @@ class ServerOwnedSession {
       this.pendingAgentInterruption = null;
     }
     if (event?.type === 'zyra_child_session_event') {
+      if (this.server.updateMaintenance) return;
       const agent = this.latestFleetSnapshot?.agents?.[event.agentRunId];
       if (agent?.providerSessionId) {
         const view = this.server.ensureAgentView(this, agent);
@@ -1530,8 +1569,13 @@ class ServerOwnedSession {
     if (fleetSnapshot && typeof fleetSnapshot === "object" && !Array.isArray(fleetSnapshot)) {
       this.latestFleetSnapshot = selectCurrentFleetSnapshot(this.latestFleetSnapshot, fleetSnapshot);
       this.connectedResult = { ...(this.connectedResult || {}), fleet: this.latestFleetSnapshot };
-      this.server.threads.registerAgentThreads(this);
-      void this.server.threads.pump().catch(error => this.server.emit('worker-error', { sessionKey: this.sessionKey, error }));
+      if (!this.server.updateMaintenance) this.server.threads.registerAgentThreads(this);
+      if (!this.server.updateMaintenance) void this.server.threads.pump().catch(error => this.server.emit('worker-error', { sessionKey: this.sessionKey, error }));
+    }
+    if (event?.type === 'session_work_context' && event.workContext) {
+      void this.server.catalog.setWorkContext(this.sessionKey, event.workContext)
+        .then(() => this.server.broadcastCatalogChanged({ canonicalChatId: this.sessionKey, metadata: true, workContext: true }))
+        .catch(error => this.server.emit('worker-error', { sessionKey: this.sessionKey, error }));
     }
     if (event?.type === "session_title" && event.title) {
       void this.server.catalog.updateChat(this.sessionKey, {
@@ -1626,7 +1670,7 @@ class ServerOwnedSession {
   updateRuntimeSummary(event, requestContext, occurredAt) {
     if (event?.canonicalCommit === true) return;
     if ((event?.type === 'message_start' || event?.type === 'message_update') && event.message?.role === 'assistant') this.liveMessage = event.message;
-    if (event?.type === 'message_end' && event.message?.role === 'assistant') this.liveMessage = null;
+    if (['message_end', 'message_discarded'].includes(event?.type) && event.message?.role === 'assistant') this.liveMessage = null;
     if (event?.type === 'tool_execution_start' && event.toolCallId) this.pendingToolEvents.set(String(event.toolCallId), event);
     if (event?.type === 'tool_execution_end' && event.toolCallId) this.pendingToolEvents.delete(String(event.toolCallId));
     if (event?.type === "approval_requested" && event.requestId) {

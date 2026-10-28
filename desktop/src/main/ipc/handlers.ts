@@ -2,6 +2,7 @@ import { MobileAccessManager } from '../mobile-access'
 import { MOBILE_ACCESS_IPC } from '../../shared/mobile-access'
 import { getAssistantService } from '../assistant'
 import { readRuntimeActivation, subscribeRuntimeActivation } from '../assistant/runtime-activation'
+import { UPDATE_PREFLIGHT_CHANNEL, UPDATE_DEFER_CHANNEL } from '../../shared/agent-update'
 import { RUNTIME_ACTIVATION_GET, RUNTIME_ACTIVATION_CHANGED, RUNTIME_ACTIVATION_REFRESH, RUNTIME_ACTIVATION_APPLY } from '../../shared/runtime-activation'
 /**
  * Zyra - IPC Handler Registry
@@ -73,6 +74,7 @@ import {
     handleAssistantGetSnapshot,
     handleAssistantGetStatus,
     handleAssistantInterruptTurn,
+    handleAssistantPingModel,
     handleAssistantListBackgroundProcesses,
     handleAssistantStopBackgroundProcesses,
     handleAssistantIngestRealtimeVoiceEvent,
@@ -234,6 +236,9 @@ import {
     handleCheckForUpdates,
     handleDownloadUpdate,
     handleGetUpdateState,
+    handlePreflightUpdate,
+    handleDeferUpdate,
+    handleResumePreviousAgent,
     handleInstallUpdate
 } from './handlers/update-handlers'
 import {
@@ -404,6 +409,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(UPDATE_GET_STATE_CHANNEL, requireCompletedSetup(handleGetUpdateState))
     ipcMain.handle(UPDATE_CHECK_CHANNEL, requireCompletedSetup(handleCheckForUpdates))
     ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, requireCompletedSetup(handleDownloadUpdate))
+    ipcMain.handle(UPDATE_PREFLIGHT_CHANNEL, requireCompletedSetup(handlePreflightUpdate))
+    ipcMain.handle(UPDATE_DEFER_CHANNEL, requireCompletedSetup(handleDeferUpdate))
+    ipcMain.handle('devscope:updates:resumePreviousAgent', requireCompletedSetup(handleResumePreviousAgent))
     ipcMain.handle(UPDATE_INSTALL_CHANNEL, requireCompletedSetup(handleInstallUpdate))
 
     ipcMain.handle('devscope:setStartupSettings', handleSetStartupSettings)
@@ -431,10 +439,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
         await assistant.refreshRuntimeStatus()
         return readRuntimeActivation()
     }))
-    ipcMain.handle(RUNTIME_ACTIVATION_APPLY, requireCompletedSetup(async () => {
+    ipcMain.handle(RUNTIME_ACTIVATION_APPLY, requireCompletedSetup(async (_event, options?: { expectedInstanceId: string; stopBlockers: boolean }) => {
         const assistant = getAssistantService()
         if (!assistant) throw new Error('The agent connection is not ready.')
-        await assistant.activateRuntimeUpdate()
+        await assistant.activateRuntimeUpdate(options)
         return readRuntimeActivation()
     }))
     subscribeRuntimeActivation(state => {
@@ -516,6 +524,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(ASSISTANT_IPC.resolveClipboardAttachment, requireCompletedSetup(handleAssistantResolveClipboardAttachment))
     ipcMain.handle(ASSISTANT_IPC.newThread, requireCompletedSetup(handleAssistantNewThread))
     ipcMain.handle(ASSISTANT_IPC.sendPrompt, requireCompletedSetup(handleAssistantSendPrompt))
+    ipcMain.handle(ASSISTANT_IPC.pingModel, requireCompletedSetup(handleAssistantPingModel))
     ipcMain.handle(ASSISTANT_IPC.interruptTurn, requireCompletedSetup(handleAssistantInterruptTurn))
     ipcMain.handle(ASSISTANT_IPC.listBackgroundProcesses, requireCompletedSetup(handleAssistantListBackgroundProcesses))
     ipcMain.handle(ASSISTANT_IPC.stopBackgroundProcesses, requireCompletedSetup(handleAssistantStopBackgroundProcesses))

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { AssistantTranscriptionEngine } from '@/lib/settings'
+import { createAssistantDictationJob, registerAssistantDictationOwner, type AssistantDictationJob } from './assistant-dictation-jobs'
 import {
     ASSISTANT_VOICE_MAX_DURATION_MS,
     ASSISTANT_VOICE_MAX_WAVEFORM_SAMPLES,
@@ -77,13 +78,6 @@ const getAudioContextCtor = () => {
     return window.AudioContext || audioWindow.webkitAudioContext || null
 }
 
-const appendSpeechToDraft = (baseText: string, spokenText: string) => {
-    const normalizedSpokenText = spokenText.trim()
-    if (!normalizedSpokenText) return baseText
-    if (!baseText.trim()) return normalizedSpokenText
-    return /\s$/.test(baseText) ? `${baseText}${normalizedSpokenText}` : `${baseText} ${normalizedSpokenText}`
-}
-
 const microphoneErrorKind = (error: unknown): AssistantSpeechErrorKind => {
     const name = error instanceof DOMException
         ? error.name
@@ -98,12 +92,11 @@ const microphoneErrorKind = (error: unknown): AssistantSpeechErrorKind => {
 export function useAssistantSpeechInput({
     text,
     setText,
-    setComposerCursor,
-    textareaRef,
     disabled,
     engine,
     scopeKey,
-    onSubmitTranscript
+    onSubmitTranscript,
+    createDictationJob
 }: {
     text: string
     setText: Dispatch<SetStateAction<string>>
@@ -114,6 +107,7 @@ export function useAssistantSpeechInput({
     engine: AssistantTranscriptionEngine
     scopeKey: string
     onSubmitTranscript?: (draftText: string) => void | Promise<void>
+    createDictationJob?: () => AssistantDictationJob
 }) {
     const speechRecognitionCtor = useMemo(() => getSpeechRecognitionCtor(), [])
     const audioContextCtor = useMemo(() => getAudioContextCtor(), [])
@@ -122,7 +116,20 @@ export function useAssistantSpeechInput({
     const recorderTimerRef = useRef<number | null>(null)
     const waveformLevelsRef = useRef<number[]>([])
     const waveformLastEmitAtRef = useRef(0)
-    const textAtStartRef = useRef('')
+    const jobRef = useRef<AssistantDictationJob | null>(null)
+    const draftRef = useRef(text)
+    draftRef.current = text
+    const localOwnerKey = useRef(crypto.randomUUID()).current
+    useEffect(() => registerAssistantDictationOwner(`${localOwnerKey}:${scopeKey}`, {
+        read: () => ({ draft: draftRef.current }),
+        apply: state => { draftRef.current = state.draft || ''; setText(draftRef.current) }
+    }), [localOwnerKey, scopeKey, setText])
+    const captureJobRef = useRef<() => AssistantDictationJob>(() => { throw new Error('Dictation target is not initialized.') })
+    captureJobRef.current = () => createDictationJob?.() || createAssistantDictationJob({
+        ownerKey: `${localOwnerKey}:${scopeKey}`,
+        initialState: { draft: text },
+        send: onSubmitTranscript ? async draft => { await onSubmitTranscript(draft); return false } : undefined
+    })
     const finalTranscriptRef = useRef('')
     const latestBrowserTranscriptRef = useRef('')
     const browserStopRequestedRef = useRef(false)
@@ -132,8 +139,6 @@ export function useAssistantSpeechInput({
     const autoSubmitRef = useRef(false)
     const availableRef = useRef({ disabled, engine, scopeKey })
     availableRef.current = { disabled, engine, scopeKey }
-    const submitTranscriptRef = useRef(onSubmitTranscript)
-    submitTranscriptRef.current = onSubmitTranscript
     const submittingRef = useRef<number | null>(null)
     const transcriptionRequestRef = useRef<string | null>(null)
     const cancelPendingTranscription = useCallback(() => {
@@ -201,30 +206,16 @@ export function useAssistantSpeechInput({
         }
     }, [clearRecorderTimer, resetRecorderPresentation])
 
-    const syncTextareaToEnd = useCallback((nextText: string) => {
-        window.requestAnimationFrame(() => {
-            const textarea = textareaRef.current
-            if (!textarea) return
-            textarea.focus()
-            const cursor = nextText.length
-            textarea.setSelectionRange(cursor, cursor)
-            setComposerCursor(cursor)
-        })
-    }, [setComposerCursor, textareaRef])
-
-    const applyTranscript = useCallback((spokenText: string, focusAtEnd = true) => {
-        const nextText = appendSpeechToDraft(textAtStartRef.current, spokenText)
-        setText(nextText)
-        if (focusAtEnd) syncTextareaToEnd(nextText)
-        return nextText
-    }, [setText, syncTextareaToEnd])
+    const applyTranscript = useCallback((spokenText: string) => {
+        return jobRef.current?.transcript(spokenText, true) || ''
+    }, [])
 
     const stopBrowserRecording = useCallback(() => {
         if (browserStopRequestedRef.current) return
         browserStopRequestedRef.current = true
         finalTranscriptRef.current = latestBrowserTranscriptRef.current
         try { recognitionRef.current?.stop() } catch {}
-        setIsRecording(false)
+        if (mountedRef.current) setIsRecording(false)
     }, [])
 
     const cancelBrowserRecording = useCallback(() => {
@@ -246,7 +237,6 @@ export function useAssistantSpeechInput({
         finalTranscriptRef.current = ''
         latestBrowserTranscriptRef.current = ''
         browserStopRequestedRef.current = false
-        textAtStartRef.current = text
 
         const recognition = new speechRecognitionCtor()
         recognition.continuous = true
@@ -259,7 +249,10 @@ export function useAssistantSpeechInput({
             if (finished) return
             finished = true
             if (recognitionRef.current === recognition) recognitionRef.current = null
-            setIsRecording(false)
+            recognition.onresult = null
+            recognition.onerror = null
+            recognition.onend = null
+            if (mountedRef.current) setIsRecording(false)
             const requestId = requestIdRef.current
             const transcript = (finalTranscriptRef.current || latestBrowserTranscriptRef.current).trim()
             void (async () => {
@@ -272,17 +265,17 @@ export function useAssistantSpeechInput({
                         ...(browserError ? { error: browserError } : transcript ? { transcript } : { error: 'Browser speech did not recognize anything.' })
                     })
                     if (!saved.success) throw new Error(saved.error || 'Could not save voice history.')
-                    if (requestIdRef.current === requestId && !browserError && !transcript) {
+                    if (mountedRef.current && requestIdRef.current === requestId && !browserError && !transcript) {
                         setSpeechErrorKind('no-speech')
                         setSpeechError('Browser speech did not recognize anything.')
                     }
                 } catch (error) {
-                    if (requestIdRef.current === requestId) {
+                    if (mountedRef.current && requestIdRef.current === requestId) {
                         setSpeechErrorKind('runtime')
                         setSpeechError(error instanceof Error ? error.message : 'Could not save browser dictation.')
                     }
                 } finally {
-                    if (requestIdRef.current === requestId) resetRecorderPresentation()
+                    if (mountedRef.current && requestIdRef.current === requestId) resetRecorderPresentation()
                 }
             })()
         }
@@ -299,7 +292,7 @@ export function useAssistantSpeechInput({
             }
             finalTranscriptRef.current = finalParts.join(' ')
             latestBrowserTranscriptRef.current = [...finalParts, ...interimParts].join(' ')
-            applyTranscript(latestBrowserTranscriptRef.current, false)
+            applyTranscript(latestBrowserTranscriptRef.current)
         }
         recognition.onerror = (event) => {
             if (browserStopRequestedRef.current && event.error === 'aborted') return
@@ -343,7 +336,7 @@ export function useAssistantSpeechInput({
         setSpeechError(null)
         setSpeechErrorKind(null)
         resetRecorderPresentation()
-        textAtStartRef.current = text
+        jobRef.current = captureJobRef.current()
         requestIdRef.current += 1
         const recordingRequestId = requestIdRef.current
         const recordingScopeKey = scopeKey
@@ -374,7 +367,8 @@ export function useAssistantSpeechInput({
 
             audioContext = new audioContextCtor()
             await audioContext.resume()
-            if (requestIdRef.current !== recordingRequestId) {
+            if (!mountedRef.current || requestIdRef.current !== recordingRequestId
+                || availableRef.current.scopeKey !== recordingScopeKey || availableRef.current.engine !== recordingEngine) {
                 stream.getTracks().forEach((track) => track.stop())
                 await audioContext.close().catch(() => undefined)
                 return
@@ -462,45 +456,52 @@ export function useAssistantSpeechInput({
     }, [audioContextCtor, disabled, isRecording, isTranscribing, resetRecorderPresentation, scopeKey, text])
 
     const submitCodexRecording = useCallback(async (send = false) => {
-        if (!recorderRuntimeRef.current || isTranscribing || submittingRef.current !== null) return
+        if (!recorderRuntimeRef.current || submittingRef.current !== null) return
+        const job = jobRef.current
+        const submission = send ? job?.captureSubmission() : undefined
         const submittedScope = availableRef.current.scopeKey
         const requestId = requestIdRef.current + 1
         const transcriptionRequestId = crypto.randomUUID()
         requestIdRef.current = requestId
         submittingRef.current = requestId
-        setSpeechError(null)
-        setSpeechErrorKind(null)
-        setIsTranscribing(true)
+        if (mountedRef.current) {
+            setSpeechError(null)
+            setSpeechErrorKind(null)
+            setIsTranscribing(true)
+        }
 
         try {
             const recording = await teardownRecorder(false)
-            if (!recording || requestIdRef.current !== requestId) return
+            if (!recording || job?.cancelled) return
             const payload = createAssistantVoicePcmPayload(recording.chunks)
             if (!payload) throw new Error('No audio was captured. Try recording again.')
             payload.requestId = transcriptionRequestId
-            transcriptionRequestRef.current = transcriptionRequestId
+            if (mountedRef.current && requestIdRef.current === requestId && availableRef.current.scopeKey === submittedScope) {
+                transcriptionRequestRef.current = transcriptionRequestId
+            }
             const result = await window.devscope.assistant.transcribeVoice(payload)
-            if (requestIdRef.current !== requestId || !mountedRef.current || availableRef.current.scopeKey !== submittedScope) return
+            if (job?.cancelled) return
             if (!result.success) throw new Error(result.error || 'Voice transcription failed.')
             if (!result.text.trim()) throw new Error('ChatGPT returned an empty transcription.')
-            const draftText = applyTranscript(result.text, !send)
-            if (send) await submitTranscriptRef.current?.(draftText)
+            job?.transcript(result.text)
+            if (submission) await submission(result.text)
         } catch (error) {
-            if (requestIdRef.current === requestId) {
+            if (mountedRef.current && availableRef.current.scopeKey === submittedScope && requestIdRef.current === requestId) {
                 setSpeechErrorKind('runtime')
                 setSpeechError(error instanceof Error ? error.message : 'Voice transcription failed.')
             }
         } finally {
             if (transcriptionRequestRef.current === transcriptionRequestId) transcriptionRequestRef.current = null
             if (submittingRef.current === requestId) submittingRef.current = null
-            if (requestIdRef.current === requestId) {
+            if (mountedRef.current && availableRef.current.scopeKey === submittedScope && requestIdRef.current === requestId) {
                 setIsTranscribing(false)
                 resetRecorderPresentation()
             }
         }
-    }, [applyTranscript, isTranscribing, resetRecorderPresentation, teardownRecorder])
+    }, [resetRecorderPresentation, teardownRecorder])
 
     const cancelCodexRecording = useCallback(() => {
+        jobRef.current?.cancel()
         cancelPendingTranscription()
         requestIdRef.current += 1
         submittingRef.current = null
@@ -521,12 +522,13 @@ export function useAssistantSpeechInput({
         if (recognitionRef.current || recorderRuntimeRef.current || startingRef.current || isTranscribing) return
         if (engine === 'browser') {
             void startCodexRecording('browser').then(() => {
-                if (recorderRuntimeRef.current) startBrowserRecording()
+                if (mountedRef.current && availableRef.current.scopeKey === scopeKey
+                    && availableRef.current.engine === engine && recorderRuntimeRef.current) startBrowserRecording()
             })
         } else {
             void startCodexRecording()
         }
-    }, [engine, isTranscribing, startBrowserRecording, startCodexRecording])
+    }, [engine, isTranscribing, scopeKey, startBrowserRecording, startCodexRecording])
 
     const submitRecording = useCallback(() => {
         if (engine === 'browser') {
@@ -564,39 +566,54 @@ export function useAssistantSpeechInput({
     }, [durationMs, engine, isRecording, submitRecording])
 
     useEffect(() => {
-        if (!disabled) return
-        requestIdRef.current += 1
-        cancelBrowserRecording()
-        cancelCodexRecording()
-    }, [cancelBrowserRecording, cancelCodexRecording, disabled])
+        if (disabled) recoverRecordingRef.current()
+    }, [disabled])
 
+    const recoverRecordingRef = useRef(() => {})
+    recoverRecordingRef.current = () => {
+        // Only a captured Chat job has a durable destination after navigation.
+        // Replaced question scopes must discard their recording and late answers.
+        if (!createDictationJob) {
+            cancelBrowserRecording()
+            cancelCodexRecording()
+            return
+        }
+        if (recognitionRef.current) {
+            stopBrowserRecording()
+            // Some engines never emit onend after leaving the page.
+            recognitionRef.current?.onend?.()
+        } else if (recorderRuntimeRef.current) {
+            void submitCodexRecording(false)
+        }
+    }
+    const previousScopeRef = useRef({ scopeKey, engine })
     useEffect(() => {
+        const previous = previousScopeRef.current
+        previousScopeRef.current = { scopeKey, engine }
+        if (previous.scopeKey === scopeKey && previous.engine === engine) return
+        recoverRecordingRef.current()
+        // Detach presentation only. The captured job continues to own the old draft.
         requestIdRef.current += 1
-        cancelBrowserRecording()
-        cancelCodexRecording()
+        submittingRef.current = null
+        transcriptionRequestRef.current = null
+        setIsTranscribing(false)
+        setIsStarting(false)
         setSpeechError(null)
         setSpeechErrorKind(null)
-    }, [cancelBrowserRecording, cancelCodexRecording, engine, scopeKey])
+        resetRecorderPresentation()
+    }, [engine, resetRecorderPresentation, scopeKey])
 
     useEffect(() => {
         mountedRef.current = true
-        window.addEventListener('pagehide', cancelPendingTranscription)
+        const recover = () => recoverRecordingRef.current()
+        window.addEventListener('pagehide', recover)
         return () => {
-            window.removeEventListener('pagehide', cancelPendingTranscription)
+            window.removeEventListener('pagehide', recover)
             mountedRef.current = false
-            cancelPendingTranscription()
+            recover()
             requestIdRef.current += 1
-            const recognition = recognitionRef.current
-            recognitionRef.current = null
-            if (recognition) {
-                recognition.onresult = null
-                recognition.onerror = null
-                recognition.onend = null
-                recognition.abort()
-            }
-            void teardownRecorder(false)
         }
-    }, [cancelPendingTranscription, teardownRecorder])
+    }, [])
 
     return {
         isSupported,

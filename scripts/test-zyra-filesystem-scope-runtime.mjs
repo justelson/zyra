@@ -12,6 +12,7 @@ import { createThreadTool } from '../src/threads/tool.mjs';
 import { createVisualizationTool } from '../src/visualizations/tool.mjs';
 import { createAppControlTools } from '../src/app-control-tool.mjs';
 import { createChatTitleController } from '../src/chat-title-tool.mjs';
+import { createContextManagementTool } from '../src/context-management.mjs';
 
 const sdkSource = await readFile(new URL('../src/zyra-sdk.mjs', import.meta.url), 'utf8');
 
@@ -74,6 +75,7 @@ function createStartupProbe(fixture) {
     createVisualizationTool,
     createAppControlTools,
     createChatTitleController,
+    createContextManagementTool,
     existsSync,
     mkdirSync,
     realpathSync,
@@ -96,6 +98,7 @@ function createStartupProbe(fixture) {
     createZyraRuntime: async () => ({ modelRuntime: {}, modelRegistry: {} }),
  applyOpenAIModelCatalog: async () => {},
  syncOpenAIModelCatalog: async () => [],
+    refreshDirectApiModelCatalog: async () => {}, // Discovery is outside the filesystem-scope probe.
     loadZyraToolModules: async () => ({
       createManagedBashState: () => ({}),
       createManagedBashTool: emptyTool,

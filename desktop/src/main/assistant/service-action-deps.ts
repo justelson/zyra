@@ -65,9 +65,11 @@ export interface AssistantRuntimeBridge {
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
+            modelCompactionOverrides?: Record<string, number>
         }
     ): Promise<{ turnId: string; providerThreadId: string | null }>
     steerPrompt?(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }>
+    pingModel?(threadId: string, targetTurnId: string, requestId: string): Promise<void>
     cancelPendingPrompt?(threadId: string, turnId?: string): Promise<boolean>
     interruptTurn(threadId: string, turnId?: string): Promise<void>
     requestBackgroundProcessOperation?(threadId: string, action: 'list' | 'stop', payload?: { jobId?: string; all?: boolean }): Promise<import('../../shared/assistant/contracts').AssistantBackgroundProcess[]>

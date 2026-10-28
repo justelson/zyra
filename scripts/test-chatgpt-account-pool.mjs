@@ -107,6 +107,41 @@ try {
   assert.equal(await take(), idB, 'Balanced routing uses more remaining quota.');
   await policy({ strategy: 'round-robin' });
   assert.notEqual(await take(), await take(), 'Round robin rotates eligible identities.');
+  // Conversation affinity survives independent workers, but never bypasses eligibility.
+  const affinityTake = async (sessionId, owner = pool, excluded = new Set()) => { const lease = await owner.acquire('affinity-model', excluded, undefined, sessionId); await lease.release(); return lease.id; };
+  const pinned = await affinityTake('conversation-one');
+  assert.equal(await affinityTake('conversation-one'), pinned, 'Follow-up stays on its healthy account.');
+  assert.equal(await affinityTake('conversation-one', new ChatGptAccountPool(store, options)), pinned, 'Affinity is shared across worker instances.');
+  const otherStart = await affinityTake('conversation-two');
+  assert.notEqual(otherStart, pinned, 'New conversations distribute their initial accounts fairly.');
+  assert.equal(await affinityTake('conversation-one'), pinned);
+  await pool.markFailure(pinned, 'affinity-model', { status: 429, resetAt: now + 1000 });
+  const replacement = await affinityTake('conversation-one');
+  assert.notEqual(replacement, pinned, 'A real model limit fails over the conversation.');
+  now += 1001;
+  assert.equal(await affinityTake('conversation-one'), replacement, 'Successful failover becomes the new affinity.');
+  await updateChatGptAccount(store, replacement, { enabled: false });
+  assert.equal(await affinityTake('conversation-one'), pinned, 'Paused accounts cannot retain affinity.');
+  await updateChatGptAccount(store, replacement, { enabled: true });
+  await policy({ accountMode: 'selected', accountIds: [replacement], strategy: 'round-robin' });
+  assert.equal(await affinityTake('conversation-one'), replacement, 'Affinity never bypasses account scope.');
+  assert.equal(await affinityTake('single-account-conversation'), replacement, 'One eligible account is unchanged.');
+  await policy({ strategy: 'round-robin' });
+  assert.equal((await pool.resolve('affinity-model', undefined, 'conversation-one')).id, replacement, 'Auth resolution honors eligible conversation affinity too.');
+  await store.modifyAll(values => {
+    values['openai-codex'].pool.conversationAffinities = {
+      ...Object.fromEntries(Array.from({ length: 300 }, (_, i) => [i.toString(16).padStart(64, '0'), { id: idA, usedAt: now }])),
+      ['e'.repeat(64)]: { id: idA, usedAt: now - 24 * 60 * 60000 },
+      ['f'.repeat(64)]: { id: 'disconnected-fixture-account', usedAt: now },
+    };
+    return values;
+  });
+  await affinityTake('affinity-cap-bound');
+  const boundedAffinities = store.read('openai-codex').pool.conversationAffinities;
+  assert.equal(Object.keys(boundedAffinities).length, 256, 'Persisted affinities have a hard bound.');
+  assert.ok(Object.keys(boundedAffinities).every(key => /^[a-f0-9]{64}$/.test(key)), 'Raw conversation ids are never persisted.');
+  assert.ok(!boundedAffinities['e'.repeat(64)], 'Idle affinity expires without a restart.');
+  assert.ok(!boundedAffinities['f'.repeat(64)], 'Disconnected affinity is cleaned.');
   const held = await pool.acquire('model');
   const concurrent = await pool.acquire('model');
   assert.notEqual(held.id, concurrent.id, 'Concurrent requests distribute across available accounts.');
@@ -184,6 +219,9 @@ try {
   await policy({ strategy: 'fill-first', preferredAccountId: idA });
   const request = createChatGptRequestCredentials(store);
   const requests = [];
+  const originalAcquire = pool.acquire.bind(pool);
+  const routedSessions = [];
+  pool.acquire = (...args) => { routedSessions.push(args[3]); return originalAcquire(...args); };
   let partial = false, failAll = false, networkFailure = false;
   const message = content => ({ role: 'assistant', provider: 'openai-codex', model: 'model', content, stopReason: 'stop' });
   const runtime = {
@@ -206,7 +244,8 @@ try {
   installChatGptAccountRouting(runtime, pool, request.context);
   const model = { provider: 'openai-codex', id: 'model', api: 'openai-codex-responses' };
   const events = [];
-  for await (const event of runtime.stream(model, {}, {})) events.push(event.type);
+  for await (const event of runtime.stream(model, {}, { sessionId: 'routed-conversation' })) events.push(event.type);
+  assert.deepEqual(routedSessions, ['routed-conversation', 'routed-conversation'], 'Runtime carries the stable conversation id through account failover.');
   assert.deepEqual(requests, [jwt('a', 3), jwt('b')]);
   assert.deepEqual(events, ['start', 'done'], 'Failed startup events do not appear before the successful response.');
   assert.equal(pool.inFlight.size, 0);

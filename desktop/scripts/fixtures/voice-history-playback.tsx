@@ -27,13 +27,13 @@ const entries = VOICE_TEST_AUDIO.map((_, index) => ({
     transcript: null, error: 'Synthetic transcription failure.', hasRecording: true
 }))
 Object.assign(window, { devscope: { assistant: {
-    listVoiceHistory: async () => ({ success: true, entries }),
+    listVoiceHistory: async () => ({ success: true, entries: entries.slice(), page: 1, pageSize: 20, totalCount: entries.length, totalPages: 1 }),
     getFailedVoiceRecording: async (id: string) => {
         requests.push(id)
         if (deferRecording) await new Promise<void>(resolve => { pendingRecording = resolve })
         return { success: true, audioBase64: VOICE_TEST_AUDIO[Number(id.split('-')[1])] }
     },
-    deleteVoiceHistory: async () => ({ success: true })
+    deleteVoiceHistory: async (id: string) => { const index = entries.findIndex(entry => entry.id === id); if (index >= 0) entries.splice(index, 1); return { success: true } }
 } } })
 const root = createRoot(document.getElementById('root')!)
 root.render(<VoiceHistorySettings />)

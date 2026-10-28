@@ -54,7 +54,6 @@ export function migrateCanonicalSettlementOverrides(sessions: AssistantSession[]
 }
 
 async function migrateChoices() {
-    let changed = false
     // One catalog mutation at a time, including calls from repeated snapshots.
     for (const candidate of latestSessions) {
         const session = latestSessions.find(entry => entry.id === candidate.id)
@@ -68,10 +67,10 @@ async function migrateChoices() {
             }
             retryAfter.delete(session.id)
             setAssistantSettlementOverrides(current => { const next = { ...current }; delete next[session.id]; return next })
-            changed = true
         } catch {
             retryAfter.set(session.id, Date.now() + 60_000)
         }
     }
-    if (changed) { const { assistantStore } = await import('@/lib/assistant/assistant-store-core'); await assistantStore.refresh() }
+    // Mutations publish canonical session.updated events. Local override cleanup
+    // must not bootstrap the assistant or invalidate the visible history.
 }

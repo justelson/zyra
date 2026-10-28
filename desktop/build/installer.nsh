@@ -1,4 +1,8 @@
 !include "WinMessages.nsh"
+!include "${PROJECT_DIR}\build\agent-update-handoff.nsh"
+!macro customInit
+  !insertmacro ZyraPrepareAgentUpdate
+!macroend
 !include "${PROJECT_DIR}\build\windows-file-icons.nsh"
 !include "StrFunc.nsh"
 !ifndef BUILD_UNINSTALLER
@@ -69,6 +73,7 @@
   WriteRegExpandStr HKCU "Environment" "Path" "$1"
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   zyra_path_ready:
+  !insertmacro ZyraRecordAgentUpdateSuccess
 !macroend
 
 !macro customUnInstall

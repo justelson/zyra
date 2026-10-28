@@ -56,8 +56,8 @@ export function runtimeLifecyclePresentation(state: RuntimeActivationStatus, now
         return count > 0 ? [`${count} ${label}${count === 1 ? '' : 's'}`] : []
     }) : []
     return {
-        codeState, blockers,
-        canActivate: codeState === 'pending' && blockers.length === 0 && state.errorCode !== 'AGENT_SERVER_AUTH_FAILED'
+        codeState, blockers, activityKnown: Boolean(knownActivity),
+        canActivate: codeState === 'pending' && Boolean(knownActivity) && blockers.length === 0 && state.errorCode !== 'AGENT_SERVER_AUTH_FAILED'
     }
 }
 

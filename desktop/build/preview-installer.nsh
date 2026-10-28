@@ -3,6 +3,7 @@
 ; NSIS still manages the separately identified Preview app and its own shortcut.
 ; Keep oneClick/perMachine/APP_FILENAME unchanged: existing Preview installs must
 ; upgrade in place without moving their install directory or profile.
+!include "${PROJECT_DIR}\build\agent-update-handoff.nsh"
 !macro customHeader
   Caption "Zyra Preview - Dev channel ${VERSION}"
 !macroend
@@ -13,9 +14,11 @@
     Abort
     zyraDevContinue:
   ${EndIf}
+  !insertmacro ZyraPrepareAgentUpdate
 !macroend
 
 !macro customInstall
+  !insertmacro ZyraRecordAgentUpdateSuccess
 !macroend
 
 !macro customUnInstall

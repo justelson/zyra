@@ -30,6 +30,8 @@ export function appendCanonicalMessage(sessionManager, inputValue) {
   const existing = findCanonicalMessageReceipt(sessionManager, input.operationId);
   if (existing) {
     assertMatchingReceipt(existing, input);
+    // A prior attempt may have appended in memory but failed its durable flush.
+    ensureCanonicalMessageDurable(sessionManager);
     return existing;
   }
 

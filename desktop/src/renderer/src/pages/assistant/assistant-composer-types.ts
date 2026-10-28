@@ -13,7 +13,7 @@ export type ComposerContextFile = {
     name?: string
     content?: string
     mimeType?: string
-    kind?: 'image' | 'doc' | 'code' | 'file'
+    kind?: 'image' | 'video' | 'doc' | 'code' | 'file'
     sizeBytes?: number
     previewText?: string
     previewDataUrl?: string
@@ -36,6 +36,8 @@ export type AssistantComposerSendOptions = {
     targetTurnId?: string
     startInNewWorktree?: boolean
     model?: string
+    /** Captured at acceptance so background/queued sends cannot inherit another Chat's profile. */
+    profile?: string
     runtimeMode: AssistantRuntimeMode
     interactionMode: AssistantInteractionMode
     effort: AssistantReasoningEffort
@@ -85,6 +87,7 @@ export type AssistantComposerProps = {
     isSending: boolean
     isThinking: boolean
     thinkingLabel?: string
+    modelInactivity?: import('./AssistantModelInactivityPanel').AssistantModelInactivityPanelProps
     isConnected: boolean
     isConnecting?: boolean
     activeModel?: string

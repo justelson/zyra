@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, RefreshCw } from 'lucide-react'
 import type { ZyraMemoryOverview, ZyraMemoryJobStatus } from '@shared/contracts/memory-contracts'
-import { ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_OPTIONS } from '@shared/assistant/runtime-policy'
+import { ModelCompactionSettings } from './ModelCompactionSettings'
 import { useSettings } from '@/lib/settings'
 import type { AssistantModelInfo } from '@shared/assistant/contracts'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
@@ -146,26 +146,7 @@ function MemoryOverviewView({ state }: { state: LoadState }) {
 
     return (
         <>
-            <SettingsSection title="Context" searchSection="Reasoning and context">
-                <SettingsRow
-                    title="Context limit"
-                    description="Summarize older context before it reaches this token limit."
-                    info="Smaller model windows use a lower safe limit."
-                    status={formatContextTokenLimit(settings.assistantContextCompactionThresholdTokens)}
-                    statusTone="info"
-                    control={(
-                        <SettingsSelect
-                            value={String(settings.assistantContextCompactionThresholdTokens)}
-                            onChange={(event) => updateSettings({ assistantContextCompactionThresholdTokens: Number(event.target.value) })}
-                            aria-label="Context compaction limit"
-                        >
-                            {ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_OPTIONS.map((tokens) => (
-                                <option key={tokens} value={tokens}>{formatContextTokenLimit(tokens)} tokens</option>
-                            ))}
-                        </SettingsSelect>
-                    )}
-                />
-            </SettingsSection>
+            <ModelCompactionSettings />
 
             <SettingsSection title="Memory" titleAction={hasSavedMemory ? <SettingsInfoTooltip label="Memory update status"><div className="space-y-1.5">{memoryStatusTooltip}{!settings.assistantMemoryEnabled ? <p>Memory is off and will not be added to chats or updated.</p> : null}</div></SettingsInfoTooltip> : undefined}>
                 <SettingsRow
@@ -373,10 +354,6 @@ function MemoryCopyButton({ value, label, copiedValue, onCopy }: {
             {copied ? <Check size={13} /> : <Copy size={13} />}
         </SettingsButton>
     )
-}
-
-function formatContextTokenLimit(value: number): string {
-    return `${Math.round(value / 1_000).toLocaleString()}k`
 }
 
 function formatBytes(value: number): string {

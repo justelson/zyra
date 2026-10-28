@@ -187,8 +187,10 @@ export function applyBrowserLoaderOnlyState(session) {
   return [...active];
 }
 
-export function installBrowserToolTurnCleanup(session) {
-  if (!session?.subscribe) return () => {};
+export function installBrowserToolTurnCleanup(session, options = {}) {
+  // Schemas may stay loaded for cache stability. This never retains or renews a
+  // tab grant; every operation is still checked by the control owner.
+  if (options.preserveLoadedTools === true || !session?.subscribe) return () => {};
   return session.subscribe((event) => {
     if (event?.type === "agent_end") applyBrowserLoaderOnlyState(session);
   });

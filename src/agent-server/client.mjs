@@ -1,3 +1,4 @@
+import { assertRuntimeStartAllowed, clearInstallHandoff, inspectInstallRecovery, recoverInstallHandoff } from './install-guard.mjs';
 import { RUNTIME_ACTIVATION_VERSION, readRuntimeRevision } from "./runtime-revision.mjs";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -104,6 +105,7 @@ export class ZyraAgentServerClient extends EventEmitter {
   }
 
   async connectInternal() {
+    if (this.autoStart) await assertRuntimeStartAllowed(this.paths, this.root);
     this.publishConnectionStatus({ phase: "checking", connection: "connecting", errorCode: undefined, updatePending: false });
     let descriptor = readDescriptor(this.paths.descriptorFile);
     let expectedRevision;
@@ -177,7 +179,37 @@ export class ZyraAgentServerClient extends EventEmitter {
     return this.connectionStatus;
   }
 
-  activateRuntimeUpdate() {
+  async prepareRuntimeInstallation(input, options = {}) {
+    await this.connect();
+    const state = await this.requestConnected('server.status', { identityOnly: true });
+    if (state.instance?.instanceId !== input.expectedInstanceId || state.instance?.namespaceId !== input.expectedNamespaceId) throw Object.assign(new Error('The agent changed. Review the update again.'), { code: 'AGENT_SERVER_INSTANCE_CHANGED' });
+    if (!this.serverMethods.includes('server.prepareUpdate')) throw new Error('This agent does not support the update handoff.');
+    const descriptor = readDescriptor(this.paths.descriptorFile);
+    const expectedRevision = await readRuntimeRevision(this.root);
+    if (!expectedRevision || !descriptor || descriptor.startedAt !== state.startedAt) throw new Error('The installed agent or its discovery state is unconfirmed.');
+    const lease = await this.requestConnected('server.prepareUpdate', input, { timeoutMs: 25_000 });
+    this.installLease = lease;
+    try {
+      await options.onPrepared?.();
+      await this.requestConnected('server.retire', { activationVersion: RUNTIME_ACTIVATION_VERSION, expectedRevision, expectedInstanceId: input.expectedInstanceId, leaseId: lease.leaseId, targetVersion: input.targetVersion, receiptNonce: input.operationId },  { timeoutMs: 5_000 });
+      this.close();
+      const deadline = Date.now() + 10_000;
+      while (processAlive(descriptor?.pid) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+      if (processAlive(descriptor?.pid)) throw new Error('The agent has not exited. Installation has not started.');
+    } catch (error) { await this.cancelRuntimeInstallation(); throw error; }
+  }
+
+  async inspectInstallRecovery() { return inspectInstallRecovery(this.paths, this.root); }
+  async recoverInstallHandoff() { return recoverInstallHandoff(this.paths, this.root); }
+
+  async cancelRuntimeInstallation() {
+    if (!this.installLease) return;
+    if (this.socket?.writable) await this.requestConnected('server.cancelUpdate', this.installLease).catch(() => {});
+    clearInstallHandoff(this.paths, this.installLease.leaseId);
+    this.installLease = null;
+  }
+
+  activateRuntimeUpdate(options = {}) {
     if (this.activationPromise) return this.activationPromise;
     const pending = (async () => {
       // Calling connect before publishing this promise avoids waiting on our own
@@ -189,7 +221,9 @@ export class ZyraAgentServerClient extends EventEmitter {
       const expected = await readRuntimeRevision(this.root);
       if (!expected) throw Object.assign(new Error('The installed runtime could not be identified.'), { code: 'AGENT_SERVER_UPGRADE_REQUIRED' });
       await this.observeRuntimeStatus(expected);
+      if (options.expectedInstanceId && options.expectedInstanceId !== this.instance?.instanceId) throw Object.assign(new Error('The agent changed. Review the update again.'), { code: 'AGENT_SERVER_INSTANCE_CHANGED' });
       if (this.serverRuntimeRevision === expected) return this.connectionStatus;
+      if (options.stopBlockers === true && !options.expectedInstanceId) throw new Error('Review the exact agent instance before stopping work.');
       if (!this.serverMethods.includes('server.retire')) throw Object.assign(new Error('This server does not support safe activation.'), { code: 'AGENT_SERVER_UPGRADE_REQUIRED' });
       const descriptor = readDescriptor(this.paths.descriptorFile);
       if (!descriptor || descriptor.namespaceId && descriptor.namespaceId !== this.paths.namespaceId) {
@@ -198,7 +232,9 @@ export class ZyraAgentServerClient extends EventEmitter {
       const key = this.runtimeUpgradeKey(expected);
       this.deferredUpgradeKey = null;
       try {
-        await this.replaceRuntime(descriptor, expected, key);
+        const lease = options.stopBlockers === true ? await this.requestConnected('server.prepareUpdate', { expectedInstanceId: this.instance.instanceId, expectedNamespaceId: this.paths.namespaceId, stopBlockers: true }, { timeoutMs: 25_000 }) : null;
+        try { if (lease) await options.onPrepared?.(); await this.replaceRuntime(descriptor, expected, key, lease?.leaseId); }
+        catch (error) { if (lease && this.socket?.writable) await this.requestConnected('server.cancelUpdate', lease).catch(() => {}); throw error; }
         return this.connectionStatus;
       } catch (error) {
         if (this.socket?.writable && UPDATE_DEFERRED_CODES.has(error?.code)) {
@@ -243,13 +279,13 @@ export class ZyraAgentServerClient extends EventEmitter {
     }
   }
 
-  async replaceRuntime(descriptor, expectedRevision, upgradeKey) {
+  async replaceRuntime(descriptor, expectedRevision, upgradeKey, leaseId) {
     const upgradeError = () => Object.assign(new Error('The new Zyra runtime could not be confirmed. Refresh its status before trying again.'), { code: 'AGENT_SERVER_UPGRADE_REQUIRED' });
     const retired = await this.requestConnected('server.retire', {
       // Legacy format-1 servers still use the same safe retirement gate. Use
       // their handshake to retire, then require our format on the replacement.
       activationVersion: this.serverState?.activationVersion === 1 ? 1 : RUNTIME_ACTIVATION_VERSION,
-      expectedRevision, expectedInstanceId: this.instance?.instanceId }, { timeoutMs: 5_000 });
+      expectedRevision, expectedInstanceId: this.instance?.instanceId, leaseId }, { timeoutMs: 5_000 });
     if (retired.retiring !== true) throw upgradeError();
     SERVICE_UPGRADE_ATTEMPTS.add(upgradeKey);
     const generation = this.lifecycleGeneration + 1;
@@ -351,6 +387,7 @@ export class ZyraAgentServerClient extends EventEmitter {
           clientId: this.clientId,
           surface: this.surface,
           ...(this.displayName ? { displayName: this.displayName } : {}),
+          updateMaintenanceVersion: 1,
           authorities: this.authorities,
           ...(this.authorityProof ? { authorityProof: this.authorityProof } : {})
         });

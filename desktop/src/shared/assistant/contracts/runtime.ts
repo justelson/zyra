@@ -113,6 +113,10 @@ export interface AssistantRuntimeEventBase {
 
 export type AssistantRuntimeEvent =
     | (AssistantRuntimeEventBase & {
+        type: 'model.progress'
+        payload: { progress: import('../model-progress').AssistantModelRequestProgress | null }
+    })
+    | (AssistantRuntimeEventBase & {
         type: 'fleet.snapshot.updated'
         payload: import('./fleet').FleetSnapshotEventPayload
     })

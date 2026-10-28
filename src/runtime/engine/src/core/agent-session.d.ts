@@ -196,10 +196,25 @@ export interface SessionStats {
     cost: number;
     contextUsage?: ContextUsage;
 }
+export interface SessionContextCompactionPolicy {
+    thresholdTokens: number | null;
+    contextWindow?: number | null;
+    usableContextWindow?: number | null;
+    maxThresholdTokens?: number | null;
+    [key: string]: unknown;
+}
+export interface ContextCompactionRequest {
+    status: "idle" | "pending" | "running" | "completed" | "failed" | "cancelled";
+    errorMessage?: string;
+    tokensBefore?: number;
+    estimatedTokensAfter?: number;
+}
 export declare class AgentSession {
     readonly agent: Agent;
     readonly sessionManager: SessionManager;
     readonly settingsManager: SettingsManager;
+    /** Optional host-owned per-model policy, resolved freshly for the active model. */
+    getContextCompactionPolicy?: () => SessionContextCompactionPolicy;
     private _scopedModels;
     private _unsubscribeAgent?;
     private _eventListeners;
@@ -216,6 +231,11 @@ export declare class AgentSession {
     private _compactionAbortController;
     private _autoCompactionAbortController;
     private _overflowRecoveryAttempted;
+    private _contextCompactionRequest;
+    private _contextCompactionInstructions;
+    /** One agent-requested attempt per user task, including failures. */
+    private _contextCompactionAttempted;
+    private _safePointAutoCompactionAttempted;
     private _branchSummaryAbortController;
     private _retryAbortController;
     private _retryAttempt;
@@ -502,7 +522,36 @@ export declare class AgentSession {
      * Saves to settings.
      */
     setFollowUpMode(mode: "all" | "one-at-a-time"): void;
-    /** Generate Pi's built-in compaction summary for manual and automatic compaction. */
+    private _contextInputBudget;
+    private _boundInferenceContext;
+    private _validatePromptContextSize;
+    /** Inspect only this session, without exposing transcripts or another session selector. */
+    inspectContext(): {
+        sessionId: string;
+        messageCount: number;
+        pendingPromptCount: number;
+        estimatedTokens: number;
+        contextWindow: number | null;
+        inputBudgetTokens: number | null;
+        remainingTokens: number | null;
+        headroomTokens: number | null;
+        usage: ContextUsage | null;
+        policy: SessionContextCompactionPolicy | null;
+        compaction: {
+            status: "idle" | "pending" | "running" | "completed" | "failed" | "cancelled";
+            errorMessage?: string;
+            tokensBefore?: number;
+            estimatedTokensAfter?: number;
+        };
+        automaticCompactionAttempted: boolean;
+        canRequestCompaction: boolean;
+    };
+    /** Enqueue only. Never await maintenance from inside a tool execution. */
+    requestContextCompaction(options?: {
+        instructions?: string;
+    }): ContextCompactionRequest;
+    private _processContextCompactionRequest;
+    /** Generate the built-in compaction summary for manual and automatic compaction. */
     private _runDefaultCompaction;
     /**
      * Manually compact the session context.
@@ -520,6 +569,8 @@ export declare class AgentSession {
      * @param customInstructions Optional instructions for the compaction summary
      */
     compact(customInstructions?: string): Promise<CompactionResult>;
+    /** Shared checkpoint implementation. Only the safe-point caller may use this while streaming. */
+    private _compactContext;
     /**
      * Cancel in-progress compaction (manual or auto).
      */

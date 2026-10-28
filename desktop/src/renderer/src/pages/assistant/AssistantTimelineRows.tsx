@@ -825,20 +825,26 @@ export const TimelineMessage = memo(({
                             {parsedUserMessage.attachments.map((attachment) => {
                                 if (attachment.citation) return <AssistantCitationChip key={attachment.id} file={citationContextFile(attachment.citation, attachment.id)} />
                                 const isImage = attachment.type === 'IMAGE'
+                                const isVideo = attachment.type === 'VIDEO' || Boolean(attachment.mime?.toLowerCase().startsWith('video/'))
                                 const resolvedAttachmentPath = attachment.path && isClipboardAttachmentReference(attachment.path)
                                     ? (resolvedClipboardAttachmentPaths[attachment.id] || null)
                                     : attachment.path
                                 const renderImage = isImage && canRenderAttachmentImage(resolvedAttachmentPath)
-                                const unresolvedClipboardImage = isImage
+                                const unresolvedClipboardMedia = (isImage || isVideo)
                                     && isClipboardAttachmentReference(attachment.path)
                                     && !resolvedAttachmentPath
                                 const attachmentRecoveryState = clipboardAttachmentRecovery[attachment.id]
                                 const previewTarget = resolvedAttachmentPath ? getAttachmentPreviewTarget(attachment.name, resolvedAttachmentPath) : null
                                 const canPreviewInlineText = Boolean(
                                     attachment.content
-                                    && attachment.type !== 'IMAGE'
+                                    && !isImage && !isVideo
                                 )
-                                const previewAttachmentFile: ComposerContextFile | null = canPreviewInlineText
+                                const previewAttachmentFile: ComposerContextFile | null = isVideo && resolvedAttachmentPath ? {
+                                    id: attachment.id, path: resolvedAttachmentPath, name: attachment.displayName,
+                                    kind: 'video', mimeType: attachment.mime || 'video/mp4',
+                                    sizeBytes: attachment.size ? Number.parseInt(attachment.size, 10) : undefined,
+                                    source: attachment.isClipboard ? 'paste' : 'manual'
+                                } : canPreviewInlineText
                                     ? {
                                         id: attachment.id,
                                         path: attachment.path || attachment.displayName,
@@ -867,14 +873,14 @@ export const TimelineMessage = memo(({
                                                 void onOpenFilePath?.(resolvedAttachmentPath)
                                             } : undefined}
                                         />
-                                    ) : unresolvedClipboardImage ? (
+                                    ) : unresolvedClipboardMedia ? (
                                         <div key={attachment.id} className="flex w-[116px] flex-col gap-1.5">
                                             <AssistantFileAttachmentCard
                                                 widthClassName="w-[116px]"
                                                 name={attachment.displayName}
                                                 contentType={attachment.type}
-                                                category="image"
-                                                pathLabel="Cached image unavailable"
+                                                category={isVideo ? 'video' : 'image'}
+                                                pathLabel={isVideo ? 'Cached video unavailable' : 'Cached image unavailable'}
                                             />
                                             <button
                                                 type="button"
@@ -900,7 +906,7 @@ export const TimelineMessage = memo(({
                                                 {attachmentRecoveryState === 'loading' ? 'Recovering' : 'Retry attachment'}
                                             </button>
                                         </div>
-                                    ) : attachment.isClipboard && attachment.type !== 'IMAGE' ? (
+                                    ) : attachment.isClipboard && !isImage && !isVideo ? (
                                         <AssistantPastedTextCard
                                             key={attachment.id}
                                             widthClassName="w-[108px]"
@@ -913,11 +919,12 @@ export const TimelineMessage = memo(({
                                             widthClassName="w-[116px]"
                                             name={attachment.displayName}
                                             contentType={attachment.type}
-                                            category={attachment.type === 'CODE' ? 'code' : 'doc'}
+                                            category={isVideo ? 'video' : attachment.type === 'CODE' ? 'code' : 'doc'}
                                             pathLabel={attachment.isClipboard ? null : attachment.path}
                                             previewText={attachment.preview}
                                             onClick={
-                                                resolvedAttachmentPath && (onOpenAttachmentPreview || onOpenFilePath)
+                                                isVideo && previewAttachmentFile ? () => setPreviewAttachment(previewAttachmentFile)
+                                                    : resolvedAttachmentPath && (onOpenAttachmentPreview || onOpenFilePath)
                                                     ? () => {
                                                         if (onOpenAttachmentPreview && previewTarget) {
                                                             void onOpenAttachmentPreview({ name: previewTarget.name, path: resolvedAttachmentPath }, previewTarget.ext)

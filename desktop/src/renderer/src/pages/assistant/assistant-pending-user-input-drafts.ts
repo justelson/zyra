@@ -6,6 +6,7 @@ export type AssistantPendingUserInputDraftSnapshot = {
     questionIndex: number
     customQuestionId: string | null
     returnToReview: boolean
+    finishingQuestions?: boolean
 }
 
 const MAX_CACHED_REQUESTS = 64

@@ -1,0 +1,18 @@
+.composer-file-change-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 2px;
+  border-radius: 5px;
+  text-align: left;
+}
+.composer-file-change-row:hover, .composer-file-change-row[aria-expanded="true"] { background: var(--surface-hover); }
+.composer-file-change-row > svg { flex-shrink: 0; color: var(--color-text-muted); }
+.composer-file-change-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.6 ui-monospace, Consolas, monospace; }
+.composer-file-change-kind { flex-shrink: 0; margin-left: 3px; color: var(--color-text-muted); font-size: 10px; }
+.composer-file-change-row:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+[data-anchored-menu-popover]:has(> .composer-file-diff-surface) { padding: 0; border: 0; }
+.composer-file-diff-surface { max-height: inherit; }
+.composer-file-diff-surface > div { height: auto; max-height: inherit; }

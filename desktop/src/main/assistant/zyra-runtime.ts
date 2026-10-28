@@ -1,3 +1,6 @@
+import { app } from 'electron'
+import { PrivateVoiceTaskContext } from './voice/private-voice-task-context'
+import { readModelRequestProgress } from '../../shared/assistant/model-progress'
 import { canonicalImageAttachmentSection } from './canonical-media-cache'
 import { projectThreadMessage } from '../../shared/assistant/thread-message'
 import { readAssistantInterruption } from '../../shared/assistant/interruption'
@@ -94,6 +97,8 @@ export type PrivateVoiceTaskInput = {
     cwd: string
     filesystemScope?: AssistantChatScope | null
     prompt: string
+    /** Original request without the potentially long execution/history preamble. */
+    taskRequest?: string
     model?: string
     effort?: AssistantReasoningEffort
     runtimeMode?: AssistantRuntimeMode
@@ -504,6 +509,9 @@ function readSessionUsage(
         totalTokens: numberValue(usage, 'total'),
         contextTokens: numberValue(context, 'tokens'),
         cacheHitPercent: numberValue(usage, 'cacheHitPercent'),
+        latestRequestCacheHitPercent: numberValue(usage, 'latestRequestCacheHitPercent'),
+        cacheInputTokens: numberValue(usage, 'cacheInputTokens'),
+        compactionThresholdTokens: numberValue(context, 'compactionThresholdTokens'),
         modelContextWindow: numberValue(context, 'contextWindow'),
         costUsd: numberValue(usage, 'cost'),
         costSource: usage?.['costSource'] === 'api-equivalent' ? 'api-equivalent' : 'reported',
@@ -1447,6 +1455,9 @@ export class ZyraRuntime extends EventEmitter {
     private desktopWorkspaceTurnEndHandler: ((canonicalChatId: string, turnId: string) => void) | null = null
     private readonly privateVoiceThreadTargets = new Map<string, string>()
     private readonly privateVoiceWorkers = new Map<string, ZyraWorker>()
+    private readonly privateVoiceActiveChats = new Set<string>()
+    private privateVoiceTaskHistory: PrivateVoiceTaskContext | null = null
+    private readonly privateVoiceBackgroundWorkers = new Map<string, { localThreadId: string; worker: ZyraWorker; unsubscribe: () => void }>()
     private readonly privateApprovalWorkers = new Map<string, ZyraWorker>()
 
     setMemoryEnabledResolver(resolver: () => Promise<boolean>): void {
@@ -1501,6 +1512,7 @@ export class ZyraRuntime extends EventEmitter {
         const workers = [
             ...[...new Set(this.sessions.values())].map((context) => context.worker),
             ...this.privateVoiceWorkers.values(),
+            ...[...this.privateVoiceBackgroundWorkers.values()].map(owner => owner.worker),
             ...(this.preparedPrivateVoiceWorker ? [this.preparedPrivateVoiceWorker.worker] : [])
         ]
         await Promise.all(workers.filter((worker) => worker.isAlive()).map((worker) =>
@@ -1521,7 +1533,7 @@ export class ZyraRuntime extends EventEmitter {
                     })
                 })
             }),
-            ...[...this.privateVoiceWorkers.values(), ...(this.preparedPrivateVoiceWorker ? [this.preparedPrivateVoiceWorker.worker] : [])].map(async (worker) => {
+            ...[...this.privateVoiceWorkers.values(), ...[...this.privateVoiceBackgroundWorkers.values()].map(owner => owner.worker), ...(this.preparedPrivateVoiceWorker ? [this.preparedPrivateVoiceWorker.worker] : [])].map(async (worker) => {
                 if (!worker.isAlive()) return
                 await worker.request('memory.global.configure', { enabled }).catch((error) => {
                     log.warn('[ZyraRuntime] Memory preference could not be applied to a Private Voice session', { error })
@@ -1596,8 +1608,40 @@ export class ZyraRuntime extends EventEmitter {
         await this.getAgentServerConnection(resolveZyraRoot()).refreshRuntimeStatus()
     }
 
-    async activateRuntimeUpdate(): Promise<void> {
-        await this.getAgentServerConnection(resolveZyraRoot()).activateRuntimeUpdate()
+    async activateRuntimeUpdate(options?: { expectedInstanceId: string; stopBlockers: boolean }, onPrepared?: () => Promise<void>): Promise<void> {
+        await this.getAgentServerConnection(resolveZyraRoot()).activateRuntimeUpdate(options ? { ...options, onPrepared: async () => {
+            await onPrepared?.()
+            const pending = [...this.sessions.values()].filter(context => context.pendingPrompt && !context.pendingPrompt.dispatched).map(context => ({ context, turnId: context.pendingPrompt!.turnId }))
+            for (const item of pending) await this.cancelPendingPrompt(item.context.localThreadId, item.turnId)
+        } } : undefined)
+    }
+
+    async inspectRuntimeInstallation() {
+        const observed = await this.getAgentServerConnection(resolveZyraRoot()).inspectRuntimeInstallation()
+        const local = [...this.sessions.values()].filter(context => context.pendingPrompt && !context.pendingPrompt.dispatched).length
+        return { ...observed, activity: { ...observed.activity, requests: observed.activity.requests + local } }
+    }
+
+    private preparedInstallConnection: DesktopAgentServerConnection | null = null
+
+    async inspectInstallRecovery() { return this.getAgentServerConnection(resolveZyraRoot()).inspectInstallRecovery() }
+    async recoverInstallHandoff() { return this.getAgentServerConnection(resolveZyraRoot()).recoverInstallHandoff() }
+
+    async prepareRuntimeInstallation(input: import('../../shared/agent-update').RuntimeInstallInput, onPrepared?: () => Promise<void>): Promise<void> {
+        const pending = [...this.sessions.values()].filter(context => context.pendingPrompt && !context.pendingPrompt.dispatched).map(context => ({ context, turnId: context.pendingPrompt!.turnId }))
+        if (pending.length && !input.stopBlockers) throw new Error('A prompt is preparing. Review the update again.')
+        this.preparedInstallConnection = this.getAgentServerConnection(resolveZyraRoot())
+        await this.preparedInstallConnection.prepareRuntimeInstallation(input, async () => {
+            await onPrepared?.()
+            const queued = [...this.sessions.values()].filter(context => context.pendingPrompt && !context.pendingPrompt.dispatched).map(context => ({ context, turnId: context.pendingPrompt!.turnId }))
+            if (queued.length && !input.stopBlockers) throw new Error('New work arrived. Review the update again.')
+            for (const item of queued) await this.cancelPendingPrompt(item.context.localThreadId, item.turnId)
+        })
+    }
+
+    async cancelRuntimeInstallation(): Promise<void> {
+        await this.preparedInstallConnection?.cancelRuntimeInstallation()
+        this.preparedInstallConnection = null
     }
 
     async listCanonicalChats(): Promise<CanonicalAgentChat[]> {
@@ -2065,6 +2109,7 @@ export class ZyraRuntime extends EventEmitter {
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
+            modelCompactionOverrides?: Record<string, number>
         }
     ): Promise<{ turnId: string; providerThreadId: string | null }> {
         await this.ensurePromptAvailable(threadId)
@@ -2121,6 +2166,16 @@ export class ZyraRuntime extends EventEmitter {
 
         void this.runPromptTurn(context, turnId, prompt, options)
         return { turnId, providerThreadId: context.providerThreadId }
+    }
+
+    async pingModel(threadId: string, targetTurnId: string, requestId: string): Promise<void> {
+        const context = this.requireSession(threadId)
+        await this.ensureConnected(context)
+        const presence = context.worker.readPresence ? await context.worker.readPresence() : null
+        if (!targetTurnId || (presence ? presence.activeTurnId : context.activeTurnId) !== targetTurnId) {
+            throw new Error('The active turn changed. Nothing was pinged.')
+        }
+        await context.worker.request('model_ping', { targetTurnId, requestId })
     }
 
     async steerPrompt(threadId: string, prompt: string, options: { targetTurnId: string; images?: PreparedAssistantPromptImage[] }): Promise<{ turnId: string }> {
@@ -2197,7 +2252,8 @@ export class ZyraRuntime extends EventEmitter {
         const prepared = this.preparedPrivateVoiceWorker
         if (!prepared) return
         this.preparedPrivateVoiceWorker = null
-        prepared.worker.dispose()
+        // A call/cache ending does not cancel an accepted task. Its run owns disposal.
+        if (!prepared.claimed) prepared.worker.dispose()
     }
 
     private async claimPreparedPrivateVoiceWorker(
@@ -2224,7 +2280,7 @@ export class ZyraRuntime extends EventEmitter {
         try {
             const connected = await prepared.connectPromise
             if (signal.aborted) throw signal.reason || new Error('Private Voice task cancelled.')
-            if (this.preparedPrivateVoiceWorker !== prepared) return null
+            // Cache invalidation (including Voice end) cannot revoke this accepted claim.
             return {
                 prepared,
                 privateThreadId: prepared.privateThreadId,
@@ -2242,7 +2298,41 @@ export class ZyraRuntime extends EventEmitter {
         }
     }
 
+    private getPrivateVoiceTaskHistory(): PrivateVoiceTaskContext {
+        return this.privateVoiceTaskHistory ||= new PrivateVoiceTaskContext(join(
+            desktopTerminalEnvironment()['ZYRA_STATE_DIR'] || join(app.getPath('userData'), 'assistant', 'agent-server'),
+            'private-voice-tasks'
+        ))
+    }
+
+    /** Bounded requests/outcomes/status only. Never imports raw private tools into Chat. */
+    async readPrivateVoiceTaskSummary(localThreadId: string): Promise<string> {
+        return this.getPrivateVoiceTaskHistory().readSummary(localThreadId)
+    }
+
     async runPrivateVoiceTask(input: PrivateVoiceTaskInput): Promise<PrivateVoiceTaskResult> {
+        if (input.signal.aborted) throw input.signal.reason || new Error('Private Voice task cancelled.')
+        if (this.privateVoiceActiveChats.has(input.localThreadId)) throw new Error('A private Voice task is already running for this Chat.')
+        this.privateVoiceActiveChats.add(input.localThreadId)
+        const history = this.getPrivateVoiceTaskHistory()
+        let began = false
+        try {
+            const recoveryContext = await history.begin(input.localThreadId, input.taskId, input.taskRequest || input.prompt)
+            began = true
+            const result = await this.executePrivateVoiceTask(input, recoveryContext, history)
+            await history.settle(input.localThreadId, input.taskId, 'completed', result.text)
+            return result
+        } catch (error) {
+            if (began) await history.settle(input.localThreadId, input.taskId,
+                input.signal.aborted ? 'cancelled' : (error as { privateVoiceInterrupted?: boolean } | null)?.privateVoiceInterrupted ? 'interrupted' : 'failed',
+                error instanceof Error ? error.message : String(error))
+            throw error
+        } finally {
+            this.privateVoiceActiveChats.delete(input.localThreadId)
+        }
+    }
+
+    private async executePrivateVoiceTask(input: PrivateVoiceTaskInput, recoveryContext: string, history: PrivateVoiceTaskContext): Promise<PrivateVoiceTaskResult> {
         if (input.signal.aborted) throw input.signal.reason || new Error('Private Voice task cancelled.')
         if (this.privateVoiceWorkers.has(input.taskId)) throw new Error(`Private Voice task ${input.taskId} is already running.`)
         const taskStartedAt = Date.now()
@@ -2298,8 +2388,15 @@ export class ZyraRuntime extends EventEmitter {
         }
         this.privateVoiceThreadTargets.set(privateThreadId, input.localThreadId)
         this.privateVoiceWorkers.set(input.taskId, worker)
+        const evidenceWrites: Promise<void>[] = []
         const unsubscribe = worker.onEvent((eventValue) => {
             const event = asRecord(eventValue)
+            if (event?.['type'] === 'tool_execution_end') {
+                const evidenceWrite = history.recordEvidence(input.localThreadId, input.taskId, eventValue)
+                // Attach a rejection handler immediately; settlement still fails on lost evidence.
+                void evidenceWrite.catch(() => undefined)
+                evidenceWrites.push(evidenceWrite)
+            }
             const type = asString(event?.['type'])
             const requestId = asString(event?.['requestId'])
             if (type === 'approval_requested' && requestId) this.privateApprovalWorkers.set(requestId, worker)
@@ -2318,7 +2415,7 @@ export class ZyraRuntime extends EventEmitter {
             context.providerThreadId = String(connected['threadId'] || connected['providerThreadId'] || privateThreadId)
             promptStartedAt = Date.now()
             await worker.request('prompt', {
-                prompt: input.prompt,
+                prompt: recoveryContext ? `${recoveryContext}\n\nCurrent task request:\n${input.prompt}` : input.prompt,
                 turnId: input.taskId,
                 memoryEnabled: await this.isMemoryEnabled(),
                 model,
@@ -2331,26 +2428,20 @@ export class ZyraRuntime extends EventEmitter {
                 skipTitleGeneration: true
             })
             if (input.signal.aborted) throw input.signal.reason || new Error('Private Voice task cancelled.')
+            await Promise.all(evidenceWrites)
+            if (context.terminalAssistantMessageOutcome) {
+                throw Object.assign(new Error(context.terminalAssistantMessageOutcome.errorMessage || 'Private Voice task ended before completion.'), {
+                    privateVoiceInterrupted: context.terminalAssistantMessageOutcome.outcome === 'interrupted'
+                })
+            }
             if (context.runningManagedCommandJobIds.size > 0) {
-                const occurredAt = nowIso()
-                for (const jobId of context.runningManagedCommandJobIds) {
-                    this.emitRuntime({
-                        eventId: randomUUID(),
-                        type: 'activity',
-                        createdAt: occurredAt,
-                        threadId: context.localThreadId,
-                        providerThreadId: context.providerThreadId,
-                        turnId: input.taskId,
-                        payload: {
-                            activityId: context.commandActivityIdByJobId.get(jobId),
-                            kind: 'command',
-                            summary: 'Command stopped',
-                            tone: 'warning',
-                            data: { status: 'stopped', jobId, completedAt: occurredAt }
-                        }
-                    })
+                const jobs = readAssistantBackgroundProcessList((await worker.request('managed_bash.list'))['jobs'])
+                const unfinished = jobs.filter(job => job.status === 'running' && !job.background)
+                if (unfinished.length) {
+                    for (const job of unfinished) await worker.request('managed_bash.stop', { jobId: job.jobId })
+                    throw new Error('The agent returned before its foreground command finished. Verify its effects before retrying.')
                 }
-                throw new Error('The agent returned before its command finished, so the unfinished command was stopped.')
+                // Explicit managed background handoffs are not unfinished foreground work.
             }
             const text = (
                 (context.lastAssistantItemId ? context.assistantTextByItemId.get(context.lastAssistantItemId) : null)
@@ -2366,8 +2457,20 @@ export class ZyraRuntime extends EventEmitter {
             }
         } finally {
             const finishedAt = Date.now()
+            let ownsBackgroundJobs = false
+            if (worker.isAlive() && context.runningManagedCommandJobIds.size > 0) {
+                try {
+                    const jobs = readAssistantBackgroundProcessList((await worker.request('managed_bash.list'))['jobs'])
+                    ownsBackgroundJobs = jobs.some(job => job.background && (job.status === 'running' || job.cleanupFailed))
+                } catch (error) {
+                    // Preserve a live owner when its process state cannot be verified.
+                    ownsBackgroundJobs = true
+                    log.warn('[ZyraRuntime] Private Voice process handoff could not be verified', error)
+                }
+            }
             const canReusePreparedWorker = Boolean(
-                completedSuccessfully
+                !ownsBackgroundJobs
+                && completedSuccessfully
                 && prepared
                 && this.preparedPrivateVoiceWorker === prepared.prepared
                 && worker.isAlive()
@@ -2379,7 +2482,9 @@ export class ZyraRuntime extends EventEmitter {
                 if (prepared && this.preparedPrivateVoiceWorker === prepared.prepared) {
                     this.preparedPrivateVoiceWorker = null
                 }
-                worker.dispose()
+                if (ownsBackgroundJobs) {
+                    this.privateVoiceBackgroundWorkers.set(privateThreadId, { localThreadId: input.localThreadId, worker, unsubscribe })
+                } else worker.dispose()
             }
             log.info('[AssistantVoiceTiming] Primary task finished', {
                 threadId: input.localThreadId,
@@ -2392,9 +2497,11 @@ export class ZyraRuntime extends EventEmitter {
                 outcome: completedSuccessfully ? 'completed' : input.signal.aborted ? 'cancelled' : 'failed'
             })
             input.signal.removeEventListener('abort', abort)
-            unsubscribe()
+            if (!ownsBackgroundJobs) {
+                unsubscribe()
+                this.privateVoiceThreadTargets.delete(privateThreadId)
+            }
             this.privateVoiceWorkers.delete(input.taskId)
-            this.privateVoiceThreadTargets.delete(privateThreadId)
             for (const [requestId, requestWorker] of this.privateApprovalWorkers) {
                 if (requestWorker === worker) this.privateApprovalWorkers.delete(requestId)
             }
@@ -2412,10 +2519,39 @@ export class ZyraRuntime extends EventEmitter {
     }
 
     async requestBackgroundProcessOperation(threadId: string, action: 'list' | 'stop', payload: { jobId?: string; all?: boolean } = {}) {
-        const context = this.requireSession(threadId)
-        await this.ensureConnected(context)
-        const result = await context.worker.request(`managed_bash.${action}`, payload)
-        return readAssistantBackgroundProcessList(result['jobs'])
+        const context = this.getSessionContext(threadId)
+        const localThreadId = context?.localThreadId || threadId
+        const owners = [...this.privateVoiceBackgroundWorkers].filter(([, owner]) => owner.localThreadId === localThreadId)
+        const privateOwner = payload.jobId ? owners.find(([id]) => payload.jobId!.startsWith(`${id}/`)) : undefined
+        if (action === 'stop' && payload.jobId?.startsWith('voice-private:') && !privateOwner) {
+            throw new Error('That private Voice process does not belong to this Chat.')
+        }
+        const jobs: ReturnType<typeof readAssistantBackgroundProcessList> = []
+        if (context) {
+            await this.ensureConnected(context)
+            const canonicalAction = privateOwner ? 'list' : action
+            const result = await context.worker.request(`managed_bash.${canonicalAction}`, privateOwner ? {} : payload)
+            jobs.push(...readAssistantBackgroundProcessList(result['jobs']))
+        } else if (!owners.length) {
+            // Preserve the existing unavailable-session error when there is no private owner.
+            this.requireSession(threadId)
+        }
+        for (const [id, owner] of owners) {
+            const stop = action === 'stop' && (payload.all || privateOwner?.[0] === id)
+            const result = await owner.worker.request(`managed_bash.${stop ? 'stop' : 'list'}`, stop
+                ? payload.all ? { all: true } : { jobId: payload.jobId!.slice(id.length + 1) }
+                : {})
+            const snapshot = readAssistantBackgroundProcessList(result['jobs'])
+            // Bridge-local cmd-1 identifiers can collide with canonical and other private jobs.
+            jobs.push(...snapshot.map(job => ({ ...job, jobId: `${id}/${job.jobId}` })))
+            if (!snapshot.some(job => job.status === 'running' || job.cleanupFailed)) {
+                owner.unsubscribe()
+                owner.worker.dispose()
+                this.privateVoiceBackgroundWorkers.delete(id)
+                this.privateVoiceThreadTargets.delete(id)
+            }
+        }
+        return jobs
     }
 
     async cancelPendingPrompt(threadId: string, turnId?: string): Promise<boolean> {
@@ -2658,6 +2794,11 @@ export class ZyraRuntime extends EventEmitter {
         this.disposePreparedPrivateVoiceTask()
         for (const worker of this.privateVoiceWorkers.values()) worker.dispose()
         this.privateVoiceWorkers.clear()
+        for (const owner of this.privateVoiceBackgroundWorkers.values()) {
+            owner.unsubscribe()
+            owner.worker.dispose()
+        }
+        this.privateVoiceBackgroundWorkers.clear()
         this.privateVoiceThreadTargets.clear()
         this.privateApprovalWorkers.clear()
         for (const threadId of [...this.sessions.keys()]) {
@@ -2771,6 +2912,7 @@ export class ZyraRuntime extends EventEmitter {
             images?: PreparedAssistantPromptImage[]
             reasoningSummary?: AssistantRuntimePolicy['reasoningSummary']
             contextCompactionThresholdTokens?: number
+            modelCompactionOverrides?: Record<string, number>
         }
     ): Promise<void> {
         let preserveServerOwnedTurn = false
@@ -2792,8 +2934,12 @@ export class ZyraRuntime extends EventEmitter {
                 startInNewWorktree: options?.startInNewWorktree,
                 initialManualTitle: options?.initialManualTitle,
                 images: options?.images,
+                privateVoiceTaskContext: await this.readPrivateVoiceTaskSummary(context.localThreadId).catch(error => {
+                    log.warn('[AssistantVoice] Private task history is unavailable; preserving the typed request', error)
+                    return 'Private Voice task history could not be restored. Do not assume earlier tasks completed. Inspect saved task evidence before claiming a result.'
+                }),
                 reasoningSummary: options?.reasoningSummary,
-                contextCompactionThresholdTokens: options?.contextCompactionThresholdTokens,
+                modelCompactionOverrides: options?.modelCompactionOverrides,
                 skipTitleGeneration: true
             }, { beforeDispatch: () => {
                 if (pending?.cancelled || context.activeTurnId !== turnId) {
@@ -3222,6 +3368,37 @@ export class ZyraRuntime extends EventEmitter {
             })
         }
         const turnId = observedTurnId || context.activeTurnId
+
+        if (type === 'model_request_progress') {
+            if (!turnId || metadata?.replay === true || context.completedTurnIds.has(turnId)) return
+            const progress = readModelRequestProgress(event['progress'], turnId)
+            this.emitRuntime({ eventId: randomUUID(), type: 'model.progress', createdAt: metadata?.occurredAt || nowIso(),
+                threadId: context.localThreadId, providerThreadId: context.providerThreadId, turnId,
+                sourceSequence: metadata?.sequence, payload: { progress } })
+            return
+        }
+        if (type === 'model_ping') {
+            if (!turnId) return
+            const requestId = asString(event['requestId'])
+            if (!requestId) return
+            const resumed = event['status'] === 'resumed'
+            this.emitRuntime({ eventId: randomUUID(), type: 'activity', createdAt: metadata?.occurredAt || nowIso(),
+                threadId: context.localThreadId, providerThreadId: context.providerThreadId, turnId,
+                payload: { activityId: `model-ping:${requestId}`, kind: 'model.ping', tone: 'info',
+                    summary: resumed ? 'Pinged model due to suspected hang.' : 'Pinging model due to suspected hang…',
+                    data: { category: 'model-ping', requestId, status: resumed ? 'completed' : 'retrying', authoritative: true } } })
+            return
+        }
+        if (type === 'message_discarded') {
+            // Ping only discards reasoning-only partials. Close any reasoning
+            // presentation without manufacturing a terminal assistant outcome.
+            if (turnId) {
+                const itemId = resolveAssistantEventItemId(context, event, turnId, 'message_end')
+                this.completeInternalText(context, turnId, context.internalTextByItemId.get(itemId) || '', itemId)
+                context.activeAssistantItemId = null
+            }
+            return
+        }
 
         if ((type === 'zyra_server_turn_completed' || (type === 'agent_end' && event['willRetry'] !== true)) && turnId) {
             if (context.completedTurnIds.has(turnId)) return

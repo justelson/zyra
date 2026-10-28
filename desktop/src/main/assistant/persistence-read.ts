@@ -1,4 +1,5 @@
 import { decodeApprovalScope } from './approval-persistence'
+import { readChatWorkContext } from '../../shared/assistant/work-context'
 import type { Database as SqlDatabase, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type {
     AssistantActivity,
@@ -309,6 +310,11 @@ function readAssistantMeta(db: SqlDatabase): AssistantMetaRow {
 function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSnapshot['playground']): AssistantSession[] {
     const sessions = new Map<string, AssistantSession>()
     const chatScopes = readAssistantChatScopes(db)
+    const workContexts = new Map<string, NonNullable<AssistantSession['workContext']>>()
+    for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'workContext:%'")[0]?.values || []) {
+        const value = readChatWorkContext(parseJson<unknown>(row[1], null))
+        if (value) workContexts.set(String(row[0]).slice('workContext:'.length), value)
+    }
     const manualTitles = new Map<string, boolean>()
     for (const row of db.exec("SELECT key, value FROM assistant_meta WHERE key LIKE 'manualTitle:%'")[0]?.values || []) {
         const value = parseJson<unknown>(row[1], null)
@@ -347,6 +353,7 @@ function readAssistantSessionSummaries(db: SqlDatabase, playground: AssistantSna
             ...canonicalSettlement.get(sessionId),
             title: String(row[1] || 'New Session'),
             titleManuallySet: manualTitles.get(sessionId),
+            workContext: workContexts.get(sessionId),
             forkOrigin: forkOrigins.get(sessionId),
             mode: String(row[2] || 'work') === 'playground' ? 'playground' : 'work',
             projectPath: toNullableString(row[3]),

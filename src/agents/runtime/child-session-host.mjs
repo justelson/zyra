@@ -1,5 +1,5 @@
 import { addUsage, normalizeUsage } from "../contracts.mjs";
-import { usageFromAssistantMessage } from "../usage-accounting.mjs";
+import { aggregateSessionUsage } from '../../usage-aggregation.mjs';
 import { deliverThreadMessage } from '../../threads/delivery.mjs';
 import { isSupportingAgentMessage } from '../../threads/message-origin.mjs';
 
@@ -10,7 +10,10 @@ export class ChildSessionHost {
     this.onActivity = options.onActivity ?? (() => {});
     this.sessionResult = null;
     this.unsubscribe = null;
-    this.usage = normalizeUsage();
+    this.initialUsage = normalizeUsage(options.initialUsage);
+    this.usage = normalizeUsage(this.initialUsage);
+    this.usageBaseline = normalizeUsage();
+    this.observedMessages = new Map();
     this.turns = 0;
     this.turnsStarted = 0;
     this.maxTurns = Math.max(1, Number(options.maxTurns) || 12);
@@ -23,6 +26,9 @@ export class ChildSessionHost {
   async open(options = {}) {
     if (!this.factory) throw new Error("ChildSessionHost requires a session factory.");
     this.sessionResult = await this.factory.create(options);
+    // Restored transcripts already contributed to previous attempts. Only bill
+    // the delta from this opening, on top of the run's persisted lifetime usage.
+    this.usageBaseline = this.readSessionUsage();
     this.unsubscribe = this.sessionResult.session.subscribe((event) => this.handleEvent(event));
     return {
       sessionId: this.sessionResult.sessionId,
@@ -108,8 +114,24 @@ export class ChildSessionHost {
     this.turnsStarted += 1;
   }
 
+  readSessionUsage() {
+    const session = this.requireSession();
+    const entries = session.sessionManager?.getEntries?.()
+      ?? (session.messages ?? []).map(message => ({ type: 'message', message }));
+    const totals = aggregateSessionUsage([...entries, ...this.observedMessages.values()]);
+    return normalizeUsage({ ...totals, requests: totals.assistantMessages });
+  }
+
+  reconcileUsage() {
+    const current = this.readSessionUsage();
+    const delta = Object.fromEntries(Object.keys(current).map(key => [key, Math.max(0, current[key] - this.usageBaseline[key])]));
+    this.usage = addUsage(this.initialUsage, delta);
+    return this.usage;
+  }
+
   resultSnapshot(mode) {
     const session = this.requireSession();
+    this.reconcileUsage();
     return {
       ...(mode ? { mode } : {}),
       text: this.lastAssistantText || extractLatestAssistantText(session.messages),
@@ -144,7 +166,12 @@ export class ChildSessionHost {
     if (event?.type === "message_end" && event.message?.role === "assistant") {
       const text = extractMessageText(event.message);
       if (text) this.lastAssistantText = text;
-      this.usage = addUsage(this.usage, usageFromAssistantMessage(event.message));
+    }
+    if (event?.type === 'message_end' && event.message?.usage) {
+      const message = event.message;
+      const key = message.id ?? (message.timestamp != null ? `${message.role}:${message.provider || ''}:${message.model || ''}:${message.timestamp}` : message);
+      this.observedMessages.set(key, message);
+      this.reconcileUsage();
     }
     if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(event?.type)) {
       this.onActivity({

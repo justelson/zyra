@@ -1,0 +1,88 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import electronPath from 'electron';
+const desktop = resolve(import.meta.dirname, '..');
+const directory = await mkdtemp(join(tmpdir(), 'zyra-agent-update-preview-'));
+const capture = resolve(desktop, '../docs.local/ui-review/agent-update-confirmation');
+await mkdir(capture, { recursive: true });
+try {
+  const tests = async () => {
+    const pause = () => new Promise(resolve => setTimeout(resolve, 300));
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.trim() === text);
+    await pause();
+    const fixture = window.__agentUpdatePreview;
+    check(fixture && document.body.textContent.includes('Background agent'), 'actual About page mounted');
+    button('Restart to install').click(); await pause(); await pause();
+    let dialog = document.querySelector('dialog');
+    check(dialog?.open && dialog.textContent.includes('App + agent'), 'pre-install flag opens the custom app dialog');
+    check(dialog.textContent.includes('Running turns') && dialog.textContent.includes('Background work'), 'all observed blockers are listed');
+    check(!fixture.calls.includes('install') && !fixture.calls.includes('stop-owned-work'), 'inspection has no installation or cancellation side effects');
+    check(document.activeElement.textContent.trim() === 'Later', 'Later receives initial focus');
+    dialog.querySelector('[aria-label="About this update"]').click(); await pause();
+    check(dialog.querySelector('[role="tooltip"]')?.textContent.includes('Chat history stays'), 'info tip belongs to the modal top layer');
+    dialog.querySelector('[aria-label="About this update"]').blur();
+    button('Later').click(); await pause(); fixture.setScenario('idle'); await pause();
+    check(!fixture.calls.includes('install') && !fixture.calls.includes('activate'), 'Later never installs automatically when work ends');
+    fixture.setScenario('busy'); await pause(); button('Review update').click(); await pause(); await pause();
+    dialog = document.querySelector('dialog');
+    check(dialog.textContent.includes('Agent only'), 'Settings uses the same explicit agent review');
+    button('Stop all and update').click(); await pause(); await pause(); await pause();
+    check(fixture.calls.includes('stop-owned-work') && fixture.calls.includes('activate'), 'explicit consent reaches the synthetic activation bridge');
+    check(!document.querySelector('dialog'), 'verified activation closes the dialog');
+    fixture.setScenario('unknown'); await pause(); button('Preview installer').click(); await pause(); await pause();
+    dialog = document.querySelector('dialog');
+    check(dialog.textContent.includes('unconfirmed') && !button('Stop all and update') && !button('Restart and install'), 'unknown status cannot authorize installation');
+    button('Later').click(); await pause(); fixture.setScenario('busy'); await pause();
+    fixture.manual(); await pause(); await pause();
+    check(document.querySelector('dialog')?.textContent.includes('App + agent'), 'external installer opens the dialog even when automatic updates are disabled');
+    return { actualAbout: true, preinstallFlag: true, blockerReview: true, laterNoAutorun: true, explicitStop: true, unknownBlocked: true, externalInstaller: true, modalTooltip: true };
+  };
+  const geometry = () => {
+    const dialog = document.querySelector('dialog'), bounds = dialog.getBoundingClientRect();
+    if (bounds.left < 0 || bounds.right > innerWidth + 1 || bounds.bottom > innerHeight + 1) throw new Error('Dialog does not fit narrow viewport');
+    const p = dialog.querySelector('header p');
+    if (p.getBoundingClientRect().height > parseFloat(getComputedStyle(p).lineHeight) + 1) throw new Error('Modal subtext wraps');
+    for (const p of document.querySelectorAll('.zyra-settings-row p')) if (p.getBoundingClientRect().height > parseFloat(getComputedStyle(p).lineHeight) + 1) throw new Error('About subtext wraps');
+    if (document.documentElement.scrollWidth > innerWidth + 1) throw new Error('Horizontal overflow');
+    return true;
+  };
+  await writeFile(join(directory, 'main.cjs'), `
+const {app,BrowserWindow}=require('electron'); const fs=require('node:fs/promises'); const path=require('node:path');
+app.setPath('userData',path.join(__dirname,'profile')); app.disableHardwareAcceleration();
+const timer=setTimeout(()=>app.exit(1),35000);
+app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,width:1200,height:900,webPreferences:{offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+win.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(request,reply)=>reply({cancel:!request.url.startsWith('http://127.0.0.1:5198/')}));
+await win.loadURL('http://127.0.0.1:5198/runtime-update-review.html?scenario=busy');
+console.log(JSON.stringify({test:'agent-update-preview',...await win.webContents.executeJavaScript(${JSON.stringify(`(${tests})()`)})}));
+win.webContents.debugger.attach('1.3');
+await win.webContents.debugger.sendCommand('DOM.enable'); await win.webContents.debugger.sendCommand('CSS.enable');
+const {root}=await win.webContents.debugger.sendCommand('DOM.getDocument');
+const {nodeId}=await win.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:root.nodeId,selector:'dialog .update-install-confirm'});
+const styles=()=>win.webContents.executeJavaScript("(()=>{const s=getComputedStyle(document.querySelector('dialog .update-install-confirm'));return {background:s.backgroundColor,color:s.color,filter:s.filter}})()");
+for(const stop of [true,false]) {
+ await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+ await win.webContents.executeJavaScript('document.querySelector("dialog .update-install-confirm").classList.toggle("agent-update-stop",'+stop+')');
+ const normal=await styles();
+ await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:['hover']});
+ const hovered=await styles();
+ if(hovered.background!==normal.background || hovered.color!==normal.color) throw new Error('Primary update hover must preserve its contrasting background and text: '+JSON.stringify({stop,normal,hovered}));
+ await win.webContents.executeJavaScript('document.querySelector("dialog .update-install-confirm").disabled=true');
+ if((await styles()).filter!=='none') throw new Error('Disabled primary update button must not brighten on hover');
+ await win.webContents.executeJavaScript('document.querySelector("dialog .update-install-confirm").disabled=false');
+}
+await win.webContents.executeJavaScript('document.querySelector("dialog .update-install-confirm").classList.add("agent-update-stop")');
+await fs.writeFile(${JSON.stringify(join(capture, 'install-hover.png'))},(await win.webContents.capturePage()).toPNG());
+await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]}); win.webContents.debugger.detach();
+console.log('PASS primary update hover contrast, warning/accent variants and disabled hover');
+await fs.writeFile(${JSON.stringify(join(capture, 'install-wide.png'))},(await win.webContents.capturePage()).toPNG());
+win.setContentSize(390,850); await new Promise(resolve=>setTimeout(resolve,250)); await win.webContents.executeJavaScript(${JSON.stringify(`(${geometry})()`)});
+await fs.writeFile(${JSON.stringify(join(capture, 'install-narrow.png'))},(await win.webContents.capturePage()).toPNG());
+clearTimeout(timer); win.destroy(); app.exit(0);
+}).catch(error=>{console.error(error);app.exit(1)});
+`);
+  const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+  process.exitCode = await new Promise((done, reject) => { const child = spawn(electronPath, [join(directory, 'main.cjs')], { cwd: desktop, env, windowsHide: true, stdio: 'inherit' }); child.once('error', reject); child.once('exit', code => done(code ?? 1)); });
+} finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }

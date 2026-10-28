@@ -1,4 +1,5 @@
 import type { ClipboardEvent, KeyboardEvent } from 'react'
+import { getAssistantClipboardFiles, getAssistantVideoMimeType, MAX_CLIPBOARD_VIDEO_BYTES } from './assistant-clipboard-files'
 import { supportsAssistantFastMode } from './assistant-model-groups'
 import {
     InlineMentionTag,
@@ -27,6 +28,7 @@ import type { AssistantComposerHandlersArgs } from './assistant-composer-handler
 import type { ComposerContextFile } from './assistant-composer-types'
 
 export function createAssistantComposerHandlers(args: AssistantComposerHandlersArgs) {
+    const pendingAttachments = args.pendingAttachmentOperations || new Set<symbol>()
     const {
         disabled,
         disabledReason = null,
@@ -94,7 +96,9 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     const upsertAttachment = (attachment: ComposerContextFile) => {
+        if (args.isAttachmentOwnerCurrent && !args.isAttachmentOwnerCurrent()) return
         setContextFiles((prev) => {
+            if (args.isAttachmentOwnerCurrent && !args.isAttachmentOwnerCurrent()) return prev
             const sameByPath = prev.find((entry) => entry.path === attachment.path && entry.path !== '')
             return sameByPath ? prev : [...prev, attachment]
         })
@@ -156,6 +160,8 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
 
     const persistAttachmentFile = async (file: File, name: string, source: 'paste' | 'manual', mimeType: string): Promise<string> => {
         const dataUrl = await readFileAsDataUrl(file)
+        // Historical bridge name: the storage/IPC contract preserves arbitrary
+        // file bytes, including video, on native and browser clients.
         const saveResult = await window.devscope.assistant.persistClipboardImage({
             dataUrl,
             fileName: name,
@@ -169,13 +175,37 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         return saveResult.path
     }
 
-    const attachFile = async (file: File, source: 'paste' | 'manual') => {
+    const attachFileContents = async (file: File, source: 'paste' | 'manual') => {
         const declaredMimeType = String(file.type || '').trim().toLowerCase()
         const fallbackName = declaredMimeType.startsWith('image/') ? `${source}-image-${Date.now()}.${inferImageExtensionFromMimeType(declaredMimeType)}` : `${source}-file-${Date.now()}`
         const name = file.name || fallbackName
         const electronPath = getReadableFilePath(file)
         const metaPath = electronPath || buildAttachmentPath(source, name)
         const mimeType = declaredMimeType || 'application/octet-stream'
+        const videoMimeType = getAssistantVideoMimeType(name, declaredMimeType)
+        if (videoMimeType) {
+            // Binary video must never pass through File.text(), previews or the
+            // provider-native image route. Persist the original bytes for tools.
+            try {
+                if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > MAX_CLIPBOARD_VIDEO_BYTES) {
+                    throw new Error('Video attachments must be between 1 byte and 64 MB.')
+                }
+                const attachmentPath = source === 'paste' || !electronPath
+                    ? await persistAttachmentFile(file, name, source, videoMimeType)
+                    : electronPath
+                upsertAttachment({
+                    id: createAttachmentId(), path: attachmentPath, name,
+                    mimeType: videoMimeType, sizeBytes: file.size, kind: 'video',
+                    previewText: 'Video file. Use analysis tools to inspect its contents.',
+                    source, animateIn: true
+                })
+            } catch (error) {
+                if (!args.isAttachmentOwnerCurrent || args.isAttachmentOwnerCurrent()) {
+                    onBlockedSend?.(error instanceof Error ? error.message : 'Could not save this video attachment.')
+                }
+            }
+            return
+        }
         const looksLikeImageByName = /\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|apng|heic|heif|jfif|jxl)$/i.test(name)
         if ((mimeType.startsWith('image/') || looksLikeImageByName)
             && selectedModelInputModes && !selectedModelInputModes.includes('image')) {
@@ -275,7 +305,14 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         }
     }
 
+    const attachFile = async (file: File, source: 'paste' | 'manual') => {
+        const operation = Symbol('attachment')
+        pendingAttachments.add(operation)
+        try { await attachFileContents(file, source) } finally { pendingAttachments.delete(operation) }
+    }
+
     const submitPrompt = async (dispatchMode: 'immediate' | 'queue' | 'steer' | 'force', draftText = text) => {
+        if (pendingAttachments.size) { onBlockedSend?.('Wait for attachments to finish before sending.'); return }
         if (args.sendBlockedReason) { onBlockedSend?.(args.sendBlockedReason); return }
         let prompt = replaceInlineMentionTokensWithLabels(draftText, inlineMentionTags).trim()
         let runtimeModeForSend = selectedRuntimeMode
@@ -544,14 +581,10 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
         const clipboard = event.clipboardData
         if (!clipboard) return
-        const items = Array.from(clipboard.items || [])
-        const fileItems = items.filter((item) => item.kind === 'file')
-        if (fileItems.length > 0) {
+        const files = getAssistantClipboardFiles(clipboard)
+        if (files.length > 0) {
             event.preventDefault()
-            for (const item of fileItems) {
-                const file = item.getAsFile()
-                if (file) void attachFile(file, 'paste')
-            }
+            for (const file of files) void attachFile(file, 'paste')
             return
         }
         const plainText = clipboard.getData('text/plain')

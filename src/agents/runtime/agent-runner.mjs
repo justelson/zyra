@@ -11,6 +11,7 @@ export class AgentRunner {
     const host = new ChildSessionHost({
       factory: this.sessionFactory,
       maxTurns: run.maxTurns,
+      initialUsage: run.usage,
       onEvent: options.onSessionEvent,
       onActivity: options.onActivity,
     });
@@ -47,6 +48,9 @@ export class AgentRunner {
       } });
       return { ...result, host };
     } catch (error) {
+      // Capture billed requests before disposing the failed/cancelled session.
+      // The controller persists this even when no successful result is returned.
+      try { error.usage = host.resultSnapshot().usage; } catch { /* Opening may have failed before linking. */ }
       host.dispose();
       throw error;
     } finally {

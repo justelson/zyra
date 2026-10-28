@@ -1214,7 +1214,10 @@ assert.match(
     'Voice start and stop controls must invoke their callbacks without DOM event arguments'
 )
 assert.match(canonicalVoiceStageStyles, /bottom: 90px/u)
-assert.match(conversationPaneSource, /VOICE_TIMELINE_RESERVE_PX = 500/u)
+assert.match(conversationPaneSource, /VOICE_TIMELINE_RESERVE_PX = 150/u)
+assert.match(conversationPaneSource, /useAppVoiceSession\(canonicalVoiceBinding/u, 'the selected pane observes the app-owned call instead of owning its media')
+assert.doesNotMatch(conversationPaneSource, /previousThreadId !== nextThreadId[\s\S]{0,150}voice\.stop/u, 'navigation must not hang up an app-owned call')
+assert.doesNotMatch(conversationPaneSource, /<AssistantCanonicalVoiceStage/u, 'the orb lives in the independent widget instead of blocking the conversation')
 assert.match(conversationPaneSource, /VOICE_SCROLL_BUTTON_BOTTOM_PX = 78/u)
 assert.doesNotMatch(conversationPaneSource, /voiceTimelineInsetFrameRef/u, 'Voice startup must not relayout the virtual timeline on every animation frame')
 assert.match(timelineRowsSource, /usesProviderNativeStreaming = message\.modality === 'voice'/u)
@@ -1226,8 +1229,8 @@ assert.match(
 )
 assert.match(
     assistantServiceSource,
-    /model: active\.executionConfiguration\.model[\s\S]{0,500}runtimeMode: active\.executionConfiguration\.runtimeMode/u,
-    'delegated Voice work must use the immutable configuration captured at Voice activation'
+    /model: event\.executionConfiguration\.model[\s\S]{0,500}runtimeMode: event\.executionConfiguration\.runtimeMode/u,
+    'accepted Voice work retains its captured configuration after the original audio call ends'
 )
 assert.match(
     assistantServiceSource,
@@ -1285,8 +1288,8 @@ assert.match(
 )
 assert.match(
     zyraRuntimeSource,
-    /if \(prepared && this\.preparedPrivateVoiceWorker === prepared\.prepared\)[\s\S]{0,180}this\.preparedPrivateVoiceWorker = null[\s\S]{0,120}worker\.dispose\(\)/u,
-    'failed, cancelled, stale, or unhealthy primary workers must be evicted instead of reused'
+    /if \(prepared && this\.preparedPrivateVoiceWorker === prepared\.prepared\)[\s\S]{0,180}this\.preparedPrivateVoiceWorker = null[\s\S]{0,400}if \(ownsBackgroundJobs\)[\s\S]{0,220}else worker\.dispose\(\)/u,
+    'evicted primary workers may survive only as owners of explicitly handed-off background processes'
 )
 assert.match(zyraRuntimeSource, /\[AssistantVoiceTiming\] Primary worker ready/u)
 assert.match(zyraRuntimeSource, /\[AssistantVoiceTiming\] Primary task finished/u)

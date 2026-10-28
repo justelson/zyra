@@ -119,7 +119,7 @@ async function checkExplicitOrderControls() {
     check(agentMove.success, 'agent move applies through the live sidebar owner')
     await waitForCheck(() => rowIds(false) === [original.at(-1)!, ...original.slice(0, -1)].join(','), 'agent operation updates real rendered order')
     const agentUndo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
-    check(agentUndo, 'agent move exposes the same sidebar Undo')
+    check(agentUndo?.closest('[data-assistant-toast]'), 'agent move exposes floating toast Undo, not a sidebar bar')
     agentUndo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'agent Undo restores rendered order')
     const dragged = original.at(-1)!
     const target = original[0]!
@@ -135,7 +135,7 @@ async function checkExplicitOrderControls() {
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
     move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
     const undo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
-    check(undo, 'explicit movement offers Undo')
+    check(undo?.closest('[data-assistant-toast]'), 'explicit movement offers floating toast Undo')
     undo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'Undo restores exact previous order')
     move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
     check(JSON.parse(localStorage.getItem(key) || '{}').chats[0] === dragged, 'drag order is saved before remount')
@@ -496,5 +496,5 @@ async function checkThreadMessages() {
     results.push('legacy peer-only result becomes a readable ending; separate final uses a full-width compact reply card before its timestamp; exact receiving message links and work expansion pass')
     return results
 }
-;(window as any).sidebarContinuityCheck = location.search.includes('threadMessages=1') ? checkThreadMessages() : location.search.includes('unreadCompletion=1') ? checkUnreadCompletion()
+;(window as any).sidebarContinuityCheck = location.search.includes('chatOrder=1') ? (async () => { render(); await sleep(300); await checkExplicitOrderControls(); return results })() : location.search.includes('threadMessages=1') ? checkThreadMessages() : location.search.includes('unreadCompletion=1') ? checkUnreadCompletion()
     : location.search.includes('agentColors=1') ? checkAgentColors().then(() => results) : location.search.includes('rowHoverActions=1') ? checkRowHoverActions() : location.search.includes('voiceRecorderInput=1') ? checkVoiceRecorderInput(root) : location.search.includes('conversationMarkers=1') ? checkConversationMarkers(root) : run()

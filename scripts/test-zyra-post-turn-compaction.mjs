@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { runZyraPrompt, runZyraPrintPrompt, compactZyraContextBeforePrompt } from "../src/zyra-sdk.mjs";
 
-function fixture({ stopReason = "stop", afterTokens = 250_000, enabled = true, failCompaction = false } = {}) {
+function fixture({ stopReason = "stop", afterTokens = 260_000, enabled = true, failCompaction = false } = {}) {
   const events = [];
   const entries = [];
   let tokens = 1_000;
@@ -11,7 +11,7 @@ function fixture({ stopReason = "stop", afterTokens = 250_000, enabled = true, f
     reasoningSummaryState: { value: "detailed" },
     session: {
       state: { messages: [] }, agent: { state: { systemPrompt: "" } },
-      model: { contextWindow: 400_000 }, autoCompactionEnabled: enabled,
+      model: { id: 'synthetic', provider: 'test', contextWindow: 400_000, auto_compact_token_limit: 256_000 }, autoCompactionEnabled: enabled,
       isStreaming: false, isCompacting: false,
       getContextUsage: () => ({ tokens, contextWindow: 400_000, percent: tokens / 4_000 }),
       sessionManager: { getEntries: () => entries, getBranch: () => entries, getSessionId: () => undefined, getSessionFile: () => undefined },

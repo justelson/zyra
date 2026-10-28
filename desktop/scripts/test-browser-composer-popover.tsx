@@ -30,18 +30,21 @@ function Fixture({placement}){
  const [selectedModel,setSelectedModel]=useState('openai-codex/gpt-5.4')
  const [selectedRuntimeMode,setSelectedRuntimeMode]=useState('approval-required')
  const [fastModeEnabled,setFastModeEnabled]=useState(false)
+ const [modelQuery,setModelQuery]=useState('')
+ const [activeModelIndex,setActiveModelIndex]=useState(0)
  const composerRootRef=useRef(null),textareaRef=useRef(null),filePickerRef=useRef(null),mentionListRef=useRef(null),mentionMenuRef=useRef(null),modelDropdownRef=useRef(null),modelListRef=useRef(null),traitsDropdownRef=useRef(null)
  const refs={composerRootRef,textareaRef,filePickerRef,mentionListRef,mentionMenuRef,modelDropdownRef,modelListRef,traitsDropdownRef}
  const controller={...refs,placement,contextFiles:[],text:'',composerCursor:0,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],projectChoices:[],
   capabilities:{canSend:true,composerAvailable:true,canStop:false,showBusySendActions:false},voiceInput:{isStarting:false,isRecording:false,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
   submitLabel:'Send',isConnected:true,selectedModel,selectedModelLabel:selectedModel.endsWith('5.4')?'GPT-5.4':'GPT-5.3',selectedEffort,selectedInteractionMode:'default',selectedRuntimeMode,displayedProfile:'fixture',zyraProfile:'concise',EFFORT_OPTIONS:['low','medium','high'],EFFORT_LABELS:{low:'Low',medium:'Medium',high:'High'},
-  modelQuery:'',activeModelIndex:0,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'}],showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,
-  setPreviewAttachment:noop,removeAttachment:noop,setText:noop,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:noop,attachFile:noop,setShowModelDropdown:noop,setModelQuery:noop,setActiveModelIndex:noop,onZyraProfileChange:noop}
+  modelQuery,activeModelIndex,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'},{id:'opencode-harness/openai/gpt-5.4',label:'GPT-5.4',description:'OpenCode harness route'}].filter(model=>(model.label+' '+model.id).toLowerCase().includes(modelQuery.toLowerCase())),showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,
+  setPreviewAttachment:noop,removeAttachment:noop,setText:noop,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:noop,attachFile:noop,setShowModelDropdown:noop,setModelQuery,setActiveModelIndex,onZyraProfileChange:noop}
  return <div className="assistant-conversation-pane" style={{width:'min(760px,calc(100% - 32px))',margin:'280px auto 100px'}}><div className="relative z-40 will-change-transform" data-composer-pane-fixture><AssistantComposerView controller={controller}/></div><output id="choices">{selectedEffort+'|'+selectedModel+'|'+selectedRuntimeMode}</output><button id="outside">Outside fixture action</button></div>
 }
 const root=createRoot(document.getElementById('root'))
 const flush=async()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,60))})
 const click=async node=>{check(node,'click target exists');await act(async()=>node.click());await flush()}
+const settle=async()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,240))})
 const button=text=>[...document.querySelectorAll('button')].find(node=>node.textContent.trim()===text)
 const trigger=()=>document.querySelector('button[title^="Model"]')
 function unobscured(node,label){
@@ -55,14 +58,56 @@ function unobscured(node,label){
  return r
 }
 window.fixtureMount=async placement=>{window.fixturePlacement=placement;await act(async()=>root.render(<MemoryRouter><Fixture key={placement} placement={placement}/></MemoryRouter>));await flush();check(!supportsNativeOverlay(),'ordinary browser fallback is active')}
-window.fixtureOpen=async()=>{await click(trigger());await flush();window.fixtureCheck()}
+window.fixtureMotion=async()=>{
+ await click(trigger())
+ const shell=document.querySelector('[data-composer-controls-motion]')
+ check(shell,'composer controls have an animated presence wrapper')
+ const entrance=shell.getAnimations().find(animation=>animation.transitionProperty==='opacity')
+ check(entrance&&entrance.effect.getComputedTiming().duration===180,'opening starts a bounded fade')
+ entrance.currentTime=90
+ check(Number(getComputedStyle(shell).opacity)>0&&Number(getComputedStyle(shell).opacity)<1,'opening paints an intermediate opacity')
+ entrance.finish();await settle()
+ const panel=document.querySelector('[data-model-controls-panel]'),switcher=panel.querySelector('[data-question-transition]')
+ const effortHeight=panel.getBoundingClientRect().height
+ await click(document.querySelector('[aria-label="Choose model"]'))
+ const expand=switcher.getAnimations().find(animation=>animation.transitionProperty==='height')
+ check(expand,'model chooser animates its intrinsic height')
+ expand.currentTime=110
+ const growingHeight=panel.getBoundingClientRect().height
+ expand.finish();await settle()
+ const modelHeight=panel.getBoundingClientRect().height
+ check(growingHeight>effortHeight&&growingHeight<modelHeight,'model chooser grows through intermediate heights')
+ await click(document.querySelector('[aria-label="Back to effort"]'))
+ const shrink=switcher.getAnimations().find(animation=>animation.transitionProperty==='height')
+ check(shrink,'returning to effort animates height too')
+ shrink.currentTime=110
+ const shrinkingHeight=panel.getBoundingClientRect().height
+ shrink.finish();await settle()
+ check(shrinkingHeight>effortHeight&&shrinkingHeight<modelHeight,'effort card shrinks through intermediate heights')
+ await act(async()=>trigger().click())
+ check(document.querySelector('[data-composer-controls-motion]')===shell,'closing retains the same popup for its exit')
+ check(shell.inert&&shell.getAttribute('aria-hidden')==='true','closing popup immediately stops accepting input and focus')
+ await flush()
+ const exit=shell.getAnimations().find(animation=>animation.transitionProperty==='opacity')
+ check(exit,'closing animates opacity instead of unmounting abruptly')
+ exit.currentTime=90
+ check(Number(getComputedStyle(shell).opacity)>0&&Number(getComputedStyle(shell).opacity)<1,'closing paints an intermediate opacity')
+ await click(trigger());await settle()
+ check(document.querySelectorAll('[data-composer-controls-motion]').length===1&&Number(getComputedStyle(shell).opacity)===1,'rapid close/reopen reverses without duplicate or stale unmount')
+ await click(trigger());await settle()
+ check(!document.querySelector('[data-composer-controls-motion]'),'exit finally releases the popup and portal')
+}
+window.fixtureOpen=async()=>{await click(trigger());await settle();window.fixtureCheck()}
 window.fixtureCheck=()=>{
  const slider=document.querySelector('[aria-label="Reasoning effort"]')
- unobscured(slider,'reasoning slider');const model=unobscured(button('ModelGPT-5.4')||[...document.querySelectorAll('button')].find(node=>node.textContent.startsWith('Model')&&node.textContent.includes('GPT-')),'bottom model route')
+ unobscured(slider,'reasoning slider');const model=unobscured(document.querySelector('[aria-label="Choose model"]'),'model name in effort card')
+ check(document.querySelector('[data-model-chooser]').hidden,'only the effort card is visible initially')
+ check(!document.querySelector('[data-effort-card]').textContent.includes('Faster'),'no simultaneous routing/settings rows')
  const popup=slider.closest('[data-native-overlay-content]')
  check(popup&&popup.parentElement===document.body,'fallback popup portals to body outside composer clipping')
  check(!popup.closest('[data-assistant-composer-frame]'),'popup escapes composer frame')
- const anchor=trigger().getBoundingClientRect(),panel=slider.parentElement.parentElement.parentElement.getBoundingClientRect()
+ const anchor=trigger().getBoundingClientRect(),panel=slider.closest('[data-model-controls-panel]').getBoundingClientRect()
+ check(panel.width===256&&panel.height<=116,'effort card stays reference-sized: '+JSON.stringify(panel.toJSON()))
  check(window.fixturePlacement==='center'?Math.abs(panel.top-anchor.top-36)<2:Math.abs(panel.bottom-anchor.top+8)<2,'popup follows real trigger geometry through scroll/resize')
  return {viewport:innerWidth,model:model.toJSON(),anchor:anchor.toJSON(),panel:panel.toJSON()}
 }
@@ -70,12 +115,45 @@ window.fixtureInteractions=async()=>{
  const slider=document.querySelector('[aria-label="Reasoning effort"]')
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'2');slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}))});await flush()
  check(document.getElementById('choices').textContent.startsWith('high|'),'reasoning selection updates synthetic state')
- const route=[...document.querySelectorAll('button')].find(node=>node.textContent.startsWith('Model')&&node.textContent.includes('GPT-'))
- await act(async()=>{route.focus();route.dispatchEvent(new FocusEvent('focusin',{bubbles:true}))});await flush()
+ const fast=document.querySelector('[aria-label="Fast mode"]'),fastIcon=fast.querySelector('svg')
+ check(fastIcon.getAttribute('fill')==='transparent','Fast is an outline when off')
+ getComputedStyle(fastIcon).fill
+ await click(fast)
+ check(fast.getAttribute('aria-pressed')==='true'&&fastIcon.getAttribute('fill')==='currentColor','Fast is filled when on')
+ const fillTransition=fastIcon.getAnimations().find(animation=>animation.transitionProperty==='fill')
+ check(fillTransition&&fillTransition.effect.getComputedTiming().duration===200,'Fast starts a bounded fill transition')
+ fillTransition.currentTime=100
+ const midFill=getComputedStyle(fastIcon).fill
+ check(midFill!=='rgba(0, 0, 0, 0)'&&midFill!==getComputedStyle(fastIcon).color,'Fast fill interpolates between states')
+ fillTransition.finish()
+ check(getComputedStyle(fastIcon).fill===getComputedStyle(fastIcon).color,'Fast settles to a solid filled icon')
+ await click(fast)
+ check(fast.getAttribute('aria-pressed')==='false'&&fastIcon.getAttribute('fill')==='transparent','Fast returns to an outline when off')
+ check(fastIcon.getAnimations().some(animation=>animation.transitionProperty==='fill'),'Fast animates back as well as on')
+ const effortBounds=document.querySelector('[data-model-controls-panel]').getBoundingClientRect()
+ await click(document.querySelector('[aria-label="Choose model"]'))
+ const chooser=document.querySelector('[data-model-chooser]'),modelBounds=chooser.closest('[data-model-controls-panel]').getBoundingClientRect()
+ check(document.querySelector('[data-effort-card]').hidden&&!chooser.hidden,'model selection replaces the effort card')
+ check(modelBounds.width===256&&Math.abs(modelBounds.left-effortBounds.left)<1,'model chooser uses the same panel position and width')
+ const provider=chooser.querySelector('button[aria-expanded="true"]');await click(provider)
+ check(chooser.querySelectorAll('button[data-model-index]').length===0,'provider browsing replaces the model rows')
+ await click([...chooser.querySelectorAll('button[aria-expanded]')].find(node=>node.textContent.includes('OpenCode')))
+ await click(chooser.querySelector('button[data-model-index]'))
+ check(document.getElementById('choices').textContent.includes('opencode-harness/'),'choosing an identical model preserves its OpenCode route')
+ check(!document.querySelector('[aria-label="Fast mode"]'),'fast mode is absent for unsupported routes')
+ await click(document.querySelector('[aria-label="Choose model"]'))
+ await click(document.querySelector('[aria-label="Search models"]'))
+ const search=document.querySelector('input[aria-label="Search models"]')
+ check(document.activeElement===search,'search is focused only when requested')
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'gpt-5.3');search.dispatchEvent(new Event('input',{bubbles:true}))});await flush()
  const model=[...document.querySelectorAll('button[data-model-index]')].find(node=>node.textContent.includes('GPT-5.3'))
- unobscured(model,'model submenu choice');await click(model)
- check(document.getElementById('choices').textContent.includes('gpt-5.3'),'model submenu selection updates synthetic state')
- await click(trigger());check(!document.querySelector('[aria-label="Reasoning effort"]'),'trigger closes model/reasoning menu')
+ unobscured(model,'searched model choice');await click(model)
+ check(document.getElementById('choices').textContent.includes('openai-codex/gpt-5.3'),'model selection updates synthetic state with its exact connection')
+ check(document.querySelector('[data-model-chooser]').hidden&&!document.querySelector('[data-effort-card]').hidden,'selection returns to effort without extra panels')
+ await click(document.querySelector('[aria-label="Choose model"]'))
+ await act(async()=>document.querySelector('[aria-label="Back to effort"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));await flush()
+ check(document.querySelector('[data-model-chooser]').hidden,'Escape returns to effort before dismissing controls')
+ await click(trigger());await settle();check(!document.querySelector('[aria-label="Reasoning effort"]'),'trigger releases model/reasoning menu after exit')
  await click(document.querySelector('[aria-label="Supervised permission mode"]'))
  const menu=document.querySelector('[aria-label="Permission mode"]');unobscured(menu.querySelector('[role="menuitemradio"]'),'permission choice')
  await click([...menu.querySelectorAll('button')].find(node=>node.textContent.includes('Auto review')))
@@ -85,6 +163,16 @@ window.fixtureInteractions=async()=>{
  check(!document.querySelector('[aria-label="Permission mode"]'),'Escape closes permission menu')
  await click(access);await act(async()=>document.getElementById('outside').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})));await flush()
  check(!document.querySelector('[aria-label="Permission mode"]'),'outside pointer closes permission menu')
+}
+window.fixtureReducedMotion=async()=>{
+ await click(trigger())
+ const fast=document.querySelector('[aria-label="Fast mode"]'),icon=fast.querySelector('svg')
+ check(getComputedStyle(document.querySelector('[data-composer-controls-motion]')).transitionProperty==='none','reduced motion disables popup movement')
+ check(getComputedStyle(document.querySelector('[data-question-transition]')).transitionProperty==='none','reduced motion disables panel size animation')
+ check(getComputedStyle(fast).transitionProperty==='none'&&getComputedStyle(icon).transitionProperty==='none','reduced motion disables Fast transitions')
+ await click(fast)
+ check(getComputedStyle(icon).fill===getComputedStyle(icon).color&&icon.getAnimations().length===0,'reduced motion still shows the filled Fast state immediately')
+ await click(fast);await click(trigger())
 }
 console.log('BROWSER_COMPOSER_READY')
 `
@@ -104,7 +192,7 @@ try {
     console.log('Browser composer fixture: rendering CSS')
     const appCss = postcss.parse(await readFile(resolve(import.meta.dir, '../src/renderer/src/index.css'), 'utf8'))
     appCss.walkAtRules('import', rule => { rule.remove() })
-    const styles = await postcss([tailwindcss({ ...config, content: ['./src/renderer/src/pages/assistant/AssistantComposer*.tsx', './src/renderer/src/pages/assistant/AssistantAttachment*.tsx', './src/renderer/src/components/ui/*.{ts,tsx}'] })]).process(appCss.toString(), { from: undefined })
+    const styles = await postcss([tailwindcss({ ...config, content: ['./src/renderer/src/pages/assistant/AssistantComposer*.tsx', './src/renderer/src/pages/assistant/AssistantQuestionTransition.tsx', './src/renderer/src/pages/assistant/AssistantAttachment*.tsx', './src/renderer/src/components/ui/*.{ts,tsx}'] })]).process(appCss.toString(), { from: undefined })
     const tokens = await readFile(resolve(import.meta.dir, '../src/renderer/src/styles/theme-tokens.css'), 'utf8')
     await writeFile(join(directory, 'test.css'), tokens + '\n' + styles.css)
     await writeFile(join(directory, 'test.html'), '<link rel="stylesheet" href="test.css"><style>body{background:var(--color-bg);color:var(--color-text);font-family:system-ui;min-height:1200px} :root{--accent-primary:#4385ff}</style><div id="root"></div><script type="module" src="harness.js"></script>')
@@ -121,7 +209,7 @@ app.whenReady().then(async()=>{
   const run=code=>win.webContents.executeJavaScript(code);
   try{
    for(const placement of ['bottom','center']){
-    await run('fixtureMount('+JSON.stringify(placement)+')');await run('fixtureOpen()');
+    await run('fixtureMount('+JSON.stringify(placement)+')');await run('fixtureMotion()');await run('fixtureOpen()');
     console.log(placement+' '+await run('JSON.stringify(fixtureCheck())'));
     fs.writeFileSync(${JSON.stringify(evidence)}+'/'+placement+'-wide.png',(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
     const before=await run('fixtureCheck().anchor.top');await run('scrollTo(0,70);new Promise(r=>setTimeout(r,120))');
@@ -132,6 +220,9 @@ app.whenReady().then(async()=>{
     fs.writeFileSync(${JSON.stringify(evidence)}+'/'+placement+'-narrow.png',(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
     await run('fixtureInteractions()');win.setContentSize(1100,900);await run('scrollTo(0,0);new Promise(r=>setTimeout(r,120))');
    }
+   win.webContents.debugger.attach('1.3');
+   await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+   await run('fixtureReducedMotion()');win.webContents.debugger.detach();
    console.log('BROWSER_COMPOSER_POPOVER_PASS');app.exit(0);
   }catch(error){
    console.error('BROWSER_COMPOSER_POPOVER_FAIL '+error.stack);

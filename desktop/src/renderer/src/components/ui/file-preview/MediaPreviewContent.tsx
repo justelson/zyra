@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import type { PreviewFile, PreviewMediaItem } from './types'
 import { getFileUrl } from './utils'
 import ImagePreviewContent from './ImagePreviewContent'
+import AudioPlayer from '../AudioPlayer'
 
 interface MediaPreviewContentProps {
     file: PreviewFile
@@ -100,30 +101,13 @@ function renderMediaStage(
 
     return (
         <div className="flex h-full w-full items-center justify-center p-6">
-            <div className="w-full max-w-2xl rounded-3xl border border-media-white/10 bg-media-black/35 p-6 shadow-2xl backdrop-blur-md">
-                <div className="flex items-center gap-3">
-                    {activeMediaItem?.thumbnailPath ? (
-                        <img
-                            src={getFileUrl(activeMediaItem.thumbnailPath)}
-                            alt={`${targetFile.name} cover`}
-                            className="h-14 w-14 rounded-2xl border border-media-white/10 object-cover"
-                        />
-                    ) : (
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-media-white/10 bg-media-white/[0.04]">
-                            <Music4 size={24} className="text-sky-200" />
-                        </div>
-                    )}
-                    <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-media-white">{targetFile.name}</div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-media-white/45">Audio Preview</div>
-                    </div>
-                </div>
-                <audio
-                    src={getFileUrl(targetFile.path)}
-                    controls
-                    preload="metadata"
-                    className="mt-5 w-full"
-                />
+            <div className="flex w-full max-w-xl items-center gap-4">
+                {activeMediaItem?.thumbnailPath ? <img
+                    src={getFileUrl(activeMediaItem.thumbnailPath)}
+                    alt={`${targetFile.name} cover`}
+                    className="h-14 w-14 shrink-0 rounded-md object-cover"
+                /> : null}
+                <AudioPlayer src={getFileUrl(targetFile.path)} label={targetFile.name} />
             </div>
         </div>
     )
@@ -169,7 +153,7 @@ export default function MediaPreviewContent({
         if (!previousItem && !nextItem) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.defaultPrevented) return
+            if (event.defaultPrevented || (event.target as Element | null)?.closest?.('[data-audio-player]')) return
             if (event.key === 'ArrowLeft' && previousItem) {
                 event.preventDefault()
                 void onSelectMedia?.(previousItem)

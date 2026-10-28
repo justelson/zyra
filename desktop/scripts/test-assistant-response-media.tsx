@@ -77,7 +77,11 @@ for (const [href, expected] of [
     ['https://example.com/music.ogg?token=public', 'https://example.com/music.ogg?token=public']
 ]) {
     const markup = render(`[Listen](${href})`, 'C:/workspace/response.md')
-    assert.match(markup, /<audio[^>]*controls=""[^>]*preload="metadata"/)
+    assert.match(markup, /data-audio-player=""/, 'audio embeds use the shared custom player')
+    assert.match(markup, /<audio[^>]*preload="metadata"/)
+    assert.doesNotMatch(markup.match(/<audio\b[^>]*>/)?.[0] || '', /\bcontrols(?:=|\s|>)/, 'the native control bar is never rendered alongside custom controls')
+    assert.match(markup, /aria-label="Play Listen"/)
+    assert.match(markup, /type="range"[^>]*aria-label="Seek Listen"/)
     assert.match(markup, /data-markdown-audio-target=/)
     assert.ok(markup.includes(`src="${expected}"`))
     assert.doesNotMatch(markup, /autoplay/i)

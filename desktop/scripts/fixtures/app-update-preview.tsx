@@ -25,6 +25,8 @@ Object.defineProperty(window, 'devscope', { configurable: true, value: { updates
     onStateChange: (listener: (state: DevScopeUpdateState) => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     checkForUpdates: async () => { calls.push('check'); emit({ status: 'available', availableVersion: '0.6.1', availableDisplayVersion: 'v0.6.1' }); return result() },
     downloadUpdate: () => { calls.push('download'); const stale = { ...state }; emit({ status: 'downloading', downloadPercent: 0 }); return new Promise<DevScopeUpdateActionResult>((resolve, reject) => { settleDownload = () => { emit({ status: 'downloaded', downloadedVersion: '0.6.1', downloadedDisplayVersion: 'v0.6.1', downloadPercent: 100 }); resolve({ accepted: true, completed: true, state: stale }) }; rejectDownload = () => { emit({ status: 'available' }); reject(new Error('Synthetic transport failure')) } }) },
+    preflightInstall: async () => ({ id: 'fixture-plan', version: state.downloadedVersion!, agentServerUpdate: true, state: 'ready', instanceId: 'fixture-instance', namespaceId: 'fixture-namespace', activity: { activeTurns: 0, backgroundChats: 0, attention: 0, requests: 0, workspaceRequests: 0, externalTools: 0 }, expiresAt: new Date(Date.now() + 60_000).toISOString() }),
+    deferInstall: async () => {},
     installUpdate: async () => { calls.push('install'); if (failInstall) { failInstall = false; emit({ message: 'Synthetic installer failure' }); return result(false) }; return result() }
 } } })
 localStorage.setItem('devscope:update-success-seen:0.6.0', '1')

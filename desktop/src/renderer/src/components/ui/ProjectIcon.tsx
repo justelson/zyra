@@ -3,7 +3,7 @@
  * Renders project type and framework icons using Simple Icons CDN
  */
 
-import { ComponentProps, useEffect, useState } from 'react'
+import { ComponentProps, useEffect, useState, type ReactNode } from 'react'
 import {
     Folder, FolderOpen, FileCode, Box, Code,
     Server, Cpu, Smartphone, Globe, Terminal
@@ -83,6 +83,7 @@ interface ProjectIconProps extends ComponentProps<'div'> {
     customIconPath?: string | null
     size?: number
     className?: string
+    fallbackIcon?: ReactNode
     showFallback?: boolean   // Show fallback icon if type/framework not found
     mode?: 'project' | 'technology'
 }
@@ -112,6 +113,7 @@ export default function ProjectIcon({
     size = 24,
     className,
     showFallback = true,
+    fallbackIcon,
     mode = 'project',
     ...props
 }: ProjectIconProps) {
@@ -164,7 +166,7 @@ export default function ProjectIcon({
 
     if (mode === 'project') {
         return <div className={`flex items-center justify-center ${className || ''}`} style={{ width: size, height: size }} title="Project" {...props}>
-            <ProjectArtworkFallback size={size} />
+            {fallbackIcon || <ProjectArtworkFallback size={size} />}
         </div>
     }
 

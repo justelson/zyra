@@ -27,6 +27,10 @@ import {
 } from './assistant-composer-inline-mentions'
 import { useAssistantComposerProjectData } from './useAssistantComposerProjectData'
 import { useAssistantSpeechInput } from './useAssistantSpeechInput'
+import { createAssistantDictationJob, registerAssistantDictationOwner } from './assistant-dictation-jobs'
+import { reconcileInlineMentionTags, replaceInlineMentionTokensWithLabels } from './assistant-composer-inline-mentions'
+import { getContextFileMeta } from './assistant-composer-utils'
+import { supportsAssistantFastMode } from './assistant-model-groups'
 import { useAssistantComposerControllerEffects } from './useAssistantComposerControllerEffects'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { readRememberedChoices, rememberComposerChoices } from './assistant-remembered-choices'
@@ -117,6 +121,18 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         latestTurnUsage = null
     } = props
     const normalizedSessionId = sessionId ?? null
+    const attachmentOwnerKey = `${normalizedSessionId || ''}:${resetStateToken || ''}`
+    const attachmentOwnerRef = useRef<{ key: string; pending: Set<symbol> } | null>(null)
+    if (!attachmentOwnerRef.current || attachmentOwnerRef.current.key !== attachmentOwnerKey) {
+        attachmentOwnerRef.current = { key: attachmentOwnerKey, pending: new Set() }
+    }
+    const attachmentOwner = attachmentOwnerRef.current
+    useEffect(() => {
+        attachmentOwnerRef.current = attachmentOwner
+        return () => {
+            if (attachmentOwnerRef.current === attachmentOwner) attachmentOwnerRef.current = null
+        }
+    }, [attachmentOwner])
 
     const {
         availableModelOptions,
@@ -337,6 +353,33 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
             }
         })
     }, [normalizedSessionId, loadedSessionId])
+    const localDictationOwnerId = useRef(crypto.randomUUID()).current
+    const dictationOwnerKey = normalizedSessionId || `${localDictationOwnerId}:${resetStateToken || ''}`
+    useEffect(() => {
+        if (loadedSessionId !== normalizedSessionId) return
+        return registerAssistantDictationOwner(dictationOwnerKey, {
+            read: () => appComposerStateRef.current.state,
+            apply: next => {
+                // A detached job must never address a newly selected React composer.
+                if (appComposerStateRef.current.sessionId !== normalizedSessionId) return
+                if (persistTimeoutRef.current !== null) {
+                    window.clearTimeout(persistTimeoutRef.current)
+                    persistTimeoutRef.current = null
+                }
+                appComposerStateRef.current = { sessionId: normalizedSessionId, state: next }
+                latestTextRef.current = next.draft || ''
+                latestContextFilesRef.current = next.contextFiles || []
+                persistedSessionStateRef.current = next
+                if (normalizedSessionId) {
+                    latestDraftStatesRef.current.set(normalizedSessionId, next)
+                    writeAssistantComposerSessionState(normalizedSessionId, next)
+                }
+                setText(next.draft || '')
+                setContextFiles(next.contextFiles || [])
+                if (!next.draft) { latestInlineMentionTagsRef.current = []; setInlineMentionTags([]) }
+            }
+        })
+    }, [dictationOwnerKey, loadedSessionId, normalizedSessionId])
     if (loadedSessionId && loadedSessionId === normalizedSessionId) latestDraftStatesRef.current.set(loadedSessionId, currentComposerState)
     useEffect(() => () => {
         if (!normalizedSessionId) return
@@ -527,6 +570,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         removingAttachmentIds,
         setRemovingAttachmentIds,
         textareaRef,
+        isAttachmentOwnerCurrent: () => attachmentOwnerRef.current === attachmentOwner,
+        pendingAttachmentOperations: attachmentOwner.pending,
         onBlockedSend,
         onOptimisticSendClear: () => {
             // The send may reject before React commits the cleared draft.
@@ -561,8 +606,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
             }))
         }
     })
-    const latestHandlersRef = useRef(handlers)
-    latestHandlersRef.current = handlers
     const voiceInput = useAssistantSpeechInput({
         text,
         setText,
@@ -572,7 +615,40 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         isConnected,
         engine: settings.assistantTranscriptionEngine,
         scopeKey: `${normalizedSessionId || 'new'}:${resetStateToken || ''}`,
-        onSubmitTranscript: draftText => latestHandlersRef.current.handleSendTranscript(draftText)
+        createDictationJob: () => {
+            // Snapshot the original chat's dispatch, configuration, attachments and mentions.
+            // Normal handlers also focus/clear React state, so they cannot be used by a detached job.
+            const capturedText = text
+            const tags = inlineMentionTags.map(tag => ({ ...tag }))
+            const files = contextFiles.map(file => ({ ...file }))
+            const mentionFiles: ComposerContextFile[] = tags.filter(tag => tag.kind === 'file' || tag.kind === 'directory').map(tag => {
+                const meta = getContextFileMeta({ path: tag.path, name: tag.label })
+                return { id: `mention_${tag.id}`, path: tag.path, name: tag.label,
+                    kind: meta.category === 'image' ? 'image' : meta.category === 'code' ? 'code' : 'file', source: 'manual' }
+            })
+            const submittedFiles = [...files, ...mentionFiles].filter((file, index, all) =>
+                all.findIndex(candidate => `${candidate.path}::${candidate.name}`.toLowerCase() === `${file.path}::${file.name}`.toLowerCase()) === index)
+            const blocked = disabled || !isConnected || isSending || attachmentOwner.pending.size > 0
+                || (!modelsLoading && modelOptions && selectedModel && !modelOptions.some(option => option.id === selectedModel))
+                || !effortOptions.includes(selectedEffort)
+                || (typeof selectedModelOption !== 'string' && selectedModelOption.inputModes && !selectedModelOption.inputModes.includes('image') && submittedFiles.some(file => file.kind === 'image'))
+            const options = {
+                startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree || undefined,
+                model: selectedModel || undefined, runtimeMode: selectedRuntimeMode,
+                interactionMode: selectedInteractionMode, effort: selectedEffort,
+                serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' as const : undefined,
+                dispatchMode: isThinking ? settings.assistantBusyMessageMode : 'immediate' as const
+            }
+            return createAssistantDictationJob({ ownerKey: dictationOwnerKey, sessionId: normalizedSessionId,
+                initialState: currentComposerState, sentContextFiles: files,
+                send: async draft => {
+                    if (blocked) return false
+                    const prompt = replaceInlineMentionTokensWithLabels(draft, reconcileInlineMentionTags(capturedText, draft, tags)).trim()
+                    if (!prompt && !submittedFiles.length && !allowEmptySubmit) return false
+                    return onSend(prompt, submittedFiles, options)
+                }
+            })
+        }
     })
     const capabilities = useAssistantComposerCapabilitiesState({
         disabled, disabledReason, isConnected, isConnecting, isSending, isThinking, allowEmptySubmit, text,
@@ -736,6 +812,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         selectedModelLabel,
         selectedModelInputModes: typeof selectedModelOption === 'string' ? undefined : selectedModelOption.inputModes,
         selectedModelContextWindow: availableModelOptions.find((model) => model.id === selectedModel)?.contextWindow ?? null,
+        selectedModelMetadata: availableModelOptions.find((model) => model.id === selectedModel) ?? null,
         latestModelId,
         filteredModelOptions,
         setActiveModelIndex,

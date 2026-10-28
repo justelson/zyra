@@ -8,6 +8,7 @@ export class VoiceTranscriptionJobs {
             input: AssistantTranscribeVoiceInput,
             signal: AbortSignal,
         ) => Promise<string>,
+        private readonly recoverRejected?: (input: AssistantTranscribeVoiceInput, error: Error) => Promise<void>,
     ) {}
     async run(owner: string, input: AssistantTranscribeVoiceInput): Promise<string> {
         if (!input || typeof input !== 'object') throw new Error('A voice recording is required.')
@@ -15,8 +16,11 @@ export class VoiceTranscriptionJobs {
         if (!/^[a-f0-9-]{36}$/i.test(input.requestId)) throw new Error('Invalid voice transcription request.')
         const key = `${owner}:${input.requestId}`
         if (this.jobs.has(key)) throw new Error('This voice transcription is already running.')
-        if (this.jobs.size >= 2)
-            throw new Error('Too many voice transcriptions are already running. Try again shortly.')
+        if (this.jobs.size >= 2) {
+            const error = new Error(`Too many voice transcriptions are already running. ${this.recoverRejected ? 'The recording is available in transcription history.' : 'Try again shortly.'}`)
+            await this.recoverRejected?.(input, error)
+            throw error
+        }
         const controller = new AbortController()
         this.jobs.set(key, controller)
         try {
@@ -37,7 +41,7 @@ export class VoiceTranscriptionJobs {
     }
     cancelOwner(owner: string): void {
         for (const [key, controller] of this.jobs) {
-            if (key.startsWith(`${owner}:`)) controller.abort(new Error('Voice transcription cancelled.'))
+            if (key.startsWith(`${owner}:`)) controller.abort(Object.assign(new Error('Voice transcription cancelled because its window closed. Recover the recording from history.'), { code: 'VOICE_OWNER_CLOSED' }))
         }
     }
 }

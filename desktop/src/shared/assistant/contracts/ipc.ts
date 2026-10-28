@@ -107,6 +107,7 @@ export const ASSISTANT_IPC = {
     newThread: 'devscope:assistant:newThread',
     sendPrompt: 'devscope:assistant:sendPrompt',
     interruptTurn: 'devscope:assistant:interruptTurn',
+    pingModel: 'devscope:assistant:pingModel',
     listBackgroundProcesses: 'devscope:assistant:listBackgroundProcesses',
     stopBackgroundProcesses: 'devscope:assistant:stopBackgroundProcesses',
     respondApproval: 'devscope:assistant:respondApproval',

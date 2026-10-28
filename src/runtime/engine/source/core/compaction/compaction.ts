@@ -97,6 +97,13 @@ export interface CompactionResult<T = unknown> {
 	details?: T;
 }
 
+/** Validate default and extension checkpoints before replacing any persisted context. */
+export function assertValidCompactionSummary(summary: unknown): asserts summary is string {
+	if (typeof summary !== "string" || !summary.trim()) {
+		throw new Error("Compaction returned an empty summary");
+	}
+}
+
 function combineUsage(first: Usage, second: Usage): Usage {
 	return {
 		input: first.input + second.input,
@@ -428,7 +435,11 @@ export function findCutPoint(
 
 		// Check if we've exceeded the budget
 		if (accumulatedTokens >= keepRecentTokens) {
-			// Find the closest valid cut point at or after this entry
+			// A trailing tool-result group can itself exceed the budget. If there
+			// is no later valid boundary, retain its assistant call and all results
+			// rather than incorrectly falling back to the beginning of history.
+			cutIndex = cutPoints.filter((point) => point <= i).at(-1) ?? cutPoints[0];
+			// Prefer the closest valid cut point at or after this entry.
 			for (let c = 0; c < cutPoints.length; c++) {
 				if (cutPoints[c] >= i) {
 					cutIndex = cutPoints[c];
@@ -579,11 +590,25 @@ export async function completeSummarization(
 		sessionId: options.sessionId ?? uuidv7(),
 		toolChoice: "none",
 	};
+	requestOptions.signal?.throwIfAborted();
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn
 			? (await streamFn(model, context, requestOptions)).result()
 			: completeSimple(model, context, requestOptions);
-	return retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+	const response = await retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+	// Some transports can finish after cancellation or return partial text on a length/abort stop.
+	// Never let a partial checkpoint replace the original conversation.
+	requestOptions.signal?.throwIfAborted();
+	if (response.stopReason !== "stop") {
+		throw new Error(`Summarization incomplete (${response.stopReason}): ${response.errorMessage || "No complete summary"}`);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error("Summarization attempted to call a tool");
+	}
+	if (!contentText(response.content).trim()) {
+		throw new Error("Summarization returned an empty summary");
+	}
+	return response;
 }
 
 /**
@@ -872,7 +897,7 @@ export async function compact(
 	let summaryUsage: Usage;
 
 	if (isSplitTurn && turnPrefixMessages.length > 0) {
-		let historyText = "No prior history.";
+		let historyText = previousSummary?.trim() || "No prior history.";
 		let historyUsage: Usage | undefined;
 		if (messagesToSummarize.length > 0) {
 			const historyResult = await generateSummaryWithUsage(
@@ -932,6 +957,9 @@ export async function compact(
 		summary = result.text;
 		summaryUsage = result.usage;
 	}
+
+	signal?.throwIfAborted();
+	assertValidCompactionSummary(summary);
 
 	// Compute file lists and append to summary
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);

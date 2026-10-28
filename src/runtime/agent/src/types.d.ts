@@ -1,5 +1,13 @@
 import type { Api, AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, Context, ImageContent, Message, Model, SimpleStreamOptions, TextContent, Tool, ToolResultMessage, Usage } from "../../providers/src/index.js";
 import type { Static, TSchema } from "typebox";
+import type { ModelRequestControl } from "./model-request.js";
+export interface ModelRequestProgress {
+    requestId: string;
+    startedAt: number;
+    lastActivityAt: number;
+    phase: "waiting" | "streaming" | "recovering";
+    canPing: boolean;
+}
 /**
  * Stream function used by the agent loop. `Models.streamSimple` satisfies
  * this shape.
@@ -121,6 +129,8 @@ export interface PrepareNextTurnContext extends ShouldStopAfterTurnContext {
 }
 export interface AgentLoopConfig extends SimpleStreamOptions {
     model: Model<any>;
+    /** Agent-owned per-provider cancellation and progress. */
+    modelRequestControl?: ModelRequestControl;
     /**
      * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
      *
@@ -392,6 +402,18 @@ export type AgentEvent = {
 } | {
     type: "message_end";
     message: AgentMessage;
+} | {
+    type: "message_discarded";
+    message: AgentMessage;
+    reason: "model_ping";
+    requestId: string;
+} | {
+    type: "model_request_progress";
+    progress: ModelRequestProgress | null;
+} | {
+    type: "model_ping";
+    requestId: string;
+    status: "accepted" | "resumed";
 } | {
     type: "tool_execution_start";
     toolCallId: string;

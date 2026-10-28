@@ -25,6 +25,8 @@ export interface CompactionResult<T = unknown> {
     /** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
     details?: T;
 }
+/** Validate default and extension checkpoints before replacing any persisted context. */
+export declare function assertValidCompactionSummary(summary: unknown): asserts summary is string;
 export interface CompactionSettings {
     enabled: boolean;
     reserveTokens: number;

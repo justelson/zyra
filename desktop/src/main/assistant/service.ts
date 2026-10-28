@@ -28,6 +28,7 @@ import * as electron from 'electron'
 import { ChatNotifications, type ChatAttentionNotice } from './chat-notifications'
 import { PluginMcpConnections } from './plugin-mcp-connections'
 import log from 'electron-log'
+import { QueuedPromptDeliveryOwner } from './queued-prompt-delivery'
 import { readChatWorkContext } from '../../shared/assistant/work-context'
 import { requestAssistantBackgroundProcesses } from './service-background-processes'
 import type {
@@ -367,6 +368,7 @@ export class AssistantService {
     private readonly accountService = new ZyraAccountService()
     private readonly realtimeVoiceRuntime = new ChatGptRealtimeVoiceRuntime()
     private readonly persistence = new AssistantPersistence()
+    private readonly queuedPromptDeliveries = new QueuedPromptDeliveryOwner(join(app.getPath('userData'), 'assistant', 'queued-prompt-deliveries'))
     private readonly pluginRegistry = new AssistantPluginRegistry({
         rootPath: join(app.getPath('userData'), 'assistant', 'plugins')
     })
@@ -507,6 +509,7 @@ export class AssistantService {
         this.readyPromise = this.initialize()
         this.actionDeps = {
             runtime: this.runtime,
+            queuedPromptDeliveries: this.queuedPromptDeliveries,
             ensureReady: () => this.ensureReady(),
             getSnapshot: () => this.state.snapshot,
             hydrateSelectedSession: async (sessionId: string) => {

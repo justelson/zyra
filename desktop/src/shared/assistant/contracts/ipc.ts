@@ -309,6 +309,8 @@ export interface AssistantUpdateSessionConfigurationInput {
 }
 
 export interface AssistantSendPromptOptions {
+    /** Device-local queue identity; the service joins/replays one delivery. */
+    queueEntryId?: string
     /** Steer the exact active turn without cancelling it or changing its configuration. */
     dispatchMode?: 'immediate' | 'steer'
     targetTurnId?: string

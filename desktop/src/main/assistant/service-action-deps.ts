@@ -91,6 +91,7 @@ export interface AssistantRuntimeBridge {
 
 export interface AssistantServiceActionDeps {
     readonly runtime: AssistantRuntimeBridge
+    readonly queuedPromptDeliveries?: import('./queued-prompt-delivery').QueuedPromptDeliveryOwner
     ensureReady(): Promise<void>
     getSnapshot(): AssistantSnapshot
     hydrateSelectedSession(sessionId: string): Promise<void>

@@ -899,6 +899,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         const images = buildPromptImageInputs(contextFiles)
         const result = await actions.sendPromptResult(browserPrompt, {
             sessionId,
+            queueEntryId: options.queueEntryId,
             dispatchMode: options.dispatchMode === 'steer' ? 'steer' : 'immediate',
             targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId : undefined,
             startInNewWorktree: options.startInNewWorktree,

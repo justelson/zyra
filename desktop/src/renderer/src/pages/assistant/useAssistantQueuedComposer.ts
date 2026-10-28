@@ -137,12 +137,12 @@ export function useAssistantQueuedComposer(args: {
         }
     }, [startupError, storage])
 
-    const handleHoldQueue = useCallback((sessionId = selectedSessionId): boolean => {
+    const handleHoldQueue = useCallback((sessionId = selectedSessionId, persist = true): boolean => {
         if (!sessionId) return false
         const current = snapshotRef.current
         dispatchEpochRef.current.set(sessionId, (dispatchEpochRef.current.get(sessionId) || 0) + 1)
         const next = { ...current, held: { ...current.held, [sessionId]: true } }
-        const saved = commit(next)
+        const saved = persist && commit(next)
         // Stop must gate dispatch synchronously, even when storage is unavailable.
         if (!saved) { snapshotRef.current = next; setSnapshot(next) }
         return saved
@@ -268,32 +268,43 @@ export function useAssistantQueuedComposer(args: {
             if (!next || (canDispatchPrompt && !canDispatchPrompt(sessionId))) continue
             // Set the lock before any Promise boundary. Persisted entry remains until acceptance.
             activeDispatchRef.current.set(sessionId, next.id)
+            const beforeDispatchEpoch = dispatchEpochRef.current.get(sessionId) || 0
             const beforeTurn = `${state.latestTurnId || ''}:${state.latestTurnState || ''}`
             const beforeBusyRevision = busyTransitionsRef.current.get(sessionId)?.revision || 0
             void (async () => {
-                const success = await handleDispatchPrompt(sessionId, next.prompt, cloneComposerQueueValue(next.contextFiles), {
-                    ...next.options, dispatchMode: steer ? 'steer' : 'immediate'
-                })
-                const current = snapshotRef.current
-                if (success) {
-                    const afterState = liveStatesRef.current.find(entry => entry.sessionId === sessionId)
-                    const finishedBeforeAck = afterState && !isAssistantQueuedComposerSessionBusy(afterState)
-                        && (`${afterState.latestTurnId || ''}:${afterState.latestTurnState || ''}` !== beforeTurn
-                            || (busyTransitionsRef.current.get(sessionId)?.revision || 0) > beforeBusyRevision)
-                    if (!finishedBeforeAck) {
-                        awaitingTurnRef.current.set(sessionId, { key: beforeTurn, busyRevision: beforeBusyRevision })
-                    } else {
-                        awaitingTurnRef.current.delete(sessionId)
-                    }
-                    const saved = commit({ ...current, entries: { ...current.entries,
-                        [sessionId]: (current.entries[sessionId] || []).filter(entry => entry.id !== next.id) } })
-                    if (!saved) handleHoldQueue(sessionId)
-                } else handleHoldQueue(sessionId)
-
-                activeDispatchRef.current.delete(sessionId)
+                try {
+                    const success = await handleDispatchPrompt(sessionId, next.prompt, cloneComposerQueueValue(next.contextFiles), {
+                        ...next.options, queueEntryId: next.id, dispatchMode: steer ? 'steer' : 'immediate'
+                    })
+                    const latest = storage.read({ recover: false })
+                    const stoppedLocally = (dispatchEpochRef.current.get(sessionId) || 0) !== beforeDispatchEpoch && snapshotRef.current.held[sessionId]
+                    const current = stoppedLocally ? { ...latest, held: { ...latest.held, [sessionId]: true } } : latest
+                    snapshotRef.current = current
+                    if (success) {
+                        const afterState = liveStatesRef.current.find(entry => entry.sessionId === sessionId)
+                        const finishedBeforeAck = afterState && !isAssistantQueuedComposerSessionBusy(afterState)
+                            && (`${afterState.latestTurnId || ''}:${afterState.latestTurnState || ''}` !== beforeTurn
+                                || (busyTransitionsRef.current.get(sessionId)?.revision || 0) > beforeBusyRevision)
+                        if (!finishedBeforeAck) {
+                            awaitingTurnRef.current.set(sessionId, { key: beforeTurn, busyRevision: beforeBusyRevision })
+                        } else {
+                            awaitingTurnRef.current.delete(sessionId)
+                        }
+                        const saved = commit({ ...current, entries: { ...current.entries,
+                            [sessionId]: (current.entries[sessionId] || []).filter(entry => entry.id !== next.id) } })
+                        if (!saved) handleHoldQueue(sessionId)
+                    } else handleHoldQueue(sessionId)
+                } catch (error) {
+                    // An unreadable current queue must not be overwritten by an old
+                    // renderer snapshot, even when delivery itself was accepted.
+                    handleHoldQueue(sessionId, false)
+                    setQueuePersistenceError(`Could not refresh queued messages after delivery: ${String(error)}`)
+                } finally {
+                    activeDispatchRef.current.delete(sessionId)
+                }
             })()
         }
-    }, [snapshot, sessionStates, selectedSessionId, activeTurnId, commandPending, isThreadWorking, isAssistantBusy, canDispatchPrompt, handleDispatchPrompt, commit, handleHoldQueue])
+    }, [snapshot, sessionStates, selectedSessionId, activeTurnId, commandPending, isThreadWorking, isAssistantBusy, canDispatchPrompt, handleDispatchPrompt, commit, handleHoldQueue, storage])
 
     useEffect(() => registerAppQueueOwner({
         inspect: sessionId => {

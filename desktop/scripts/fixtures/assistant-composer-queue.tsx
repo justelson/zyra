@@ -219,6 +219,57 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     results.push('detached dictation merges into the current queue without losing newer work or transferring profiles')
 
     reset()
+    const twins: ReturnType<typeof useAssistantQueuedComposer>[] = []
+    const sharedAttempts: AssistantComposerSendOptions[] = []
+    let acknowledge!: (accepted: boolean) => void
+    const sharedAck = new Promise<boolean>(resolve => { acknowledge = resolve })
+    function Twin({ index }: { index: number }) {
+        twins[index] = useAssistantQueuedComposer({ selectedSessionId: 'chat',
+            sessionStates: [{ sessionId: 'chat', threadState: 'running', latestTurnState: 'running', latestTurnId: 'active', pendingApprovalCount: 0, pendingUserInputCount: 0 }],
+            isAssistantBusy: true, isThreadWorking: true, commandPending: false, activeTurnId: 'active', busyMessageMode: 'queue', queueStorage: storage,
+            dispatchPrompt: async (_session, _prompt, _files, sendOptions) => { sharedAttempts.push(sendOptions); return sharedAck },
+            interruptTurn: async () => {}
+        })
+        return null
+    }
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container)
+    flushSync(() => root!.render(<><Twin index={0} /><Twin index={1} /></>))
+    check(await twins[0]!.handleSendPrompt('one shared Steer', [], { ...options, dispatchMode: 'steer' }), 'one renderer accepts shared entry')
+    const sharedId = saved().entries.chat[0].id
+    await until(() => sharedAttempts.length === 2, 'both live hooks observe the shared storage entry')
+    check(sharedAttempts.every(attempt => attempt.queueEntryId === sharedId), 'both live hooks must forward one stable queue delivery identity')
+    check(await twins[0]!.handleSendPrompt('newer waiting message', [], options), 'new work can be accepted while delivery acknowledgement waits')
+    acknowledge(true)
+    await until(() => saved().entries.chat.length === 1, 'both accepted acknowledgements remove only their shared entry')
+    check(saved().entries.chat[0].prompt === 'newer waiting message', 'late acknowledgements preserve newly accepted queue work')
+    results.push('two live hooks share one stable delivery identity and preserve newer work across acknowledgement')
+
+    reset(); mount(true)
+    let lateAck!: (accepted: boolean) => void
+    dispatch = () => new Promise<boolean>(resolve => { lateAck = resolve })
+    check(await actions.handleSendPrompt('accepted before Stop', [], options), 'first late-ack entry accepted')
+    check(await actions.handleSendPrompt('held after Stop', [], options), 'second late-ack entry accepted')
+    ready()
+    await until(() => sent.length === 1, 'first queue request awaits acknowledgement')
+    failWrite = true
+    check(!actions.handleHoldQueue(), 'Stop holds in memory when its storage write fails')
+    failWrite = false
+    lateAck(true)
+    await until(() => actions.queuedComposerMessageCount === 1, 'late accepted entry removed')
+    check(actions.queueHeld && saved().held.chat === true, 'acknowledgement cannot discard the in-memory Stop when storage recovers')
+    results.push('late acknowledgement retains Stop even after a failed hold write and storage recovery')
+
+    reset(); mount(true)
+    dispatch = () => new Promise<boolean>(resolve => { lateAck = resolve })
+    check(await actions.handleSendPrompt('accepted before corruption', [], { ...options, dispatchMode: 'steer' }), 'corruption fixture entry accepted')
+    await until(() => sent.length === 1, 'accepted request awaits its acknowledgement')
+    localStorage.setItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY, '{broken')
+    lateAck(true)
+    await until(() => Boolean(actions.queuePersistenceError) && actions.queueHeld, 'unreadable acknowledgement queue is held')
+    check(localStorage.getItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY) === '{broken', 'a late acknowledgement cannot overwrite unreadable queue evidence')
+    results.push('unreadable acknowledgement storage remains intact and the dispatch is held')
+
+    reset()
     localStorage.setItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY, '{broken')
     mount(true)
     check(!await actions.handleSendPrompt('do not overwrite recovery evidence', [], options) && actions.queuePersistenceError, 'corrupt storage rejects acceptance and is surfaced')

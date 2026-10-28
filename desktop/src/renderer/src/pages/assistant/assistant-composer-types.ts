@@ -31,6 +31,8 @@ export type AssistantElementBounds = {
 }
 
 export type AssistantComposerSendOptions = {
+    /** Shared queue delivery identity, retained across renderer retries. */
+    queueEntryId?: string
     /** Stable request identity prevents duplicate queued copies on answer retries. */
     answerRequestId?: string
     targetTurnId?: string

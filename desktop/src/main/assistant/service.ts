@@ -4105,7 +4105,8 @@ export class AssistantService {
         if (privateVoiceTarget) {
             if (event.type !== 'activity' && event.type !== 'approval.requested' && event.type !== 'approval.resolved') return
             const activeTask = [...this.activeVoiceStrongTasks.values()].find((task) => task.localThreadId === privateVoiceTarget)
-            const activeVoice = activeTask ? this.activeCanonicalVoice : null
+            const activeVoice = activeTask && this.activeCanonicalVoice?.conversationId === activeTask.conversationId
+                ? this.activeCanonicalVoice : null
             if (activeVoice && activeTask && event.type === 'approval.requested') {
                 const approvalMessage = 'I need your approval for the command shown above before I can continue.'
                 void this.requireCanonicalRealtimeAdapter().appendTransientContext(

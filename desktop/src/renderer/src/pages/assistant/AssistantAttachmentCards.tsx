@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { FileText, X } from 'lucide-react'
+import { FileText, Film, X } from 'lucide-react'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { useThemeRevision } from '@/lib/use-theme-revision'
 import { cn } from '@/lib/utils'
@@ -7,12 +7,14 @@ import { cn } from '@/lib/utils'
 export function AssistantAttachmentPill({
     name,
     previewDataUrl,
+    category,
     removing,
     onOpen,
     onRemove
 }: {
     name: string
     previewDataUrl?: string
+    category?: 'image' | 'video' | 'code' | 'doc'
     removing: boolean
     onOpen: () => void
     onRemove: () => void
@@ -26,7 +28,7 @@ export function AssistantAttachmentPill({
             className={cn('group flex h-7 max-w-56 items-center overflow-hidden rounded-md border border-[var(--surface-divider)] bg-sparkle-card transition-[opacity,transform] duration-200 motion-reduce:transition-none', removing && 'scale-95 opacity-0')}
         >
             <button type="button" disabled={removing} onClick={onOpen} title={name} aria-label={`Open preview for ${name}`} className="flex h-full min-w-0 items-center gap-1.5 pl-2 pr-1 text-left hover:bg-[var(--surface-hover)] disabled:pointer-events-none">
-                {previewDataUrl ? <img src={previewDataUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <FileEntryIcon pathValue={name} kind="file" theme={theme} size={14} className="shrink-0" />}
+                {category === 'video' ? <Film size={14} className="shrink-0 text-sparkle-text-secondary" /> : previewDataUrl ? <img src={previewDataUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <FileEntryIcon pathValue={name} kind="file" theme={theme} size={14} className="shrink-0" />}
                 <span className="truncate text-[11px] text-sparkle-text-secondary">{name}</span>
             </button>
             <button type="button" disabled={removing} onClick={onRemove} title={`Remove ${name}`} aria-label={`Remove ${name}`} className="inline-flex h-full w-6 shrink-0 items-center justify-center text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:pointer-events-none">
@@ -192,7 +194,7 @@ export function AssistantFileAttachmentCard({
 }: {
     name: string
     contentType: string
-    category: 'image' | 'code' | 'doc'
+    category: 'image' | 'video' | 'code' | 'doc'
     widthClassName?: string
     pathLabel?: string | null
     onClick?: () => void
@@ -214,7 +216,7 @@ export function AssistantFileAttachmentCard({
         >
             <div className="flex items-start gap-2 p-2">
                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--surface-divider)] bg-sparkle-bg">
-                    <FileEntryIcon pathValue={name} kind="file" theme={iconTheme} size={15} />
+                    {category === 'video' ? <Film size={15} className="text-sparkle-text-secondary" /> : <FileEntryIcon pathValue={name} kind="file" theme={iconTheme} size={15} />}
                 </div>
                 <span className="min-w-0 flex-1">
                     <span className="block truncate text-[9px] font-medium text-sparkle-text">{name}</span>

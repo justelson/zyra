@@ -9,6 +9,7 @@ import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSettings } from '@/lib/settings'
+import { AssistantModelInactivityPanel, type AssistantModelInactivityPanelProps } from './AssistantModelInactivityPanel'
 import { readAssistantSkillSourceRevision } from '@/lib/assistant/assistant-skill-source-revision'
 import { cn } from '@/lib/utils'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
@@ -123,11 +124,13 @@ async function loadPromptResources(projectPath?: string | null): Promise<Assista
 
 export function AssistantComposerView({
     controller,
+    modelInactivity,
     realtimeVoiceDisabled = true,
     onPrepareRealtimeVoice,
     onStartRealtimeVoice
 }: {
     controller: AssistantComposerController
+    modelInactivity?: AssistantModelInactivityPanelProps
     realtimeVoiceDisabled?: boolean
     onPrepareRealtimeVoice?: () => void
     onStartRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
@@ -737,6 +740,13 @@ export function AssistantComposerView({
                         </div>
                     </div>
                 ) : null}
+                {controller.placement === 'bottom' && modelInactivity ? (
+                    <AssistantModelInactivityPanel
+                        key={`${controller.loadedSessionId}:${modelInactivity.turnId}`}
+                        {...modelInactivity}
+                        suppressed={slashMenuPresent || controller.showMentionMenu || hasFloatingShelf}
+                    />
+                ) : null}
                                             <ComposerMentionMenu
                                 isOpen={controller.showMentionMenu}
                                 mentionCanScrollUp={controller.mentionCanScrollUp}
@@ -970,6 +980,7 @@ export function AssistantComposerView({
                                 <AssistantComposerContextIndicator
                                     usage={controller.latestTurnUsage}
                                     modelContextWindow={controller.selectedModelContextWindow}
+                                    model={controller.selectedModelMetadata}
                                 />
                                 {controller.showCancelWhenDirty && controller.isDirty ? (
                                     <button

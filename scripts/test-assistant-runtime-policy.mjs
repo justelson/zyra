@@ -81,8 +81,8 @@ const runtime = {
   session: {
     isStreaming: false,
     isCompacting: false,
-    model: { contextWindow: 400_000 },
-    getContextUsage: () => ({ tokens: 253_705, contextWindow: 400_000, percent: 63.43 }),
+    model: { id: 'synthetic', provider: 'test', contextWindow: 400_000, auto_compact_token_limit: 256_000 },
+    getContextUsage: () => ({ tokens: 260_000, contextWindow: 400_000, percent: 65 }),
     compact: async () => { compactionCalls += 1 },
   },
   contextCompactionThresholdTokens: 256_000,
@@ -98,8 +98,8 @@ const failingRuntime = {
   session: {
     isStreaming: false,
     isCompacting: false,
-    model: { contextWindow: 400_000 },
-    getContextUsage: () => ({ tokens: 250_000, contextWindow: 400_000, percent: 62.5 }),
+    model: { id: 'synthetic', provider: 'test', contextWindow: 400_000, auto_compact_token_limit: 256_000 },
+    getContextUsage: () => ({ tokens: 260_000, contextWindow: 400_000, percent: 65 }),
     compact: async () => { throw new Error('summary provider failed') },
   },
   contextCompactionThresholdTokens: 256_000,
@@ -112,7 +112,7 @@ const alreadyCompactedRuntime = {
   session: {
     isStreaming: false,
     isCompacting: false,
-    model: { contextWindow: 400_000 },
+    model: { id: 'synthetic', provider: 'test', contextWindow: 400_000, auto_compact_token_limit: 256_000 },
     getContextUsage: () => ({ tokens: 260_000, contextWindow: 400_000, percent: 65 }),
     sessionManager: { getBranch: () => [{ type: 'compaction', id: 'latest-summary' }] },
     compact: async () => { repeatedCompactionCalls += 1 },
@@ -126,7 +126,7 @@ const ineligibleRuntime = {
   session: {
     isStreaming: false,
     isCompacting: false,
-    model: { contextWindow: 400_000 },
+    model: { id: 'synthetic', provider: 'test', contextWindow: 400_000, auto_compact_token_limit: 256_000 },
     getContextUsage: () => ({ tokens: 260_000, contextWindow: 400_000, percent: 65 }),
     compact: async () => { throw new Error('Nothing to compact (session too small)') },
   },
@@ -151,27 +151,28 @@ const agentServerSource = readFileSync(`${root}/src/agent-server/server.mjs`, 'u
 assert.match(sdkSource, /createReasoningSummaryExtension\(options\.reasoningSummaryState\)/, 'every primary runtime installs the summary policy before provider requests')
 assert.match(sdkSource, /await compactZyraContextBeforePrompt\(runtime, expanded\.text/, 'compaction runs before the user prompt enters the model context')
 assert.ok(
-  sdkSource.indexOf('const layeredMemoryPrompt = injectLayeredMemory') < sdkSource.indexOf('await compactZyraContextBeforePrompt(runtime, expanded.text'),
+  sdkSource.indexOf('const contextMessages = prepareZyraTurnContext') >= 0 &&
+  sdkSource.indexOf('const contextMessages = prepareZyraTurnContext') < sdkSource.indexOf('await compactZyraContextBeforePrompt(runtime, expanded.text'),
   'query-dependent layered memory must be projected before automatic compaction'
 )
 assert.match(bridgeSource, /sdk\.setZyraReasoningSummary\(runtime, payload\.reasoningSummary\)/, 'the bridge applies the latest main-owned summary preference on every prompt')
 assert.match(bridgeSource, /contextCompactionThresholdTokens: payload\.contextCompactionThresholdTokens/, 'the bridge passes the selected context limit into real prompt execution')
 assert.match(bridgeSource, /async function handleAbort\(\) \{\s*const currentRuntime = runtime;[\s\S]{0,650}currentRuntime\?\.session\?\.abortCompaction\?\.\(\)/, 'Stop captures the requesting runtime and cancels its automatic compaction instead of waiting for its provider request')
 assert.match(runtimeSource, /reasoningSummary: options\?\.reasoningSummary/, 'Desktop sends summary mode through the canonical agent server')
-assert.match(runtimeSource, /contextCompactionThresholdTokens: options\?\.contextCompactionThresholdTokens/, 'Desktop sends the compaction limit through the canonical agent server')
+assert.match(runtimeSource, /modelCompactionOverrides: options\?\.modelCompactionOverrides/, 'Desktop sends per-model overrides through the canonical agent server')
 assert.doesNotMatch(runtimeSource, /\bspawnSync\b/, 'assistant runtime availability checks must never block the Electron main loop')
 assert.match(serviceSource, /const refreshDue = forceRefresh \|\| isAssistantModelCatalogRefreshDue\(this\.modelCatalogLastAttemptAt, Date\.now\(\), this\.modelCatalogLastRefreshFailed\)/, 'model discovery respects the catalog refresh interval and explicit refresh requests')
 assert.match(serviceSource, /if \(!refreshDue\)[\s\S]{0,180}structuredClone\(knownModels\)/, 'model-list reads use the persisted catalog while a refresh is not due')
 assert.match(runtimeSource, /serviceTier: input\.serviceTier,[\s\S]{0,80}reasoningSummary: 'auto'/, 'private Voice tasks retain their explicit non-UI summary policy')
 assert.match(sessionActionsSource, /getRuntimePolicy\?\.\(\)/, 'prompt dispatch reads the authoritative runtime policy at send time')
 assert.match(mainSource, /getRuntimePolicy: \(\) => setupServices\.preferences\.getAssistantRuntimePolicy\(\)/, 'runtime policy comes from main-owned device preferences')
-assert.match(contextIndicatorSource, /resolveAssistantContextCompactionLimitTokens/, 'the composer meter uses the configured compaction boundary instead of the raw model maximum')
+assert.match(contextIndicatorSource, /resolveModelCompactionPolicy/, 'the composer meter uses the same provider/per-model policy as the runtime')
 assert.match(contextIndicatorSource, /className="inline-flex size-\[32px\]/, 'the progress ring itself is the complete compact composer control')
 assert.doesNotMatch(contextIndicatorSource, /h-\[30px\].*bg-white\/\[0\.025\]/, 'the context number has no larger decorative outer circle')
 assert.match(composerViewSource, /<AssistantComposerContextIndicator/, 'the effective context limit must be mounted in the real composer')
-assert.match(contextIndicatorSource, /auto-compacts at \{formatCompactMetric\(compactionLimitTokens\)\}/, 'the composer states the same effective boundary enforced by the runtime')
+assert.match(contextIndicatorSource, /auto-compacts at \$\{formatCompactMetric\(compactionLimitTokens\)\}/, 'the composer states the same effective boundary enforced by the runtime')
 assert.match(agentServerSource, /outcome: interrupted \? "interrupted" : "failed"/, 'cancelling provider-backed compaction leaves the canonical turn interrupted instead of failed')
 assert.match(sharedPolicySource, /DEFAULT_ASSISTANT_REASONING_SUMMARY[^=]*= 'detailed'/, 'renderer and runtime reasoning-summary defaults remain aligned')
-assert.match(sharedPolicySource, /DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS = 256_000/, 'renderer and runtime context defaults remain aligned')
+assert.match(sharedPolicySource, /DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS = 256_000/, 'legacy renderer and runtime saved values remain compatible without applying a global cap')
 
 console.log('Assistant runtime policy contract: ok')

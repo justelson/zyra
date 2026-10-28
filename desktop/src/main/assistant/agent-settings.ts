@@ -4,7 +4,7 @@ import { describeDevicePreferenceValue, sanitizeDevicePreferenceValue, type Devi
 import type { DeviceSecretsService } from '../setup/device-secrets-service'
 import type { AppOperationReceipts } from './app-operation-receipts'
 
-const MIRRORS = new Set(['assistantDefaultModel', 'assistantDefaultEffort', 'assistantDefaultRuntimeMode'])
+const MIRRORS = new Set(['assistantDefaultModel', 'assistantDefaultEffort', 'assistantDefaultRuntimeMode', 'assistantContextCompactionThresholdTokens'])
 const defaults = DEFAULT_DEVICE_SETTINGS as Record<string, unknown>
 const allKeys = [...SHARED_DEVICE_PREFERENCE_KEYS, ...SURFACE_DEVICE_PREFERENCE_KEYS, ...OS_DEVICE_PREFERENCE_KEYS, ...SECRET_DEVICE_PREFERENCE_KEYS, ...DERIVED_DEVICE_PREFERENCE_KEYS]
 const groupFor = (key: string) => key.startsWith('appearance') || key === 'theme' || key === 'accentColor' || key === 'compactMode' || key.startsWith('accessibility') ? 'appearance'
@@ -40,7 +40,7 @@ export class AgentSettings {
             const writable = ['shared', 'surface'].includes(owner) && !MIRRORS.has(key) && !key.endsWith('PromptDismissed')
             return { id: key, area: groupFor(key), scope: owner === 'surface' ? surface : owner === 'shared' ? 'device' : owner,
                 ...describeDevicePreferenceValue(key),
-                writable, unavailableReason: MIRRORS.has(key) ? 'Compatibility mirror. Use remembered choices or exact Chat configuration.' : owner === 'os' ? 'Use startup.get/startup.update to inspect or change actual OS state.' : secret ? 'Use secure credential entry.' : !writable ? 'Derived or UI-owned state.' : null,
+                writable, unavailableReason: key === 'assistantContextCompactionThresholdTokens' ? 'Legacy global value, retained for compatibility only. Use assistantModelCompactionOverrides.' : MIRRORS.has(key) ? 'Compatibility mirror. Use remembered choices or exact Chat configuration.' : owner === 'os' ? 'Use startup.get/startup.update to inspect or change actual OS state.' : secret ? 'Use secure credential entry.' : !writable ? 'Derived or UI-owned state.' : null,
                 ...(secret ? { configured: key === 'groqApiKey' ? status.groqConfigured : status.geminiConfigured } : {
                     defaultValue: key === 'assistantMemoryEnabled' ? memoryDefault : defaults[key] ?? null, savedValue: stored ? snapshot.settings[key] : null,
                     effectiveValue: owner === 'os' || owner === 'derived' ? null : key === 'assistantMemoryEnabled' ? memoryEnabled : snapshot.settings[key] ?? defaults[key] ?? null,

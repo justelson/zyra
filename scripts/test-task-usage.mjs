@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { taskUsageBaseline, summarizeTaskUsage } from '../src/task-usage.mjs';
+const before = { input: 100, cacheRead: 100, output: 20, total: 220, assistantMessages: 2, cost: 1 };
+const baseline = taskUsageBaseline(before, { resumed: { usage: { inputTokens: 100, totalTokens: 100, requests: 1, cost: 1 } } });
+const current = { ...before, input: 150, cacheRead: 300, output: 40, total: 490, assistantMessages: 4, cost: 2 };
+const agents = { resumed: { usage: { inputTokens: 140, totalTokens: 140, requests: 2, cost: 1.4 } }, fresh: { usage: { inputTokens: 10, totalTokens: 10, requests: 1, cost: .1 } } };
+const result = summarizeTaskUsage(current, agents, baseline);
+assert.equal(result.primary.inputTokens, 50);
+assert.equal(result.supporting.inputTokens, 50);
+assert.equal(result.total.inputTokens, 100);
+assert.equal(result.total.requests, 4);
+assert.equal(result.total.totalTokens, 320);
+assert.deepEqual(summarizeTaskUsage(current, agents, baseline), result, 'Repeated observation cannot double count');
+assert.equal(result.primary.reasoningTokens, 0);
+console.log('Task usage: primary/supporting separation, resumed run baseline and no double counting: ok');

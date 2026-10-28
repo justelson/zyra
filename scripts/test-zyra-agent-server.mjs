@@ -397,6 +397,19 @@ try {
     desktop.request("catalog.message.append", { session: "chat:test", message: { ...canonicalMessage, operationId: "op_voice_server_busy" } }),
     /strong foreground turn is active/
   );
+  const modelProgress = { requestId: 'request:ping', startedAt: Date.now() - 180_000, lastActivityAt: Date.now() - 150_000, phase: 'waiting', canPing: true };
+  workers[0].emit('event', { type: 'model_request_progress', progress: modelProgress });
+  await waitUntil(() => tuiEvents.some(entry => entry.event?.type === 'model_request_progress'));
+  assert.deepEqual((await tui.request('catalog.list', {})).chats[0].presence.modelRequestProgress, { ...modelProgress, turnId: 'turn:test' });
+  await assert.rejects(tui.request('session.request', { sessionKey: 'chat:test', type: 'model_ping', payload: { requestId: 'request:ping', targetTurnId: 'turn:stale' } }), /exact active turn/i);
+  assert.equal(workers[0].requests.some(entry => entry.type === 'model_ping'), false, 'stale Ping never reaches worker');
+  const promptCountBeforePing = workers[0].requests.filter(entry => entry.type === 'prompt').length;
+  await tui.request('session.request', { sessionKey: 'chat:test', type: 'model_ping', payload: { requestId: 'request:ping', targetTurnId: 'turn:test' } });
+  assert.deepEqual(workers[0].requests.at(-1), { type: 'model_ping', payload: { requestId: 'request:ping', targetTurnId: 'turn:test' } });
+  assert.equal(workers[0].requests.filter(entry => entry.type === 'prompt').length, promptCountBeforePing);
+  assert.equal(server.sessions.get('chat:test').activeRequestContext.turnId, 'turn:test', 'Ping keeps original foreground owner');
+  workers[0].emit('event', { type: 'model_request_progress', progress: null });
+  assert.equal((await tui.request('catalog.list', {})).chats[0].presence.modelRequestProgress, null);
   workers[0].emit("event", { type: "message_update", message: { role: "assistant", content: "still working" } });
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "message_update"));
   workers[0].emit("event", { type: "approval_requested", requestId: "approval:test", requestType: "command", command: "npm test" });
@@ -467,6 +480,8 @@ try {
   const agentEndCatalog = await tui.request("catalog.list", {});
   assert.equal(agentEndCatalog.chats[0].presence.state, "ready", "agent_end must settle the canonical turn before the prompt request unwinds");
   assert.equal(agentEndCatalog.chats[0].presence.activeTurnId, null, "settled presence cannot advertise a live turn id");
+  assert.equal(agentEndCatalog.chats[0].presence.modelRequestProgress, null);
+  await assert.rejects(tui.request('session.request', { sessionKey: 'chat:test', type: 'model_ping', payload: { requestId: 'request:ping', targetTurnId: 'turn:test' } }), /exact active turn/i, 'terminal turn rejects Ping even before worker unwind');
   assert.equal(server.sessions.get("chat:test")?.activeRequestContext?.turnId, "turn:test", "completed response retains worker ownership through post-turn maintenance");
   workers[0].emit("event", { type: "compaction_start", reason: "manual" });
   workers[0].emit("event", { type: "compaction_end", reason: "manual", aborted: false, willRetry: false });
@@ -494,11 +509,11 @@ try {
   const reconnect = client("desktop:reconnect", "desktop", ["desktop-control"]);
   await reconnect.connect();
   const replay = await reconnect.attach({ project, cwd: project, session: "chat:test", localThreadId: "assistant-thread:reconnect", lastSequence: 0 });
-  assert.equal(replay.replay.length, 16, "replay includes accepted prompt, process ownership, post-turn maintenance and durable question-response receipts");
+  assert.equal(replay.replay.length, 18, "replay includes accepted prompt, process ownership, post-turn maintenance and durable question-response receipts");
   assert.equal(replay.replay.filter(entry => ['user_input_response_claimed', 'user_input_response_completed'].includes(entry.event.type)).length, 2, 'Question resolution claims and completions survive reconnect without a second dispatch');
   assert.equal(replay.replay.filter(entry => entry.event.type === 'managed_bash_job_update').length, 2);
   assert.equal(replay.replay.filter((entry) => entry.event.type === "zyra_server_prompt_accepted").length, 1);
-  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update", "user_input_response_claimed", "user_input_response_completed"].includes(entry.event.type));
+  const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update", "user_input_response_claimed", "user_input_response_completed", "model_request_progress"].includes(entry.event.type));
   assert.equal(providerReplay.length, 9, "reconnect must replay metadata, fleet, provider events, approvals, user input, retry state, and the authoritative agent completion");
   assert.equal(providerReplay[0].event.type, "agent.created");
   assert.equal(Object.keys(providerReplay[0].event.fleet.agents).length, 1);

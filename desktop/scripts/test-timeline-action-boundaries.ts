@@ -19,6 +19,11 @@ const ids = (row: TimelineRenderRow) => row.kind === 'activity' ? [row.activity.
 const merged = actionRows(flatten(pipeline([user, narration, next], tools)))
 assert.equal(merged.length, 1, 'live/canonical/null turn aliases inside one visible user turn cannot split a consecutive action block')
 assert.deepEqual(ids(merged[0]), tools.map(tool => tool.id), 'all action evidence remains in chronological order')
+const ping: AssistantActivity = { id: 'model-ping:request-1', kind: 'model.ping', tone: 'info', summary: 'Pinged model due to suspected hang.', turnId: 'local-turn', createdAt: time(7), timelineSequence: 7, payload: { category: 'model-ping', status: 'completed' } }
+const pingRows = actionRows(flatten(pipeline([user, narration, next], [...tools, ping])))
+assert.equal(pingRows.length, 1, 'Ping belongs inside the latest action block, not a separate message or issue')
+assert.deepEqual(ids(pingRows[0]), [...tools.map(tool => tool.id), ping.id])
+assert.equal(actionRows(flatten(pipeline([user, narration, message('fresh-narration', 'assistant', 8, 'The checks are done; continuing the remaining task.'), next], [...tools, ping]))).length, 1, 'fresh narration follows recovered action evidence')
 const recoveryNotice: AssistantActivity = { id: 'temporary-issue', kind: 'error', tone: 'error', summary: 'Temporary provider error', turnId: 'local-turn', createdAt: time(4), payload: {} }
 assert.equal(actionRows(flatten(pipeline([user, narration, next], [tools[0], tools[1], recoveryNotice, tools[3]]))).length, 1, 'a recoverable issue does not split an otherwise consecutive action run in the fallback path')
 const empty = message('empty-placeholder', 'assistant', 4, '   ')

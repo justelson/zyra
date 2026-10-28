@@ -1,8 +1,8 @@
-import { setChatSettlement } from './assistant-chat-menu-state'
+import { createChatSettlementToast, setChatSettlement } from './assistant-chat-menu-state'
 import { writePinnedSessionIds } from './assistant-pinned-sessions'
 import { applyAssistantInboxOrder, compareAssistantInboxCreation, restoreAssistantInboxItem, useAssistantInboxOrder } from './assistant-agent-inbox-order'
 import { clearAssistantChatNavigationCursor, getAssistantChatNavigationSnapshot, performAssistantChatOrderOperation, registerAssistantChatNavigation } from './assistant-chat-navigation'
-import type { AssistantToastInput } from './AssistantPageHelpers'
+import { AssistantTransientToast, useAssistantTransientToast, type AssistantToastInput } from './AssistantToast'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener } from '@/components/ui/native-overlay-portal'
@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils'
 import { isAssistantUserFacingSession } from '@/lib/assistant/selectors'
 import { SettingsProviderIcon } from '../settings/SettingsProviderIcon'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
+import { AssistantWorkContextIcon } from './AssistantWorkContextIcon'
+import { resolveSidebarWorkContext } from './assistant-work-context'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
 import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
@@ -205,6 +207,7 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false, inF
 
 function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle: (item: SidebarItem) => void; props: SidebarRowProps }) {
     const title = getSessionDisplayTitle(item.session)
+    const work = resolveSidebarWorkContext(item.session, item.thread)
     const model = resolveAssistantInboxModelPresentation(item.thread?.model)
     const receded = (item.status === 'ready' || item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active
     const activate = () => void props.onSelectSession(item.session.id)
@@ -214,8 +217,8 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
             <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')} title={[title, item.projectPath, model.modelName, item.thread?.lastError].filter(Boolean).join('\n')}>
                 <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
                     <div className="flex h-5 min-w-0 items-center gap-1.5">
-                        <ProjectMark group={item.project} />
-                        <span className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{item.project.path ? item.project.label : 'Chat'}</span>
+                        {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
+                        <span title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
                         <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 text-xs">
                             <span className="shrink-0">
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
@@ -244,12 +247,13 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
 
 function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarItem; action: 'settle' | 'unsettle'; onAction: (item: SidebarItem) => void; props: SidebarRowProps }) {
     const title = getSessionDisplayTitle(item.session)
+    const work = resolveSidebarWorkContext(item.session, item.thread)
     const activate = () => void props.onSelectSession(item.session.id)
     const menuItems = getAgentInboxMenuItems(item, onAction, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none">
             <div role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-muted/70 hover:bg-[var(--surface-hover)] hover:text-sparkle-text')} title={title}>
-                <ProjectMark group={item.project} dimmed={!item.active} />
+                {work ? <AssistantWorkContextIcon work={work} dimmed={!item.active} /> : <ProjectMark group={item.project} dimmed={!item.active} />}
                 <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
                 <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end">
                     {item.status !== 'ready' ? <span className="mr-1 inline-flex shrink-0 text-sparkle-text-muted" title={item.status === 'done' ? 'New response' : item.status}>
@@ -278,12 +282,9 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [projectSearch, setProjectSearch] = useState('')
     const [settledExpanded, setSettledExpanded] = useState(false)
     const [sidebarOrder, setSidebarGroupOrder] = useAssistantInboxOrder()
-    const [undoMove, setUndoMove] = useState<{ label: string; run: () => void | Promise<void> } | null>(null)
-    useEffect(() => {
-        if (!undoMove) return
-        const timer = window.setTimeout(() => setUndoMove(null), 5_000)
-        return () => window.clearTimeout(timer)
-    }, [undoMove])
+    const { toast: localToast, showToast: showLocalToast, dismissToast } = useAssistantTransientToast()
+    const showToast = props.onShowToast || showLocalToast
+    const showUndoToast = (message: string, run: () => void | Promise<void>) => showToast({ message, tone: 'success', action: { label: 'Undo', run } })
     const [settledInitialCount, setSettledInitialCount] = useState(1)
     const [settledAdditionalCount, setSettledAdditionalCount] = useState(0)
     const [settlementOverrides, setSettlementOverrides] = useAssistantSettlementOverrides()
@@ -383,7 +384,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             selectSession: props.onSelectSession,
             onOrderChange: (undo: (() => boolean) | null, label = 'Chat moved') => {
                 stableLayout.release()
-                setUndoMove(undo ? { label, run: () => { undo() } } : null)
+                if (undo) showUndoToast(label, () => { undo() })
             }
         }
         if (navigationRef.current) navigationRef.current.update(value)
@@ -407,7 +408,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             ...action, onSelect: () => {
                 const previousPins = new Set(props.pinnedSessionIds || [])
                 action.onSelect?.()
-                setUndoMove({ label: action.id === 'pin' ? 'Chat pinned' : 'Chat unpinned', run: () => { writePinnedSessionIds(previousPins) } })
+                showUndoToast(action.id === 'pin' ? 'Chat pinned' : 'Chat unpinned', () => { writePinnedSessionIds(previousPins) })
             }
         } : action),
         getSidebarDragProps: item => ({
@@ -565,15 +566,15 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         stableLayout.release()
         const previousOrder = sidebarOrder.chats
         void setChatSettlement(item.session, state === 'settled').then(() => {
-            setUndoMove({ label: state === 'settled' ? 'Chat settled' : 'Chat restored', run: async () => {
+            showToast(createChatSettlementToast(item.session, state === 'settled', async () => {
                 await setChatSettlement(item.session, item.settled)
                 setSidebarGroupOrder('chats', previousOrder)
-            } })
+            }))
             if (state === 'active') {
                 setSidebarGroupOrder('chats', current => restoreAssistantInboxItem(
                     orderedRecentRef.current.map(entry => entry.session.id), current, item.session.id))
             }
-        }).catch(error => props.onShowToast?.({ message: error.message, tone: 'error' }))
+        }).catch(error => showToast({ message: error instanceof Error ? error.message : 'Could not update chat settlement.', tone: 'error' }))
     }
 
     return (
@@ -641,7 +642,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                     {renderedSettled.map((item) => <AgentInboxSlimRow key={`${item.session.id}:settled`} item={item} action="unsettle" onAction={(target) => setSettlement(target, 'active')} props={rowProps} />)}
                     {settledExpanded && hiddenSettledCount > 0 ? <li className="list-none"><button type="button" onClick={() => setSettledAdditionalCount((count) => count + SETTLED_PAGE_COUNT)} className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--surface-divider)] font-mono text-[11px] text-sparkle-text-muted transition-colors hover:border-solid hover:bg-[var(--surface-hover)] hover:text-sparkle-text">See {Math.min(hiddenSettledCount, SETTLED_PAGE_COUNT)} more</button></li> : null}
                 </ul>
-                {undoMove ? <div role="status" className="sticky bottom-1 mx-2 flex items-center justify-between gap-2 rounded-md border border-[var(--surface-divider)] bg-sparkle-card px-3 py-2 text-xs text-sparkle-text-secondary"><span>{undoMove.label}</span><button type="button" onClick={async () => { const action = undoMove; setUndoMove(null); try { await action.run() } catch (error) { props.onShowToast?.({ message: error instanceof Error ? error.message : 'Could not undo this move.', tone: 'error' }) } }}>Undo</button></div> : null}
                 {items.length === 0 ? (
                     <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-sparkle-text-muted/60">
                         <span>{scopedProject ? `No chats in ${scopedProject.label} yet` : projectGroups.length === 0 ? 'No projects yet' : 'No chats yet'}</span>
@@ -649,6 +649,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                     </div>
                 ) : null}
             </div>
+            {!props.onShowToast ? <AssistantTransientToast toast={localToast} onDismiss={dismissToast} /> : null}
         </>
     )
 })

@@ -10,6 +10,7 @@ import type {
 } from "../../providers/source/index.js";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
+import { ModelRequestControl } from "./model-request.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -23,6 +24,7 @@ import type {
 	BeforeToolCallContext,
 	BeforeToolCallResult,
 	PrepareNextTurnContext,
+	ModelRequestProgress,
 	QueueMode,
 	ShouldStopAfterTurnContext,
 	StreamFn,
@@ -204,6 +206,8 @@ export class Agent {
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	private activeRun?: ActiveRun;
+	private modelRequestControl?: ModelRequestControl;
+	private eventTail: Promise<void> = Promise.resolve();
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
 	/** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -315,6 +319,19 @@ export class Agent {
 	/** Active abort signal for the current run, if any. */
 	get signal(): AbortSignal | undefined {
 		return this.activeRun?.abortController.signal;
+	}
+
+	/** Snapshot for the current provider stage, never tool execution or between-turn maintenance. */
+	get modelRequestProgress(): ModelRequestProgress | null {
+		return this.modelRequestControl?.progress ?? null;
+	}
+
+	/** Cancel a silent/reasoning-only provider call and resume inside this same turn. */
+	pingModel(requestId: string, message: AgentMessage): void {
+		if (!this.activeRun || this.signal?.aborted || this._state.pendingToolCalls.size > 0 || !this.modelRequestControl) {
+			throw new Error("No safe model request is available to ping");
+		}
+		this.modelRequestControl.ping(requestId, message);
 	}
 
 	/** Abort the current run, if one is active. */
@@ -449,6 +466,7 @@ export class Agent {
 		const shouldStopAfterTurn = this.shouldStopAfterTurn;
 		return {
 			model: this._state.model,
+			modelRequestControl: this.modelRequestControl,
 			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
 			sessionId: this.sessionId,
 			onPayload: this.onPayload,
@@ -496,6 +514,7 @@ export class Agent {
 			resolvePromise = resolve;
 		});
 		this.activeRun = { promise, resolve: resolvePromise, abortController };
+		this.modelRequestControl = new ModelRequestControl((event) => this.processEvents(event));
 
 		this._state.isStreaming = true;
 		this._state.streamingMessage = undefined;
@@ -504,8 +523,10 @@ export class Agent {
 		try {
 			await executor(abortController.signal);
 		} catch (error) {
+			await this.modelRequestControl?.end();
 			await this.handleRunFailure(error, abortController.signal.aborted);
 		} finally {
+			this.modelRequestControl = undefined;
 			this.finishRun();
 		}
 	}
@@ -543,7 +564,15 @@ export class Agent {
 	 * considered idle later, after all awaited listeners for `agent_end` finish
 	 * and `finishRun()` clears runtime-owned state.
 	 */
-	private async processEvents(event: AgentEvent): Promise<void> {
+	private processEvents(event: AgentEvent): Promise<void> {
+		// Ping is synchronous and can arrive while a listener is awaiting work.
+		// Keep its asynchronous notifications in the same ordered event lane.
+		const delivery = this.eventTail.then(() => this.reduceEvent(event));
+		this.eventTail = delivery.catch(() => {});
+		return delivery;
+	}
+
+	private async reduceEvent(event: AgentEvent): Promise<void> {
 		switch (event.type) {
 			case "message_start":
 				this._state.streamingMessage = event.message;
@@ -551,6 +580,10 @@ export class Agent {
 
 			case "message_update":
 				this._state.streamingMessage = event.message;
+				break;
+
+			case "message_discarded":
+				this._state.streamingMessage = undefined;
 				break;
 
 			case "message_end":

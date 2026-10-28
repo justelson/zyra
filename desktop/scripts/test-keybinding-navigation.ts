@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { effectiveBindings } from '../src/shared/keybindings'
 import { dispatchAppNavigation } from '../src/renderer/src/lib/app-navigation'
+import { assistantStore } from '../src/renderer/src/lib/assistant/assistant-store-core'
+import { registerAppStopOwner } from '../src/renderer/src/pages/assistant/assistant-app-owner-state'
 import { acknowledgeAssistantInspectorNavigation, subscribeAssistantInspectorNavigation, type AssistantInspectorNavigationRequest } from '../src/renderer/src/pages/assistant/assistant-inspector-navigation'
 import { requestAssistantComposerFocus, subscribeAssistantComposerFocus } from '../src/renderer/src/pages/assistant/assistant-composer-focus'
 import { subscribeAssistantConversationFind } from '../src/renderer/src/pages/assistant/assistant-conversation-find'
@@ -23,6 +25,35 @@ try {
         routes.length = 0
         dispatchAppNavigation(command, navigate, '/settings/providers')
         assert.deepEqual(routes, ['/assistant'], `${command} enters Assistant when no sidebar has ever registered`)
+    }
+    const originalGetState = assistantStore.getState
+    const originalInterrupt = assistantStore.interruptTurn
+    const stopCalls: string[] = []
+    const stopState = { ...originalGetState(), snapshot: { ...originalGetState().snapshot, selectedSessionId: 'stop-chat', sessions: [{ id: 'stop-chat', activeThreadId: 'stop-thread', threads: [{ id: 'stop-thread', latestTurn: { id: 'stop-turn', state: 'running' } }] }] } }
+    assistantStore.getState = () => stopState as ReturnType<typeof originalGetState>
+    assistantStore.interruptTurn = async () => { stopCalls.push('unsafe-direct-interrupt'); return undefined as never }
+    const releaseStopOwner = registerAppStopOwner(async (sessionId, turnId) => {
+        stopCalls.push(`hold:${sessionId}`)
+        stopCalls.push(`interrupt:${turnId}`)
+        return { success: true }
+    })
+    try {
+        dispatchAppNavigation('app.stopTurn', navigate)
+        assert.deepEqual(stopCalls, ['hold:stop-chat', 'interrupt:stop-turn'], 'Global Stop reaches the registered owner, holding queued prompts before interruption')
+        stopCalls.length = 0
+        stopState.snapshot.sessions[0].threads[0].latestTurn.state = 'completed'
+        dispatchAppNavigation('app.stopTurn', navigate)
+        assert.deepEqual(stopCalls, [], 'A completed turn cannot stop another task or change its queue')
+        stopState.snapshot.sessions[0].threads[0].latestTurn.state = 'running'
+        releaseStopOwner()
+        const originalError = console.error
+        console.error = () => {}
+        try { dispatchAppNavigation('app.stopTurn', navigate) } finally { console.error = originalError }
+        assert.deepEqual(stopCalls, [], 'A missing Stop owner fails closed instead of bypassing queue holds')
+    } finally {
+        releaseStopOwner()
+        assistantStore.getState = originalGetState
+        assistantStore.interruptTurn = originalInterrupt
     }
     dispatchAppNavigation('app.files', navigate)
     const requests: AssistantInspectorNavigationRequest[] = []

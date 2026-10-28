@@ -7,6 +7,7 @@ import { AgentSettings } from './agent-settings'
 import { AppOperationReceipts } from './app-operation-receipts'
 import { desktopNamespaceId } from './agent-server-namespace'
 import { validateAgentAppActionInput } from './agent-app-action-inputs'
+import { resolveModelCompactionPolicy } from '../../shared/assistant/runtime-policy'
 import { APP_AREA_OPERATIONS, isAppAreaOperation } from '../../../../src/app-area-operations.mjs'
 
 export type AppActor = { canonicalChatId: string; parentChatId: string; project: string; permissionMode: string; child: boolean; turnId: string | null; namespaceId: string; approved: boolean; appScope?: 'project' | 'installation' }
@@ -211,6 +212,8 @@ export class AgentAppService {
             const models = await service.listModels(false)
             const model = models.success ? models.models.find(model => model.id === thread.model) : undefined
             const contextCapacity = thread.latestTurn?.usage?.modelContextWindow || model?.contextWindow || null
+            const runtimePolicy = await this.deps.setup.preferences.getAssistantRuntimePolicy()
+            const compactionPolicy = resolveModelCompactionPolicy(model ?? { id: thread.model, contextWindow: contextCapacity }, runtimePolicy.modelCompactionOverrides)
             const contextEstimate = usage.usage.totals?.contextTokens
             const hasContextEstimate = typeof contextEstimate === 'number' && Number.isFinite(contextEstimate) && contextEstimate >= 0
             const turns = input.turnId ? usage.usage.turns.filter(turn => turn.id === input.turnId) : usage.usage.turns.slice(-Math.min(100, Math.max(1, Number(input.limit) || 20)))
@@ -218,7 +221,7 @@ export class AgentAppService {
                 usedContextTokensEstimate: hasContextEstimate ? contextEstimate : null,
                 remainingContextTokensEstimate: hasContextEstimate && contextCapacity ? Math.max(0, contextCapacity - contextEstimate) : null,
                 contextObservation: hasContextEstimate ? 'Runtime-reported context estimate, not cumulative token consumption.' : 'No current context-size observation supplied; cumulative consumption is not context size.',
-                usage: { ...usage, usage: { ...usage.usage, turns }, returnedTurns: turns.length, totalTurns: usage.usage.turns.length }, compactionThreshold: (await this.deps.setup.preferences.getAssistantRuntimePolicy()).contextCompactionThresholdTokens }
+                usage: { ...usage, usage: { ...usage.usage, turns }, returnedTurns: turns.length, totalTurns: usage.usage.turns.length }, compactionThreshold: compactionPolicy.thresholdTokens, compactionPolicy }
         }
         if (operation === 'list' && !area) return { currentChatId: actor.canonicalChatId, projectId: origin.projectId || null, namespaceId: actor.namespaceId, appScope: actor.appScope || 'project', availableScopeRequests: ['project', 'installation, with per-operation real user consent; no filesystem grant'], areas: [...AREAS.map(area => ({ ...area, actions: APP_AREA_OPERATIONS[area.id] || [] })), { id: 'order', actions: APP_AREA_OPERATIONS.order, owner: 'visible Desktop-profile sidebar' }, { id: 'navigation', actions: APP_AREA_OPERATIONS.navigation, owner: 'explicit in-app navigation' }] }
         if (area === 'chats') {

@@ -20,6 +20,7 @@ assert.equal(runtimeLifecyclePresentation({ ...base, connection: 'disconnected' 
 assert.equal(runtimeLifecyclePresentation(base, now + 46_000).codeState, 'unknown', 'old observations cannot claim active code agreement')
 assert.equal(runtimeLifecyclePresentation({ ...base, expectedRuntimeRevision: undefined }, now).codeState, 'unknown')
 assert.equal(runtimeLifecyclePresentation({ ...base, activity: undefined }, now).blockers.length, 0)
+assert.equal(runtimeLifecyclePresentation({ ...pending, activity: undefined }, now).canActivate, false, 'unknown counts are not proof of idle')
 assert.equal(runtimeLifecyclePresentation({ ...pending, errorCode: 'AGENT_SERVER_AUTH_FAILED' }, now).canActivate, false)
 
 configureRuntimeInstallation({ kind: 'installed', label: 'Preview', appVersion: '0.7.0-dev.42' })

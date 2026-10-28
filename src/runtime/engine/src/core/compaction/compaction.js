@@ -39,6 +39,11 @@ function getMessageFromEntryForCompaction(entry) {
   }
   return sessionEntryToContextMessages(entry)[0];
 }
+function assertValidCompactionSummary(summary) {
+  if (typeof summary !== "string" || !summary.trim()) {
+    throw new Error("Compaction returned an empty summary");
+  }
+}
 function combineUsage(first, second) {
   return {
     input: first.input + second.input,
@@ -246,6 +251,7 @@ function findCutPoint(entries, startIndex, endIndex, keepRecentTokens) {
     if (messageTokens === 0) continue;
     accumulatedTokens += messageTokens;
     if (accumulatedTokens >= keepRecentTokens) {
+      cutIndex = cutPoints.filter((point) => point <= i).at(-1) ?? cutPoints[0];
       for (let c = 0; c < cutPoints.length; c++) {
         if (cutPoints[c] >= i) {
           cutIndex = cutPoints[c];
@@ -356,8 +362,20 @@ async function completeSummarization(model, context, options, streamFn, retry, c
     sessionId: options.sessionId ?? uuidv7(),
     toolChoice: "none"
   };
+  requestOptions.signal?.throwIfAborted();
   const produce = async () => streamFn ? (await streamFn(model, context, requestOptions)).result() : completeSimple(model, context, requestOptions);
-  return retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+  const response = await retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+  requestOptions.signal?.throwIfAborted();
+  if (response.stopReason !== "stop") {
+    throw new Error(`Summarization incomplete (${response.stopReason}): ${response.errorMessage || "No complete summary"}`);
+  }
+  if (response.content.some((block) => block.type === "toolCall")) {
+    throw new Error("Summarization attempted to call a tool");
+  }
+  if (!contentText(response.content).trim()) {
+    throw new Error("Summarization returned an empty summary");
+  }
+  return response;
 }
 async function generateSummary(currentMessages, model, reserveTokens, apiKey, headers, signal, customInstructions, previousSummary, thinkingLevel, streamFn, env, retry, callbacks, sessionId) {
   return (await generateSummaryWithUsage(
@@ -530,7 +548,7 @@ async function compact(preparation, model, apiKey, headers, customInstructions, 
   let summary;
   let summaryUsage;
   if (isSplitTurn && turnPrefixMessages.length > 0) {
-    let historyText = "No prior history.";
+    let historyText = previousSummary?.trim() || "No prior history.";
     let historyUsage;
     if (messagesToSummarize.length > 0) {
       const historyResult = await generateSummaryWithUsage(
@@ -594,6 +612,8 @@ ${turnPrefixResult.text}`;
     summary = result.text;
     summaryUsage = result.usage;
   }
+  signal?.throwIfAborted();
+  assertValidCompactionSummary(summary);
   const { readFiles, modifiedFiles } = computeFileLists(fileOps);
   summary += formatFileOperations(readFiles, modifiedFiles);
   if (!firstKeptEntryId) {
@@ -640,6 +660,7 @@ ${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 }
 export {
   DEFAULT_COMPACTION_SETTINGS,
+  assertValidCompactionSummary,
   calculateContextTokens,
   compact,
   completeSummarization,

@@ -1,6 +1,6 @@
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { readAssistantActionBatchIntent } from '@shared/assistant/action-batch-intent'
-import { getAssistantActionFamily } from './assistant-action-presentation'
+import { getAssistantActionFamily, isAssistantToolDiscoveryActivity } from './assistant-action-presentation'
 
 /** Keep observations and input together, without merging separate purposes or turns. */
 export function groupAssistantControlActionRuns(activities: AssistantActivity[]): AssistantActivity[][] {
@@ -9,7 +9,8 @@ export function groupAssistantControlActionRuns(activities: AssistantActivity[])
         const previous = runs.at(-1)
         const last = previous?.at(-1)
         const family = getAssistantActionFamily(activity)
-        if (last && (family === 'computer' || family === 'browser')
+        if (last && !isAssistantToolDiscoveryActivity(activity) && !isAssistantToolDiscoveryActivity(last)
+            && (family === 'computer' || family === 'browser')
             && getAssistantActionFamily(last) === family
             && (last.turnId || null) === (activity.turnId || null)
             && readAssistantActionBatchIntent(last) === readAssistantActionBatchIntent(activity)) {

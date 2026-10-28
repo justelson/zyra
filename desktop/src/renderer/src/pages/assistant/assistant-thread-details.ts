@@ -4,7 +4,7 @@ import type {
     AssistantSessionUsageTotals,
     AssistantTurnUsage
 } from '@shared/assistant/contracts'
-import { resolveAssistantContextCompactionLimitTokens } from '@shared/assistant/runtime-policy'
+import { resolveAssistantContextCompactionLimitTokens, resolveModelCompactionPolicy } from '@shared/assistant/runtime-policy'
 import type {
     ControlAuditEvent,
     ControlGrant,
@@ -23,6 +23,8 @@ export type AssistantThreadUsageSummary = {
     cacheReadTokens: number
     cacheWriteTokens: number
     cacheHitPercent: number | null
+    latestRequestCacheHitPercent?: number | null
+    turnCacheHitPercent?: number | null
     contextTokens: number | null
     contextWindow: number | null
     contextLimit: number | null
@@ -115,10 +117,6 @@ function resolveContextWindow(
         || knownModels.find((entry) => normalizeModelId(entry.id) === normalizeModelId(latestModel))
     const catalogWindow = usageNumber(model?.contextWindow)
     if (catalogWindow > 0) return catalogWindow
-    const normalizedSelector = latestModel.trim().toLowerCase()
-    if (normalizeModelId(normalizedSelector).startsWith('gpt-5.6-')) {
-        return normalizedSelector.startsWith('openai-codex/') ? 372_000 : 272_000
-    }
     return null
 }
 
@@ -127,7 +125,7 @@ export function summarizeAssistantThreadUsage(
     threadId: string | null,
     knownModels: readonly AssistantModelInfo[] = [],
     reportedTotals: AssistantSessionUsageTotals | null = null,
-    configuredContextLimitTokens?: number | null
+    configuredContextLimitTokens?: number | Record<string, number> | null
 ): AssistantThreadUsageSummary {
     const threadTurns = turns.filter((turn) => !threadId || turn.threadId === threadId)
     const turnsWithUsage = threadTurns.filter((turn) => Boolean(turn.usage))
@@ -142,7 +140,7 @@ export function summarizeAssistantThreadUsage(
 
     for (const turn of turnsWithUsage) {
         const usage = turn.usage!
-        inputTokens += usageNumber(usage.inputTokens)
+        inputTokens += Math.max(0, usageNumber(usage.inputTokens) - (usage.inputIncludesCachedTokens ? usageNumber(usage.cachedInputTokens) + usageNumber(usage.cacheWriteTokens) : 0))
         outputTokens += usageNumber(usage.outputTokens)
         reasoningTokens += usageNumber(usage.reasoningOutputTokens)
         cacheReadTokens += usageNumber(usage.cachedInputTokens)
@@ -162,25 +160,26 @@ export function summarizeAssistantThreadUsage(
         if (reportedCacheWriteTokens > 0 || cacheWriteTokens === 0) cacheWriteTokens = reportedCacheWriteTokens
     }
 
-    const latestInput = usageNumber(latestUsage?.inputTokens)
+    const latestInput = Math.max(0, usageNumber(latestUsage?.inputTokens) - (latestUsage?.inputIncludesCachedTokens ? usageNumber(latestUsage.cachedInputTokens) + usageNumber(latestUsage.cacheWriteTokens) : 0))
     const latestCacheRead = usageNumber(latestUsage?.cachedInputTokens)
     const latestCacheWrite = usageNumber(latestUsage?.cacheWriteTokens)
     const latestPromptTokens = latestInput + latestCacheRead + latestCacheWrite
-    const reportedCacheHit = exactTotals?.cacheHitPercent
-    const cacheHitPercent = typeof reportedCacheHit === 'number' && Number.isFinite(reportedCacheHit)
-        ? reportedCacheHit
-        : latestPromptTokens > 0 && (latestCacheRead > 0 || latestCacheWrite > 0)
-            ? (latestCacheRead / latestPromptTokens) * 100
-            : null
+    const allPromptTokens = inputTokens + cacheReadTokens + cacheWriteTokens
+    const cacheHitPercent = allPromptTokens > 0 ? cacheReadTokens / allPromptTokens * 100 : null
+    const latestRequestCacheHitPercent = exactTotals?.latestRequestCacheHitPercent ?? null
+    const turnCacheHitPercent = latestPromptTokens > 0 ? latestCacheRead / latestPromptTokens * 100 : null
     const contextTokensValue = usageNumber(exactTotals?.contextTokens ?? latestUsage?.totalTokens)
     const contextTokens = contextTokensValue > 0 ? contextTokensValue : null
     const contextWindow = resolveContextWindow(exactTotals || latestUsage, latest?.model || '', knownModels)
     const autoCompactionEnabled = typeof exactTotals?.autoCompactionEnabled === 'boolean'
         ? exactTotals.autoCompactionEnabled
         : null
-    const contextLimit = autoCompactionEnabled === false
-        ? contextWindow
-        : resolveAssistantContextCompactionLimitTokens(contextWindow, configuredContextLimitTokens)
+    const currentModel = knownModels.find(model => model.id === latest?.model)
+    const policy = resolveModelCompactionPolicy(currentModel ?? { id: latest?.model || '', contextWindow },
+        typeof configuredContextLimitTokens === 'object' && configuredContextLimitTokens ? configuredContextLimitTokens : {})
+    const contextLimit = autoCompactionEnabled === false ? contextWindow
+        : typeof configuredContextLimitTokens === 'number' ? resolveAssistantContextCompactionLimitTokens(contextWindow, configuredContextLimitTokens)
+        : policy.thresholdTokens ?? exactTotals?.compactionThresholdTokens ?? null
     const contextPercent = contextTokens != null && contextLimit != null && contextLimit > 0
         ? (contextTokens / contextLimit) * 100
         : null
@@ -202,6 +201,8 @@ export function summarizeAssistantThreadUsage(
         cacheReadTokens,
         cacheWriteTokens,
         cacheHitPercent,
+        latestRequestCacheHitPercent,
+        turnCacheHitPercent,
         contextTokens,
         contextWindow,
         contextLimit,

@@ -169,6 +169,7 @@ export function createAssistantAdapter() {
                 ipcRenderer.invoke(ASSISTANT_IPC.resolveClipboardAttachment, input),
             newThread: (sessionId?: string) => ipcRenderer.invoke(ASSISTANT_IPC.newThread, sessionId),
             sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) => ipcRenderer.invoke(ASSISTANT_IPC.sendPrompt, prompt, options),
+            pingModel: (input: { sessionId: string; turnId: string; requestId: string }) => ipcRenderer.invoke(ASSISTANT_IPC.pingModel, input),
             interruptTurn: (turnId?: string, sessionId?: string) => ipcRenderer.invoke(ASSISTANT_IPC.interruptTurn, turnId, sessionId),
             listBackgroundProcesses: (input: import('../../shared/assistant/contracts').AssistantBackgroundProcessesInput) => ipcRenderer.invoke(ASSISTANT_IPC.listBackgroundProcesses, input),
             stopBackgroundProcesses: (input: import('../../shared/assistant/contracts').AssistantStopBackgroundProcessesInput) => ipcRenderer.invoke(ASSISTANT_IPC.stopBackgroundProcesses, input),
@@ -196,7 +197,7 @@ export function createAssistantAdapter() {
             transcribeVoice: (input: AssistantTranscribeVoiceInput) => ipcRenderer.invoke(ASSISTANT_IPC.transcribeVoice, input),
             cancelVoiceTranscription: (requestId: string) => ipcRenderer.invoke(ASSISTANT_IPC.cancelVoiceTranscription, requestId),
             saveVoiceHistory: (input: AssistantSaveVoiceHistoryInput) => ipcRenderer.invoke(ASSISTANT_IPC.saveVoiceHistory, input),
-            listVoiceHistory: () => ipcRenderer.invoke(ASSISTANT_IPC.listVoiceHistory),
+            listVoiceHistory: (input?: { page?: number }) => ipcRenderer.invoke(ASSISTANT_IPC.listVoiceHistory, input),
             getFailedVoiceRecording: (id: string) => ipcRenderer.invoke(ASSISTANT_IPC.getFailedVoiceRecording, id),
             deleteVoiceHistory: (id: string) => ipcRenderer.invoke(ASSISTANT_IPC.deleteVoiceHistory, id),
             onEvent: (callback: (payload: AssistantEventStreamPayload) => void) => {

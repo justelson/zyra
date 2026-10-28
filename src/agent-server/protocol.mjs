@@ -37,6 +37,8 @@ export const AGENT_SERVER_REQUIRED_METHODS = Object.freeze([
 ]);
 export const AGENT_SERVER_METHODS = Object.freeze([
   ...AGENT_SERVER_REQUIRED_METHODS,
+  'server.prepareUpdate',
+  'server.cancelUpdate',
   'desktop.app.validate',
 ]);
 const METHOD_NAMES = new Set(AGENT_SERVER_METHODS);

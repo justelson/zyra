@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { AgentBridgeWorker } from '../src/agent-server/bridge-worker.mjs';
+const worker = new AgentBridgeWorker({ root: process.cwd() });
+const child = Object.assign(new EventEmitter(), { exitCode: null, stdin: { writable: true } });
+worker.child = child; worker.shutdownTimeoutMs = 5;
+let requests = 0;
+worker.request = async type => { assert.equal(type, 'dispose'); requests++; return {}; };
+await assert.rejects(worker.shutdown(), /not finished/);
+assert.equal(child.listenerCount('exit'), 1, 'a deadline cannot discard the actual cleanup observer');
+await assert.rejects(AgentBridgeWorker.prototype.request.call(worker, 'prompt'), /Stopped/, 'a closing worker cannot admit new work');
+const retry = worker.shutdown(); child.exitCode = 0; child.emit('exit', 0);
+await retry;
+assert.equal(requests, 1, 'retry observes the same disposal instead of dispatching it twice');
+await worker.shutdown();
+console.log('PASS slow worker cleanup remains observable/retryable, with no new work or false exit acknowledgment');

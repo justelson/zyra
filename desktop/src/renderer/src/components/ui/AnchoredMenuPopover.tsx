@@ -4,7 +4,7 @@ import { addOverlayEventListener, isOverlayEventInside } from './native-overlay-
 import { useAnchoredMenuBounds } from './useAnchoredMenuBounds'
 
 /** A floating chooser with scoped native input, including when its trigger is in another popup. */
-export function AnchoredMenuPopover({ anchorRef, contentRef, children, label, onClose, autoFocus = false, width = 320, browserZIndex, role = 'menu' }: {
+export function AnchoredMenuPopover({ anchorRef, contentRef, children, label, onClose, autoFocus = false, width = 320, preferredHeight, align = 'start', browserZIndex, role = 'menu' }: {
     anchorRef: RefObject<HTMLElement | null>
     contentRef?: RefObject<HTMLDivElement | null>
     children: ReactNode
@@ -12,12 +12,14 @@ export function AnchoredMenuPopover({ anchorRef, contentRef, children, label, on
     onClose: () => void
     autoFocus?: boolean
     width?: number
+    preferredHeight?: number
+    align?: 'start' | 'end'
     browserZIndex?: number
     role?: 'menu' | 'dialog'
 }) {
     const localRef = useRef<HTMLDivElement>(null)
     const menu = contentRef ?? localRef
-    const bounds = useAnchoredMenuBounds(anchorRef, true, width)
+    const bounds = useAnchoredMenuBounds(anchorRef, true, width, preferredHeight, align)
     useEffect(() => {
         const pointer = addOverlayEventListener('pointerdown', event => {
             if (!isOverlayEventInside(event, anchorRef.current, menu.current)) onClose()

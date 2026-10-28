@@ -191,7 +191,7 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
+			const message = await streamAssistantResponse(currentContext, newMessages, config, signal, emit, streamFunction);
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -281,95 +281,136 @@ async function runLoop(
  */
 async function streamAssistantResponse(
 	context: AgentContext,
+	newMessages: AgentMessage[],
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
-	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
-	let messages = context.messages;
-	if (config.transformContext) {
-		messages = await config.transformContext(messages, signal);
-	}
-
-	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
-	const llmMessages = await config.convertToLlm(messages);
-
-	// Build LLM context
-	const llmContext: Context = {
-		systemPrompt: context.systemPrompt,
-		messages: llmMessages,
-		tools: context.tools,
-	};
-
-	// Resolve API key (important for expiring tokens)
-	const resolvedApiKey =
-		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
-
-	const response = await streamFunction(config.model, llmContext, {
-		...config,
-		apiKey: resolvedApiKey,
-		signal,
-	});
-
-	let partialMessage: AssistantMessage | null = null;
-	let addedPartial = false;
-
-	for await (const event of response) {
-		switch (event.type) {
-			case "start":
-				partialMessage = event.partial;
-				context.messages.push(partialMessage);
-				addedPartial = true;
-				await emit({ type: "message_start", message: { ...partialMessage } });
-				break;
-
-			case "text_start":
-			case "text_delta":
-			case "text_end":
-			case "thinking_start":
-			case "thinking_delta":
-			case "thinking_end":
-			case "toolcall_start":
-			case "toolcall_delta":
-			case "toolcall_end":
-				if (partialMessage) {
-					partialMessage = event.partial;
-					context.messages[context.messages.length - 1] = partialMessage;
-					await emit({
-						type: "message_update",
-						assistantMessageEvent: event,
-						message: { ...partialMessage },
-					});
+	const control = config.modelRequestControl;
+	// A retry stays inside this assistant turn. Earlier tool batches are never replayed.
+	while (true) {
+		// Context transforms can compact using their own inference. Keep Ping hidden
+		// until all preparation has settled and this provider call actually begins.
+		let requestSignal = signal;
+		let partialMessage: AssistantMessage | null = null;
+		let partialIndex = -1;
+		let finalMessage: AssistantMessage | undefined;
+		let failure: unknown;
+		let failed = false;
+		const checkCancelled = () => {
+			if (requestSignal?.aborted) throw new Error("Model request aborted");
+		};
+		try {
+			checkCancelled();
+			let messages = context.messages;
+			if (config.transformContext) messages = await config.transformContext(messages, requestSignal);
+			checkCancelled();
+			const llmMessages = await config.convertToLlm(messages);
+			checkCancelled();
+			const llmContext: Context = {
+				systemPrompt: context.systemPrompt, messages: llmMessages, tools: context.tools,
+			};
+			const resolvedApiKey =
+				(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+			checkCancelled();
+			requestSignal = control ? await control.begin(signal) : signal;
+			checkCancelled();
+			const response = await streamFunction(config.model, llmContext, {
+				...config, apiKey: resolvedApiKey, signal: requestSignal,
+			});
+			// Start observing result immediately, but never replace the request until BOTH
+			// iterator and result settle. Some providers finish them independently.
+			const result = response.result();
+			void result.catch(() => {});
+			try {
+				for await (const event of response) {
+					if (requestSignal?.aborted) continue; // drain late events without exposing them
+					const content = "partial" in event ? event.partial.content :
+						event.type === "done" ? event.message.content : event.type === "error" ? event.error.content : [];
+					const unsafe = event.type.startsWith("text_") || event.type.startsWith("toolcall_") ||
+						event.type === "done" || event.type === "error" ||
+						content.some((part) => part.type === "toolCall" || (part.type === "text" && part.text.length > 0));
+					await control?.activity(unsafe);
+					if (requestSignal?.aborted) continue;
+					switch (event.type) {
+						case "start":
+							partialMessage = { ...event.partial };
+							partialIndex = context.messages.length;
+							context.messages.push(partialMessage);
+							await emit({ type: "message_start", message: partialMessage });
+							break;
+						case "text_start":
+						case "text_delta":
+						case "text_end":
+						case "thinking_start":
+						case "thinking_delta":
+						case "thinking_end":
+						case "toolcall_start":
+						case "toolcall_delta":
+						case "toolcall_end":
+							if (partialMessage) {
+								partialMessage = { ...event.partial };
+								context.messages[partialIndex] = partialMessage;
+								await emit({ type: "message_update", assistantMessageEvent: event, message: partialMessage });
+							}
+							break;
+					}
 				}
-				break;
+			} finally {
+				finalMessage = await result;
+			}
+		} catch (error) {
+			failed = true;
+			failure = error;
+		}
 
-			case "done":
-			case "error": {
-				const finalMessage = await response.result();
-				if (addedPartial) {
-					context.messages[context.messages.length - 1] = finalMessage;
-				} else {
-					context.messages.push(finalMessage);
-				}
-				if (!addedPartial) {
-					await emit({ type: "message_start", message: { ...finalMessage } });
-				}
-				await emit({ type: "message_end", message: finalMessage });
-				return finalMessage;
+		await control?.flush();
+		const recovery = control?.recovery;
+		const requestId = control?.requestId;
+		if (recovery && requestId && partialMessage) {
+			context.messages.splice(partialIndex, 1);
+			await emit({ type: "message_discarded", message: partialMessage, reason: "model_ping", requestId });
+			partialMessage = null;
+			partialIndex = -1;
+		}
+		await control?.end();
+		if (recovery && requestId && !signal?.aborted) {
+			await emit({ type: "message_start", message: recovery });
+			await emit({ type: "message_end", message: recovery });
+			context.messages.push(recovery);
+			newMessages.push(recovery);
+			if (!signal?.aborted) {
+				await emit({ type: "model_ping", requestId, status: "resumed" });
+				if (!signal?.aborted) continue;
 			}
 		}
+		if (signal?.aborted) {
+			// Ordinary Stop retains already-streamed text and provider usage. Only
+			// a Ping-discarded request must not reintroduce its partial response.
+			finalMessage = recovery ? abortedModelMessage(config) : {
+				...(finalMessage ?? partialMessage ?? abortedModelMessage(config)),
+				stopReason: "aborted", errorMessage: "Operation aborted",
+			};
+		} else if (failed) {
+			throw failure;
+		}
+		if (!finalMessage) throw new Error("Model request settled without a result");
+		if (partialIndex >= 0) context.messages[partialIndex] = finalMessage;
+		else context.messages.push(finalMessage);
+		if (!partialMessage) await emit({ type: "message_start", message: { ...finalMessage } });
+		await emit({ type: "message_end", message: finalMessage });
+		return finalMessage;
 	}
+}
 
-	const finalMessage = await response.result();
-	if (addedPartial) {
-		context.messages[context.messages.length - 1] = finalMessage;
-	} else {
-		context.messages.push(finalMessage);
-		await emit({ type: "message_start", message: { ...finalMessage } });
-	}
-	await emit({ type: "message_end", message: finalMessage });
-	return finalMessage;
+function abortedModelMessage(config: AgentLoopConfig): AssistantMessage {
+	return {
+		role: "assistant", content: [], api: config.model.api, provider: config.model.provider,
+		model: config.model.id, stopReason: "aborted", errorMessage: "Operation aborted", timestamp: Date.now(),
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+	};
 }
 
 /**

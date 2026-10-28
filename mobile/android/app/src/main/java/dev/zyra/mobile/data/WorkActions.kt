@@ -10,9 +10,12 @@ data class WorkRun(val name: String = "", val goal: String = "", val status: Str
 data class WorkAction(val item: TimelineItem, val title: String, val family: String, val target: String,
     val command: String, val output: String, val failed: Boolean, val batch: String?,
     val web: List<WorkWebResult> = emptyList(), val run: WorkRun? = null, val paths: List<String> = emptyList(),
-    val startedAt: Long? = null, val completedAt: Long? = null, val toolName: String = "", val arguments: String = "{}")
+    val startedAt: Long? = null, val completedAt: Long? = null, val toolName: String = "", val arguments: String = "{}") {
+    val isToolDiscovery: Boolean get() = WorkActions.isToolDiscovery(toolName)
+}
 
 object WorkActions {
+    fun isToolDiscovery(name: String): Boolean = Regex("^(?:mcp__zyra__|functions\\.)?(?:tool_search|zyra_tool_search|browser_use)$", RegexOption.IGNORE_CASE).matches(name)
     private fun JSONObject?.text(vararg keys: String): String = keys.firstNotNullOfOrNull { key ->
         (this?.opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
     }.orEmpty()
@@ -81,7 +84,7 @@ object WorkActions {
             outputRun.text("status").ifBlank { details.text("status") },
             outputRun.text("agentRunId", "workflowRunId").ifBlank { args.text("agentRunId", "workflowRunId") }) else null
         val title = when {
-            name == "tool_search" -> "Getting computer use tools"
+            isToolDiscovery(name) -> "Getting available tools"
             family == "command" -> commandTitle(command)
             family == "read" -> "Reading " + fileName(path).ifBlank { "file" }
             family == "edit" -> if (path.isBlank()) "Editing files" else "Editing " + fileName(path) + if (paths.size > 1) " +" + (paths.size - 1) else ""
@@ -89,7 +92,7 @@ object WorkActions {
             family == "web-search" -> "Searching " + brief(query).ifBlank { "the web" }
             family == "web-fetch" -> "Reading " + brief(details.text("title")).ifBlank { host(url).ifBlank { "web page" } }
             family == "search" -> "Searching " + brief(query).ifBlank { "the project" }
-            family == "browser" -> if (tool == "browseruse") "Getting browser tools" else args.optJSONObject("stage").text("summary").let { brief(it).ifBlank {
+            family == "browser" -> args.optJSONObject("stage").text("summary").let { brief(it).ifBlank {
                 operationIntent(args.optJSONObject("action").text("type").ifBlank { operation.ifBlank { name.removePrefix("browser_") } }, host(url), true)
             } }
             family == "computer" -> computerTitle(args, operation.ifBlank { name.removePrefix("computer_") })
@@ -102,7 +105,8 @@ object WorkActions {
         val intent = raw.text("actionBatchIntent").ifBlank { raw.optJSONObject("payload").text("actionBatchIntent") }.ifBlank { surface.text("actionBatchIntent") }
             .ifBlank { message.text("actionBatchIntent") }.ifBlank { details.text("actionBatchIntent") }.ifBlank { batch.orEmpty() }
             .replace(Regex("[\\u0000-\\u001f\\u007f]"), " ").replace(Regex("\\s+"), " ").trim().take(72).takeIf(String::isNotBlank)
-        return WorkAction(item, title, family, target, command, if (family == "command") stripCommandEnvelope(output, command) else output, failed, intent,
+        val displayTitle = if (isToolDiscovery(name) && failed) "Couldn't get available tools" else title
+        return WorkAction(item, displayTitle, family, target, command, if (family == "command") stripCommandEnvelope(output, command) else output, failed, intent,
             web, run, paths, timestamp(raw), timestamp(raw, true).takeUnless { item.pending }, name, args.toString())
     }
     private fun webResults(details: JSONObject?, url: String): List<WorkWebResult> {

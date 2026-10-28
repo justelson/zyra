@@ -36,7 +36,7 @@ import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegene
 
 import { usePinnedSessionIds } from './assistant-pinned-sessions'
 import { useAssistantSettlementOverrides } from './assistant-settlement-store'
-import { copyChatThreadId, resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
+import { copyChatThreadId, createChatSettlementToast, resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
 const EXPANDED_PROJECT_PATH_KEYS_KEY = 'assistant:expanded-project-path-keys:v1'
 
 function getProjectExpansionKey(path: string): string {
@@ -489,7 +489,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
             onCreateThread: props.onCreateThread,
             onChooseProject: props.onChooseSessionProject,
             onCopyThreadId: async id => { await copyChatThreadId(id, onShowToast) },
-            onToggleSettlement: () => { if (!settlement.priority) void setChatSettlement(session, !settlement.settled).catch(error => onShowToast({ message: error.message, tone: 'error' })) },
+            onToggleSettlement: () => { if (!settlement.priority) void setChatSettlement(session, !settlement.settled).then(() => onShowToast(createChatSettlementToast(session, !settlement.settled))).catch(error => onShowToast({ message: error.message, tone: 'error' })) },
             onOpenRename: (target) => { void renameSession(target) },
             onRegenerateTitle: regenerateTitle,
             onTogglePinned: () => togglePinnedSession(session),

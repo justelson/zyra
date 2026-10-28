@@ -1,4 +1,5 @@
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
+import { AssistantQuestionTransition as ComposerControlsTransition } from './AssistantQuestionTransition'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { getOverlayOwnerRect } from '@/components/ui/native-overlay-events'
 import { addOverlayEventListener, isOverlayEventInside } from '@/components/ui/native-overlay-portal'
@@ -6,13 +7,13 @@ import { memo, useCallback, useEffect, useContext, useLayoutEffect, useRef, useS
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import { cn } from '@/lib/utils'
-import { AudioLines, Check, ChevronDown, ChevronUp, FilePenLine, Gauge, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, Search, ShieldCheck, Square, X, Zap } from 'lucide-react'
+import { AudioLines, Check, ChevronDown, ChevronUp, FilePenLine, GitBranch, Loader2, Lock, LockOpen, Mic, RotateCw, Search, ShieldCheck, Square, X, Zap } from 'lucide-react'
 import { OpenAiLogo } from '@/components/ui/OpenAiLogo'
 import { OpenCodeLogo } from '@/components/ui/OpenCodeLogo'
 import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { formatAssistantModelLabel } from './assistant-model-labels'
-import { defaultExpandedAssistantModelGroup, groupAssistantModels, supportsAssistantFastMode } from './assistant-model-groups'
+import { groupAssistantModels, supportsAssistantFastMode } from './assistant-model-groups'
 import { getContentTypeTag, getContextFileMeta, isPastedTextAttachment } from './assistant-composer-utils'
 import { parseAssistantBrowserAnnotation } from './assistant-browser-annotation-composer'
 import type { ComposerContextFile } from './assistant-composer-types'
@@ -196,11 +197,14 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                         ) : presentation === 'compact-pills' ? (
                             <AssistantAttachmentPill
                                 name={meta.name}
+                                category={meta.category}
                                 previewDataUrl={isImageAttachment ? file.previewDataUrl : undefined}
                                 removing={isRemoving || isEntering}
                                 onOpen={() => onPreview(file)}
                                 onRemove={() => onRemove(file.id)}
                             />
+                        ) : meta.category === 'video' && presentation === 'pills' ? (
+                            <AssistantAttachmentPill name={meta.name} category="video" removing={isRemoving || isEntering} onOpen={() => onPreview(file)} onRemove={() => onRemove(file.id)} />
                         ) : presentation === 'pills' || file.selection ? (
                             <AssistantContextAttachment file={file} removing={isRemoving || isEntering} onOpen={() => onPreview(file)} onRemove={() => onRemove(file.id)} />
                         ) : browserAnnotation && file.previewDataUrl ? (
@@ -442,20 +446,23 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     reconnectPending?: boolean
     onReconnect?: () => Promise<void> | void
 }) {
-    const [activeSubmenu, setActiveSubmenu] = useState<'model' | 'speed' | null>(null)
+    const [activeSubmenu, setActiveSubmenu] = useState<'model' | null>(null)
+    const controlsMotion = useComposerDrawerMotion(showTraitsDropdown, 180)
+    const [controlsReady, setControlsReady] = useState(false)
+    const handleControlsReady = useCallback(() => setControlsReady(true), [])
+    const controlsVisible = showTraitsDropdown && controlsMotion.open && controlsReady
     const [showAccessMenu, setShowAccessMenu] = useState(false)
     const [modelSearchOpen, setModelSearchOpen] = useState(false)
     const [expandedModelGroup, setExpandedModelGroup] = useState<string | null>(null)
     const modelSearchInputRef = useRef<HTMLInputElement | null>(null)
-    const [submenuLeft, setSubmenuLeft] = useState({ model: 234, speed: 234 })
-    const submenuCloseTimerRef = useRef<number | null>(null)
-    const submenuContainerRef = useRef<HTMLDivElement | null>(null)
+    const modelRouteRef = useRef<HTMLButtonElement | null>(null)
     const accessMenuRef = useRef<HTMLDivElement | null>(null)
     const selectedModelText = formatAssistantModelLabel(selectedModelLabel)
     const modelGroups = groupAssistantModels(filteredModelOptions)
     const visibleModelGroup = expandedModelGroup === '' ? null : expandedModelGroup && modelGroups.some(group => group.id === expandedModelGroup)
         ? expandedModelGroup
-        : defaultExpandedAssistantModelGroup(modelGroups, selectedModel)
+        : modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || modelGroups[0]?.id || null
+    const visibleModelGroups = modelQuery.trim() || !visibleModelGroup ? modelGroups : modelGroups.filter(group => group.id === visibleModelGroup)
     const canChooseSpeed = supportsAssistantFastMode(selectedModel)
     const canChooseEffort = EFFORT_OPTIONS.length > 1
     const selectedEffortText = EFFORT_LABELS[selectedEffort] || selectedEffort
@@ -472,15 +479,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     const SelectedAccessIcon = selectedAccess.icon
 
     const menuPanelClass = 'overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[13px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_5%,transparent)] backdrop-blur-xl'
-    const menuRouteClass = 'group flex h-[36px] w-full items-center gap-3 rounded-lg px-2.5 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]'
     const menuOptionClass = 'flex w-full items-center gap-2 rounded-lg px-2.5 text-left transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]'
-    const modelSubmenuPositionClass = traitsMenuOpensDown
-        ? cn('absolute w-[252px] max-w-[calc(100vw-32px)]', canChooseEffort ? 'top-[76px]' : 'top-[42px]')
-        : 'absolute bottom-0 w-[252px] max-w-[calc(100vw-32px)]'
-    const speedSubmenuPositionClass = traitsMenuOpensDown
-        ? 'absolute top-[106px] w-[216px] max-w-[calc(100vw-32px)]'
-        : 'absolute bottom-0 w-[216px] max-w-[calc(100vw-32px)]'
-    const submenuMotionClass = 'transition-opacity duration-[120ms] ease-out'
     const connectionPillState = isConnected || reconnectPending || isConnecting
         ? null
         : {
@@ -490,26 +489,23 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
             spinning: false
         }
 
-    const cancelSubmenuClose = () => {
-        if (submenuCloseTimerRef.current !== null) {
-            window.clearTimeout(submenuCloseTimerRef.current)
-            submenuCloseTimerRef.current = null
-        }
+    const openSubmenu = () => {
+        setExpandedModelGroup(modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || null)
+        setActiveSubmenu('model')
+        requestAnimationFrame(() => modelDropdownRef.current?.querySelector<HTMLButtonElement>('button')?.focus())
     }
-    const openSubmenu = (submenu: 'model' | 'speed') => {
-        cancelSubmenuClose()
-        setActiveSubmenu(submenu)
+    const returnToEffort = () => {
+        setModelSearchOpen(false)
+        setModelQuery('')
+        setActiveModelIndex(0)
+        setActiveSubmenu(null)
+        requestAnimationFrame(() => modelRouteRef.current?.focus())
     }
-    const scheduleSubmenuClose = () => {
-        cancelSubmenuClose()
-        submenuCloseTimerRef.current = window.setTimeout(() => {
-            submenuCloseTimerRef.current = null
-            setActiveSubmenu(null)
-        }, 90)
+    const chooseModel = (id: string) => {
+        setSelectedModel(id)
+        setShowModelDropdown(false)
+        returnToEffort()
     }
-    const getSubmenuVisibilityClass = (submenu: 'model' | 'speed') => activeSubmenu === submenu
-        ? 'pointer-events-auto opacity-100'
-        : 'pointer-events-none opacity-0'
     const showModelRefreshState = modelsLoading
 
     const toggleTraitsDropdown = () => {
@@ -518,31 +514,33 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         setShowTraitsDropdown(next)
         setShowModelDropdown(false)
         if (!next) return
-        setActiveSubmenu(null)
+        if (!controlsMotion.present) setActiveSubmenu(null)
         onRefreshModels?.()
     }
 
     useEffect(() => {
-        if (!showTraitsDropdown) setActiveSubmenu(null)
-    }, [showTraitsDropdown])
+        if (controlsMotion.present) return
+        setActiveSubmenu(null)
+        setControlsReady(false)
+    }, [controlsMotion.present])
 
     useEffect(() => {
         if (modelSearchOpen) modelSearchInputRef.current?.focus()
     }, [modelSearchOpen])
 
     useEffect(() => {
-        if (!showTraitsDropdown && modelSearchOpen) {
+        if (!controlsMotion.present && modelSearchOpen) {
             setModelSearchOpen(false)
             setModelQuery('')
             setActiveModelIndex(0)
         }
-    }, [showTraitsDropdown, modelSearchOpen, setModelQuery, setActiveModelIndex])
+    }, [controlsMotion.present, modelSearchOpen, setModelQuery, setActiveModelIndex])
 
     const closeModelSearch = () => {
         setModelSearchOpen(false)
         setModelQuery('')
         setActiveModelIndex(0)
-        openSubmenu('model')
+        requestAnimationFrame(() => modelDropdownRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Search models"]')?.focus())
     }
 
     useEffect(() => {
@@ -561,70 +559,61 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         }
     }, [showAccessMenu])
 
-    const [menuReadyRevision, setMenuReadyRevision] = useState(0)
-    const handleTraitsMenuReady = useCallback(() => setMenuReadyRevision(current => current + 1), [])
-    useLayoutEffect(() => {
-        if (!showTraitsDropdown) return
-        const container = submenuContainerRef.current
-        if (!container) return
-        const boundary = traitsDropdownRef.current?.closest<HTMLElement>('.assistant-conversation-pane')
-
-        const updateSubmenuPlacement = () => {
-            const containerRect = getOverlayOwnerRect(container)
-            const boundaryRect = boundary ? getOverlayOwnerRect(boundary) : {
-                left: 0,
-                right: window.innerWidth
-            }
-            const resolveLeft = (submenuWidth: number) => {
-                const gutter = 8
-                const preferredLeft = 234
-                const minLeft = Math.max(0, boundaryRect.left) - containerRect.left + gutter
-                const maxLeft = Math.min(window.innerWidth, boundaryRect.right) - containerRect.left - submenuWidth - gutter
-                return Math.round(maxLeft < minLeft ? minLeft : Math.max(minLeft, Math.min(preferredLeft, maxLeft)))
-            }
-            const next = {
-                model: resolveLeft(Math.min(252, window.innerWidth - 32)),
-                speed: resolveLeft(Math.min(216, window.innerWidth - 32))
-            }
-            setSubmenuLeft((current) => current.model === next.model && current.speed === next.speed ? current : next)
-        }
-
-        updateSubmenuPlacement()
-        window.addEventListener('resize', updateSubmenuPlacement)
-        const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateSubmenuPlacement)
-        resizeObserver?.observe(container)
-        if (boundary) resizeObserver?.observe(boundary)
-        // The fixed anchor moves after the owner's resize/scroll callback. Recalculate
-        // against its committed position, not the old rectangle from that same event.
-        const wrapper = container.closest('[data-native-overlay-content]')?.firstElementChild
-        const positionObserver = wrapper && typeof MutationObserver !== 'undefined' ? new MutationObserver(updateSubmenuPlacement) : null
-        if (wrapper) positionObserver?.observe(wrapper, { attributes: true, attributeFilter: ['style'] })
-        return () => {
-            window.removeEventListener('resize', updateSubmenuPlacement)
-            resizeObserver?.disconnect()
-            positionObserver?.disconnect()
-        }
-    }, [showTraitsDropdown, menuReadyRevision, traitsDropdownRef])
-
-    useEffect(() => () => {
-        cancelSubmenuClose()
-    }, [])
-
     return (
         <div className={cn('flex min-w-0 flex-1 flex-nowrap items-center justify-start text-[14px]', forceSingleRow ? 'gap-1' : 'gap-1.5 max-[520px]:gap-1', isCompactFooter ? 'overflow-visible' : 'overflow-visible')}>
             <div className="relative min-w-0 flex-[1_1_0%] max-w-full" ref={traitsDropdownRef}>
-                <AnchoredNativeOverlay enabled={showTraitsDropdown} browserZIndex={170} onReady={handleTraitsMenuReady} onBoundsChange={handleTraitsMenuReady}><div
+                {controlsMotion.present ? <AnchoredNativeOverlay browserZIndex={170} autoFocus={showTraitsDropdown} onReady={handleControlsReady}><div
+                    data-composer-controls-motion
+                    aria-hidden={!showTraitsDropdown}
+                    inert={!showTraitsDropdown}
                     className={cn(
                         traitsMenuOpensDown ? 'absolute left-0 top-[36px] z-[170]' : 'absolute bottom-[36px] left-0 z-[170]',
-                        'transition-opacity duration-[120ms] ease-out',
-                        showTraitsDropdown ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+                        'transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none motion-reduce:transform-none',
+                        controlsVisible ? 'pointer-events-auto translate-y-0 opacity-100' : cn('pointer-events-none opacity-0', traitsMenuOpensDown ? '-translate-y-1' : 'translate-y-1')
                     )}
                 >
-                    {showTraitsDropdown ? (
-                        <div ref={submenuContainerRef} className="relative">
-                            <div className={cn('w-[236px]', menuPanelClass)}>
-                                {canChooseEffort ? <div className="px-2.5 pb-2 pt-1.5">
-                                    <div className="relative py-1">
+                        <div data-model-controls-panel className={cn('relative w-[256px] max-w-[calc(100vw-32px)]', menuPanelClass)} role="dialog" aria-label="Model controls" onKeyDown={(event) => {
+                            if (event.key !== 'Escape') return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            if (modelSearchOpen) closeModelSearch()
+                            else if (activeSubmenu === 'model') returnToEffort()
+                            else setShowTraitsDropdown(false)
+                        }}>
+                            <ComposerControlsTransition sectionKey={activeSubmenu || 'effort'}>
+                            <div hidden={activeSubmenu === 'model'} data-effort-card className="w-full">
+                                <div className="px-1.5 pb-1 pt-1">
+                                    <div className="flex items-start gap-1">
+                                        {canChooseSpeed ? <button
+                                            type="button"
+                                            onClick={() => setFastModeEnabled(!fastModeEnabled)}
+                                            aria-label="Fast mode"
+                                            aria-pressed={fastModeEnabled}
+                                            title={fastModeEnabled ? 'Switch to standard speed' : 'Switch to fast speed'}
+                                            className={cn(
+                                                'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] motion-reduce:transition-none motion-reduce:transform-none',
+                                                fastModeEnabled
+                                                    ? 'bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-[var(--accent-primary)] hover:bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)]'
+                                                    : 'text-sparkle-text-muted hover:bg-[var(--surface-hover)]'
+                                            )}
+                                        >
+                                            <Zap
+                                                size={14}
+                                                strokeWidth={2.2}
+                                                fill={fastModeEnabled ? 'currentColor' : 'transparent'}
+                                                className={cn(
+                                                    'transition-[fill,transform] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none',
+                                                    fastModeEnabled ? 'scale-100 rotate-0' : 'scale-90 -rotate-[8deg]'
+                                                )}
+                                            />
+                                        </button> : <span className="w-6 shrink-0" />}
+                                        <div className="min-w-0 flex-1 text-center">
+                                            {canChooseEffort ? <div className="text-[14px] font-semibold leading-6 text-[var(--accent-primary)]" aria-live="polite">{selectedEffortText}</div> : null}
+                                            <button ref={modelRouteRef} type="button" onClick={openSubmenu} aria-label="Choose model" aria-haspopup="dialog" className="inline-flex h-6 max-w-full items-center justify-center gap-0.5 rounded-md px-1 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:text-sparkle-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]"><span className="truncate">{selectedModelText || 'Select model'}</span><ChevronDown size={12} className="shrink-0 -rotate-90 text-sparkle-text-muted" /></button>
+                                        </div>
+                                        {onRefreshModels ? <button type="button" onClick={onRefreshModels} disabled={modelsLoading} aria-label="Refresh models" title="Refresh models" className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:opacity-45 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]"><RotateCw size={14} className={modelsLoading ? 'animate-spin' : ''} /></button> : <span className="w-6 shrink-0" />}
+                                    </div>
+                                    {canChooseEffort ? <div className="relative mt-1.5 py-1">
                                         <input
                                             type="range"
                                             min={0}
@@ -641,58 +630,25 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                             aria-label="Reasoning effort"
                                             aria-valuetext={`${selectedEffortText} reasoning`}
                                         />
-                                    </div>
-                                    <div className="mt-1 flex items-center justify-between text-[9px] font-medium leading-none text-sparkle-text-dark">
-                                        <span>Faster</span>
-                                        <span>Smarter</span>
-                                    </div>
-                                </div> : null}
-                                <div className="border-t border-[var(--surface-divider)] pt-1">
-                                    <button
-                                        type="button"
-                                        onMouseEnter={() => openSubmenu('model')}
-                                        onMouseLeave={scheduleSubmenuClose}
-                                        onFocus={() => openSubmenu('model')}
-                                        className={cn(menuRouteClass, activeSubmenu === 'model' && 'bg-[var(--surface-active)] text-sparkle-text')}
-                                    >
-                                        <span className="min-w-0 flex-1 truncate font-medium text-sparkle-text">Model</span>
-                                        <span className="inline-flex min-w-0 shrink-0 items-center gap-1">
-                                            <span className="max-w-[128px] truncate text-right font-medium text-sparkle-text-dark">{selectedModelText || 'Select'}</span>
-                                            <ChevronDown size={14} className="shrink-0 -rotate-90 text-sparkle-text-muted transition-colors group-hover:text-sparkle-text-secondary" />
-                                        </span>
-                                    </button>
-                                    {canChooseSpeed ? <button
-                                        type="button"
-                                        onMouseEnter={() => openSubmenu('speed')}
-                                        onMouseLeave={scheduleSubmenuClose}
-                                        onFocus={() => openSubmenu('speed')}
-                                        className={cn(menuRouteClass, activeSubmenu === 'speed' && 'bg-[var(--surface-active)] text-sparkle-text')}
-                                    >
-                                        <span className="min-w-0 flex-1 truncate font-medium text-sparkle-text">Speed</span>
-                                        <span className="inline-flex min-w-0 shrink-0 items-center gap-1">
-                                            <span className={cn('truncate text-right font-medium text-sparkle-text-dark', fastModeEnabled && 'text-sparkle-text')}>{fastModeEnabled ? 'Fast' : 'Standard'}</span>
-                                            <ChevronDown size={14} className="shrink-0 -rotate-90 text-sparkle-text-muted transition-colors group-hover:text-sparkle-text-secondary" />
-                                        </span>
-                                    </button> : null}
+                                    </div> : null}
                                 </div>
                                 {modelsError ? <p className="px-3 py-1 text-[12px] font-medium text-rose-300">{modelsError}</p> : null}
                             </div>
 
                             <div
                                 ref={modelDropdownRef}
-                                onMouseEnter={() => openSubmenu('model')}
-                                onMouseLeave={scheduleSubmenuClose}
-                                className={cn(modelSubmenuPositionClass, menuPanelClass, submenuMotionClass, getSubmenuVisibilityClass('model'))}
-                                style={{ left: submenuLeft.model }}
+                                hidden={activeSubmenu !== 'model'}
+                                data-model-chooser
+                                className="w-full"
                             >
                                     <div className="relative flex h-[32px] items-center px-1.5">
-                                        <div className={cn('flex w-full items-center transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', modelSearchOpen ? 'pointer-events-none translate-x-1 opacity-0' : 'translate-x-0 opacity-100')}>
-                                            <div className="min-w-0 flex-1 truncate px-1 text-[12px] font-medium text-sparkle-text-dark">Models</div>
+                                        <div inert={modelSearchOpen} className={cn('flex w-full items-center transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', modelSearchOpen ? 'pointer-events-none translate-x-1 opacity-0' : 'translate-x-0 opacity-100')}>
+                                            <button type="button" onClick={returnToEffort} aria-label="Back to effort" className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><ChevronDown size={13} className="rotate-90" /></button>
+                                            <div className="min-w-0 flex-1 truncate px-1 text-[12px] font-medium text-sparkle-text-dark">Select model</div>
                                             <button
                                                 type="button"
                                                 onClick={() => {
                                                     setModelSearchOpen(true)
-                                                    openSubmenu('model')
                                                 }}
                                                 aria-label="Search models"
                                                 title="Search models"
@@ -701,7 +657,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                 <Search size={13} />
                                             </button>
                                         </div>
-                                        <div className={cn('absolute inset-x-1.5 flex items-center gap-1 transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', modelSearchOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none -translate-x-1 opacity-0')}>
+                                        <div inert={!modelSearchOpen} className={cn('absolute inset-x-1.5 flex items-center gap-1 transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', modelSearchOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none -translate-x-1 opacity-0')}>
                                             <div className="flex h-[26px] min-w-0 flex-1 items-center gap-1.5 rounded-md bg-white/[0.04] px-1.5 ring-1 ring-white/10 transition-colors focus-within:ring-[var(--accent-primary)]">
                                                 <Search size={12} className="shrink-0 text-sparkle-text-muted" aria-hidden="true" />
                                                 <input
@@ -714,6 +670,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                     onKeyDown={(event) => {
                                                         if (event.key === 'Escape') {
                                                             event.preventDefault()
+                                                            event.stopPropagation()
                                                             closeModelSearch()
                                                         } else if (event.key === 'ArrowDown') {
                                                             event.preventDefault()
@@ -724,12 +681,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                         } else if (event.key === 'Enter') {
                                                             const pick = filteredModelOptions[activeModelIndex] || filteredModelOptions[0]
                                                             if (!pick) return
-                                                            setSelectedModel(pick.id)
-                                                            setShowModelDropdown(false)
-                                                            setModelQuery('')
-                                                            setActiveModelIndex(0)
-                                                            setModelSearchOpen(false)
-                                                            openSubmenu('model')
+                                                            event.preventDefault()
+                                                            event.stopPropagation()
+                                                            chooseModel(pick.id)
                                                         }
                                                     }}
                                                     placeholder="Search models"
@@ -775,7 +729,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                     >
                                         {filteredModelOptions.length === 0 ? (
                                             <div className="px-2.5 py-2.5 text-[12px] text-sparkle-text-dark">No models found.</div>
-                                        ) : modelGroups.map((group) => <div key={group.id}>
+                                        ) : visibleModelGroups.map((group) => <div key={group.id}>
                                             <button
                                                 type="button"
                                                 aria-expanded={Boolean(modelQuery.trim()) || visibleModelGroup === group.id}
@@ -784,7 +738,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                             >{group.label}<span className="ml-auto text-[10px] text-sparkle-text-muted">{group.models.length}</span><ChevronDown size={13} className={cn('text-sparkle-text-muted transition-transform', (modelQuery.trim() || visibleModelGroup === group.id) && 'rotate-180')} /></button>
                                             {(modelQuery.trim() || visibleModelGroup === group.id) ? group.models.map(({ model, index }) => {
                                             const isActive = model.id === selectedModel
-                                            const isHighlighted = index === activeModelIndex
+                                            const isHighlighted = modelSearchOpen && index === activeModelIndex
                                             const isLatest = isLatestModel(model, latestModelId)
                                             const isHarnessModel = isOpenCodeHarnessModel(model)
                                             const isGptModel = isGptFamilyModel(model) && !isHarnessModel
@@ -793,14 +747,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                     key={model.id}
                                                     type="button"
                                                     data-model-index={index}
-                                                    onClick={() => {
-                                                        setSelectedModel(model.id)
-                                                        setShowModelDropdown(false)
-                                                        setModelQuery('')
-                                                        setActiveModelIndex(0)
-                                                        setModelSearchOpen(false)
-                                                        openSubmenu('model')
-                                                    }}
+                                                    onClick={() => chooseModel(model.id)}
                                                     className={cn(
                                                         menuOptionClass,
                                                         'h-[32px] text-[12px]',
@@ -818,37 +765,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                         }) : null}</div>)}
                                     </div>
                             </div>
-
-                            {canChooseSpeed ? <div
-                                onMouseEnter={() => openSubmenu('speed')}
-                                onMouseLeave={scheduleSubmenuClose}
-                                className={cn(speedSubmenuPositionClass, menuPanelClass, submenuMotionClass, getSubmenuVisibilityClass('speed'))}
-                                style={{ left: submenuLeft.speed }}
-                            >
-                                    <div className="px-2.5 py-1.5 text-[12px] font-medium text-sparkle-text-dark">Speed</div>
-                                    {[true, false].map((fast) => (
-                                        <button
-                                            key={String(fast)}
-                                            type="button"
-                                            onClick={() => {
-                                                setFastModeEnabled(fast)
-                                                openSubmenu('speed')
-                                            }}
-                                            className={cn(menuOptionClass, 'h-[32px]', fastModeEnabled === fast ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-dark')}
-                                        >
-                                            <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
-                                                {fast
-                                                    ? <Zap size={13} className="shrink-0 text-amber-200" strokeWidth={2.6} />
-                                                    : <Gauge size={13} className="shrink-0 text-sparkle-text-muted" strokeWidth={2.2} />}
-                                                <span className="truncate">{fast ? 'Fast' : 'Standard'}</span>
-                                            </span>
-                                            {fastModeEnabled === fast ? <Check size={17} className="text-sparkle-text-secondary" /> : null}
-                                        </button>
-                                    ))}
-                            </div> : null}
+                            </ComposerControlsTransition>
                         </div>
-                    ) : null}
-                </div></AnchoredNativeOverlay>
+                </div></AnchoredNativeOverlay> : null}
                 <button
                     type="button"
                     disabled={controlsLocked}
@@ -866,7 +785,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                         )}
                         aria-hidden="true"
                     >
-                        <Zap size={13} strokeWidth={2.6} />
+                        <Zap size={13} strokeWidth={2.6} fill="currentColor" />
                     </span>
                     <span
                         className={cn(

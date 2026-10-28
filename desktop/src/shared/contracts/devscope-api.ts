@@ -484,6 +484,8 @@ export type DevScopeUpdateStatus =
 export type DevScopeUpdateErrorContext = 'check' | 'download' | 'install' | null
 
 export type DevScopeUpdateState = {
+    externalInstaller?: { id: string; version: string; agentServerUpdate: true }
+    installRecoveryAvailable?: boolean
     enabled: boolean
     status: DevScopeUpdateStatus
     currentVersion: string
@@ -602,7 +604,10 @@ export interface DevScopeUpdatesApi {
     getState: () => Promise<DevScopeUpdateState>
     checkForUpdates: () => Promise<DevScopeUpdateActionResult>
     downloadUpdate: () => Promise<DevScopeUpdateActionResult>
-    installUpdate: () => Promise<DevScopeUpdateActionResult>
+    preflightInstall?: () => Promise<import('../agent-update').AgentUpdatePlan>
+    deferInstall?: () => Promise<void>
+    resumePreviousAgent?: () => Promise<DevScopeUpdateActionResult>
+    installUpdate: (confirmation?: import('../agent-update').AgentUpdateConfirmation) => Promise<DevScopeUpdateActionResult>
     onStateChange: (callback: (state: DevScopeUpdateState) => void) => () => void
 }
 
@@ -720,6 +725,7 @@ export interface DevScopeAssistantApi {
     newThread: (sessionId?: string) => Promise<DevScopeResult<{ threadId: string }>>
     sendPrompt: (prompt: string, options?: AssistantSendPromptOptions) =>
         Promise<DevScopeResult<{ sessionId: string; threadId: string; turnId: string }>>
+    pingModel?: (input: { sessionId: string; turnId: string; requestId: string }) => Promise<DevScopeResult>
     interruptTurn: (turnId?: string, sessionId?: string) => Promise<DevScopeResult>
     listBackgroundProcesses: (input: import('../assistant/contracts').AssistantBackgroundProcessesInput) => Promise<DevScopeResult<import('../assistant/contracts').AssistantBackgroundProcessesPayload>>
     stopBackgroundProcesses: (input: import('../assistant/contracts').AssistantStopBackgroundProcessesInput) => Promise<DevScopeResult<import('../assistant/contracts').AssistantBackgroundProcessesPayload>>
@@ -742,20 +748,21 @@ export interface DevScopeAssistantApi {
     transcribeVoice: (input: AssistantTranscribeVoiceInput) => Promise<DevScopeResult<{ text: string }>>
     cancelVoiceTranscription?: (requestId: string) => Promise<DevScopeResult<{ cancelled: boolean }>>
     saveVoiceHistory: (input: AssistantSaveVoiceHistoryInput) => Promise<DevScopeResult>
-    listVoiceHistory: () => Promise<DevScopeResult<{ entries: AssistantVoiceHistoryEntry[] }>>
+    listVoiceHistory: (input?: { page?: number }) => Promise<DevScopeResult<{ entries: AssistantVoiceHistoryEntry[]; page: number; pageSize: number; totalCount: number; totalPages: number }>>
     getFailedVoiceRecording: (id: string) => Promise<DevScopeResult<{ audioBase64: string | null }>>
     deleteVoiceHistory: (id: string) => Promise<DevScopeResult>
     onEvent: (callback: (event: AssistantEventStreamPayload) => void) => () => void
 }
 
 export interface DevScopeApi {
+    voiceWidget?: import('../assistant/voice-widget').VoiceWidgetApi
     openDesktopSettings: () => Promise<DevScopeResult>
     mobileAccess?: import('../mobile-access').MobileAccessApi
     runtimeActivation: {
         getState: () => Promise<RuntimeActivationStatus>
         /** Desktop-only lifecycle controls. Browser and older hosts stay read-only. */
         refresh?: () => Promise<RuntimeActivationStatus>
-        activateUpdate?: () => Promise<RuntimeActivationStatus>
+        activateUpdate?: (options?: { expectedInstanceId: string; stopBlockers: boolean }) => Promise<RuntimeActivationStatus>
         onStateChange: (listener: (state: RuntimeActivationStatus) => void) => () => void
     }
     // Settings + AI

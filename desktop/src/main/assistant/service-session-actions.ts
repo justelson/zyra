@@ -58,6 +58,13 @@ import {
 
 const activeUserInputResponses = new WeakMap<AssistantServiceActionDeps, Set<string>>()
 const pendingPromptSubmissions = new WeakMap<AssistantServiceActionDeps, Map<string, { turnId: string; cancelled: boolean }>>()
+export function countPendingAssistantSubmissions(deps: AssistantServiceActionDeps): number {
+    return (pendingPromptSubmissions.get(deps)?.size || 0) + (deps.queuedPromptDeliveries?.pendingCount || 0)
+}
+export function cancelPendingAssistantSubmissions(deps: AssistantServiceActionDeps): void {
+    deps.queuedPromptDeliveries?.cancelPending()
+    for (const submission of pendingPromptSubmissions.get(deps)?.values() || []) submission.cancelled = true
+}
 
 async function connectAssistantSessionRuntime(
     deps: AssistantServiceActionDeps,
@@ -525,6 +532,24 @@ export async function sendAssistantPromptAction(
     options?: AssistantSendPromptOptions,
     preparedImages?: PreparedAssistantPromptImage[]
 ) {
+    if (options?.queueEntryId === undefined) return sendAssistantPromptOnce(deps, prompt, options, preparedImages)
+    if (!deps.queuedPromptDeliveries) throw new Error('Queued prompt delivery is unavailable. The message is preserved.')
+    // Routing may change after a rejected Steer, but it cannot create a second
+    // delivery of an already accepted entry. Content/configuration stays bound.
+    const { queueEntryId, dispatchMode: _mode, targetTurnId: _turn, ...configuration } = options
+    return deps.queuedPromptDeliveries.run({
+        sessionId: options.sessionId || '', entryId: queueEntryId,
+        payload: { prompt, configuration, preparedImages }
+    }, markSubmitted => sendAssistantPromptOnce(deps, prompt, options, preparedImages, markSubmitted))
+}
+
+async function sendAssistantPromptOnce(
+    deps: AssistantServiceActionDeps,
+    prompt: string,
+    options?: AssistantSendPromptOptions,
+    preparedImages?: PreparedAssistantPromptImage[],
+    markSubmitted?: () => void
+) {
     await deps.ensureReady()
     const input = String(prompt || '').trim()
     if (!input) throw new Error('Prompt is required.')
@@ -540,7 +565,9 @@ export async function sendAssistantPromptAction(
         if (!targetTurnId || thread.latestTurn?.state !== 'running') throw new Error('The turn has ended. Send this message as a new turn instead.')
         if (!deps.runtime.steerPrompt) throw new Error('This runtime does not support steering. Use Send next instead.')
         const images = preparedImages ?? await prepareAssistantPromptImages(options.images)
-        const result = await deps.runtime.steerPrompt(getAssistantCanonicalThreadId(thread), input, { targetTurnId, images: images.length ? images : undefined })
+        const result = await deps.runtime.steerPrompt(getAssistantCanonicalThreadId(thread), input, {
+            targetTurnId, images: images.length ? images : undefined, beforeSubmit: markSubmitted
+        })
         const occurredAt = nowIso()
         const message = createAssistantUserMessage(input, occurredAt, options.userMessageId || createAssistantId('assistant-message'))
         message.turnId = result.turnId
@@ -645,6 +672,7 @@ export async function sendAssistantPromptAction(
         const initialManualTitle = currentSession.titleManuallySet || hadNamedDraft ? currentSession.title : undefined
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
+            beforeSubmit: markSubmitted,
             initialManualTitle,
             startInNewWorktree: options?.startInNewWorktree,
             model: model || undefined,
@@ -655,7 +683,7 @@ export async function sendAssistantPromptAction(
             profile: options?.profile,
             images: promptImages.length > 0 ? promptImages : undefined,
             reasoningSummary: runtimePolicy.reasoningSummary,
-            contextCompactionThresholdTokens: runtimePolicy.contextCompactionThresholdTokens
+            modelCompactionOverrides: runtimePolicy.modelCompactionOverrides
         })
         if (submission.cancelled) await deps.runtime.interruptTurn(runtimeThreadId, result.turnId)
         // Runtime events may already have completed the turn; do not rewind it.
@@ -707,6 +735,20 @@ export async function sendAssistantPromptAction(
     }
 }
 
+export async function pingAssistantModelAction(
+    deps: AssistantServiceActionDeps,
+    input: { sessionId: string; turnId: string; requestId: string }
+) {
+    await deps.ensureReady()
+    if (!input || !input.sessionId || !input.turnId || !input.requestId || input.requestId.length > 200) throw new Error('An exact Chat, turn and model request are required.')
+    const session = requireSession(deps.getSnapshot(), input.sessionId)
+    const thread = requireActiveThread(session)
+    if (thread.latestTurn?.id !== input.turnId || thread.latestTurn.state !== 'running') throw new Error('The active turn changed. Nothing was pinged.')
+    if (!deps.runtime.pingModel) throw new Error('This agent version does not support Ping.')
+    await deps.runtime.pingModel(getAssistantCanonicalThreadId(thread), input.turnId, input.requestId)
+    return { success: true as const }
+}
+
 export async function interruptAssistantTurnAction(
     deps: AssistantServiceActionDeps,
     turnId?: string,
@@ -716,6 +758,7 @@ export async function interruptAssistantTurnAction(
     const session = requireSession(deps.getSnapshot(), sessionId)
     const thread = requireActiveThread(session)
     let effectiveTurnId = turnId || thread.latestTurn?.id
+    if (!turnId || turnId === thread.latestTurn?.id) deps.queuedPromptDeliveries?.cancelPending(session.id)
     const pendingSubmission = pendingPromptSubmissions.get(deps)?.get(thread.id)
     if (pendingSubmission && pendingSubmission.turnId === effectiveTurnId) {
         pendingSubmission.cancelled = true

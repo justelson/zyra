@@ -1,0 +1,23 @@
+import { build } from 'esbuild'
+import { spawn } from 'node:child_process'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import electronPath from 'electron'
+const desktop=resolve(dirname(fileURLToPath(import.meta.url)),'..')
+const directory=await mkdtemp(join(tmpdir(),'zyra-voice-widget-review-'))
+const evidence=join(desktop,'../docs.local/ui-review/voice-widget')
+try {
+    await mkdir(evidence,{recursive:true})
+    const bundle=await build({entryPoints:[join(desktop,'scripts/fixtures/voice-widget-review.tsx')],outfile:join(directory,'fixture.js'),bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',define:{'import.meta.env.DEV':'false','import.meta.hot':'undefined'},alias:{'@':join(desktop,'src/renderer/src'),'@shared':join(desktop,'src/shared')},loader:{'.svg':'dataurl','.png':'dataurl'},plugins:[{name:'synthetic-voice-cues',setup(builder){builder.onResolve({filter:/\.wav\?url$/},args=>({path:args.path,namespace:'voice-cue'}));builder.onLoad({filter:/.*/,namespace:'voice-cue'},()=>({contents:'export default "synthetic-cue.wav"',loader:'js'}))}}]})
+    for(const file of bundle.outputFiles)await writeFile(file.path,file.contents)
+    const css=bundle.outputFiles.find(file=>file.path.endsWith('.css'))
+    const html=join(directory,'index.html')
+    await writeFile(html,`<!doctype html><html><head><meta charset="utf-8"><style>:root{--accent-primary:#809bd6;--color-bg:#14151a;--color-card:#202127;--color-text:#f4f4f5;--color-text-secondary:#bfc1cb}*{box-sizing:border-box}html,body,#root{margin:0;width:240px;height:280px;background:transparent}button{font-family:system-ui}dialog{color:white;background:#202127}${css?.text||''}</style></head><body><div id="root"></div><script>window.addEventListener('error',event=>window.fixtureError=String(event.error?.stack||event.message));window.addEventListener('unhandledrejection',event=>window.fixtureError=String(event.reason?.stack||event.reason));</script><script src="./fixture.js"></script></body></html>`)
+    const harness=join(directory,'run.cjs')
+    await writeFile(harness,`const{app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(join(directory,'profile'))});const timeout=setTimeout(()=>{console.error('Widget renderer timed out');app.exit(1)},30000);app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:240,height:280,frame:false,transparent:true,webPreferences:{backgroundThrottling:false,offscreen:true,autoplayPolicy:'no-user-gesture-required',sandbox:true,contextIsolation:true,nodeIntegration:false}});window.webContents.on('console-message',(event,level,message)=>{if(level>=2&&!message.includes('not wrapped in act'))console.error(message)});await window.loadFile(${JSON.stringify(html)});for(let i=0;i<200;i++){const status=await window.webContents.executeJavaScript('({ready:window.voiceWidgetScreenshotReady,error:window.fixtureError})');if(status.error)throw new Error(status.error);if(status.ready)break;if(i===199)throw new Error('No screenshot barrier');await new Promise(resolve=>setTimeout(resolve,50))}console.log('Widget layout: '+JSON.stringify(await window.webContents.executeJavaScript('Array.from(document.querySelectorAll(".voice-widget-orb,.instructor-voice-orb,.strands-container,canvas,.voice-widget-controls")).map(el=>({class:el.className,rect:el.getBoundingClientRect().toJSON(),canvas:el.width}))')));window.webContents.invalidate();await new Promise(resolve=>setTimeout(resolve,120));require('node:fs').writeFileSync(${JSON.stringify(join(evidence,'widget.png'))},(await window.webContents.capturePage()).toPNG());await window.webContents.executeJavaScript('window.voiceWidgetScreenshotCaptured=true');const results=await window.webContents.executeJavaScript('window.voiceWidgetReview');for(const result of results)console.log('PASS: '+result);clearTimeout(timeout);app.quit()}).catch(error=>{console.error(error);app.exit(1)});`)
+    const env={...process.env}; delete env.ELECTRON_RUN_AS_NODE
+    await new Promise((resolve,reject)=>{const child=spawn(electronPath,[harness],{cwd:desktop,stdio:['ignore','pipe','pipe'],env,windowsHide:true});child.stdout.on('data',data=>process.stdout.write(data));child.stderr.on('data',data=>process.stderr.write(data));child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error('Widget renderer failed: '+code)))})
+    console.log('Widget screenshot: '+join(evidence,'widget.png'))
+}finally{await rm(directory,{recursive:true,force:true})}

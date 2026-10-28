@@ -1,0 +1,93 @@
+.audio-player {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px 28px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: var(--color-card);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.audio-player > audio { display: none; }
+.audio-player button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.audio-player .audio-player-toggle {
+  width: 32px;
+  background: color-mix(in srgb, var(--color-text), transparent 92%);
+}
+.audio-player button:hover { background: color-mix(in srgb, var(--color-text), transparent 86%); }
+.audio-player button:focus-visible,
+.audio-player-seek:focus-visible,
+.audio-player-source:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--color-text));
+  outline-offset: 3px;
+}
+.audio-player-track { display: block; min-width: 0; }
+.audio-player-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.audio-player-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.audio-player-source { width: 100%; min-width: 0; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+.audio-player-source option { color: var(--color-text); background: var(--color-card); }
+.audio-player-time { flex: none; color: color-mix(in srgb, var(--color-text) 75%, transparent); font-size: 10px; font-variant-numeric: tabular-nums; }
+.audio-player-time > span { color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+.audio-player .audio-player-tool { color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.audio-player .audio-player-speed { font-size: 11px; font-variant-numeric: tabular-nums; }
+.audio-player-seek {
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  accent-color: var(--color-text);
+}
+.audio-player-seek::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, color-mix(in srgb, var(--color-text) 75%, transparent) var(--audio-progress), color-mix(in srgb, var(--color-text), transparent 85%) var(--audio-progress));
+}
+.audio-player-seek::-webkit-slider-thumb {
+  width: 9px;
+  height: 9px;
+  margin-top: -3px;
+  border-radius: 50%;
+  appearance: none;
+  background: var(--color-text);
+}
+.audio-player-seek::-moz-range-track { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--color-text), transparent 85%); }
+.audio-player-seek::-moz-range-progress { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--color-text) 75%, transparent); }
+.audio-player-seek::-moz-range-thumb { width: 9px; height: 9px; border: 0; border-radius: 50%; background: var(--color-text); }
+.audio-player-seek:disabled { opacity: 0.45; cursor: default; }
+.audio-player-seek:disabled::-webkit-slider-thumb { visibility: hidden; }
+.audio-player-seek:disabled::-moz-range-thumb { visibility: hidden; }
+.audio-player-error { grid-column: 2 / -1; display: flex; align-items: center; gap: 10px; color: color-mix(in srgb, var(--color-text) 70%, transparent); font-size: 11px; }
+.audio-player-error button { gap: 4px; height: 24px; padding-inline: 5px; white-space: nowrap; }
+.audio-player-spinner { animation: audio-player-spin 900ms linear infinite; }
+@keyframes audio-player-spin { to { transform: rotate(360deg); } }
+@media (max-width: 400px) {
+  .audio-player { gap: 7px; padding: 10px; }
+  .audio-player-heading { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .audio-player button { transition: none; }
+  .audio-player-spinner { animation: none; }
+}

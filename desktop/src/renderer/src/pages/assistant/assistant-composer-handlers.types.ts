@@ -73,6 +73,9 @@ export type AssistantComposerHandlersArgs = {
     removingAttachmentIds: string[]
     setRemovingAttachmentIds: SetStringArrayState
     textareaRef: RefObject<HTMLTextAreaElement | null>
+    /** Async file reads may finish after navigation or question replacement. */
+    isAttachmentOwnerCurrent?: () => boolean
+    pendingAttachmentOperations?: Set<symbol>
     onBlockedSend?: (message: string) => void
     sendBlockedReason?: string | null
     onOptimisticSendClear?: () => void

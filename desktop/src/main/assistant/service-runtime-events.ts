@@ -687,6 +687,14 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
     let eventThreadRecord = deps.findThreadRecord(event.threadId)
     let eventSession = eventThreadRecord?.session || deps.findSessionByThreadId(event.threadId)
     let eventThreadId = eventThreadRecord?.thread.id || event.threadId
+    if (event.type === 'model.progress') {
+        if (!eventSession || !eventThreadRecord || !event.turnId || eventThreadRecord.thread.latestTurn?.id !== event.turnId
+            || eventThreadRecord.thread.latestTurn?.state !== 'running') return
+        deps.appendEvent('thread.updated', event.createdAt, {
+            threadId: eventThreadId, patch: { modelRequestProgress: event.payload.progress }
+        }, eventSession.id, eventThreadId)
+        return
+    }
     const terminalSessionState = event.type === 'session.state.changed'
         && !['starting', 'running', 'waiting'].includes(event.payload.state)
     const shouldFlushActivityOutput = event.type === 'activity'
@@ -694,6 +702,18 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         || event.type === 'turn.completed'
         || terminalSessionState
     if (event.type === 'turn.completed' || terminalSessionState) {
+        if (eventSession && eventThreadRecord && (!event.turnId || eventThreadRecord.thread.latestTurn?.id === event.turnId)) {
+            deps.appendEvent('thread.updated', event.createdAt, { threadId: eventThreadId, patch: { modelRequestProgress: null } }, eventSession.id, eventThreadId)
+            for (const activity of eventThreadRecord.thread.activities) {
+                if (activity.kind !== 'model.ping' || activity.payload?.status !== 'retrying'
+                    || activity.turnId !== eventThreadRecord.thread.latestTurn?.id) continue
+                deps.appendEvent('thread.activity.appended', event.createdAt, { threadId: eventThreadId, activity: {
+                    ...activity, summary: 'Pinged model due to suspected hang.',
+                    detail: 'Recovery ended before the replacement request started.',
+                    payload: { ...activity.payload, status: 'cancelled' }
+                } }, eventSession.id, eventThreadId)
+            }
+        }
         deps.flushAssistantTextDelta({ threadId: eventThreadId })
     }
     if (shouldFlushActivityOutput) {
@@ -1430,6 +1450,10 @@ export function handleAssistantRuntimeEvent(event: AssistantRuntimeEvent, deps: 
         const existingActivity = targetActivityId
             ? existingThread.activities.find((activity) => activity.id === targetActivityId) || null
             : null
+        if (event.payload.kind === 'model.ping' && payload.status === 'retrying') {
+            if (existingActivity && ['completed', 'cancelled'].includes(String(existingActivity.payload?.status))) return
+            if (existingThread.latestTurn?.id !== turnId || existingThread.latestTurn?.state !== 'running') payload.status = 'cancelled'
+        }
         const activity = mergeRuntimeFileChangeActivity(
             existingActivity,
             {

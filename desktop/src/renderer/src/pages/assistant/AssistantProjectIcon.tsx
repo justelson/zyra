@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Folder, FolderOpen } from 'lucide-react'
 import ProjectIcon from '@/components/ui/ProjectIcon'
 import { useSettings } from '@/lib/settings'
@@ -16,6 +16,7 @@ export function AssistantProjectIcon({
     framework,
     size = 16,
     expanded = false,
+    fallbackIcon,
     className
 }: {
     projectPath: string | null | undefined
@@ -24,6 +25,7 @@ export function AssistantProjectIcon({
     framework?: string | null
     size?: number
     expanded?: boolean
+    fallbackIcon?: ReactNode
     className?: string
 }) {
     const { settings } = useSettings()
@@ -54,6 +56,8 @@ export function AssistantProjectIcon({
         }
     }, [normalizedPath])
 
+    if (fallbackIcon && (!normalizedPath || !resolvedIconPath)) return <>{fallbackIcon}</>
+
     if (!normalizedPath || !hasProjectPresentation) {
         const FolderIcon = expanded ? FolderOpen : Folder
         return <FolderIcon size={size} strokeWidth={1.75} className={cn('shrink-0 text-sparkle-text-muted/70', className)} />
@@ -61,9 +65,11 @@ export function AssistantProjectIcon({
 
     return (
         <ProjectIcon
+            key={resolvedIconPath || normalizedPath}
             projectType={meaningfulProjectType ? resolvedProjectType || undefined : undefined}
             framework={resolvedFramework || undefined}
             customIconPath={resolvedIconPath}
+            fallbackIcon={fallbackIcon}
             size={size}
             className={cn('shrink-0 overflow-hidden rounded-sm', className)}
         />

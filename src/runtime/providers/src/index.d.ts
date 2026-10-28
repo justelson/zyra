@@ -9,6 +9,7 @@ export type { GoogleVertexOptions } from "./api/google-vertex.js";
 export * from "./api/lazy.js";
 export type { MistralOptions } from "./api/mistral-conversations.js";
 export type { OpenAICodexResponsesOptions, OpenAICodexWebSocketDebugStats } from "./api/openai-codex-responses.js";
+export { getOpenAICodexRequestDiagnostics, type OpenAICodexRequestDiagnostic } from "./api/codex-request-diagnostics.js";
 export type { OpenAICompletionsOptions } from "./api/openai-completions.js";
 export type { OpenAIResponsesOptions } from "./api/openai-responses.js";
 export type { PiMessagesEvent, PiMessagesOptions, PiMessagesRewriteImpact } from "./api/pi-messages.js";

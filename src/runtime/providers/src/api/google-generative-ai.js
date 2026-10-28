@@ -240,13 +240,13 @@ const streamSimple = (model, context, options) => {
     ...buildBaseOptions(model, context, options, apiKey),
     toolChoice: options?.toolChoice
   };
-  if (!options?.reasoning) {
+  if (!options?.reasoning || String(options.reasoning) === "off") {
     return stream(model, context, { ...base, thinking: { enabled: false } });
   }
   const clampedReasoning = clampThinkingLevel(model, options.reasoning);
   const resolvedLevel = resolveGoogleThinkingLevel(model, clampedReasoning);
   const googleModel = model;
-  if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGemma4Model(googleModel)) {
+  if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGeminiArgonModel(googleModel) || isGemma4Model(googleModel)) {
     return stream(model, context, {
       ...base,
       thinking: {
@@ -301,13 +301,16 @@ function buildParams(model, context, options = {}) {
   };
   if (options.thinking?.enabled && model.reasoning) {
     const thinkingConfig = { includeThoughts: true };
-    if (options.thinking.level !== void 0) {
+    if (requiresLowThinkingMinimum(model)) {
+      const level = options.thinking.level;
+      thinkingConfig.thinkingLevel = level === "MEDIUM" || level === "HIGH" ? level : "LOW";
+    } else if (options.thinking.level !== void 0) {
       thinkingConfig.thinkingLevel = options.thinking.level;
     } else if (options.thinking.budgetTokens !== void 0) {
       thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
     }
     config.thinkingConfig = thinkingConfig;
-  } else if (model.reasoning && options.thinking && !options.thinking.enabled) {
+  } else if (requiresLowThinkingMinimum(model) || model.reasoning && options.thinking && !options.thinking.enabled) {
     config.thinkingConfig = getDisabledThinkingConfig(model);
   }
   if (options.signal) {
@@ -333,8 +336,15 @@ function isGemini3FlashModel(model) {
   const id = model.id.toLowerCase();
   return /gemini-3(?:\.\d+)?-flash/.test(id) || id === "gemini-flash-latest" || id === "gemini-flash-lite-latest";
 }
+function isGeminiArgonModel(model) {
+  return /^gemini-4-argon(?:-|$)/.test(model.id.toLowerCase());
+}
+function requiresLowThinkingMinimum(model) {
+  const id = model.id.toLowerCase();
+  return /^gemini-3\.[78]-flash(?:-|$)/.test(id) || isGeminiArgonModel(model) || id === "gemini-flash-latest";
+}
 function getDisabledThinkingConfig(model) {
-  if (isGemini3ProModel(model)) {
+  if (requiresLowThinkingMinimum(model) || isGemini3ProModel(model)) {
     return { thinkingLevel: "LOW" };
   }
   if (isGemini3FlashModel(model)) {
@@ -346,6 +356,9 @@ function getDisabledThinkingConfig(model) {
   return { thinkingBudget: 0 };
 }
 function getThinkingLevel(effort, model) {
+  if (requiresLowThinkingMinimum(model)) {
+    return effort === "medium" ? "MEDIUM" : effort === "high" ? "HIGH" : "LOW";
+  }
   if (isGemini3ProModel(model)) {
     switch (effort) {
       case "minimal":

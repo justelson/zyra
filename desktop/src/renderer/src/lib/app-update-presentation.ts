@@ -12,7 +12,8 @@ type SidebarUpdatePresentation = {
 }
 
 export function installableUpdateVersion(state: DevScopeUpdateState | null): string | null {
-    return state?.enabled && state.status === 'downloaded' ? state.downloadedVersion || null : null
+    return state?.externalInstaller?.agentServerUpdate === true ? state.externalInstaller.version
+        : state?.enabled && state.status === 'downloaded' ? state.downloadedVersion || null : null
 }
 
 export function sidebarUpdatePresentation(state: DevScopeUpdateState | null, pending: UpdatePendingAction, error: string | null = null): SidebarUpdatePresentation {

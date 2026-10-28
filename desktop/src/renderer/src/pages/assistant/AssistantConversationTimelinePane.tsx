@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
 import type { AssistantElementBounds } from './assistant-composer-types'
 import { resolveAssistantScrollButtonBottom } from './assistant-pane-layout'
+import { AssistantReadPreviewScope } from './AssistantReadPreviewScope'
 
 export const preloadAssistantTimeline = () => import('./AssistantTimeline')
 const AssistantTimeline = lazy(() => preloadAssistantTimeline().then(module => ({ default: module.AssistantTimeline })))
@@ -118,6 +119,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                 />
             ) : (
                 <>
+                    <AssistantReadPreviewScope owner={props.threadId || props.windowKey}>
                     <Suspense fallback={<LoadingSpinner message="Loading conversation..." className="h-full py-0" minHeightClassName="min-h-0" />}>
                     <AssistantTimeline
                         threadId={props.threadId}
@@ -170,6 +172,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                         onViewDiff={props.onViewDiff}
                     />
                     </Suspense>
+                    </AssistantReadPreviewScope>
                     <div ref={floatingPlanOverlayRef} className="pointer-events-none absolute inset-0 z-20" />
                     <div
                         className="pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4 transition-[bottom,opacity,transform] duration-200"

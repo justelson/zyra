@@ -24,6 +24,21 @@ const responses: any[] = [],
     saved: any[] = []
 let clipText = 'My own pasted explanation',
     clipImage = false
+let voiceProcessor: any, microphoneStops = 0, transcriptionCalls = 0
+let voiceTranscript = 'dictated detail'
+let deferVoice = false, releaseVoice: ((value: unknown) => void) | null = null
+const cancelledVoiceRequests: string[] = []
+class QuestionAudioContext {
+    sampleRate = 24000
+    destination = {}
+    resume() { return Promise.resolve() }
+    close() { return Promise.resolve() }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} } }
+    createScriptProcessor() { voiceProcessor = { connect() {}, disconnect() {}, onaudioprocess: null }; return voiceProcessor }
+    createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} } }
+}
+;(window as any).AudioContext = QuestionAudioContext
+Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { microphoneStops++ } }] }) } })
 ;(window as any).devscope = {
     assistant: {
         getVoiceTranscriptionState: async () => ({
@@ -33,6 +48,12 @@ let clipText = 'My own pasted explanation',
             signedIn: true,
             status: 'ready',
         }),
+        transcribeVoice: async () => {
+            transcriptionCalls++
+            if (deferVoice) return new Promise(resolve => { releaseVoice = resolve })
+            return { success: true, text: voiceTranscript }
+        },
+        cancelVoiceTranscription: async (id: string) => { cancelledVoiceRequests.push(id); return { success: true, cancelled: true } },
         persistClipboardImage: async (input: any) => {
             saved.push(input)
             return { success: true, path: `/fixture/${input.fileName}` }
@@ -107,7 +128,7 @@ const render = (empty = false) =>
     )
 const button = (label: string) =>
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-        (b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label || label === 'Continue' && b.textContent?.trim() === 'Submit answer',
+        (b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label || b.title === label || label === 'Continue' && b.getAttribute('aria-label') === 'Submit answer',
     )!
 const input = () =>
     document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Your answer"]')!
@@ -199,7 +220,7 @@ const paste = () => {
     )
     typeAnswer(clipText)
     await sleep()
-    check(button('Continue').textContent?.trim() === 'Submit answer', 'A simple single answer submits directly without an extra review step')
+    check(button('Continue').getAttribute('aria-label') === 'Submit answer', 'A simple single answer submits directly without an extra review step')
     button('Continue').click()
     button('Continue').click()
     await wait(() => responses.length === 1, 'Response submits once')
@@ -216,7 +237,7 @@ const paste = () => {
     await sleep()
     check(
         Array.from(document.querySelectorAll('button')).filter(
-            (b) => b.textContent?.trim() === 'Skip',
+            (b) => b.getAttribute('aria-label') === 'Skip',
         ).length === 1,
         'Exactly one primary Skip button exists for an empty optional answer',
     )
@@ -312,14 +333,13 @@ const paste = () => {
     )
     for (const remove of removalButtons()) remove.click()
     await wait(
-        () => button('Submit')?.disabled === true,
-        'Removing all evidence invalidates the required file-only answer',
+        () => button('Finish questions')?.disabled === false && !button('Submit'),
+        'Missing evidence changes Submit into Finish questions',
     )
-    button('Submit').click()
+    button('Finish questions').click()
     await sleep()
-    check(responses.length === 2, 'An answer claiming missing attachments cannot submit')
-    button('Back').click()
-    await wait(() => Boolean(input()), 'Missing required answer can be edited')
+    check(responses.length === 2, 'Finishing missing questions navigates without submitting an incomplete response')
+    await wait(() => Boolean(input()), 'Finish questions opens the missing required answer')
     check(input().value === '', 'The orphaned file-only caption is not presented as typed text')
     Object.defineProperty(fileInput, 'files', {
         configurable: true,
@@ -520,6 +540,131 @@ const paste = () => {
         document.documentElement.scrollWidth <= window.innerWidth,
         'The question form has no horizontal overflow',
     )
+    questionId = 'voice-answer'
+    render(); await sleep(); await sleep()
+    const initialVoiceResponses = responses.length
+    typeAnswer('Typed draft'); await sleep()
+    const record = async () => {
+        check(button('Start voice input') && !button('Start voice input').disabled, 'Questions expose the working dictation button')
+        button('Start voice input').click()
+        await wait(() => Boolean(document.querySelector('[aria-label="Voice note recorder"]')), 'Shared voice recorder opens inside the question composer')
+        check(!button('Choose question') || button('Choose question').disabled, 'The question picker cannot interrupt an active recording')
+        voiceProcessor.onaudioprocess({ inputBuffer: { numberOfChannels: 1, length: 4096, getChannelData: () => new Float32Array(4096).fill(.1) } })
+    }
+    await record()
+    check(button('Continue')?.disabled !== false, 'Continue cannot advance during recording')
+    button('Stop and transcribe voice note').click()
+    await wait(() => input()?.value === 'Typed draft dictated detail', 'Dictation appends to the question answer, not an unrelated composer draft')
+    check(responses.length === initialVoiceResponses && microphoneStops > 0, 'Stop releases the microphone and leaves the answer editable without submitting')
+    await record()
+    button('Cancel voice note').click()
+    await wait(() => Boolean(input()), 'Cancelling restores the answer input')
+    check(input().value === 'Typed draft dictated detail' && transcriptionCalls === 1, 'Cancellation preserves the answer and sends no audio for transcription')
+    await record()
+    button('Transcribe and send voice note').click()
+    await wait(() => responses.length === initialVoiceResponses + 1, 'Voice Send submits the latest complete answer once')
+    check(responses.at(-1).answers.answer === 'Typed draft dictated detail dictated detail', 'Voice submission cannot use the stale pre-transcription answer')
+    questionId = 'voice-cancelled-request'; render(); await sleep(); await sleep()
+    deferVoice = true
+    await record()
+    button('Stop and transcribe voice note').click()
+    await wait(() => Boolean(releaseVoice), 'Deferred question transcription starts')
+    questionId = 'voice-next-request'; render(); await sleep(); await sleep()
+    releaseVoice!({ success: true, text: 'discard stale recording' }); await sleep(); await sleep()
+    check(input().value === '' && cancelledVoiceRequests.length > 0 && responses.length === initialVoiceResponses + 1, 'A replaced question cancels transcription and rejects late answers')
+    deferVoice = false
+    questionId = 'voice-numeric'; choice = false
+    extraQuestions = [{ id: 'numeric', header: 'Number', question: 'Choose a number', type: 'number', min: 1, max: 10, required: true, options: [] }]
+    render(); await sleep(); await sleep()
+    typeAnswer('A note'); await sleep(); button('Continue').click()
+    await wait(() => Boolean(document.querySelector('input[type="number"]')), 'Numeric question opens')
+    voiceTranscript = '7'
+    await record(); button('Stop and transcribe voice note').click()
+    await wait(() => document.querySelector<HTMLInputElement>('input[type="number"]')?.value === '7' && document.querySelector<HTMLInputElement>('input[type="range"]')?.value === '7', 'Scalar questions support dictation without a duplicate text composer')
+    check(!input(), 'Numeric questions have no duplicate message input below the control')
+    check(!button('Continue').disabled, 'Dictated numeric answer obeys normal validation')
+    const changeScalar = async (type: string, value: string) => {
+        const node = document.querySelector<HTMLInputElement>(`input[type="${type}"]`)!
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true })); await sleep()
+    }
+    const openNumeric = async (id: string, bounds: Record<string, number>) => {
+        questionId = id
+        extraQuestions = [{ id: 'numeric', header: 'Number', question: 'Choose a number', type: 'number', required: true, options: [], ...bounds }]
+        render(); await sleep(); await sleep()
+        typeAnswer('A note'); await sleep(); button('Continue').click()
+        await wait(() => Boolean(document.querySelector('input[type="number"]')), 'Numeric scenario opens')
+    }
+    await openNumeric('range-hundred', { min: 0, max: 100, step: 5 })
+    check(button('Continue').disabled && document.querySelector<HTMLInputElement>('input[type="number"]')!.value === '', 'An untouched slider does not invent an answer')
+    await changeScalar('range', '55')
+    check(document.querySelector<HTMLInputElement>('input[type="number"]')!.value === '55' && !input(), 'A 0–100 slider writes the editable answer without a duplicate text input')
+    await changeScalar('number', '75')
+    check(document.querySelector<HTMLInputElement>('input[type="range"]')!.value === '75', 'Editable values synchronize the slider')
+    await changeScalar('number', '')
+    check(button('Continue').disabled, 'Clearing the editable value clears the answer')
+    document.querySelector('input[type="range"]')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); await sleep()
+    check(document.querySelector<HTMLInputElement>('input[type="number"]')!.value === '0' && !button('Continue').disabled, 'Explicitly choosing the lower endpoint records zero')
+    await changeScalar('number', '101')
+    check(button('Continue').disabled && document.querySelector<HTMLInputElement>('input[type="number"]')!.value === '101', 'Out-of-range typed values remain editable and cannot advance')
+    await openNumeric('range-decimal', { min: -1, max: 1, step: .25 })
+    await changeScalar('range', '.5')
+    check(document.querySelector<HTMLInputElement>('input[type="number"]')!.value === '0.5' && document.querySelector<HTMLInputElement>('input[type="range"]')!.step === '0.25', 'Decimal ranges preserve the agent-supplied increment')
+    await openNumeric('range-unbounded', { min: 0 })
+    check(!document.querySelector('input[type="range"]'), 'A missing upper bound retains the ordinary number input')
+    await openNumeric('range-fixed', { min: 0, max: 0 })
+    check(document.querySelector<HTMLInputElement>('input[type="range"]')!.disabled && button('Continue').disabled, 'A fixed range does not fabricate an answer')
+    await changeScalar('number', '0')
+    check(!button('Continue').disabled, 'A fixed range still accepts an explicitly entered value')
+    questionId = 'voice-date'
+    extraQuestions = [{ id: 'calendar', header: 'Date', question: 'Choose a date', type: 'date', required: true, options: [] }]
+    render(); await sleep(); await sleep()
+    typeAnswer('A note'); await sleep(); button('Continue').click()
+    await wait(() => Boolean(document.querySelector('[data-question-date-picker]')), 'Custom date question opens')
+    check(!input() && !document.querySelector('input[type="date"]') && button('Continue').disabled, 'Required date questions show only the custom picker and remain unanswered initially')
+    voiceTranscript = '2026-10-22'
+    await record(); button('Stop and transcribe voice note').click()
+    await wait(() => document.querySelector('[data-question-date-picker]')?.getAttribute('data-date-value') === '2026-10-22', 'Date dictation updates the custom picker without a textarea')
+    check(!button('Continue').disabled, 'A dictated ISO date passes normal validation')
+    ;(document.querySelector('[data-question-date-picker]') as HTMLButtonElement).click(); await sleep(); button('Clear date').click(); await sleep()
+    check(button('Continue').disabled, 'Clearing a required custom date prevents advancing')
+    voiceTranscript = '2026-02-31'
+    await record(); button('Stop and transcribe voice note').click()
+    await wait(() => document.querySelector('[data-question-date-picker]')?.getAttribute('aria-invalid') === 'true', 'Impossible dictated dates are marked invalid')
+    check(button('Continue').disabled, 'Invalid calendar dates cannot be submitted')
+    ;(document.querySelector('[data-question-date-picker]') as HTMLButtonElement).click(); await sleep(); button('Today').click(); await sleep()
+    check(!button('Continue').disabled, 'A valid calendar selection repairs an invalid dictated date')
+    results.push('Custom date picker without duplicate composer, required/clear guards, date dictation and impossible-date validation')
+    questionId = 'remaining-questions-flow'
+    extraQuestions = [
+        { id: 'middle', header: 'Middle', question: 'Finish the middle answer', type: 'text', required: true, options: [] },
+        { id: 'last', header: 'Last', question: 'Already completed last answer', type: 'text', required: true, options: [] },
+    ]
+    const beforeRemainingResponses = responses.length
+    render(); await sleep(); await sleep()
+    button('Choose question').click()
+    await wait(() => document.querySelectorAll('[data-question-picker] [role="menuitemradio"]').length === 3, 'Remaining-flow question picker opens')
+    ;(document.querySelectorAll('[data-question-picker] [role="menuitemradio"]')[2] as HTMLButtonElement).click(); await sleep()
+    typeAnswer('Already complete'); await sleep(); button('Continue').click()
+    await wait(() => Boolean(button('Finish questions')), 'Jumping ahead reaches incomplete review')
+    button('Finish questions').click(); await sleep()
+    check(input().value === '' && Boolean(button('Review')), 'Finishing starts at the first missing answer and can explicitly return to review')
+    button('Review').click(); await sleep(); button('Finish questions').click(); await sleep()
+    typeAnswer('First restored'); await sleep(); button('Continue').click()
+    await wait(() => Boolean(button('Choose question')?.textContent?.includes('2/3')), 'Continue goes directly to the next missing answer')
+    check(!button('Finish questions') && responses.length === beforeRemainingResponses, 'Finishing does not bounce through review or submit partial answers')
+    flushSync(() => root.render(null)); render(); await sleep(); await sleep()
+    check(button('Choose question').textContent?.includes('2/3') && input().value === '', 'Remaining-question position survives a panel remount')
+    typeAnswer('Second restored'); await sleep(); button('Continue').click()
+    await wait(() => Boolean(button('Submit')), 'After remount, finishing skips the completed last answer and returns to review')
+    check(responses.length === beforeRemainingResponses && document.body.textContent!.includes('Already complete'), 'Completed answers are retained and finishing never auto-submits')
+    button('Submit').click()
+    await wait(() => responses.length === beforeRemainingResponses + 1, 'A complete remaining-question flow submits only on explicit intent')
+    check(responses.at(-1).answers.answer === 'First restored' && responses.at(-1).answers.middle === 'Second restored' && responses.at(-1).answers.last === 'Already complete', 'Submission preserves both newly finished and previously completed answers')
+    results.push('Continue walks remaining questions, skips completed answers, persists across remounts, returns to review and requires explicit submission')
+    extraQuestions = []; choice = true
+    results.push('Question dictation, shared recorder, typed-draft append, cancel, latest-answer voice submission, numeric answers and stale-request isolation')
+    results.push('Bounded sliders, editable values, 0–100 and fractional ranges, untouched/cleared answers, explicit zero, fixed ranges and unbounded fallback')
     const ordinarySends: string[] = []
     const dismissed: string[] = []
     const paneRef = createRef<HTMLDivElement>()

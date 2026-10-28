@@ -4,6 +4,8 @@ import type {
     AssistantUserInputQuestion
 } from '@shared/assistant/contracts'
 
+import { parseQuestionDate } from './assistant-question-date'
+
 export type AssistantPendingUserInputDraftAnswers = Record<string, AssistantUserInputAnswer>
 
 export type AssistantPendingUserInputProgress = {
@@ -70,7 +72,7 @@ export function isAssistantUserInputAnswerComplete(
             && (question.min === undefined || numericValue >= question.min)
             && (question.max === undefined || numericValue <= question.max)
     }
-    if (question.type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    if (question.type === 'date') return parseQuestionDate(value) !== null
     return true
 }
 

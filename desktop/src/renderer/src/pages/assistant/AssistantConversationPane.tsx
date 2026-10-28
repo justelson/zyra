@@ -7,7 +7,8 @@ import { hasActiveAssistantCompaction } from '@shared/assistant/compaction-state
 import { isAssistantSessionProjectLocked } from '@shared/assistant/session-project'
 import { usePinnedSessionIds } from './assistant-pinned-sessions'
 import { useAssistantSettlementOverrides } from './assistant-settlement-store'
-import { resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
+import { createChatSettlementToast, resolveChatMenuSettlement, setChatSettlement, toggleChatPinned } from './assistant-chat-menu-state'
+import type { AssistantToastInput } from './AssistantToast'
 import { useAssistantRailTitleRegeneration } from './useAssistantRailTitleRegeneration'
 import { resolveAssistantWorkingDirectory } from '@shared/assistant/working-directory'
 import { useSettings, type AssistantProductProfile } from '@/lib/settings'
@@ -31,7 +32,7 @@ import { projectVoiceLiveTimelineMessages } from './assistant-voice-live-timelin
 import { resolveAssistantComposerLaunchConfiguration } from './assistant-new-chat-composer-config'
 import { supportsAssistantFastMode } from './assistant-model-groups'
 import { AssistantCanonicalVoiceDock } from './AssistantCanonicalVoiceDock'
-import { AssistantCanonicalVoiceStage } from './AssistantCanonicalVoiceStage'
+import { VoiceHandoffDialog } from './VoiceHandoffDialog'
 import { AssistantChatOnboardingOverlay } from './AssistantChatOnboardingOverlay'
 import { AssistantConnectionRecoveryBanner } from './AssistantConnectionRecoveryBanner'
 import { AssistantConversationHeader } from './AssistantConversationHeader'
@@ -58,7 +59,7 @@ import { useAssistantConnectionRecovery } from './useAssistantConnectionRecovery
 import { useAssistantQueuedComposer, type AssistantQueuedComposerSessionState } from './useAssistantQueuedComposer'
 import { registerAppStopOwner } from './assistant-app-owner-state'
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
-import { useInstructorVoiceSession } from './useInstructorVoiceSession'
+import { useAppVoiceSession } from './useAppVoiceSession'
 import { useAssistantPageTimelineScroll } from './useAssistantPageTimelineScroll'
 import { useAssistantProjectCatalog } from './useAssistantProjectCatalog'
 import { resolveAssistantProjectLabel } from './assistant-project-label'
@@ -75,7 +76,7 @@ const TIMELINE_HIDE_SCROLL_BUTTON_THRESHOLD_PX = 180
 const IMPLEMENT_MODE_TOAST_MS = 2600
 const NEW_CHAT_HANDOFF_VISUAL_MS = 360
 const NEW_CHAT_HANDOFF_SESSION_ID = 'assistant-session-new-chat-handoff'
-const VOICE_TIMELINE_RESERVE_PX = 500
+const VOICE_TIMELINE_RESERVE_PX = 150
 const VOICE_SCROLL_BUTTON_BOTTOM_PX = 78
 type PendingProjectSelection = {
     sessionId: string
@@ -194,7 +195,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const chatSettlement = controller.selectedSession ? resolveChatMenuSettlement(controller.selectedSession, chatSettlementOverrides, chatPinned, controller.activeThread?.id || null, optimisticPromptSending || settlementHasPendingControl) : null
     const chatSettled = chatSettlement?.settled ?? false
     const settlementDisabled = !chatSettlement || chatSettlement.priority
-    const showChatActionToast = useCallback((input: { message: string; tone?: 'success' | 'error' | 'info' }) => props.onShowToast?.(input.message, input.tone), [props.onShowToast])
+    const showChatActionToast = useCallback((input: AssistantToastInput) => props.onShowToast?.(input.message, input.tone, input.action), [props.onShowToast])
     const regenerateChatTitle = useAssistantRailTitleRegeneration(showChatActionToast)
     const handleRegenerateChatTitle = useCallback(() => { if (controller.selectedSession) return regenerateChatTitle(controller.selectedSession) }, [controller.selectedSession, regenerateChatTitle])
     const handleToggleChatPinned = useCallback(() => {
@@ -203,8 +204,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         props.onShowToast?.(pinned ? 'Pinned chat' : 'Unpinned chat', 'success')
     }, [controller.selectedSession, props.onShowToast])
     const handleToggleChatSettlement = useCallback(() => {
-        if (controller.selectedSession && !settlementDisabled) void setChatSettlement(controller.selectedSession, !chatSettled).catch(error => props.onShowToast?.(error.message, 'error'))
-    }, [controller.selectedSession, settlementDisabled, chatSettled])
+        const session = controller.selectedSession
+        if (!session || settlementDisabled) return
+        void setChatSettlement(session, !chatSettled)
+            .then(() => showChatActionToast(createChatSettlementToast(session, !chatSettled)))
+            .catch(error => showChatActionToast({ message: error.message, tone: 'error' }))
+    }, [controller.selectedSession, settlementDisabled, chatSettled, showChatActionToast])
     const selectedSessionId = controller.selectedSession?.id || null
     const activeThreadId = controller.activeThread?.id || null
     const handleLoadOlderHistory = useCallback((turnLimit = 1) => actions.loadOlderHistory(activeThreadId || undefined, turnLimit), [actions, activeThreadId])
@@ -214,21 +219,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             ? { conversationId: controller.activeThread.id, sessionId: selectedSessionId }
             : undefined
     ), [controller.activeThread?.id, selectedSessionId])
-    const voice = useInstructorVoiceSession(canonicalVoiceBinding)
+    const voice = useAppVoiceSession(canonicalVoiceBinding, controller.selectedSession?.title || 'Voice chat')
     const voiceVisible = voice.status !== 'idle'
-    const voiceThreadRef = useRef(controller.activeThread?.id || null)
     const voiceTimelineAnchorsRef = useRef<{ key: string; anchors: Map<string, number> }>({
         key: '',
         anchors: new Map()
     })
-    useEffect(() => {
-        const nextThreadId = controller.activeThread?.id || null
-        const previousThreadId = voiceThreadRef.current
-        voiceThreadRef.current = nextThreadId
-        if (previousThreadId && previousThreadId !== nextThreadId && voice.status !== 'idle') {
-            void voice.stop()
-        }
-    }, [controller.activeThread?.id, voice.status, voice.stop])
     const selectedSessionIsDraft = Boolean(controller.selectedSession && isAssistantDraftSession(controller.selectedSession))
     const selectedSessionUsesNewChatSurface = Boolean(selectedSessionIsDraft && !controller.selectedSession?.pendingLabRequest)
     const pendingCreateSessionInput = controller.pendingCreateSessionInput
@@ -903,6 +899,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         const images = buildPromptImageInputs(contextFiles)
         const result = await actions.sendPromptResult(browserPrompt, {
             sessionId,
+            queueEntryId: options.queueEntryId,
             dispatchMode: options.dispatchMode === 'steer' ? 'steer' : 'immediate',
             targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId : undefined,
             startInNewWorktree: options.startInNewWorktree,
@@ -911,7 +908,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             interactionMode: options.interactionMode,
             effort: options.effort,
             serviceTier: options.serviceTier,
-            profile: activeRuntimeZyraProfile,
+            profile: options.profile || activeRuntimeZyraProfile,
             images: images.length > 0 ? images : undefined
         }, canSubmit)
         if (!result.success) {
@@ -949,6 +946,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         isThreadWorking: !newChatHandoffActive && isThreadWorking,
         activeTurnId: newChatHandoffActive ? null : controller.activeThread?.latestTurn?.id || null,
         busyMessageMode: settings.assistantBusyMessageMode,
+        dispatchProfile: activeRuntimeZyraProfile,
         onSendingChange: handleComposerSendingChange,
         canDispatchPrompt,
         dispatchPrompt: handleDispatchPrompt,
@@ -1330,6 +1328,11 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             className="assistant-conversation-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
             data-assistant-chat-display={settings.assistantChatDisplayMode}
         >
+            {voice.handoff ? <VoiceHandoffDialog
+                currentTitle={voice.handoff.previous.launch?.title || 'another chat'}
+                nextTitle={voice.handoff.launch.title}
+                onReturn={voice.returnToCall} onSwitch={voice.confirmHandoff} onCancel={voice.cancelHandoff}
+            /> : null}
             <div className={cn(
                 'flex min-h-0 flex-1 flex-col transition-[filter,opacity] duration-200',
                 showChatOnboardingOverlay && 'pointer-events-none select-none blur-[2px] opacity-55'
@@ -1410,9 +1413,6 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onViewDiff={props.onViewDiff}
                         />
                     ) : null}
-                    {voiceVisible && !hasPendingControlApproval && effectivePendingApprovals.length === 0 ? (
-                        <AssistantCanonicalVoiceStage voice={voice} preferences={voicePreferences} />
-                    ) : null}
                     {voiceVisible && !hasPendingControlApproval ? (
                         <AssistantCanonicalVoiceDock
                             voice={voice}
@@ -1425,7 +1425,6 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         />
                     ) : (
                     <AssistantConversationComposerPane
-                        settled={chatSettled}
                         paneRef={composerPaneRef}
                         placement={composerIsCentered ? 'center' : 'bottom'}
                         newChatPrompt={emptyComposerPrompt}
@@ -1480,6 +1479,19 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         isConnecting={composerConnectionPresentation.connecting}
                         reconnectPending={composerConnectionPresentation.reconnectPending}
                         onOverflowWheel={handleComposerOverflowWheel}
+                        modelProgressTurnId={controller.activeThread?.latestTurn?.state === 'running' ? controller.activeThread.latestTurn.id : null}
+                        modelRequestProgress={controller.activeThread?.latestTurn?.state === 'running'
+                            && controller.activeThread.modelRequestProgress?.turnId === controller.activeThread.latestTurn.id
+                            && !controller.activeThread.latestTurn.runtimeRecoveryPending
+                            ? controller.activeThread.modelRequestProgress : null}
+                        onPingModel={async (requestId) => {
+                            const sessionId = controller.selectedSession?.id
+                            const turnId = controller.activeThread?.latestTurn?.id
+                            const ping = window.devscope.assistant.pingModel
+                            if (!sessionId || !turnId || !ping) throw new Error('Ping is unavailable. Reconnect to an updated agent.')
+                            const result = await ping({ sessionId, turnId, requestId })
+                            if (!result.success) throw new Error(result.error || 'Could not ping the model.')
+                        }}
                         onStop={async () => { await handleStopTurn() }}
                         isStopping={Boolean(stoppingSessions[activeComposerSessionId || ''])}
                         queueHeld={queueHeld}

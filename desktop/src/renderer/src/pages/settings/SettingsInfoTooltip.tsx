@@ -1,8 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Info } from 'lucide-react'
+import { Info, TriangleAlert } from 'lucide-react'
 
-export function SettingsInfoTooltip({ label, children }: { label: string; children: ReactNode }) {
+export function SettingsInfoTooltip({ label, children, tone = 'info' }: { label: string; children: ReactNode; tone?: 'info' | 'warning' }) {
     const id = useId()
     const buttonRef = useRef<HTMLButtonElement>(null)
     const tooltipRef = useRef<HTMLDivElement>(null)
@@ -62,19 +62,20 @@ export function SettingsInfoTooltip({ label, children }: { label: string; childr
             ref={buttonRef}
             type="button"
             aria-label={label}
+            data-tone={tone}
             aria-describedby={open ? id : undefined}
             onMouseEnter={show}
             onMouseLeave={scheduleClose}
             onFocus={show}
             onBlur={close}
             onClick={show}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[var(--settings-text-muted)] hover:bg-[var(--settings-control-hover)] hover:text-[var(--settings-text)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent-primary)]"
-        ><Info size={13} strokeWidth={1.8} /></button>
+            className={`inline-flex size-5 shrink-0 items-center justify-center rounded hover:bg-[var(--settings-control-hover)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent-primary)] ${tone === 'warning' ? 'text-[var(--status-warning)]' : 'text-[var(--settings-text-muted)] hover:text-[var(--settings-text)]'}`}
+        >{tone === 'warning' ? <TriangleAlert size={14} strokeWidth={1.8} aria-hidden="true" /> : <Info size={13} strokeWidth={1.8} aria-hidden="true" />}</button>
         {open ? createPortal(
             <div ref={tooltipRef} id={id} role="tooltip" style={position} onMouseEnter={cancelClose} onMouseLeave={scheduleClose}
                 className="fixed z-[3000] max-h-[calc(100vh-24px)] w-[min(360px,calc(100vw-24px))] overflow-y-auto rounded-md border border-[var(--settings-border-strong)] bg-[var(--settings-popover)] p-3 text-[12px] font-normal leading-5 text-[var(--settings-text-secondary)] shadow-xl">
                 {children}
-            </div>, buttonRef.current?.ownerDocument.body || document.body
+            </div>, buttonRef.current?.closest('dialog') || buttonRef.current?.ownerDocument.body || document.body
         ) : null}
     </>
 }

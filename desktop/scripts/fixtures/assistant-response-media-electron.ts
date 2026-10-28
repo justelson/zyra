@@ -67,7 +67,7 @@ void app.whenReady().then(async () => {
             audio.currentTime = 1; await until(() => !audio.seeking && Math.abs(audio.currentTime - 1) < 0.1, 'audio seek');
             return { initial, playedTo, seekTo: audio.currentTime, duration: audio.duration, imageWidth: image.naturalWidth };
         })()`, true)
-        assert.deepEqual(audioResult.initial, { paused: true, time: 0, autoplay: false, controls: true })
+        assert.deepEqual(audioResult.initial, { paused: true, time: 0, autoplay: false, controls: false })
         assert.ok(audioResult.playedTo > 0.15)
         assert.ok(Math.abs(audioResult.seekTo - 1) < 0.1)
         assert.ok(audioResult.imageWidth > 0)

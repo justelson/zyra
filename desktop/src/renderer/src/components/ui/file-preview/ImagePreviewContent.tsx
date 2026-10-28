@@ -31,11 +31,13 @@ function imageDimensionKey(filePath: string): string {
 }
 
 function readImageDimensions(filePath: string): ImageDimensions {
+    if (filePath.startsWith('data:')) return { width: 0, height: 0 }
     return imagePreviewDimensions.get(imageDimensionKey(filePath)) || { width: 0, height: 0 }
 }
 
 function rememberImageDimensions(filePath: string, dimensions: ImageDimensions): void {
-    if (!dimensions.width || !dimensions.height) return
+    // Captured media can be multi-megabyte data URLs; never retain their bytes as cache keys.
+    if (filePath.startsWith('data:') || !dimensions.width || !dimensions.height) return
     const key = imageDimensionKey(filePath)
     imagePreviewDimensions.delete(key)
     imagePreviewDimensions.set(key, dimensions)

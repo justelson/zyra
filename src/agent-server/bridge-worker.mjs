@@ -23,6 +23,7 @@ export class AgentBridgeWorker extends EventEmitter {
   }
 
   request(type, payload = {}, options = {}) {
+    if (this.shutdownReason && type !== 'dispose') return Promise.reject(new Error(this.shutdownReason));
     this.ensureStarted();
     if (!this.child?.stdin.writable) return Promise.reject(new Error("Agent bridge stdin is closed."));
     const id = this.nextId++;
@@ -50,6 +51,25 @@ export class AgentBridgeWorker extends EventEmitter {
     if (!this.child?.stdin.writable) return false;
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
     return true;
+  }
+
+  async shutdown(reason = 'Stopped for agent update.') {
+    const child = this.child;
+    if (!child || child.exitCode === 0) return;
+    if (child.exitCode !== null) throw new Error('Worker cleanup was not confirmed.');
+    if (!this.shutdownPromise) {
+      this.shutdownReason = reason;
+      this.shutdownPromise = new Promise((resolve, reject) => {
+        child.once('exit', code => code === 0 ? resolve() : reject(new Error('Worker cleanup failed.')));
+        // Keep this exit observer after a caller's deadline. A later retry can
+        // observe eventual cleanup instead of reusing a permanently timed-out promise.
+        void this.request('dispose', {}, { timeoutMs: 8_000 }).catch(() => {});
+      });
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Worker cleanup has not finished. Installation has not started.')), this.shutdownTimeoutMs || 8_000);
+      this.shutdownPromise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+    });
   }
 
   dispose(reason = "Agent bridge stopped.") {
@@ -104,7 +124,7 @@ export class AgentBridgeWorker extends EventEmitter {
       this.rejectPending(error);
     });
     this.child.on("exit", (code, signal) => {
-      const error = new Error(`Agent bridge exited${code === null ? "" : ` with code ${code}`}${signal ? ` signal ${signal}` : ""}.`);
+      const error = new Error(this.shutdownReason || `Agent bridge exited${code === null ? "" : ` with code ${code}`}${signal ? ` signal ${signal}` : ""}.`);
       this.child = null;
       this.rejectPending(error);
       if (!this.disposed) this.emit("exit", { code, signal, error });

@@ -83,8 +83,8 @@ type BrowserAssistantBridgeDependencies = {
     resolveClipboardAttachment: (reference: string) => Promise<string | null>
     getVoiceTranscriptionState: () => Promise<AssistantVoiceTranscriptionState>
     transcribeVoice: (input: AssistantTranscribeVoiceInput, signal?: AbortSignal) => Promise<string>
-    saveVoiceHistory: (input: import('../../shared/assistant/contracts').AssistantSaveVoiceHistoryInput) => Promise<void>
-    listVoiceHistory: () => Promise<import('../../shared/assistant/contracts').AssistantVoiceHistoryEntry[]>
+    saveVoiceHistory: (input: import('./voice-history').SaveVoiceHistoryInput) => Promise<void>
+    listVoiceHistory: (input: { page?: number }) => Promise<import('./voice-history').VoiceHistoryPage>
     getFailedVoiceRecording: (id: string) => Promise<string | null>
     deleteVoiceHistory: (id: string) => Promise<void>
     isOnboardingComplete?: () => boolean
@@ -106,7 +106,8 @@ export class BrowserAssistantBridge {
     private readonly voiceTranscriptionJobs: VoiceTranscriptionJobs
 
     constructor(private readonly dependencies: BrowserAssistantBridgeDependencies) {
-        this.voiceTranscriptionJobs = new VoiceTranscriptionJobs((input, signal) => dependencies.transcribeVoice(input, signal))
+        this.voiceTranscriptionJobs = new VoiceTranscriptionJobs((input, signal) => dependencies.transcribeVoice(input, signal),
+            (recording, error) => dependencies.saveVoiceHistory({ engine: 'codex', recording, error: error.message }))
     }
 
     async start(): Promise<{ host: string; port: number }> {
@@ -647,10 +648,11 @@ export class BrowserAssistantBridge {
                 cancelled: this.voiceTranscriptionJobs.cancel(`browser:${this.requireVoiceClient(clientId)}`, String(args[0] || ''))
             }
             case 'saveVoiceHistory': {
+                if ((args[0] as { engine?: string } | undefined)?.engine !== 'browser') throw new Error('Invalid voice history engine.')
                 await this.dependencies.saveVoiceHistory(args[0] as any)
                 return { success: true }
             }
-            case 'listVoiceHistory': return { success: true, entries: await this.dependencies.listVoiceHistory() }
+            case 'listVoiceHistory': return { success: true, ...await this.dependencies.listVoiceHistory((args[0] || {}) as { page?: number }) }
             case 'getFailedVoiceRecording': return { success: true, audioBase64: await this.dependencies.getFailedVoiceRecording(String(args[0] || '')) }
             case 'deleteVoiceHistory': {
                 await this.dependencies.deleteVoiceHistory(String(args[0] || ''))

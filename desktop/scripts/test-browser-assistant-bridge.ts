@@ -156,6 +156,10 @@ const bridge = new BrowserAssistantBridge({
     onAssistantClientCountChanged: (count) => browserClientCounts.push(count),
     persistClipboardImage: async () => 'persisted.png',
     resolveClipboardAttachment: async () => null,
+    saveVoiceHistory: async () => undefined,
+    listVoiceHistory: async input => ({ entries: [{ id: 'page-two', createdAt: '2026-10-23T20:00:00.000Z', engine: 'codex' as const, status: 'success' as const, durationMs: 1000, transcript: 'Browser page two.', error: null, hasRecording: false }], page: input.page || 1, pageSize: 20, totalCount: 41, totalPages: 3 }),
+    getFailedVoiceRecording: async () => null,
+    deleteVoiceHistory: async () => undefined,
     getVoiceTranscriptionState: async () => ({
         provider: 'codex',
         status: 'ready',
@@ -198,6 +202,14 @@ try {
     assert.equal(bootstrap.value.snapshot.sessions[0].title, 'Shared browser session', 'browser bootstrap must use the live AssistantService')
     assert.equal(typeof eventListener, 'function', 'the first protected Browser request binds live Assistant events')
     assert.equal(bootstrapResponse.headers.get('access-control-allow-origin'), allowedOrigin)
+    const historyResponse = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {
+        method: 'POST', headers, body: JSON.stringify({ method: 'listVoiceHistory', args: [{ page: 2 }] })
+    })
+    const historyPage = (await historyResponse.json() as any).value
+    assert.equal(historyPage.page, 2, 'The browser bridge forwards the requested transcription page')
+    assert.equal(historyPage.pageSize, 20)
+    assert.equal(historyPage.totalCount, 41)
+    assert.equal(historyPage.entries[0].id, 'page-two', 'Browser history retains the native page metadata without nesting the page in entries')
 
     for (const clientId of ['browser-view-tab-0001', 'browser-view-tab-0002']) {
         const viewed = await fetch(`${baseUrl}${BROWSER_ASSISTANT_BRIDGE_INVOKE_PATH}`, {

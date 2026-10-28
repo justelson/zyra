@@ -10,7 +10,7 @@ export class SessionWorkerPool {
   }
 
   prepare() {
-    if (this.disposed || this.spare) return;
+    if (this.disposed || this.paused || this.spare) return;
     const worker = this.createWorker({ root: this.root, cwd: this.root });
     this.spare = worker;
     // Never make acquisition await discovery or a separate warmup deadline.
@@ -23,7 +23,7 @@ export class SessionWorkerPool {
   }
 
   acquire(input) {
-    if (this.disposed) throw new Error('Session worker pool is closed.');
+    if (this.disposed || this.paused) throw new Error('Session worker pool is closed for an update.');
     const worker = this.spare;
     this.spare = null;
     if (!worker?.isAlive()) worker?.dispose('Prepared session worker exited.');

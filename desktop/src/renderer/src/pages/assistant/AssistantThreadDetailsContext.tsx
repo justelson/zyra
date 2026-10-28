@@ -58,6 +58,14 @@ export function AssistantThreadDetailsContext({
                 <span>{contextLimit ? `${autoCompaction ? 'compacts at' : 'window'} ${formatPiTokenCount(contextLimit)}` : ''}</span>
             </div>
 
+            <dl className="mt-3 space-y-1.5 border-t border-white/[0.05] pt-3 text-[9px]" aria-label="Cache reuse">
+                {[['Whole chat', usage.cacheHitPercent], ['Latest turn', usage.turnCacheHitPercent], ['Latest request', usage.latestRequestCacheHitPercent]].map(([label, percent]) => (
+                    <div key={String(label)} className="flex items-center justify-between gap-3">
+                        <dt className="text-sparkle-text-muted/50">{label} cache reuse</dt>
+                        <dd className="font-mono text-sparkle-text-secondary">{typeof percent === 'number' ? `${percent.toFixed(1)}%` : '—'}</dd>
+                    </div>
+                ))}
+            </dl>
             <div className="mt-3 flex items-baseline justify-between gap-4 border-t border-white/[0.05] pt-3" title={costTitle} data-thread-model-cost={usage.costUsd == null ? 'unavailable' : usage.costSource}>
                 <span className="text-[9px] text-sparkle-text-muted/50">Estimated model cost</span>
                 <strong className="font-mono text-[12px] font-medium tabular-nums text-sparkle-text-secondary">{costDisplay}</strong>

@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Database } from 'sql.js/dist/sql-asm.js'
+import type { Database, SqlValue } from 'sql.js/dist/sql-asm.js'
 import type { AssistantTranscribeVoiceInput, AssistantVoiceHistoryEntry } from '../../shared/assistant/contracts'
 import { openNativeSqliteDatabase } from './native-sqlite-adapter'
 import { decodeCodexVoiceInput, transcribeVoiceWithCodex } from './codex-voice-transcription'
@@ -32,12 +32,14 @@ async function database(): Promise<Database> {
     return databasePromise
 }
 
-export async function saveVoiceHistory(input: {
+export type SaveVoiceHistoryInput = {
     engine: 'browser' | 'codex'
     recording: AssistantTranscribeVoiceInput
     transcript?: string
     error?: string
-}): Promise<void> {
+}
+
+export async function saveVoiceHistory(input: SaveVoiceHistoryInput): Promise<void> {
     const audio = decodeCodexVoiceInput(input.recording)
     const transcript = input.transcript?.trim() || null
     const db = await database()
@@ -52,19 +54,52 @@ export async function saveVoiceHistory(input: {
     })
 }
 
-export async function listVoiceHistory(): Promise<AssistantVoiceHistoryEntry[]> {
-    const db = await database()
-    // Keep retained recordings reachable for playback/deletion even after 200 newer transcripts.
-    const rows = db.exec(`SELECT id, created_at, engine, status, duration_ms, transcript, error, failed_audio IS NOT NULL
-        FROM voice_history WHERE id IN (SELECT id FROM voice_history ORDER BY created_at DESC LIMIT 200)
-        OR id IN (SELECT id FROM voice_history WHERE failed_audio IS NOT NULL ORDER BY created_at DESC LIMIT ?)
-        ORDER BY created_at DESC`, [MAX_FAILED_VOICE_HISTORY_RECORDINGS])[0]?.values || []
-    return rows.map(row => ({
+export interface VoiceHistoryPage {
+    entries: AssistantVoiceHistoryEntry[]
+    page: number
+    pageSize: number
+    totalCount: number
+    totalPages: number
+}
+
+// Kept separate from profile access so the exact bounded query can be tested with native SQLite.
+export function queryVoiceHistoryPage(db: Database, input: { page?: number } = {}): VoiceHistoryPage {
+    const pageSize = 20
+    const requestedPage = input.page ?? 1
+    if (!Number.isSafeInteger(requestedPage) || requestedPage < 1) throw new Error('Invalid voice history page.')
+    const totalCount = Number(db.exec('SELECT COUNT(*) FROM voice_history')[0]?.values[0]?.[0] || 0)
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+    const page = Math.min(requestedPage, totalPages)
+    const entries = readVoiceHistoryRows(db, pageSize, (page - 1) * pageSize)
+    return { entries, page, pageSize, totalCount, totalPages }
+}
+
+function voiceHistoryEntryFromRow(row: SqlValue[]): AssistantVoiceHistoryEntry {
+    return {
         id: String(row[0]), createdAt: String(row[1]), engine: row[2] === 'browser' ? 'browser' : 'codex',
         status: row[3] === 'success' ? 'success' : 'failed', durationMs: Number(row[4]),
         transcript: typeof row[5] === 'string' ? row[5] : null,
         error: typeof row[6] === 'string' ? row[6] : null, hasRecording: Boolean(row[7])
-    }))
+    }
+}
+
+function readVoiceHistoryRows(db: Database, limit: number, offset: number): AssistantVoiceHistoryEntry[] {
+    const rows = db.exec('SELECT id, created_at, engine, status, duration_ms, transcript, error, failed_audio IS NOT NULL FROM voice_history ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?', [limit, offset])[0]?.values || []
+    return rows.map(voiceHistoryEntryFromRow)
+}
+
+// Legacy bridge consumers still receive their existing array shape.
+export function listVoiceHistory(): Promise<AssistantVoiceHistoryEntry[]>
+export function listVoiceHistory(input: { page?: number }): Promise<VoiceHistoryPage>
+export async function listVoiceHistory(input?: { page?: number }): Promise<AssistantVoiceHistoryEntry[] | VoiceHistoryPage> {
+    const db = await database()
+    if (input) return queryVoiceHistoryPage(db, input)
+    // Older bridge callers cannot page; keep retained failed audio reachable there too.
+    const rows = db.exec(`SELECT id, created_at, engine, status, duration_ms, transcript, error, failed_audio IS NOT NULL
+        FROM voice_history WHERE id IN (SELECT id FROM voice_history ORDER BY created_at DESC, id DESC LIMIT 200)
+        OR id IN (SELECT id FROM voice_history WHERE failed_audio IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT ?)
+        ORDER BY created_at DESC, id DESC`, [MAX_FAILED_VOICE_HISTORY_RECORDINGS])[0]?.values || []
+    return rows.map(voiceHistoryEntryFromRow)
 }
 
 export async function getFailedVoiceRecording(id: string): Promise<string | null> {
@@ -87,7 +122,8 @@ export async function transcribeVoiceAndSave(input: AssistantTranscribeVoiceInpu
         await saveVoiceHistory({ engine: 'codex', recording: input, transcript: text })
         return text
     } catch (error) {
-        if (signal?.aborted) throw error
+        // An explicit discard stays a discard; losing a renderer/client must retain its audio.
+        if (signal?.aborted && (signal.reason as { code?: string } | undefined)?.code !== 'VOICE_OWNER_CLOSED') throw error
         await saveVoiceHistory({ engine: 'codex', recording: input, error: error instanceof Error ? error.message : 'Voice transcription failed.' })
         throw error
     }

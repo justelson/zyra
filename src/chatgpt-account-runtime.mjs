@@ -60,7 +60,7 @@ export function installChatGptAccountRouting(runtime, pool, context) {
   runtime.getAuth = async (model, options = {}) => {
     const provider = typeof model === 'string' ? model : model.provider;
     if (provider !== CHATGPT_PROVIDER || context.getStore()) return getAuth(model, options);
-    const lease = await pool.resolve(typeof model === 'string' ? '*' : model.id, options.signal);
+    const lease = await pool.resolve(typeof model === 'string' ? '*' : model.id, options.signal, options.sessionId);
     return context.run(lease, () => getAuth(model, options));
   };
   for (const method of ['stream', 'streamSimple']) {
@@ -75,7 +75,7 @@ export function installChatGptAccountRouting(runtime, pool, context) {
         while (true) {
           options.signal?.throwIfAborted();
           let lease;
-          try { lease = await pool.acquire(model.id, tried, options.signal); }
+          try { lease = await pool.acquire(model.id, tried, options.signal, options.sessionId); }
           catch (error) {
             if (error.chatGptAccountId) { tried.add(error.chatGptAccountId); lastFailure = error; continue; }
             throw error.resetAt ? error : lastFailure || error;

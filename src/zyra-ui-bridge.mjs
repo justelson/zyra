@@ -1,4 +1,5 @@
 import { normalizePromptImages } from './prompt-images.mjs';
+import { pingActiveModel } from './model-ping.mjs';
 import { abortManagedBashForegroundJobs, assertManagedBashCleanup, listManagedBashJobs, stopManagedBashJobs } from './managed-bash-tool.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
 import { normalizeCanonicalMessageSourceId } from './message-identity.mjs';
@@ -284,6 +285,7 @@ async function handleConnect(payload) {
     reasoningSummary: payload.reasoningSummary ?? (payload.surface === "memory-worker" ? "auto" : undefined),
     startInNewWorktree: payload.startInNewWorktree,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
+    modelCompactionOverrides: payload.modelCompactionOverrides,
     tools: Array.isArray(payload.tools) ? payload.tools : undefined,
     excludeTools: Array.isArray(payload.excludeTools) ? payload.excludeTools : undefined,
     surface: payload.surface === "memory-worker" ? "memory-worker" : "agent-server",
@@ -302,6 +304,9 @@ async function handleConnect(payload) {
     requestUserInput,
     onChatTitle: payload.surface === 'memory-worker' ? undefined : async (title) => {
       send({ type: 'event', event: { type: 'session_title', ...title } });
+    },
+    onWorkContext: payload.surface === 'memory-worker' || payload.purpose === 'voice-primary' || payload.noSession === true ? undefined : async (workContext) => {
+      send({ type: 'event', event: { type: 'session_work_context', workContext } });
     },
     getPermissionMode: () => activePermissionMode,
     ...overrides,
@@ -337,8 +342,8 @@ async function handleConnect(payload) {
     if (event.type === "agent_end" && event.willRetry !== true) idleMemoryScheduler?.idle();
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
     if (!normalized) return;
-    if ((isToolExecutionEvent(normalized) && normalized.toolName === 'set_chat_title')
-      || event.message?.role === 'toolResult' && event.message?.toolName === 'set_chat_title') return;
+    if ((isToolExecutionEvent(normalized) && ['set_chat_title', 'set_work_context'].includes(normalized.toolName))
+      || event.message?.role === 'toolResult' && ['set_chat_title', 'set_work_context'].includes(event.message?.toolName)) return;
     if (isActionBatchIntentEvent(normalized)) {
       activeActionBatchIntent = readActionBatchIntentFromEvent(normalized) || activeActionBatchIntent;
       return;
@@ -487,6 +492,10 @@ function normalizeEvent(event, modelContextWindow) {
     };
     return { ...normalized, surface: normalizeAgentSurfaceTool(normalized) };
   }
+
+  if (type === 'model_request_progress') return { type, progress: cloneJsonValue(event.progress) };
+  if (type === 'model_ping') return { type, requestId: stringValue(event.requestId), status: stringValue(event.status) };
+  if (type === 'message_discarded') return { type, message: normalizeMessage(event.message, modelContextWindow), requestId: stringValue(event.requestId), reason: event.reason };
 
   if (type === "session_title") {
     return { type, title: stringValue(event.title), titleSource: stringValue(event.titleSource), expectedTitle: stringValue(event.expectedTitle) };
@@ -815,8 +824,11 @@ async function handlePrompt(payload) {
   await sdk.runZyraPrompt(runtime, payload.prompt, {
     images,
     startInNewWorktree: payload.startInNewWorktree,
+    privateVoiceTaskContext: payload.privateVoiceTaskContext,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
+    modelCompactionOverrides: payload.modelCompactionOverrides,
     chatTitleState: payload.chatTitleState,
+    workContext: payload.workContext,
   });
   return {};
 }
@@ -883,6 +895,8 @@ async function handleModels(payload) {
     const { syncOpenAIModelCatalog, applyOpenAIModelCatalog } = await import('./openai-model-catalog.mjs');
     const registry = runtime.session.modelRegistry;
     await applyOpenAIModelCatalog(registry, await syncOpenAIModelCatalog({ ...registry.zyraOpenAIModelCatalogOptions, authStorage: registry.authStorage, forceRefresh: Boolean(payload.forceRefresh) }));
+    const { refreshDirectApiModelCatalog } = await import('./direct-api-model-catalog.mjs');
+    await refreshDirectApiModelCatalog(registry, { forceRefresh: Boolean(payload.forceRefresh) });
     return {
       models: sdk.getZyraAvailableModels(runtime.session.modelRegistry).map((model) => modelToInfo(model, sdk)),
     };
@@ -919,16 +933,28 @@ async function handleAbort() {
 }
 
 async function handleCanonicalMessageOperation(type, payload = {}) {
-  const sessionManager = runtime?.session?.sessionManager;
+  const session = runtime?.session;
+  const sessionManager = session?.sessionManager;
   if (!sessionManager) throw new Error("Zyra canonical session is not connected.");
   if (type === "canonical_message.append") {
+    // Replacing live context during an SDK run/compaction would discard transient
+    // state. Reject before touching the ledger so the caller can retry when idle.
+    if (session.isStreaming || session.isCompacting) {
+      throw new Error("Wait for the current response or compaction to finish before appending a canonical message.");
+    }
     const receipt = appendCanonicalMessage(sessionManager, payload);
     const entries = sessionManager.getEntries();
     const receiptEntryId = /^(?:pi|zyra)_entry_(.+)$/.exec(String(receipt.receiptId || ""))?.[1];
     const index = entries.findIndex(entry => entry.id === receiptEntryId);
     const entry = entries[index];
     if (!entry?.message) throw new Error("The committed canonical message could not be read back.");
-    // Publish only after the ledger has durably flushed the exact entry. Every
+    if (!session.agent?.state) throw new Error("Zyra live canonical context is unavailable.");
+    // Always repair live state, including receipt replays after an interrupted
+    // sync. The SDK projection preserves the current branch and compaction;
+    // flattening getEntries() would resurrect summarized/abandoned messages.
+    session.agent.state.messages = sessionManager.buildSessionContext().messages;
+    // Publish only after durable append AND live-context sync, without emitting
+    // SDK events (which would persist twice) or starting another model turn. Every
     // attached client receives the same message identity as a later history read.
     send({ type: "event", event: { type: "message_end", canonicalCommit: true, historyEntryIndex: index, message: entry.message } });
     return { receipt };
@@ -941,6 +967,7 @@ async function handleCanonicalMessageOperation(type, payload = {}) {
 
 async function handleSessionOperation(type, payload = {}) {
   if (!runtime?.session) throw new Error("Zyra bridge is not connected.");
+  if (type === 'model_ping') return pingActiveModel(runtime, payload.requestId);
   if (type === "steer") {
     await runtime.session.steer(String(payload.prompt || ""), normalizePromptImages(payload.images));
     return {};
@@ -1207,7 +1234,7 @@ async function handleMessage(message) {
       sendResponse(id, true, { result: await handleCanonicalMessageOperation(message.type, message.payload ?? {}) });
       return;
     }
-    if (["steer", "follow_up", "compact", "clear_queue", "reload"].includes(message?.type)) {
+    if (["steer", "model_ping", "follow_up", "compact", "clear_queue", "reload"].includes(message?.type)) {
       sendResponse(id, true, { result: await handleSessionOperation(message.type, message.payload ?? {}) });
       return;
     }

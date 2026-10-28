@@ -11,6 +11,7 @@ import type {
     DevScopeUpdateActionResult,
     DevScopeUpdateState
 } from '@shared/contracts/devscope-api'
+import type { AgentUpdatePlan } from '@shared/agent-update'
 import { reportHostDesktopVersion } from './release-build-metadata'
 
 import { installableUpdateVersion, type UpdatePendingAction } from './app-update-presentation'
@@ -25,7 +26,11 @@ interface AppUpdatesContextValue {
     pendingAction: UpdatePendingAction
     actionError: string | null
     installConfirmationVersion: string | null
-    confirmInstallUpdate: () => Promise<DevScopeUpdateActionResult | null>
+    installPlan: AgentUpdatePlan | null
+    installPreflightPending: boolean
+    refreshInstallPlan: () => Promise<void>
+    resumePreviousAgent: () => Promise<DevScopeUpdateActionResult | null>
+    confirmInstallUpdate: (stopBlockers?: boolean) => Promise<DevScopeUpdateActionResult | null>
     cancelInstallUpdate: () => void
     isModalOpen: boolean
     shouldShowPrompt: boolean
@@ -115,17 +120,30 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
     const [actionError, setActionError] = useState<string | null>(null)
     const [installConfirmationVersion, setInstallConfirmationVersion] = useState<string | null>(null)
     const installConfirmationRef = useRef<string | null>(null)
+    const [installPlan, setInstallPlan] = useState<AgentUpdatePlan | null>(null)
+    const installPlanRef = useRef<AgentUpdatePlan | null>(null)
+    const [installPreflightPending, setInstallPreflightPending] = useState(false)
+    const preflightGeneration = useRef(0)
+    const externalInstallerRef = useRef<string | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [skippedVersion, setSkippedVersion] = useState<string | null>(() => readSkippedVersion())
     const [laterDownloadedVersion, setLaterDownloadedVersion] = useState<string | null>(null)
     const [updateSuccessToast, setUpdateSuccessToast] = useState<UpdateSuccessToastState | null>(null)
 
     const receiveState = (state: DevScopeUpdateState) => {
+        if (state.errorContext === 'install' && state.message && pendingActionRef.current === 'install') {
+            pendingActionRef.current = null; setPendingAction(null); setActionError(state.message)
+        }
         stateRef.current = reportHostDesktopVersion(state)
         setUpdateState(stateRef.current)
-        if (installConfirmationRef.current !== installableUpdateVersion(state)) {
+        const externalId = state.externalInstaller?.id || null
+        const externalChanged = externalId !== externalInstallerRef.current
+        externalInstallerRef.current = externalId
+        if (externalChanged || installConfirmationRef.current !== installableUpdateVersion(state)) {
             installConfirmationRef.current = null
             setInstallConfirmationVersion(null)
+            installPlanRef.current = null; setInstallPlan(null)
+            preflightGeneration.current++; setInstallPreflightPending(false)
         }
     }
 
@@ -229,12 +247,31 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const resumePreviousAgent = () => window.devscope.updates.resumePreviousAgent
+        ? runAction('check', () => window.devscope.updates.resumePreviousAgent!()) : Promise.resolve(null)
     const checkForUpdates = () => runAction('check', () => window.devscope.updates.checkForUpdates())
     const downloadUpdate = () => {
         setLaterDownloadedVersion(null)
         return runAction('download', () => window.devscope.updates.downloadUpdate())
     }
-    // Every renderer entry point requests confirmation; only confirmation calls IPC.
+    const refreshInstallPlan = async () => {
+        const version = installConfirmationRef.current
+        if (!version || pendingActionRef.current) return
+        const generation = ++preflightGeneration.current
+        setInstallPreflightPending(true); setActionError(null)
+        installPlanRef.current = null; setInstallPlan(null)
+        try {
+            if (!window.devscope.updates.preflightInstall) throw new Error('Use the updated Desktop app to review this installation.')
+            const plan = await window.devscope.updates.preflightInstall()
+            if (generation !== preflightGeneration.current || installConfirmationRef.current !== version) return
+            if (plan.version !== version || plan.agentServerUpdate !== true) throw new Error('The update changed. Review it again.')
+            installPlanRef.current = plan; setInstallPlan(plan)
+        } catch (error) {
+            if (generation !== preflightGeneration.current) return
+            setActionError(error instanceof Error ? error.message : 'Could not check the agent.')
+        } finally { if (generation === preflightGeneration.current) setInstallPreflightPending(false) }
+    }
+    // Every renderer entry point reviews the agent before any installer IPC.
     const installUpdate = async (): Promise<DevScopeUpdateActionResult | null> => {
         if (pendingActionRef.current) return null
         const version = installableUpdateVersion(stateRef.current)
@@ -242,18 +279,35 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         installConfirmationRef.current = version
         setInstallConfirmationVersion(version)
         setIsModalOpen(false)
+        await refreshInstallPlan()
         return null
     }
     const cancelInstallUpdate = () => {
+        if (pendingActionRef.current === 'install') return
+        preflightGeneration.current++
+        if (installConfirmationRef.current) setLaterDownloadedVersion(installConfirmationRef.current)
+        installPlanRef.current = null; setInstallPlan(null); setInstallPreflightPending(false)
+        void window.devscope.updates.deferInstall?.().catch(() => undefined)
         installConfirmationRef.current = null
         setInstallConfirmationVersion(null)
     }
-    const confirmInstallUpdate = async (): Promise<DevScopeUpdateActionResult | null> => {
+    const confirmInstallUpdate = async (stopBlockers = false): Promise<DevScopeUpdateActionResult | null> => {
         const version = installConfirmationRef.current
-        cancelInstallUpdate()
-        if (!version || version !== installableUpdateVersion(stateRef.current) || pendingActionRef.current) return null
-        return runAction('install', () => window.devscope.updates.installUpdate())
+        const plan = installPlanRef.current
+        if (!version || version !== installableUpdateVersion(stateRef.current) || pendingActionRef.current || installPreflightPending || !plan || plan.state === 'unknown') return null
+        if (plan.state === 'blocked' && !stopBlockers) return null
+        const result = await runAction('install', () => window.devscope.updates.installUpdate({ planId: plan.id, stopBlockers }))
+        if (result?.accepted && result.completed) {
+            installConfirmationRef.current = null; setInstallConfirmationVersion(null)
+        } else {
+            installPlanRef.current = null; setInstallPlan(null); setIsModalOpen(false)
+        }
+        return result
     }
+
+    useEffect(() => {
+        if (updateState?.externalInstaller && !installConfirmationRef.current) void installUpdate()
+    }, [updateState?.externalInstaller?.id, pendingAction])
 
     const skipAvailableVersion = () => {
         if (!updateState?.availableVersion) return
@@ -311,6 +365,10 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         pendingAction,
         actionError,
         installConfirmationVersion,
+        installPlan,
+        installPreflightPending,
+        refreshInstallPlan,
+        resumePreviousAgent,
         confirmInstallUpdate,
         cancelInstallUpdate,
         isModalOpen,

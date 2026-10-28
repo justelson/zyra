@@ -10,7 +10,7 @@
     "test:chatgpt-accounts": "node scripts/test-chatgpt-account-aliases.mjs && node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs && npm run test:chatgpt-network-isolation",
     "test:startup-performance": "node scripts/test-agent-server-cold-start.mjs && node scripts/test-session-engine-imports.mjs && node scripts/test-provider-refresh-batching.mjs",
     "test:openai-model-catalog": "node scripts/test-openai-model-catalog.mjs",
-    "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs",
+    "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs && node scripts/test-direct-api-model-catalog.mjs",
     "test:assistant-startup-latency": "node scripts/test-session-worker-pool.mjs && node scripts/test-harness-transport.mjs && node scripts/test-session-worker-preparation.mjs && node scripts/test-bridge-startup-catalog.mjs",
     "test:harness-performance": "node scripts/test-harness-performance.mjs",
     "test:openai-model-runtime": "node scripts/test-openai-model-runtime.mjs",
@@ -84,7 +84,7 @@
     "benchmark:analytics": "node --expose-gc scripts/benchmark-product-analytics.mjs",
     "voice:check-codex-contract": "node scripts/sync-codex-realtime-contract.mjs --check",
     "voice:sync-codex-contract": "node scripts/sync-codex-realtime-contract.mjs --write",
-    "test:voice-core": "npm run test:voice-agent-contracts && node scripts/test-zyra-canonical-message-ledger.mjs && bun run --cwd desktop test:assistant-voice-core",
+    "test:voice-core": "npm run test:voice-agent-contracts && node scripts/test-zyra-canonical-message-ledger.mjs && bun run --cwd desktop test:assistant-voice-core && node scripts/test-voice-live-context.mjs --compiled",
     "chat:migration-report": "node scripts/build-chat-metadata-migration-report.mjs",
     "chat:migration-apply": "node scripts/apply-chat-metadata-migration.mjs",
     "chat:seed-dev-fixtures": "node scripts/seed-development-chat-fixtures.mjs",
@@ -128,7 +128,13 @@
     "test:owned-runtime-session": "node scripts/test-owned-runtime-session.mjs",
     "test:owned-runtime-clipboard": "node scripts/test-owned-runtime-clipboard.mjs",
     "test:owned-codex-transport": "node scripts/test-owned-codex-transport.mjs",
-    "runtime:typecheck": "tsc --noEmit -p src/runtime/tsconfig.json"
+    "runtime:typecheck": "tsc --noEmit -p src/runtime/tsconfig.json",
+    "test:direct-api-model-catalog": "node scripts/test-direct-api-model-catalog.mjs && node scripts/test-google-groq-current-models.mjs --compiled",
+    "test:work-context": "node scripts/test-work-context.mjs && npm --prefix desktop run test:assistant-work-context",
+    "test:agent-update": "node scripts/test-agent-update-maintenance.mjs && node scripts/test-agent-update-worker.mjs && node scripts/test-agent-update-install.mjs",
+    "test:tool-log-benchmark": "node scripts/test-tool-log-improvements.mjs && node scripts/test-chat-tool-benchmark.mjs",
+    "test:context-cache": "bun scripts/test-compaction-safety.mjs && bun scripts/test-context-management.mjs && node scripts/test-model-compaction-policy.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-usage-aggregation.mjs && node scripts/test-agent-usage-reconciliation.mjs && node scripts/test-task-usage.mjs && bun scripts/test-cache-transport.mjs && node scripts/test-cache-prefix-stability.mjs && node scripts/test-chatgpt-account-pool.mjs && node scripts/test-cache-retention-check.mjs && node scripts/test-zyra-streaming-usage.mjs && node scripts/test-zyra-post-turn-compaction.mjs && bun --cwd desktop scripts/test-model-compaction-settings.tsx && bun --cwd desktop scripts/test-app-tool-icons.tsx && bun --cwd desktop scripts/test-context-usage-summary.tsx",
+    "test:model-ping": "bun scripts/test-model-ping-core.mjs && bun scripts/test-model-ping-session.mjs && node scripts/test-zyra-agent-server.mjs && npm --prefix desktop run test:model-ping"
   },
   "bin": {
     "zyra": "bin/zyra.mjs",

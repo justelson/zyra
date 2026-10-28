@@ -73,7 +73,7 @@ try {
   }
   syncBuiltinESMExports();
   try {
-    assert.deepEqual(sdk.getRuntimeUsageSnapshot(runtime), { usage: expectedUsage, contextUsage: { tokens: 400, contextWindow: 1000, percent: 40 } });
+    assert.deepEqual(sdk.getRuntimeUsageSnapshot(runtime), { usage: expectedUsage, contextUsage: { tokens: 400, contextWindow: 1000, percent: 40, compactionThresholdTokens: 800, compactionPolicySource: 'fallback' } });
     assert.equal(expectedUsage.costComplete, false, 'unpriced tool usage remains visibly incomplete');
     assert.equal(expectedUsage.total, 237, 'assistant, tool and compaction usage remain cumulative');
     runtime.session.getContextUsage = () => ({ tokens: null, contextWindow: 1000, percent: null });

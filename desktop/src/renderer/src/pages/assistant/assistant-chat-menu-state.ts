@@ -31,8 +31,16 @@ export function toggleChatPinned(sessionId: string) {
 export async function setChatSettlement(session: AssistantSession, settled: boolean, migrateLegacy = false) {
     const result = await window.devscope.assistant.settleSession(session.id, settled, migrateLegacy)
     if (!result.success) throw new Error(result.error || 'Could not update chat settlement.')
-    const { assistantStore } = await import('@/lib/assistant/assistant-store-core')
-    await assistantStore.refresh()
+    // The canonical session.updated event carries these metadata fields. A full
+    // refresh here re-enters loading and unnecessarily rehydrates the open thread.
+}
+
+export function createChatSettlementToast(session: AssistantSession, settled: boolean, undo?: () => void | Promise<void>): AssistantToastInput {
+    return {
+        message: settled ? 'Chat settled. Send a message to continue.' : 'Chat restored',
+        tone: 'success',
+        action: { label: 'Undo', run: undo || (() => setChatSettlement(session, !settled)) }
+    }
 }
 
 export async function copyChatThreadId(threadId: string | null, showToast?: (input: AssistantToastInput) => void) {

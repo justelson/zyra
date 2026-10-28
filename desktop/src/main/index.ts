@@ -9,7 +9,7 @@ import { browserRecordingCapture } from './browser-recording-capture'
  * Main Process Entry Point
  */
 
-import { app, BrowserWindow, Menu, dialog, shell, nativeTheme, protocol, globalShortcut, session, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, Menu, dialog, shell, nativeTheme, protocol, globalShortcut, session, screen, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { initializeProtectedMedia } from './protected-media-service'
 import { dirname, isAbsolute, join } from 'path'
 import { existsSync, statSync } from 'fs'
@@ -27,11 +27,12 @@ import { AgentAppService, type AgentAppDependencies } from './assistant/agent-ap
 import { createAgentAppActions } from './assistant/agent-app-actions'
 import { createAgentAppRendererOwner } from './assistant/agent-app-renderer-owner'
 import { AssistantUtilityWindowManager, type ResolvedUtilityChat, type UtilityWindowCreationOptions } from './assistant/assistant-utility-window-manager'
+import { VoiceWidgetManager } from './assistant/voice-widget-manager'
 import { persistAssistantClipboardImage, resolveAssistantClipboardAttachment } from './assistant/clipboard-attachments'
 import { getCodexVoiceTranscriptionState } from './assistant/codex-voice-transcription'
 import { deleteVoiceHistory, getFailedVoiceRecording, listVoiceHistory, saveVoiceHistory, transcribeVoiceAndSave } from './assistant/voice-history'
 import { BrowserClientRuntime } from './browser-client-runtime'
-import { configureUpdateAnalytics, disposeUpdater, initializeUpdater, registerUpdateWindow } from './update/manager'
+import { shouldAbortUpdateQuit, cancelPendingAppInstallation, receiveInstallerUpdateRequest, configureUpdateAnalytics, disposeUpdater, initializeUpdater, registerUpdateWindow } from './update/manager'
 import { registerFileProtocol } from './file-protocol'
 import { configureBrowserActionAnalytics, configureBrowserPermissionAnalytics, flushGlobalBrowserProfileStorage, isSafeBrowserNavigationUrl } from './ipc/handlers/browser-preview-handlers'
 import {
@@ -550,6 +551,20 @@ const browserRecordingOverlayManager = new BrowserRecordingOverlayManager({ brow
 browserRecordingOverlayManager.registerIpc()
 const nativeOverlayManager = new NativeOverlayManager()
 nativeOverlayManager.registerIpc()
+const voiceWidgetManager = new VoiceWidgetManager({
+    createWindow: createVoiceWidgetWindow,
+    returnToChat: async launch => {
+        await getAssistantService().selectSession(launch.sessionId)
+        await getAssistantService().selectThread(launch.sessionId, launch.conversationId)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore()
+            mainWindow.webContents.send(KEYBINDING_DISPATCH_CHANNEL, 'app.chat')
+            mainWindow.show()
+        }
+    },
+    onOwnerLost: senderId => getAssistantService().stopRealtimeVoice(senderId)
+})
+voiceWidgetManager.registerIpc()
 isIncognitoBrowserWebContents = (webContentsId) => (
     browserViewManager.isIncognitoWebContents(webContentsId)
     || browserPopupManager.isIncognitoWebContents(webContentsId)
@@ -719,7 +734,7 @@ function configureMainRendererMediaPermissions(): void {
     // A recording grant opens only the exact owner frame's display request.
     // Ordinary microphone access stays audio-only, including detached recorders.
     const canUseMicrophone = (contents: Electron.WebContents | null) => (
-        isTrustedMainRenderer(contents) || browserRecordingCapture.hasRecording(contents)
+        isTrustedMainRenderer(contents) || Boolean(contents && voiceWidgetManager.ownsWebContents(contents.id)) || browserRecordingCapture.hasRecording(contents)
     )
     session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => (
         details.isMainFrame && (
@@ -787,6 +802,23 @@ function createWindow(showOnReady = true, initialRoute = '/'): BrowserWindow {
     loadRendererRoute(window, initialRoute)
     registerUpdateWindow(window)
 
+    return window
+}
+
+function createVoiceWidgetWindow(): BrowserWindow {
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+    const window = new BrowserWindow({
+        width: 240, height: 280, x: area.x + area.width - 264, y: area.y + area.height - 304,
+        frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, thickFrame: false,
+        resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+        skipTaskbar: true, alwaysOnTop: true, show: false,
+        webPreferences: { preload: getPreloadPath(), sandbox: true, contextIsolation: true,
+            nodeIntegration: false, webviewTag: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', devTools: is.dev }
+    })
+    configureTrustedRendererWindow(window)
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.on('will-navigate', event => event.preventDefault())
+    loadRendererRoute(window, '/voice-widget')
     return window
 }
 
@@ -1146,6 +1178,7 @@ app.on('open-file', (event, filePath) => {
 
 app.on('second-instance', (_event, argv) => {
     if (argv.includes('--zyra-background-host')) return
+    receiveInstallerUpdateRequest(argv)
     setupServices.analytics.capture({
         event: 'zyra_v1_app_lifecycle',
         properties: { action: 'launch_ready', outcome: 'ready', launch_bucket: 'warm' }
@@ -1315,6 +1348,7 @@ app.whenReady().then(async () => {
     if (setupComplete && initialShellLaunchTarget?.kind === 'file') {
         createQuickPreviewWindow(initialShellLaunchTarget.path)
     }
+    receiveInstallerUpdateRequest(process.argv)
     startNormalDesktopRuntime()
     setupServices.analytics.capture({
         event: 'zyra_v1_app_lifecycle',
@@ -1377,6 +1411,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+    if (shouldAbortUpdateQuit()) { event.preventDefault(); return }
     if (quitCleanupComplete) return
     event.preventDefault()
     if (quitCleanupStarted) return
@@ -1413,6 +1448,7 @@ app.on('before-quit', (event) => {
         quitCleanupComplete = true
         app.quit()
     }).catch((error) => {
+        void cancelPendingAppInstallation('Local state could not be saved. Installation was cancelled.', false)
         quitCleanupStarted = false
         log.error('[Shutdown] Zyra kept running because local state could not be committed.', error)
         if (!mainWindow || mainWindow.isDestroyed()) {

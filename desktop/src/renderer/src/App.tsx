@@ -6,6 +6,7 @@ import { isBrowserExtension } from './lib/browser-extension'
 import { ExtensionSidebarHeader } from './components/layout/ExtensionSidebarHeader'
 import { RuntimeActivationNotice } from './components/updates/RuntimeActivationNotice'
 import { AssistantBrowserRecordingHost } from './pages/assistant/AssistantBrowserRecordingHost'
+import { AssistantVoiceProvider } from './pages/assistant/useAppVoiceSession'
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { migrateLegacyExplorerShellLaunchRoute } from '@shared/assistant/files-shell-launch-route'
@@ -22,6 +23,7 @@ import LinkHoverStatus from './components/ui/LinkHoverStatus'
 import { DesktopLinkHost } from './components/ui/DesktopLinkHost'
 import { UpdatePromptCenter } from './components/updates/UpdatePromptCenter'
 import { AppUpdatesProvider } from './lib/app-updates'
+import { UpdateInstallConfirmation } from './components/updates/UpdateInstallConfirmation'
 import { ProjectCreationProvider } from './lib/projects/project-creation'
 import { AssistantTitleBarProvider } from './lib/assistant/assistant-title-bar'
 import { OnboardingProvider } from './lib/onboarding'
@@ -56,6 +58,7 @@ import { SettingsCategoryRedirect, SettingsRedirect } from './pages/settings/Set
 const loadAssistantRoute = () => import('./pages/Assistant')
 const Assistant = lazy(loadAssistantRoute)
 const InstructorVoiceLab = lazy(() => import('./pages/assistant/InstructorVoiceLab'))
+const AssistantVoiceWidget = lazy(() => import('./pages/assistant/AssistantVoiceWidget').then(module => ({ default: module.AssistantVoiceWidget })))
 const PluginWorkspace = lazy(() => import('./pages/plugins/PluginWorkspace'))
 const AccessoryWindowPage = lazy(() => import('./pages/accessories/AccessoryWindowPage'))
 const SettingsShell = lazy(loadSettingsShell)
@@ -330,30 +333,31 @@ function AppContent() {
 
 function NormalDesktopApp() {
     return (
-        <AppUpdatesProvider>
-            <CommandPaletteProvider>
-                <TerminalContextProvider>
-                    <HashRouter>
-                        <AssistantTitleBarProvider>
-                            <ProjectCreationProvider>
-                                <AppMenuCommandHost />
-                                <ShortcutHints />
-                                <AgentAppOperations />
-                                <AppContent />
-                                <CommandPalette />
-                                <QuickOpenDialog />
-                                <UpdatePromptCenter />
-            <RuntimeActivationNotice />
-                            </ProjectCreationProvider>
-                        </AssistantTitleBarProvider>
-                    </HashRouter>
-                </TerminalContextProvider>
-            </CommandPaletteProvider>
-        </AppUpdatesProvider>
+        <CommandPaletteProvider>
+            <TerminalContextProvider>
+                <HashRouter>
+                    <AssistantTitleBarProvider>
+                        <ProjectCreationProvider>
+                            <AppMenuCommandHost />
+                            <ShortcutHints />
+                            <AgentAppOperations />
+                            <AppContent />
+                            <CommandPalette />
+                            <QuickOpenDialog />
+                            <UpdatePromptCenter />
+                            <RuntimeActivationNotice />
+                        </ProjectCreationProvider>
+                    </AssistantTitleBarProvider>
+                </HashRouter>
+            </TerminalContextProvider>
+        </CommandPaletteProvider>
     )
 }
 
 function AppSurface() {
+    if (/^#\/voice-widget(?:[/?]|$)/.test(window.location.hash)) {
+        return <Suspense fallback={null}><AssistantVoiceWidget /></Suspense>
+    }
     if (/^#\/accessories(?:[/?]|$)/.test(window.location.hash)) {
         return <SettingsProvider><TerminalContextProvider><HashRouter><Suspense fallback={<div className="flex h-screen items-center justify-center bg-sparkle-bg text-sm text-sparkle-text-secondary">Opening Accessories…</div>}><AccessoryWindowPage /></Suspense></HashRouter></TerminalContextProvider></SettingsProvider>
     }
@@ -380,11 +384,14 @@ function AppSurface() {
     }
     return (
         <SettingsProvider>
-            <OnboardingProvider>
-                <OnboardingGate loadingFallback={<AppBootSkeleton />}>
-                    <NormalDesktopApp />
-                </OnboardingGate>
-            </OnboardingProvider>
+            <AppUpdatesProvider>
+                <OnboardingProvider>
+                    <OnboardingGate loadingFallback={<AppBootSkeleton />}>
+                        <AssistantVoiceProvider><NormalDesktopApp /></AssistantVoiceProvider>
+                    </OnboardingGate>
+                </OnboardingProvider>
+                <UpdateInstallConfirmation />
+            </AppUpdatesProvider>
         </SettingsProvider>
     )
 }

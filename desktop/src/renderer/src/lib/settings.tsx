@@ -24,6 +24,7 @@ import {
     DEFAULT_ASSISTANT_REASONING_SUMMARY,
     normalizeAssistantContextCompactionThresholdTokens,
     normalizeAssistantReasoningSummaryMode,
+    normalizeModelCompactionOverrides,
     type AssistantReasoningSummaryMode
 } from '@shared/assistant/runtime-policy'
 import {
@@ -312,6 +313,7 @@ export interface Settings {
     assistantDefaultFastMode: boolean
     assistantReasoningSummary: AssistantReasoningSummary
     assistantContextCompactionThresholdTokens: number
+    assistantModelCompactionOverrides: Record<string, number>
     assistantDefaultWebSearch: boolean
     assistantDefaultWebFetch: boolean
     assistantBusyMessageMode: AssistantBusyMessageMode
@@ -704,6 +706,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 assistantDefaultEffort: sanitizeAssistantDefaultEffort(candidate.assistantDefaultEffort),
                 assistantDefaultFastMode: !!candidate.assistantDefaultFastMode,
                 assistantReasoningSummary: normalizeAssistantReasoningSummaryMode(candidate.assistantReasoningSummary),
+                assistantModelCompactionOverrides: normalizeModelCompactionOverrides(candidate.assistantModelCompactionOverrides),
                 assistantContextCompactionThresholdTokens: normalizeAssistantContextCompactionThresholdTokens(
                     candidate.assistantContextCompactionThresholdTokens
                 ),

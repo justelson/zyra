@@ -1,16 +1,21 @@
-import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import type { AssistantPendingUserInput, AssistantUserInputAnswer, AssistantUserInputQuestion } from '@shared/assistant/contracts'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { cn } from '@/lib/utils'
-import { ComposerFooterControls, ComposerSendButton } from './AssistantComposerSections'
+import { ComposerFooterControls, ComposerSendButton, ComposerVoiceButton } from './AssistantComposerSections'
+import { AssistantVoiceRecorderBar } from './AssistantVoiceRecorderBar'
+import { useComposerDrawerMotion } from './useComposerDrawerMotion'
+import type { useAssistantSpeechInput } from './useAssistantSpeechInput'
 import { AssistantPendingUserInputQuestionField } from './AssistantPendingUserInputQuestionField'
+import { AssistantComposerMenuSurface } from './AssistantComposerMenuSurface'
+import { AssistantQuestionPicker } from './AssistantQuestionPicker'
+import { AssistantQuestionTransition } from './AssistantQuestionTransition'
 import type { AssistantComposerController } from './useAssistantComposerController'
 
 export function AssistantPendingUserInputStage(props: {
     questionShellOpen: boolean
     questionShellMinimized: boolean
-    animatedStepRef: RefObject<HTMLDivElement | null>
+    motionKey: string
     isReviewStep: boolean
     activeQuestion: AssistantUserInputQuestion | null
     activePrompt: AssistantPendingUserInput
@@ -23,26 +28,21 @@ export function AssistantPendingUserInputStage(props: {
         isCustomAnswer: boolean
         selectedAnswer: AssistantUserInputAnswer | null
     }
-    reviewAnswers: Array<{ question: AssistantUserInputQuestion; index: number; answer: string }>
+    reviewAnswers: Array<{ question: AssistantUserInputQuestion; index: number; answer: string; complete: boolean }>
     responding: boolean
     returnToReview: boolean
-    expandedOptionKey: string | null
-    customTextareaRef: RefObject<HTMLTextAreaElement | null>
-    composerCapabilities: { attachDisabled: boolean; inputDisabled: boolean; placeholder: string }
     setQuestionIndex: (value: number | ((current: number) => number)) => void
     setReturnToReview: (value: boolean) => void
-    setExpandedOptionKey: (value: string | null | ((current: string | null) => string | null)) => void
     onToggleQuestionShellMinimized: () => void
     handleSelectOption: (questionId: string, optionLabel: string) => void
     handleToggleOption: (questionId: string, optionLabel: string) => void
     handleCustomAnswerChange: (questionId: string, value: string) => void
     handleRankingChange: (questionId: string, value: string[]) => void
-    handleCustomTextareaKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
 }) {
     const {
         questionShellOpen,
         questionShellMinimized,
-        animatedStepRef,
+        motionKey,
         isReviewStep,
         activeQuestion,
         activePrompt,
@@ -51,10 +51,8 @@ export function AssistantPendingUserInputStage(props: {
         reviewAnswers,
         responding,
         returnToReview,
-        expandedOptionKey,
         setQuestionIndex,
         setReturnToReview,
-        setExpandedOptionKey,
         onToggleQuestionShellMinimized,
         handleSelectOption,
         handleToggleOption,
@@ -62,55 +60,57 @@ export function AssistantPendingUserInputStage(props: {
         handleRankingChange
     } = props
 
-    return (
-        <AnimatedHeight isOpen={questionShellOpen} duration={240}>
-            <div ref={animatedStepRef} className="mb-1.5 overflow-hidden rounded-[18px] border border-white/5 bg-sparkle-bg/85">
-                <div data-guided-animate className={cn('px-4 pt-2 transition-[padding] duration-200', questionShellMinimized ? 'pb-2' : 'border-b border-white/5 pb-2')}>
-                    <div className="flex items-start justify-between gap-3">
-                        <p className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-sparkle-text-muted">
-                            {isReviewStep ? 'Review Decisions' : activeQuestion?.header}
-                        </p>
-                        <div className="flex shrink-0 items-center gap-2 text-[11px]">
-                            <span className="rounded-full bg-white/[0.04] px-2 py-0.5 font-semibold uppercase tracking-[0.12em] text-emerald-200">Guided Input</span>
-                            <span className="rounded-full bg-white/[0.03] px-2 py-0.5 font-medium tabular-nums text-sparkle-text-secondary">{isReviewStep ? 'Review' : `${progress.questionIndex + 1}/${activePrompt.questions.length}`}</span>
-                            {pendingUserInputsLength > 1 ? <span className="rounded-full bg-white/[0.03] px-2 py-0.5 text-sparkle-text-muted">1/{pendingUserInputsLength}</span> : null}
-                            <button type="button" onClick={onToggleQuestionShellMinimized} className="inline-flex size-6 items-center justify-center rounded-full bg-white/[0.04] text-sparkle-text-secondary transition-colors hover:bg-white/[0.07] hover:text-sparkle-text" title={questionShellMinimized ? 'Expand question' : 'Minimize question'} aria-label={questionShellMinimized ? 'Expand guided question' : 'Minimize guided question'} aria-expanded={!questionShellMinimized}>
-                                {questionShellMinimized ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                            </button>
-                        </div>
-                    </div>
-                    {!questionShellMinimized ? <p className="mt-1 text-[13px] leading-4 text-sparkle-text">{isReviewStep ? 'Review every answer before sending it back.' : activeQuestion?.question}</p> : null}
-                </div>
 
-                {!questionShellMinimized && isReviewStep ? (
-                    <div className="custom-scrollbar max-h-[286px] space-y-1.5 overflow-y-auto overscroll-contain px-3 py-2.5 pr-2">
+    const drawerMotion = useComposerDrawerMotion(questionShellOpen)
+    return (
+        <AnimatedHeight isOpen={drawerMotion.open} duration={220} crispContent contentClassName={cn('transition-[transform,opacity] duration-[220ms] ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none', drawerMotion.open ? 'translate-y-0 opacity-100' : 'translate-y-1.5 opacity-0')}>
+            <AssistantComposerMenuSurface title="Questions">
+            <div data-question-tray>
+                <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] text-sparkle-text-muted">
+                    <span className="min-w-0 flex-1 truncate">{isReviewStep ? 'Review answers' : activeQuestion?.header}</span>
+                    <AssistantQuestionPicker requestId={activePrompt.requestId} currentIndex={progress.questionIndex} label={isReviewStep ? `${progress.answeredQuestionCount}/${activePrompt.questions.length}` : `${progress.questionIndex + 1}/${activePrompt.questions.length}`} questions={reviewAnswers} disabled={responding} onChoose={index => {
+                        setQuestionIndex(index)
+                        setReturnToReview(isReviewStep || returnToReview)
+                        if (questionShellMinimized) onToggleQuestionShellMinimized()
+                    }} />
+                    {!isReviewStep && activeQuestion?.required === false ? <span>· Optional</span> : null}
+                    {pendingUserInputsLength > 1 ? <span>· {pendingUserInputsLength} requests</span> : null}
+                    <button type="button" onClick={onToggleQuestionShellMinimized} className="inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/5 hover:text-sparkle-text" title={questionShellMinimized ? 'Expand question' : 'Minimize question'} aria-label={questionShellMinimized ? 'Expand guided question' : 'Minimize guided question'} aria-expanded={!questionShellMinimized}>
+                        {questionShellMinimized ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                </div>
+                <AnimatedHeight isOpen={!questionShellMinimized} duration={220} crispContent contentClassName="transition-opacity duration-[220ms] motion-reduce:transition-none">
+                <AssistantQuestionTransition sectionKey={motionKey}>
+                <p className="px-3 pb-2 text-[13px] font-medium leading-5 text-sparkle-text">{isReviewStep ? 'Review every answer before sending it back.' : activeQuestion?.question}</p>
+
+                {isReviewStep ? (
+                    <div className="custom-scrollbar max-h-[min(18rem,36vh)] space-y-1 overflow-y-auto overscroll-contain px-2 pb-2">
                         {reviewAnswers.map(({ question, index, answer }) => (
                             <button data-guided-animate key={question.id} type="button" disabled={responding} onClick={() => {
                                 setQuestionIndex(index)
                                 setReturnToReview(true)
-                            }} className="flex w-full items-start justify-between gap-3 rounded-2xl bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]">
+                            }} className="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/[0.045]">
                                 <span className="min-w-0 flex-1">
                                     <span className="flex items-center gap-2">
                                         <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.1] px-1.5 text-[10px] font-semibold tabular-nums text-sparkle-text">{index + 1}</span>
-                                        <span className="truncate text-[12px] font-medium text-sparkle-text">{question.question}</span>
+                                        <span className="min-w-0 break-words text-[12px] font-medium leading-5 text-sparkle-text">{question.question}</span>
                                     </span>
                                     <span className="mt-1.5 flex items-center gap-2">
                                         <span className="shrink-0 rounded-full bg-white/[0.07] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-sparkle-text-secondary">{question.header}</span>
-                                        <span className="min-w-0 truncate text-[12px] text-sparkle-text-muted">{answer}</span>
+                                        <span className="min-w-0 whitespace-pre-wrap break-words text-[12px] leading-5 text-sparkle-text-secondary">{answer}</span>
                                     </span>
                                 </span>
                                 <span className="mt-0.5 shrink-0 rounded-full bg-white/[0.07] px-2 py-0.5 text-[10px] font-medium text-sparkle-text">Change</span>
                             </button>
                         ))}
                     </div>
-                ) : !questionShellMinimized && activeQuestion && activeQuestion.type !== 'text' ? (
-                    <div className="px-3 py-2.5">
+                ) : activeQuestion && activeQuestion.type !== 'text' ? (
+                    <div className="custom-scrollbar max-h-[min(18rem,36vh)] overflow-y-auto overscroll-contain px-2 pb-2">
                         <AssistantPendingUserInputQuestionField
+                            key={`${activePrompt.requestId}:${activeQuestion.id}`}
                             question={activeQuestion}
                             answer={progress.selectedAnswer}
                             responding={responding}
-                            expandedOptionKey={expandedOptionKey}
-                            setExpandedOptionKey={setExpandedOptionKey}
                             onSelectOption={handleSelectOption}
                             onToggleOption={handleToggleOption}
                             onScalarChange={handleCustomAnswerChange}
@@ -118,7 +118,10 @@ export function AssistantPendingUserInputStage(props: {
                         />
                     </div>
                 ) : null}
+                </AssistantQuestionTransition>
+                </AnimatedHeight>
             </div>
+            </AssistantComposerMenuSurface>
         </AnimatedHeight>
     )
 }
@@ -126,6 +129,10 @@ export function AssistantPendingUserInputStage(props: {
 export function AssistantPendingUserInputFooter(props: {
     composerController: AssistantComposerController
     composerCapabilities: { controlsLocked: boolean; sendDisabled: boolean }
+    voiceInput: ReturnType<typeof useAssistantSpeechInput>
+    voiceEnabled: boolean
+    voiceDisabled: boolean
+    showRecorder: boolean
     responding: boolean
     progressQuestionIndex: number
     isReviewStep: boolean
@@ -135,7 +142,8 @@ export function AssistantPendingUserInputFooter(props: {
     onBack: () => void
     onAdvance: () => void
 }) {
-    const { composerController, composerCapabilities, responding, progressQuestionIndex, isReviewStep, returnToReview, canAdvance, actionLabel, onBack, onAdvance } = props
+    const { composerController, composerCapabilities, responding, progressQuestionIndex, isReviewStep, returnToReview, canAdvance, actionLabel, onBack, onAdvance, voiceInput, voiceEnabled, voiceDisabled, showRecorder } = props
+    if (showRecorder) return <div className="flex min-w-0 items-center gap-2 px-1.5 py-1.5"><AssistantVoiceRecorderBar disabled={voiceDisabled} durationLabel={voiceInput.durationLabel} isTranscribing={voiceInput.isTranscribing} waveformLevels={voiceInput.waveformLevels} onCancel={voiceInput.cancelRecording} onSubmit={voiceInput.submitRecording} onSend={voiceInput.submitAndSendRecording} /></div>
     return (
         <div className={cn(
             'flex min-w-0 items-center justify-between px-1.5 pb-1.5 [container-type:inline-size] sm:px-2 sm:pb-2',
@@ -179,7 +187,8 @@ export function AssistantPendingUserInputFooter(props: {
                 displayedProfile={composerController.displayedProfile}
             />
             <div className={cn('flex shrink-0 items-center', isReviewStep ? 'gap-1.5' : 'gap-2')}>
-                {(progressQuestionIndex > 0 || isReviewStep) ? <button type="button" disabled={responding} onClick={onBack} className={cn('inline-flex items-center justify-center gap-1 rounded-full bg-white/[0.04] py-2 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-white/[0.06] hover:text-sparkle-text disabled:opacity-50', isReviewStep ? 'min-w-[80px] px-3' : 'min-w-[92px] px-3.5')}><ArrowLeft size={12} />{returnToReview ? 'Review' : 'Back'}</button> : null}
+                {(progressQuestionIndex > 0 || isReviewStep || returnToReview) ? <button type="button" disabled={responding || voiceInput.isStarting} onClick={onBack} className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-white/[0.04] px-3 text-[12px] font-medium text-sparkle-text-secondary transition-colors hover:bg-white/[0.06] hover:text-sparkle-text disabled:opacity-50"><ArrowLeft size={12} />{returnToReview ? 'Review' : 'Back'}</button> : null}
+                <ComposerVoiceButton supported={voiceEnabled && voiceInput.isSupported} isStarting={voiceInput.isStarting} isRecording={voiceInput.isRecording} disabled={voiceDisabled || voiceInput.isStarting || voiceInput.isTranscribing} onToggle={voiceInput.toggleRecording} />
                 <ComposerSendButton disabled={composerCapabilities.sendDisabled} isConnected={composerController.isConnected} isThinking={false} canSend={canAdvance} label={actionLabel} onSend={() => void onAdvance()} />
             </div>
         </div>

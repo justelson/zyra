@@ -28,6 +28,8 @@ import * as electron from 'electron'
 import { ChatNotifications, type ChatAttentionNotice } from './chat-notifications'
 import { PluginMcpConnections } from './plugin-mcp-connections'
 import log from 'electron-log'
+import { QueuedPromptDeliveryOwner } from './queued-prompt-delivery'
+import { readChatWorkContext } from '../../shared/assistant/work-context'
 import { requestAssistantBackgroundProcesses } from './service-background-processes'
 import type {
     AssistantApprovePendingPlaygroundLabRequestInput,
@@ -136,6 +138,7 @@ import {
     voiceTaskFailureMessage
 } from './voice/voice-strong-routing'
 import { buildVoiceStrongTaskActivity } from './voice/voice-strong-task-activity'
+import { VoiceContextRevisions } from './voice/voice-context-revisions'
 import { ZyraAccountService } from './zyra-account-service'
 import {
     classifyZyraToolActivity,
@@ -170,6 +173,8 @@ import { applyDomainEvent, createDefaultSnapshot } from './projector'
 import { approvePendingPlaygroundLabRequestAction, attachSessionToPlaygroundLabAction, createPlaygroundLabAction, declinePendingPlaygroundLabRequestAction, deletePlaygroundLabAction, setPlaygroundRootAction } from './service-playground-actions'
 import {
     clearAssistantLogsAction,
+    countPendingAssistantSubmissions,
+    cancelPendingAssistantSubmissions,
     connectAssistantSession,
     createAssistantSessionAction,
     createAssistantThreadAction,
@@ -179,6 +184,7 @@ import {
     getAssistantRuntimeStatusAction,
     getAssistantSessionTurnUsageAction,
     interruptAssistantTurnAction,
+    pingAssistantModelAction,
     archiveAssistantSessionAction,
     renameAssistantSessionAction,
     respondAssistantApprovalAction,
@@ -252,6 +258,14 @@ type VoiceStrongRequest = Pick<
     Extract<RealtimeDomainEvent, { type: 'realtime.delegation.requested' }>,
     'adapterSessionId' | 'conversationId' | 'providerItemId' | 'text'
 >
+
+type AcceptedVoiceStrongRequest = VoiceStrongRequest & {
+    sessionId: string
+    localThreadId: string
+    executionConfiguration: AssistantVoiceExecutionConfiguration
+    cwd: string
+    filesystemScope: AssistantChatScope | null
+}
 
 type ActiveVoiceStrongTask = {
     taskId: string
@@ -354,6 +368,7 @@ export class AssistantService {
     private readonly accountService = new ZyraAccountService()
     private readonly realtimeVoiceRuntime = new ChatGptRealtimeVoiceRuntime()
     private readonly persistence = new AssistantPersistence()
+    private readonly queuedPromptDeliveries = new QueuedPromptDeliveryOwner(join(app.getPath('userData'), 'assistant', 'queued-prompt-deliveries'))
     private readonly pluginRegistry = new AssistantPluginRegistry({
         rootPath: join(app.getPath('userData'), 'assistant', 'plugins')
     })
@@ -388,7 +403,8 @@ export class AssistantService {
     private readonly pluginAuthorityMutations = new PluginAuthorityMutations()
     private readonly voiceTransitioningThreadIds = new Set<string>()
     private readonly activeVoiceStrongTasks = new Map<string, ActiveVoiceStrongTask>()
-    private readonly queuedVoiceStrongRequests = new Map<string, VoiceStrongRequest[]>()
+    private readonly voiceContextRevisions = new VoiceContextRevisions()
+    private readonly queuedVoiceStrongRequests = new Map<string, AcceptedVoiceStrongRequest[]>()
     private readonly delegatedVoiceProviderItems = new Set<string>()
     private readonly typedVoiceResponseQueues = new Map<string, Promise<void>>()
     private readonly fleetProjection = new FleetProjection()
@@ -493,6 +509,7 @@ export class AssistantService {
         this.readyPromise = this.initialize()
         this.actionDeps = {
             runtime: this.runtime,
+            queuedPromptDeliveries: this.queuedPromptDeliveries,
             ensureReady: () => this.ensureReady(),
             getSnapshot: () => this.state.snapshot,
             hydrateSelectedSession: async (sessionId: string) => {
@@ -1237,7 +1254,6 @@ export class AssistantService {
     }
 
     private async createSessionWithPluginScope(input?: AssistantCreateSessionInput, pluginSelection?: AssistantCreatePluginChatInput) {
-        if (!pluginSelection && input?.select !== false) await this.stopCanonicalVoiceForNavigation()
         const plannedSessionId = createAssistantId('assistant-session')
         let sessionCreated = false
         let rollbackWorkspace: (() => Promise<void>) | undefined
@@ -1273,7 +1289,6 @@ export class AssistantService {
             }
             await this.pluginRegistry.createChatScope(plannedSessionId, projectId || null, input?.mode !== 'playground', pluginSelection)
             if (input?.mode !== 'playground') await this.pluginRegistry.ensureAvailableChatScope(plannedSessionId, projectId || null)
-            if (pluginSelection && input?.select !== false) await this.stopCanonicalVoiceForNavigation()
             const result = await createAssistantSessionAction(this.actionDeps, {
                 ...input,
                 ...(input?.workspace ? { workingRoot: requestedPath, projectPath: requestedPath } : {}),
@@ -1436,7 +1451,6 @@ export class AssistantService {
     async selectSession(sessionId: string) {
         await this.ensureReady()
         const generation = ++this.navigationSelectionGeneration
-        if (this.activeCanonicalVoice?.sessionId !== sessionId) await this.stopCanonicalVoiceForNavigation()
         if (generation !== this.navigationSelectionGeneration) return { success: true as const, sessionId }
         const result = await selectAssistantSessionAction(this.actionDeps, sessionId)
         if (generation !== this.navigationSelectionGeneration) return result
@@ -1450,7 +1464,6 @@ export class AssistantService {
     async selectThread(sessionId: string, threadId: string) {
         await this.ensureReady()
         const generation = ++this.navigationSelectionGeneration
-        if (this.activeCanonicalVoice?.localThreadId !== threadId) await this.stopCanonicalVoiceForNavigation()
         if (generation !== this.navigationSelectionGeneration) return { success: true as const, sessionId, threadId }
         const result = await selectAssistantThreadAction(this.actionDeps, sessionId, threadId)
         if (generation !== this.navigationSelectionGeneration) return result
@@ -1859,7 +1872,7 @@ export class AssistantService {
         if (isAssistantDevelopmentChatFixtureSessionId(targetSessionId)) {
             throw new Error('Development TEST Chats are read-only local fixtures.')
         }
-        await this.stopCanonicalVoiceForNavigation()
+        // A new thread changes navigation, not the owner of an existing call.
         return createAssistantThreadAction(this.actionDeps, sessionId)
     }
 
@@ -1915,6 +1928,10 @@ export class AssistantService {
         return requestAssistantBackgroundProcesses(this.actionDeps, 'stop', input)
     }
 
+    async pingModel(input: { sessionId: string; turnId: string; requestId: string }) {
+        return pingAssistantModelAction(this.actionDeps, input)
+    }
+
     async interruptTurn(turnId?: string, sessionId?: string) {
         try {
             const result = await interruptAssistantTurnAction(this.actionDeps, turnId, sessionId)
@@ -1931,10 +1948,33 @@ export class AssistantService {
         await this.runtime.refreshRuntimeStatus()
     }
 
-    async activateRuntimeUpdate(): Promise<void> {
+    async activateRuntimeUpdate(options?: { expectedInstanceId: string; stopBlockers: boolean }): Promise<void> {
         await this.ensureReady()
-        await this.runtime.activateRuntimeUpdate()
+        await this.runtime.activateRuntimeUpdate(options, async () => { cancelPendingAssistantSubmissions(this.actionDeps) })
     }
+
+    async inspectRuntimeInstallation() {
+        await this.ensureReady()
+        const observed = await this.runtime.inspectRuntimeInstallation()
+        return { ...observed, activity: { ...observed.activity, requests: Math.max(observed.activity.requests, countPendingAssistantSubmissions(this.actionDeps)) } }
+    }
+
+    async prepareRuntimeInstallation(input: import('../../shared/agent-update').RuntimeInstallInput): Promise<void> {
+        await this.ensureReady()
+        if (countPendingAssistantSubmissions(this.actionDeps) && !input.stopBlockers) throw new Error('A prompt is preparing. Review the update again.')
+        await this.runtime.prepareRuntimeInstallation(input, async () => {
+            if (countPendingAssistantSubmissions(this.actionDeps) && !input.stopBlockers) throw new Error('New work arrived. Review the update again.')
+            cancelPendingAssistantSubmissions(this.actionDeps)
+        })
+        this.flushBroadcastEvents()
+        await this.persistence.flush()
+    }
+
+    async cancelRuntimeInstallation(): Promise<void> {
+        await this.runtime.cancelRuntimeInstallation()
+    }
+    async inspectInstallRecovery() { return this.runtime.inspectInstallRecovery() }
+    async recoverInstallHandoff() { return this.runtime.recoverInstallHandoff() }
 
     async respondApproval(input: { requestId: string; decision: 'acceptOnce' | 'acceptForSession' | 'decline' }) {
         return respondAssistantApprovalAction(this.actionDeps, input)
@@ -2621,8 +2661,7 @@ export class AssistantService {
         const eventOwner = this.realtimeVoiceOwnerId
         this.mobileVoicePresence.clearAdapter(active.adapterSessionId)
         const stop = (async () => {
-            this.queuedVoiceStrongRequests.delete(active.conversationId)
-            this.activeVoiceStrongTasks.get(active.conversationId)?.abortController.abort(new Error('Voice session ended.'))
+            // Accepted tasks and their queue belong to the conversation, not the audio connection.
             await this.requireCanonicalTypedVoiceCommitter().beginStop(active.adapterSessionId)
             await this.canonicalVoiceCommitter?.flush()
             const routes = this.requireForegroundRoutes()
@@ -2692,6 +2731,16 @@ export class AssistantService {
     }
 
     private routeVoiceStrongRequest(request: VoiceStrongRequest): void {
+        const active = this.activeCanonicalVoice
+        if (!active || active.adapterSessionId !== request.adapterSessionId || active.conversationId !== request.conversationId) return
+        const record = findThreadRecord(this.state.snapshot, active.localThreadId)
+        if (!record) return
+        const accepted: AcceptedVoiceStrongRequest = {
+            ...request, sessionId: active.sessionId, localThreadId: active.localThreadId,
+            executionConfiguration: { ...active.executionConfiguration },
+            cwd: this.getSessionRuntimeCwd(record.session, record.thread),
+            filesystemScope: record.session.chatScope ? structuredClone(record.session.chatScope) : null
+        }
         const sourceKey = `${request.adapterSessionId}:${request.providerItemId}`
         if (this.delegatedVoiceProviderItems.has(sourceKey)) return
         this.delegatedVoiceProviderItems.add(sourceKey)
@@ -2700,18 +2749,16 @@ export class AssistantService {
             if (!oldest) break
             this.delegatedVoiceProviderItems.delete(oldest)
         }
-        void this.startVoiceStrongInspection(request).catch((error) => {
+        void this.startVoiceStrongInspection(accepted).catch((error) => {
             log.error('[AssistantVoice] Primary task failed', error)
         })
     }
 
     private async startVoiceStrongInspection(
-        event: VoiceStrongRequest
+        event: AcceptedVoiceStrongRequest
     ): Promise<void> {
-        const active = this.activeCanonicalVoice
-        if (!active
-            || active.adapterSessionId !== event.adapterSessionId
-            || active.conversationId !== event.conversationId) return
+        // This request was accepted by its original Voice owner. It remains valid after the call ends.
+        const active = this.activeCanonicalVoice?.conversationId === event.conversationId ? this.activeCanonicalVoice : null
         if (this.activeVoiceStrongTasks.has(event.conversationId)) {
             const queued = this.queuedVoiceStrongRequests.get(event.conversationId) || []
             const accepted = queued.length < 8
@@ -2719,13 +2766,13 @@ export class AssistantService {
                 queued.push(event)
                 this.queuedVoiceStrongRequests.set(event.conversationId, queued)
             }
-            await this.requireCanonicalRealtimeAdapter().appendTransientContext(
+            if (active) await this.requireCanonicalRealtimeAdapter().appendTransientContext(
                 active.adapterSessionId,
                 `The current task is still running. The next request is ${accepted ? 'queued' : 'not queued because the queue is full'}. Explain this naturally if needed; do not claim progress on the next request yet.`
             ).catch(() => undefined)
             return
         }
-        const record = findThreadRecord(this.state.snapshot, active.localThreadId)
+        const record = findThreadRecord(this.state.snapshot, event.localThreadId)
         if (!record) return
         const taskId = `voice_strong_${randomUUID()}`
         const abortController = new AbortController()
@@ -2739,40 +2786,47 @@ export class AssistantService {
         }
         this.activeVoiceStrongTasks.set(event.conversationId, task)
         this.projectVoiceStrongTask(task, record.session.id, 'running', 'Primary agent working', event.text)
-        const runningContext = this.requireCanonicalRealtimeAdapter().appendTransientContext(
+        const runningContext = active ? this.requireCanonicalRealtimeAdapter().appendTransientContext(
             active.adapterSessionId,
             `Task ${taskId} has started for this request: ${event.text.slice(0, 1000)}. No result has been verified yet. Describe the task state naturally if asked; do not announce internal routing or invent tool progress.`
-        ).catch(() => undefined)
+        ).catch(() => undefined) : Promise.resolve()
         try {
+            const conversation = await this.readCanonicalVoiceContinuity(event.conversationId)
+            const historicalContext = conversation.messages.slice(-20)
+                .map(message => `${message.role}: ${message.text.slice(0, 2000)}`).join('\n').slice(-12_000)
             const result = await this.runtime.runPrivateVoiceTask({
                 taskId,
                 localThreadId: record.thread.id,
-                cwd: this.getSessionRuntimeCwd(record.session, record.thread),
-                filesystemScope: record.session.chatScope,
-                prompt: buildVoiceStrongInspectionPrompt(event.text),
-                model: active.executionConfiguration.model,
-                effort: active.executionConfiguration.effort,
-                runtimeMode: active.executionConfiguration.runtimeMode,
-                interactionMode: active.executionConfiguration.interactionMode,
-                profile: active.executionConfiguration.profile,
-                serviceTier: active.executionConfiguration.serviceTier,
+                cwd: event.cwd,
+                filesystemScope: event.filesystemScope,
+                prompt: buildVoiceStrongInspectionPrompt(event.text, historicalContext, event.conversationId),
+                taskRequest: event.text,
+                model: event.executionConfiguration.model,
+                effort: event.executionConfiguration.effort,
+                runtimeMode: event.executionConfiguration.runtimeMode,
+                interactionMode: event.executionConfiguration.interactionMode,
+                profile: event.executionConfiguration.profile,
+                serviceTier: event.executionConfiguration.serviceTier,
                 signal: abortController.signal
             })
-            const current = this.activeCanonicalVoice
-            if (!current || current.adapterSessionId !== active.adapterSessionId) return
-            const narration = boundedVoiceTaskResult(result.text)
             this.projectVoiceStrongTask(task, record.session.id, 'completed', 'Primary agent finished', result.text)
-            await runningContext
-            await this.submitVoiceTaskNarration(current, taskId, narration)
+            const current = this.activeCanonicalVoice
+            if (current?.conversationId === event.conversationId) {
+                const narration = boundedVoiceTaskResult(result.text)
+                await runningContext
+                await this.submitVoiceTaskNarration(current, taskId, narration).catch(error => {
+                    log.warn('[AssistantVoice] Task completed, but its call ended before narration', error)
+                })
+            }
         } catch (error) {
             if (abortController.signal.aborted) {
-                this.projectVoiceStrongTask(task, record.session.id, 'cancelled', 'Primary agent stopped', 'Voice ended before the request completed.')
+                this.projectVoiceStrongTask(task, record.session.id, 'cancelled', 'Primary agent stopped', 'The task was explicitly stopped before completion.')
                 return
             }
             const message = voiceTaskFailureMessage(error)
             this.projectVoiceStrongTask(task, record.session.id, 'failed', 'Primary agent could not finish', message)
             const current = this.activeCanonicalVoice
-            if (current?.adapterSessionId === active.adapterSessionId) {
+            if (current?.conversationId === event.conversationId) {
                 await runningContext
                 await Promise.all([
                     this.requireCanonicalRealtimeAdapter().appendTransientContext(
@@ -2798,7 +2852,7 @@ export class AssistantService {
                     current.executionConfiguration
                 )
             }
-            if (next && current?.conversationId === event.conversationId) {
+            if (next) {
                 void this.startVoiceStrongInspection(next).catch((nextError) => {
                     log.error('[AssistantVoice] Queued primary task failed', nextError)
                 })
@@ -2883,7 +2937,7 @@ export class AssistantService {
         const detail = await this.persistence.readThreadDetail(record.thread.id)
         const activeRoute = this.requireForegroundRoutes().activeRoute(conversationId)
         return {
-            contextVersion: Math.max(activeRoute.context_version, this.voiceContextVersion(record.thread)),
+            contextVersion: this.voiceContextVersion(record.thread, activeRoute.context_version),
             routeCount: activeRoute.route_epoch,
             messages: detail.history.messages
                 .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -2903,7 +2957,12 @@ export class AssistantService {
                 id: entry.id,
                 summary: entry.questions.map((question) => question.header || question.question).filter(Boolean).join('; ') || 'Response required'
             })),
-            attachedTaskIds: this.attachedTaskIds(record.thread.id)
+            attachedTaskIds: this.attachedTaskIds(record.thread.id),
+            totalMessageCount: Math.max(record.thread.messageCount, detail.history.messages.length),
+            taskSummaries: (detail.history.activities || [])
+                .filter(activity => activity.kind === 'voice.strong-task')
+                .slice(-6)
+                .map(activity => `${activity.summary}: ${activity.detail || ''}`.slice(0, 1800))
         }
     }
 
@@ -2980,17 +3039,19 @@ export class AssistantService {
         }
     }
 
-    private voiceContextVersion(thread: AssistantThread): number {
-        return Math.max(1, thread.canonicalPresence?.latestSequence || 0, thread.messageCount + thread.activityCount)
+    private voiceContextVersion(thread: AssistantThread, floor = 0): number {
+        return this.voiceContextRevisions.read(thread, this.attachedTaskIds(thread.id), floor)
     }
 
     private attachedTaskIds(threadId: string): string[] {
         const fleet = this.state.snapshot.fleetByThreadId[threadId]
-        if (!fleet) return []
-        return Object.values(fleet.agents)
+        const fleetIds = Object.values(fleet?.agents || {})
             .filter((run) => ['queued', 'starting', 'running', 'waiting', 'paused', 'recovering'].includes(run.status))
             .map((run) => run.agentRunId)
-            .sort()
+        const voiceIds = [...this.activeVoiceStrongTasks.values()]
+            .filter(task => task.localThreadId === threadId)
+            .map(task => task.taskId)
+        return [...new Set([...fleetIds, ...voiceIds])].sort()
     }
 
     private async recoverInactiveCanonicalVoice(thread: AssistantThread): Promise<void> {
@@ -3121,6 +3182,7 @@ export class AssistantService {
                 threadId: thread.id,
                 patch: {
                     canonicalPresence: mergeCanonicalPresenceObservation(thread.canonicalPresence, chat.presence),
+                    modelRequestProgress: chat.presence.modelRequestProgress || null,
                     latestTurn,
                     lastSeenCompletedTurnId: mergeCanonicalCompletionReceipt(thread.lastSeenCompletedTurnId, chat.lastSeenCompletedTurnId, latestTurn?.id),
                     state: resolveCanonicalPresenceThreadState({
@@ -3217,6 +3279,8 @@ export class AssistantService {
                     persistedCanonicalEntryCount: existing.thread.canonicalHistoryEntryCount
                 })) this.markCanonicalHistoryDirty(chat.canonicalChatId)
                 const sessionPatch: Record<string, unknown> = {}
+                const workContext = readChatWorkContext(chat.workContext)
+                if (JSON.stringify(existing.session.workContext || null) !== JSON.stringify(workContext)) sessionPatch['workContext'] = workContext
                 if (chat.forkOrigin && JSON.stringify(existing.session.forkOrigin) !== JSON.stringify(chat.forkOrigin)) sessionPatch['forkOrigin'] = chat.forkOrigin
                 const localRenamePending = existing.session.titleManuallySet === true && chat.titleSource !== 'manual'
                 if (!localRenamePending && chat.title && chat.title !== existing.session.title) sessionPatch['title'] = chat.title
@@ -3292,6 +3356,7 @@ export class AssistantService {
                             messageCount: nextMessageCount,
                             activityCount: nextActivityCount,
                             canonicalPresence: nextCanonicalPresence,
+                            modelRequestProgress: chat.presence?.modelRequestProgress || null,
                             latestTurn: nextLatestTurn,
                             lastSeenCompletedTurnId: nextSeenTurnId,
                             hasPendingApprovals: nextHasPendingApprovals,
@@ -3322,6 +3387,7 @@ export class AssistantService {
             if (agentOrigin) Object.assign(thread, agentOrigin)
             thread.messageCount = messageCount
             thread.activityCount = activityCount
+            thread.modelRequestProgress = chat.presence?.modelRequestProgress || null
             thread.canonicalPresence = chat.presence
                 ? mergeCanonicalPresenceObservation(undefined, chat.presence)
                 : undefined
@@ -3355,6 +3421,7 @@ export class AssistantService {
                 if (typeof config.runtimeMode === 'string' && ['approval-required', 'auto-review', 'edits-only', 'full-access'].includes(config.runtimeMode)) thread.runtimeMode = config.runtimeMode as AssistantThread['runtimeMode']
             }
             session.forkOrigin = chat.forkOrigin || null
+            session.workContext = readChatWorkContext(chat.workContext)
             session.archived = chat.archived === true
             session.settled = chat.settled
             session.settlementManual = chat.settlementManual
@@ -4041,7 +4108,8 @@ export class AssistantService {
         if (privateVoiceTarget) {
             if (event.type !== 'activity' && event.type !== 'approval.requested' && event.type !== 'approval.resolved') return
             const activeTask = [...this.activeVoiceStrongTasks.values()].find((task) => task.localThreadId === privateVoiceTarget)
-            const activeVoice = activeTask ? this.activeCanonicalVoice : null
+            const activeVoice = activeTask && this.activeCanonicalVoice?.conversationId === activeTask.conversationId
+                ? this.activeCanonicalVoice : null
             if (activeVoice && activeTask && event.type === 'approval.requested') {
                 const approvalMessage = 'I need your approval for the command shown above before I can continue.'
                 void this.requireCanonicalRealtimeAdapter().appendTransientContext(
@@ -4279,6 +4347,16 @@ export function projectCanonicalTimeline(
         const entryId = String(entry['id'] || `entry:${key}:${timelineSequence}`)
         const historyBodyRef = asCanonicalRecord(entry['historyBodyRef'])
         const occurredAt = normalizeCatalogDate(entry['timestamp'], fallbackCreatedAt)
+        if (entry['type'] === 'custom_message' && entry['customType'] === 'zyra.model-ping.v1') {
+            const details = asCanonicalRecord(entry['details'])
+            const requestId = typeof details?.requestId === 'string' ? details.requestId : ''
+            if (requestId) activities.set(`model-ping:${requestId}`, {
+                id: `model-ping:${requestId}`, kind: 'model.ping', tone: 'info',
+                summary: 'Pinged model due to suspected hang.', turnId: activeTurnId, timelineSequence, createdAt: occurredAt,
+                payload: { category: 'model-ping', requestId, status: 'completed', authoritative: true, actionBatchIntent: activeActionBatchIntent }
+            })
+            continue
+        }
         if (entry['type'] === 'custom_message' && entry['customType'] === 'zyra_thread_message') {
             const activity = projectThreadMessage(entry['details'], occurredAt, timelineSequence)
             if (activity) activities.set(activity.id, activity)
@@ -4414,7 +4492,7 @@ export function projectCanonicalTimeline(
             const toolName = String(part['name'] || 'tool')
             const args = asCanonicalRecord(part['arguments'])
             const activityId = `zyra-tool-${toolCallId}`
-            if (toolName.trim().toLowerCase() === 'set_chat_title') {
+            if (['set_chat_title', 'set_work_context'].includes(toolName.trim().toLowerCase())) {
                 legacyActivityIds.add(activityId)
                 continue
             }
@@ -4467,7 +4545,7 @@ export function projectCanonicalTimeline(
             const activityId = `zyra-tool-${toolCallId}`
             const existing = activities.get(activityId)
             const toolName = String(message['toolName'] || existing?.payload?.['toolName'] || 'tool')
-            if (toolName.trim().toLowerCase() === 'set_chat_title') {
+            if (['set_chat_title', 'set_work_context'].includes(toolName.trim().toLowerCase())) {
                 legacyActivityIds.add(activityId)
                 continue
             }

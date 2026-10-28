@@ -15,6 +15,9 @@ const SAFE_TOOL_NAMES = new Set([
   "request_user_input",
   "begin_action_batch",
   "set_chat_title",
+  "set_work_context",
+  // This tool is bound to the caller's own session and accepts no target.
+  "context",
 ]);
 
 function asRecord(value) {
@@ -297,7 +300,7 @@ export function createZyraPermissionGateExtension(options = {}) {
   const handleToolCall = async (event) => {
     // The saved-resource tool authorizes its trusted store destination from its
     // executor. Caller arguments cannot supply that path or bypass this check.
-    if (normalizeToolName(event?.toolName || event?.name) === 'visualization') return undefined;
+    if (['visualization', 'set_work_context'].includes(normalizeToolName(event?.toolName || event?.name))) return undefined;
     // App operations are authorized at the canonical server and owning service,
     // against the exact action/patch. Do not request a second generic tool grant.
     if (['settings', 'settings_action', 'app', 'usage'].includes(normalizeToolName(event?.toolName || event?.name))) return undefined;
@@ -362,7 +365,15 @@ export function createZyraPermissionGateExtension(options = {}) {
     };
   };
 
+  const workRoots = scopedRoots || normalizeFilesystemRoots(options, path.resolve(options.project || process.cwd()))
+    .map(root => ({ ...root, realPath: canonicalPermissionPath(root.path) }));
   return {
+    // The metadata executor may inspect an existing readable directory, but it
+    // cannot prompt for or consume a grant just to decorate the sidebar.
+    canReadWorkFolder(folderPath) {
+      if (getPermissionMode() === 'full-access') return true;
+      return Boolean(filesystemRootForPath(folderPath, options.project || process.cwd(), access?.currentRoots() || workRoots, true, 'read'));
+    },
     async authorizeVisualization(context, action, toolCallId) {
       if (!['list', 'read', 'embed', 'create', 'revise'].includes(action)) throw new Error('Unknown visualization action.');
       if (!context || typeof context.cwd !== 'string' || !context.cwd) throw new Error('Visualization workspace is unavailable.');

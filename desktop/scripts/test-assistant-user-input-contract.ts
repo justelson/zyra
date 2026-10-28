@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { deriveAssistantComposerCapabilities } from '../src/renderer/src/pages/assistant/assistant-composer-capabilities'
 import { readFileSync } from 'node:fs'
 import type { AssistantThread, AssistantUserInputQuestion } from '../src/shared/assistant/contracts'
 import { toUserInputQuestions } from '../src/main/assistant/codex-runtime-session-utils'
@@ -25,6 +26,12 @@ import {
 
 const asRecord = (value: unknown) => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 const asString = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined
+
+const guidedCapabilities = { mode: 'guided' as const, disabled: false, isConnected: true, isSending: false, isThinking: false, allowEmptySubmit: false, hasContent: false }
+assert.equal(deriveAssistantComposerCapabilities(guidedCapabilities).voiceDisabled, false, 'Connected question answers allow dictation')
+for (const guard of [{ isConnected: false }, { isConnecting: true }, { isReviewStep: true }, { isResponding: true }, { disabled: true }]) {
+    assert.equal(deriveAssistantComposerCapabilities({ ...guidedCapabilities, ...guard }).voiceDisabled, true, 'Unavailable, reviewing and submitting questions cannot start recording')
+}
 
 const rawQuestions = [
     { id: 'text', header: 'Text', question: 'What should it say?', type: 'text', placeholder: 'Write an answer' },
@@ -180,6 +187,9 @@ assert.deepEqual(readAssistantPendingUserInputDraft('request:cache-test'), {
 }, 'guided-input answers and step survive panel unmounts while switching chats')
 clearAssistantPendingUserInputDraft('request:cache-test')
 assert.equal(readAssistantPendingUserInputDraft('request:cache-test'), null)
+writeAssistantPendingUserInputDraft('request:finishing-test', { answers: { first: 'Done' }, questionIndex: 1, customQuestionId: null, returnToReview: true, finishingQuestions: true })
+assert.equal(readAssistantPendingUserInputDraft('request:finishing-test')?.finishingQuestions, true, 'Finish-remaining navigation survives chat switches')
+clearAssistantPendingUserInputDraft('request:finishing-test')
 
 const optionalQuestion: AssistantUserInputQuestion = {
     id: 'optional', header: 'Optional', question: 'Anything else?', type: 'text', options: [], required: false, allowOther: false
@@ -275,7 +285,7 @@ assert.match(questionFieldSource, /CSS\.Transform\.toString\(transform\)/, 'the 
 assert.match(pendingQuestionSource, /AssistantPendingUserInputStage/, 'the existing guided questionnaire remains the composer-owned input')
 assert.match(pendingQuestionSource, /data-assistant-composer-hitbox="true"/, 'questionnaire wheel and pointer input stay inside the composer surface')
 assert.match(pendingQuestionSource, /onRespond\(\s*activePrompt\.requestId,\s*resolvedAnswers,\s*composerController\.contextFiles,?\s*\)/, 'finishing the questionnaire submits one linked answer set with its supporting files')
-assert.match(pendingQuestionSource, /responding\s*\?\s*'Submitting'\s*:\s*isReviewStep\s*\?\s*'Submit'/, 'the settled review step exposes a direct Submit action')
+assert.match(pendingQuestionSource, /isReviewStep\s*\?\s*answeredAllQuestions\s*\?\s*'Submit'\s*:\s*'Finish questions'/, 'review exposes Submit only when complete, otherwise Finish questions')
 assert.match(questionResponseSource, /Answered agent question/, 'the linked user bubble identifies question responses')
 assert.match(questionResponseSource, /aria-haspopup=\"dialog\"/, 'the compact response card opens all answers in the existing dialog')
 assert.match(questionResponseSource, /input\.questions\.map/, 'the dedicated modal presents every question and answer')

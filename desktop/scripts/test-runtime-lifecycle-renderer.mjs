@@ -17,11 +17,12 @@ try {
     bundle: true, format: 'iife', jsx: 'automatic', platform: 'browser',
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env.DEV': 'false', 'import.meta.hot': 'undefined' },
     alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') } });
-  const css = await postcss([tailwindcss({ ...config, content: [join(desktop, 'src/renderer/src/pages/settings/**/*.{ts,tsx}')] })]).process('@tailwind base; @tailwind components; @tailwind utilities;', { from: undefined });
+  const css = await postcss([tailwindcss({ ...config, content: [join(desktop, 'src/renderer/src/pages/settings/**/*.{ts,tsx}'), join(desktop, 'src/renderer/src/components/updates/**/*.{ts,tsx}')] })]).process('@tailwind base; @tailwind components; @tailwind utilities;', { from: undefined });
+  const componentCss = await readFile(join(directory, 'renderer.css'), 'utf8').catch(() => '');
   const html = await readFile(join(desktop, 'src/renderer/index.html'), 'utf8');
   const csp = html.match(/<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/)?.[0];
   if (!csp) throw new Error('Application CSP missing');
-  await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${csp}<style>${css.css}
+  await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${csp}<style>${css.css}\n${componentCss}
 :root{--settings-bg:#101318;--settings-text:#dddfe5;--settings-text-secondary:#a7aab4;--settings-text-muted:#858995;--settings-border:#30343c;--settings-row-divider:#292d35;--settings-section:#171b22;--settings-control:#222731;--settings-control-hover:#2b3340;--settings-row-hover:#1d232c;--accent-primary:#a798f0;--status-success:#6bce96;--status-warning:#e5b45f;--status-danger:#ed7b87;--settings-section-highlight:#ffffff08}body{margin:0;background:var(--settings-bg);color:var(--settings-text);font:13px system-ui;padding:24px}#root{max-width:760px;margin:auto}
 </style></head><body><div id="root"></div><script src="renderer.js"></script></body></html>`);
   await writeFile(join(directory, 'main.cjs'), `

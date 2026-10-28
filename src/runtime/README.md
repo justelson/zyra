@@ -29,12 +29,41 @@ providers retain local baseline metadata and their direct transport discovery.
 An optional catalog overlay requires an explicitly configured
 `ZYRA_MODEL_CATALOG_URL`; no upstream Pi catalog service is contacted.
 
-Prompt-scoped hidden context uses `PromptOptions.contextMessages`. The engine
-accepts it with its original user message only after prompt preflight; failed
-authentication, compaction or input handling must not leave an orphan custom
-entry. Streaming delivery queues the user and context as one message batch,
-including in one-at-a-time mode. Agent steering/follow-up APIs still accept a
-single message, or an array that must be consumed together. Ordinary `sendCustomMessage` retains its existing semantics.
+Google Gemini and Groq additionally refresh their account-visible chat model lists
+through `../direct-api-model-catalog.mjs` at normal session/model-list refresh,
+not during cold bridge attachment. Google listing is paginated. Successful lists
+replace removed models, including empty accounts; failures use a same-key cache
+or the checked-in baseline. Cache entries expire after 15 minutes and are scoped
+by provider plus a SHA-256 key fingerprint; API keys are never serialized. Offline
+startup only reads that cache. Unknown models retain unknown pricing/context and
+conservative capabilities rather than borrowing a different model's metadata.
+`npm run test:direct-api-model-catalog` exercises discovery, account rotation,
+offline restore and the compiled Gemini transport without live inference.
+
+The Google/Groq baseline was reviewed against official model and deprecation
+documentation on 2026-10-22. Gemini 3.8 Flash and 4 Argon use LOW/MEDIUM/HIGH,
+not MINIMAL; 3.7 Flash now routes to 3.8. Argon's $2/$10 input/output prices are
+introductory through 2026-11-30 and require a later baseline refresh. Groq public
+Qwen 3.6 has retired; Qwen 3.8 accepts none/low/medium/high reasoning efforts.
+Enterprise-only Llama availability is discovered rather than advertised as a
+public baseline. Model lists do not supply live prices or prove tool compatibility.
+Sources: [Google models](https://ai.google.dev/gemini-api/docs/models?hl=en),
+[Google deprecations](https://ai.google.dev/gemini-api/docs/deprecations?hl=en),
+[Argon migration](https://ai.google.dev/gemini-api/docs/latest-model?hl=en),
+[Groq models](https://console.groq.com/docs/models),
+[Groq deprecations](https://console.groq.com/docs/deprecations), and
+[Qwen 3.8](https://console.groq.com/docs/model/qwen/qwen3.8-27b).
+
+`PromptOptions.contextMessages` accepts hidden turn context atomically with its
+original user message after preflight. Streaming queues preserve these batches
+in one-at-a-time mode. Session-bound `inspectContext` and
+`requestContextCompaction` expose own-context state and defer requested
+maintenance until all tool results are persisted. Failed authentication,
+compaction or input handling must not leave an orphan custom entry. Agent
+steering/follow-up APIs accept a single message or an atomic message array;
+ordinary `sendCustomMessage` retains its existing semantics. Empty/incomplete
+checkpoints are never committed. Host model policy and dispatch-budget checks
+apply to queued inputs as well as foreground prompts; original history remains durable.
 
 Extensions can import `@zyra/engine`, `@zyra/agent`, `@zyra/providers`, and
 `@zyra/terminal` through the local extension loader. Historical Pi import names

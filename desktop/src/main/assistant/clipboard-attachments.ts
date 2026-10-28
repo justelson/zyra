@@ -12,12 +12,23 @@ function sanitizeFileName(value: string, source: PersistedAttachmentSource): str
     return normalized || fallback
 }
 
+const MAX_CLIPBOARD_ATTACHMENT_BYTES = 64 * 1024 * 1024
+
 function decodeDataUrl(dataUrl: string): Buffer {
-    const match = String(dataUrl || '').match(/^data:([^;,]+)?;base64,(.+)$/i)
-    if (!match) {
-        throw new Error('Invalid clipboard image payload.')
+    const value = String(dataUrl || '')
+    // Bound the encoded payload before regex matching or allocating decoded data.
+    if (value.length > Math.ceil(MAX_CLIPBOARD_ATTACHMENT_BYTES / 3) * 4 + 256) {
+        throw new Error('Clipboard attachment exceeds the 64 MB limit.')
     }
-    return Buffer.from(match[2], 'base64')
+    const match = value.match(/^data:([^;,]+)?;base64,([a-z0-9+/]+={0,2})$/i)
+    if (!match || match[2].length % 4 !== 0) {
+        throw new Error('Invalid clipboard attachment payload.')
+    }
+    const bytes = Buffer.from(match[2], 'base64')
+    if (!bytes.length || bytes.length > MAX_CLIPBOARD_ATTACHMENT_BYTES) {
+        throw new Error('Clipboard attachment must be between 1 byte and 64 MB.')
+    }
+    return bytes
 }
 
 export async function persistAssistantClipboardImage(input: {
@@ -26,12 +37,12 @@ export async function persistAssistantClipboardImage(input: {
     source?: PersistedAttachmentSource
 }): Promise<string> {
     const source = input.source === 'manual' ? 'manual' : 'paste'
+    const bytes = decodeDataUrl(input.dataUrl)
     const assistantDir = getAssistantAttachmentsDir(source)
     await mkdir(assistantDir, { recursive: true })
 
     const fileName = sanitizeFileName(input.fileName || '', source)
     const storagePath = join(assistantDir, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fileName}`)
-    const bytes = decodeDataUrl(input.dataUrl)
     await writeFile(storagePath, bytes)
     return storagePath
 }
@@ -60,7 +71,7 @@ function parseClipboardAttachmentReference(reference: string): string | null {
     const normalized = String(reference || '').trim()
     if (!normalized.toLowerCase().startsWith('clipboard://')) return null
     const tail = normalized.slice('clipboard://'.length).trim().replace(/^[/\\]+/, '')
-    if (!tail || /[/\\]/.test(tail)) return null
+    if (!tail || tail === '.' || tail === '..' || /[/\\\x00-\x1f]/.test(tail)) return null
     return tail
 }
 

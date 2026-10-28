@@ -37,6 +37,7 @@ export function toAssistantThreadShell(thread: AssistantThread): AssistantThread
         webSearch: thread.webSearch ?? null,
         webFetch: thread.webFetch ?? null,
         state: thread.state,
+        modelRequestProgress: thread.modelRequestProgress ? { ...thread.modelRequestProgress } : null,
         canonicalHistoryModifiedAt: thread.canonicalHistoryModifiedAt ?? null,
         canonicalHistoryEntryCount: thread.canonicalHistoryEntryCount ?? null,
         mobileVoice: thread.mobileVoice ? { ...thread.mobileVoice } : null,

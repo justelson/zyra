@@ -616,8 +616,10 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
     return displayRows.filter(row => !(row.kind === 'message' && row.workBoundaryOnly)
         && !(row.kind === 'working' && finalAnswerStarted && !postResponseCompactionRunning)).map(row => {
         if (row.kind === 'turn-work-summary' && row.outcome === 'interrupted') {
-            const terminal = sourceRows.flatMap(getRowActivities).find(activity => activity.turnId === row.turnId && activity.payload?.interruption)
-            return { ...row, interruptionLabel: getAssistantInterruptionLabel(terminal?.payload?.interruption) }
+            const turnId = row.turnId
+            const terminal = sourceRows.flatMap(getRowActivities).find(activity => activity.turnId === turnId && activity.payload?.interruption)
+            // Keep the label without bypassing unfinished-action settlement below.
+            row = { ...row, interruptionLabel: getAssistantInterruptionLabel(terminal?.payload?.interruption) }
         }
         if (row.kind !== 'turn-work-summary' || row.running || !row.completedAt) return row
         const settle = (activity: AssistantActivity) => settleActivityAtTurnEnd(activity, row.completedAt!, row.outcome || 'interrupted')

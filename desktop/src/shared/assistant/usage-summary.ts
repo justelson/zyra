@@ -10,7 +10,7 @@ export type UsageEntry = Pick<AssistantSessionTurnUsageEntry, 'id' | 'model' | '
 export type UsageTotals = { input: number; output: number; cached: number; cacheWrite: number; tokens: number; costUsd: number; turns: number; meteredTurns: number; pricedTurns: number }
 export type UsageBreakdown = UsageTotals & { id: string; provider: string; model: string; harness?: UsageHarness }
 export type UsageDayModel = UsageBreakdown & { date: string }
-export type UsageSummary = { days: number; timeZone: string; fetchedAt: string; totals: UsageTotals; daily: Array<UsageTotals & { date: string }>; models: UsageBreakdown[]; sources?: UsageSource[] }
+export type UsageSummary = { days: number; timeZone: string; fetchedAt: string; totals: UsageTotals; daily: Array<UsageTotals & { date: string }>; models: UsageBreakdown[]; /** Real date/model buckets; absent on legacy summaries, never inferred from totals. */ dayModels?: UsageDayModel[]; sources?: UsageSource[] }
 export const emptyUsageTotals = (): UsageTotals => ({ input: 0, output: 0, cached: 0, cacheWrite: 0, tokens: 0, costUsd: 0, turns: 0, meteredTurns: 0, pricedTurns: 0 })
 const usageTotalFields = Object.keys(emptyUsageTotals()) as Array<keyof UsageTotals>
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
@@ -38,6 +38,7 @@ export function buildUsageSummary(turns: readonly UsageEntry[], input: UsageSumm
         }
     }
     const window = usageWindow(input, now, earliest)
+    const buckets = dayModels || new Map<string, UsageDayModel>()
     const daily = new Map(window.dates.map(date => [date, { date, ...emptyUsageTotals() }]))
     const models = new Map<string, UsageBreakdown>()
     const totals = emptyUsageTotals()
@@ -78,15 +79,15 @@ export function buildUsageSummary(turns: readonly UsageEntry[], input: UsageSumm
                 ? usage.costUsd : estimatedCost
             if (finite(cost)) { values.costUsd = cost; values.pricedTurns = 1 }
         }
-        if (dayModels) {
+        {
             const key = `${day.date}:${id}`
-            const row = dayModels.get(key) || { date:day.date,id,provider,model,harness,...emptyUsageTotals() }
+            const row = buckets.get(key) || { date:day.date,id,provider,model,harness,...emptyUsageTotals() }
             for (const field of usageTotalFields) row[field] += values[field]
-            dayModels.set(key,row)
+            buckets.set(key,row)
         }
         for (const key of usageTotalFields) { totals[key] += values[key]; group[key] += values[key]; day[key] += values[key] }
     }
-    return { days: window.days, timeZone: window.timeZone, fetchedAt: now.toISOString(), totals, daily: [...daily.values()], models: [...models.values()].sort((a, b) => b.tokens - a.tokens || a.id.localeCompare(b.id)) }
+    return { days: window.days, timeZone: window.timeZone, fetchedAt: now.toISOString(), totals, daily: [...daily.values()], models: [...models.values()].sort((a, b) => b.tokens - a.tokens || a.id.localeCompare(b.id)), dayModels: [...buckets.values()] }
 }
 export function mergeUsageSummaries(left: UsageSummary, right: UsageSummary): UsageSummary {
     const totals = emptyUsageTotals()
@@ -99,6 +100,15 @@ export function mergeUsageSummaries(left: UsageSummary, right: UsageSummary): Us
             daily.set(day.date, row)
         }
     }
-    return { ...left, fetchedAt: left.fetchedAt < right.fetchedAt ? left.fetchedAt : right.fetchedAt, totals, days: daily.size, daily: [...daily.values()].sort((a,b) => a.date.localeCompare(b.date)), models: [...left.models, ...right.models].sort((a,b) => b.tokens-a.tokens), sources: [...left.sources || [], ...right.sources || []] }
+    // A mixed legacy merge cannot claim complete time series for its models.
+    const buckets = new Map<string, UsageDayModel>()
+    const complete = [left, right].every(summary => summary.dayModels !== undefined || summary.totals.turns === 0)
+    if (complete) for (const bucket of [...left.dayModels || [], ...right.dayModels || []]) {
+        const key = `${bucket.date}:${bucket.id}`
+        const row = buckets.get(key) || { ...bucket, ...emptyUsageTotals() }
+        for (const field of usageTotalFields) row[field] += bucket[field]
+        buckets.set(key, row)
+    }
+    return { ...left, dayModels: complete ? [...buckets.values()] : undefined, fetchedAt: left.fetchedAt < right.fetchedAt ? left.fetchedAt : right.fetchedAt, totals, days: daily.size, daily: [...daily.values()].sort((a,b) => a.date.localeCompare(b.date)), models: [...left.models, ...right.models].sort((a,b) => b.tokens-a.tokens), sources: [...left.sources || [], ...right.sources || []] }
 }
 export const usageProviderLabel = (provider: string) => ({ 'openai-codex': 'ChatGPT', openai: 'OpenAI', anthropic: 'Anthropic', opencode: 'OpenCode', 'opencode-zen': 'OpenCode Zen', unknown: 'Unknown provider' }[provider] || provider)

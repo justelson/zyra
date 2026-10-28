@@ -23,9 +23,11 @@ const hydrated = { id: 'settled', title: 'Settled chat', createdAt: now, updated
 let sessions = [hydrated]
 ;(window as any).devscope = { assistant: { settleSession: async (id: string, settled: boolean) => {
     for (const session of [hydrated, ...sessions]) if (session.id === id) Object.assign(session, { settled, settlementManual: true })
+    // Model the canonical metadata event, not a full store.refresh() callback.
+    sessions = [...sessions]
+    queueMicrotask(() => render())
     return { success: true }
 } } }
-;(window as any).settlementRefresh = async () => render()
 let selected: string | null = 'settled'
 function render(mounted = true) {
     flushSync(() => root.render(mounted ? <div className="flex h-full w-[300px] flex-col p-2">

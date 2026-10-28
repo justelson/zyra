@@ -4,7 +4,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ROLES = new Set(["reviewer", "planner", "implementer", "debugger", "verifier", "researcher", "specialist"]);
 const PERMISSION_MODES = new Set(["read-only", "writer", "full-access"]);
 const ISOLATIONS = new Set(["shared", "worktree"]);
-const KNOWN_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "edit", "write", "web_search", "web_fetch"]);
+const KNOWN_TOOLS = new Set(["read", "grep", "find", "ls", "context", "bash", "edit", "write", "web_search", "web_fetch"]);
 
 export function validateAgentDefinition(input = {}, options = {}) {
   const errors = [];

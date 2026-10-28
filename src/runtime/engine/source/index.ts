@@ -18,6 +18,8 @@ export {
 	type AgentSessionConfig,
 	type AgentSessionEvent,
 	type AgentSessionEventListener,
+	type ContextCompactionRequest,
+	type SessionContextCompactionPolicy,
 	type ModelCycleResult,
 	type ParsedSkillBlock,
 	type PromptOptions,

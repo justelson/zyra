@@ -309,7 +309,7 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		...buildBaseOptions(model, context, options, apiKey),
 		toolChoice: options?.toolChoice,
 	} satisfies GoogleOptions;
-	if (!options?.reasoning) {
+	if (!options?.reasoning || String(options.reasoning) === "off") {
 		return stream(model, context, { ...base, thinking: { enabled: false } } satisfies GoogleOptions);
 	}
 
@@ -317,7 +317,12 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 	const resolvedLevel = resolveGoogleThinkingLevel(model, clampedReasoning);
 	const googleModel = model as Model<"google-generative-ai">;
 
-	if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGemma4Model(googleModel)) {
+	if (
+		isGemini3ProModel(googleModel) ||
+		isGemini3FlashModel(googleModel) ||
+		isGeminiArgonModel(googleModel) ||
+		isGemma4Model(googleModel)
+	) {
 		return stream(model, context, {
 			...base,
 			thinking: {
@@ -390,14 +395,20 @@ function buildParams(
 
 	if (options.thinking?.enabled && model.reasoning) {
 		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
-		if (options.thinking.level !== undefined) {
+		if (requiresLowThinkingMinimum(model)) {
+			// Gemini 3.8 Flash and Argon accept levels, not token budgets or MINIMAL.
+			const level = options.thinking.level;
+			thinkingConfig.thinkingLevel = (
+				level === "MEDIUM" || level === "HIGH" ? level : "LOW"
+			) as any;
+		} else if (options.thinking.level !== undefined) {
 			// Cast to any since our GoogleApiThinkingLevel mirrors Google's ThinkingLevel enum values
 			thinkingConfig.thinkingLevel = options.thinking.level as any;
 		} else if (options.thinking.budgetTokens !== undefined) {
 			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
 		}
 		config.thinkingConfig = thinkingConfig;
-	} else if (model.reasoning && options.thinking && !options.thinking.enabled) {
+	} else if (requiresLowThinkingMinimum(model) || (model.reasoning && options.thinking && !options.thinking.enabled)) {
 		config.thinkingConfig = getDisabledThinkingConfig(model);
 	}
 
@@ -430,11 +441,20 @@ function isGemini3FlashModel(model: Model<"google-generative-ai">): boolean {
 	return /gemini-3(?:\.\d+)?-flash/.test(id) || id === "gemini-flash-latest" || id === "gemini-flash-lite-latest";
 }
 
+function isGeminiArgonModel(model: Model<"google-generative-ai">): boolean {
+	return /^gemini-4-argon(?:-|$)/.test(model.id.toLowerCase());
+}
+
+function requiresLowThinkingMinimum(model: Model<"google-generative-ai">): boolean {
+	const id = model.id.toLowerCase();
+	// The 3.7 endpoint now routes to 3.8 and shares its supported levels.
+	return /^gemini-3\.[78]-flash(?:-|$)/.test(id) || isGeminiArgonModel(model) || id === "gemini-flash-latest";
+}
+
 function getDisabledThinkingConfig(model: Model<"google-generative-ai">): ThinkingConfig {
-	// Google docs: Gemini 3.1 Pro cannot disable thinking, and Gemini 3 Flash / Flash-Lite
-	// do not support full thinking-off either. For Gemini 3 models, use the lowest supported
-	// thinkingLevel without includeThoughts so hidden thinking remains invisible to pi.
-	if (isGemini3ProModel(model)) {
+	// These models cannot disable internal thinking. Omit includeThoughts when off
+	// and select the lowest level supported by that model, preserving older Flash behavior.
+	if (requiresLowThinkingMinimum(model) || isGemini3ProModel(model)) {
 		return { thinkingLevel: "LOW" as any };
 	}
 	if (isGemini3FlashModel(model)) {
@@ -452,6 +472,9 @@ function getThinkingLevel(
 	effort: ResolvedGoogleThinkingLevel,
 	model: Model<"google-generative-ai">,
 ): GoogleApiThinkingLevel {
+	if (requiresLowThinkingMinimum(model)) {
+		return effort === "medium" ? "MEDIUM" : effort === "high" ? "HIGH" : "LOW";
+	}
 	if (isGemini3ProModel(model)) {
 		switch (effort) {
 			case "minimal":

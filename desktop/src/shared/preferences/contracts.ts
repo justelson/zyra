@@ -65,6 +65,7 @@ export const SHARED_DEVICE_PREFERENCE_KEYS = [
     'assistantDefaultFastMode',
     'assistantReasoningSummary',
     'assistantContextCompactionThresholdTokens',
+    'assistantModelCompactionOverrides',
     'assistantDefaultWebSearch',
     'assistantDefaultWebFetch',
     'assistantBusyMessageMode'

@@ -22,6 +22,8 @@ async function fixture(tasks: DeveloperTasks) {
         globalShortcut: { unregisterAll: noop }, browserRecordingOverlayManager: { dispose: noop },
         nativeOverlayManager: { dispose: noop }, browserViewManager: { dispose: noop },
         browserClientRuntime: null, disposeUpdater: noop,
+        shouldAbortUpdateQuit: () => false,
+        cancelPendingAppInstallation: async () => { state.installCancellations++ }, installCancellations: 0,
         assistantUtilityWindowManager: { dispose: async () => undefined },
         setupServices: { onboarding: { isAccessAllowed: () => true }, auth: { dispose: async () => undefined },
             analytics: { capture: noop, flush: async () => undefined, shutdown: async () => undefined } },
@@ -64,6 +66,7 @@ try {
     await delay(30)
     assert.equal(failure.quits, 0, 'Task cleanup failure keeps the application alive rather than orphaning a process')
     assert.equal(failure.quitCleanupStarted, false, 'A failed cleanup permits a later quit retry')
+    assert.equal(failure.installCancellations, 1, 'Failed local cleanup cancels any pending installation before retaining the app')
     assert.equal((failed as any).processes.size, 1)
     ;(failed as any).processes.clear()
     console.log('Real before-quit coordinator waits for owned task close, prevents late starts and retains failed cleanup for retry.')

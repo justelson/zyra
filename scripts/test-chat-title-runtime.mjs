@@ -23,9 +23,10 @@ try {
     const result = new AssistantMessageEventStream();
     const first = calls++ === 0;
     if (first) {
-      assert.match(context.systemPrompt, /Before any visible response or other tool call/);
+      assert.doesNotMatch(context.systemPrompt, /Before any visible response or other tool call/, 'Title state must not rewrite reusable system instructions');
+      assert.match(JSON.stringify(context.messages), /Before any visible response or other tool call/, 'Title context is appended with the accepted turn');
       assert.ok(context.tools.some(tool => tool.name === 'set_chat_title'));
-      assert.equal(context.messages.at(-1).content[0].text, 'Fix renderer startup', 'title context does not become a user message');
+      assert.equal(context.messages.filter(message => message.content?.[0]?.text === 'Fix renderer startup').length, 1, 'Original user prompt remains unchanged and appears once');
     }
     const message = { role: 'assistant', provider: model.provider, api: model.api, model: model.id, usage, timestamp: Date.now(),
       stopReason: fail ? 'error' : first ? 'toolUse' : 'stop',

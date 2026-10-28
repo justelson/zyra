@@ -20,7 +20,7 @@ export function AssistantWorkspaceLayout({ children }: { children: ReactNode }) 
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
     const [extensionDrawerOpen, setExtensionDrawerOpen] = useState(false)
     const autoCollapsedLeftSidebarRef = useRef(false)
-    const { toast, showToast } = useAssistantTransientToast()
+    const { toast, showToast, dismissToast } = useAssistantTransientToast()
     const paneLayout = resolveAssistantPaneLayout({
         viewportWidth,
         leftSidebarCollapsed: isBrowserExtension || leftSidebarCollapsed || (!chatActive && viewportWidth < 760),
@@ -85,7 +85,7 @@ export function AssistantWorkspaceLayout({ children }: { children: ReactNode }) 
                     {children}
                 </Suspense>
             </div>
-            <AssistantTransientToast toast={toast} />
+            <AssistantTransientToast toast={toast} onDismiss={dismissToast} />
         </div>
     </AssistantWorkspaceContext.Provider>
 }

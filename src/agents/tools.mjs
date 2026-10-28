@@ -123,6 +123,6 @@ function requiredPrompt(params) {
 }
 
 function toolResult(value) {
-  const text = JSON.stringify(value, null, 2);
+  const text = JSON.stringify(value);
   return { content: [{ type: "text", text: text.length > 50 * 1024 ? `${text.slice(0, 50 * 1024)}\n[truncated]` : text }], details: { fleet: true } };
 }

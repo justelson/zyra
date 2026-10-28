@@ -53,6 +53,8 @@ export function recoverPersistedSnapshot(snapshot: AssistantSnapshot): Assistant
             session.activeThreadId = session.threadIds[0] || null
         }
         for (const thread of session.threads) {
+            thread.modelRequestProgress = null
+            if (thread.canonicalPresence) thread.canonicalPresence.modelRequestProgress = null
             thread.messageCount = Number.isFinite(thread.messageCount) ? thread.messageCount : (thread.messages?.length || 0)
             thread.lastSeenCompletedTurnId = thread.lastSeenCompletedTurnId || null
             const turn = thread.latestTurn

@@ -1,4 +1,11 @@
 import { app, BrowserWindow } from 'electron'
+import { getAssistantService } from '../assistant'
+import { join } from 'node:path'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { createInstallerRequests } from './installer-requests'
+import { installerIsAbsent } from './installer-presence'
+import { createInstallPreflight } from './install-preflight'
+import type { AgentUpdateConfirmation } from '../../shared/agent-update'
 import log from 'electron-log'
 import type {
     DevScopeUpdateActionResult,
@@ -157,6 +164,7 @@ function armUpdateCheckTimeout(reason: string): void {
 }
 
 function resolveUpdaterErrorContext(): DevScopeUpdateErrorContext {
+    if (isInstallingUpdate) return 'install'
     if (updateDownloadInFlight) return 'download'
     if (updateCheckInFlight) return 'check'
     return updateState.errorContext
@@ -289,6 +297,7 @@ async function performUpdaterInitialization(): Promise<void> {
 
     const disabledReason = currentAutoUpdateDisabledReason()
     const enabled = disabledReason === null
+    const externalInstaller = updateState.externalInstaller
     updateState = createInitialUpdateState(
         app.getVersion(),
         releaseRepository,
@@ -296,6 +305,8 @@ async function performUpdaterInitialization(): Promise<void> {
         releasePageUrl,
         disabledReason
     )
+    if (externalInstaller) updateState.externalInstaller = externalInstaller
+    void refreshInstallationRecovery()
 
     if (!enabled) {
         if (disabledReason) {
@@ -365,7 +376,9 @@ async function performUpdaterInitialization(): Promise<void> {
     autoUpdater.on('error', (error) => {
         clearUpdateCheckTimeoutTimer()
         const message = error instanceof Error ? error.message : String(error)
-        if (!updateCheckInFlight && !updateDownloadInFlight) {
+        if (isInstallingUpdate) {
+            void cancelPendingAppInstallation(message)
+        } else if (!updateCheckInFlight && !updateDownloadInFlight) {
             setUpdateState({
                 ...updateState,
                 status: 'error',
@@ -493,10 +506,100 @@ export async function downloadAppUpdate(): Promise<DevScopeUpdateActionResult> {
     }
 }
 
-export async function installAppUpdate(): Promise<DevScopeUpdateActionResult> {
+let installerRequests: ReturnType<typeof createInstallerRequests> | null = null
+let installRelease: (() => Promise<void>) | null = null
+let installVersion: string | null = null
+let installOperationId = ''
+let readyOnQuit: (() => void) | null = null
+let abortUpdateQuit = false
+const installerFlag = (kind: 'pending' | 'ready', version = installVersion) => join(app.getPath('userData'), 'updates', `installer-${kind}-${version && /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version) ? version : 'invalid'}.flag`)
+async function releaseInstallationResources() {
+    if (readyOnQuit) app.removeListener('will-quit', readyOnQuit)
+    readyOnQuit = null
+    rmSync(installerFlag('pending'), { force: true }); rmSync(installerFlag('ready'), { force: true })
+    await installRelease?.(); installRelease = null
+}
+export function shouldAbortUpdateQuit() { const blocked = abortUpdateQuit; abortUpdateQuit = false; return blocked }
+export async function cancelPendingAppInstallation(message: string, abortScheduledQuit = true) {
+    if (!isInstallingUpdate) return
+    isInstallingUpdate = false; abortUpdateQuit = abortScheduledQuit
+    try { await releaseInstallationResources() } catch (error) { log.error('[updater] handoff release failed', error) }
+    if (updateState.externalInstaller) installerRequests?.later()
+    setUpdateState({ ...reduceUpdateStateOnInstallFailure(updateState, message), externalInstaller: undefined })
+}
+export async function refreshInstallationRecovery() {
+    try {
+        const pending = await getAssistantService().inspectInstallRecovery()
+        const available = Boolean(pending && await installerIsAbsent(app.getName()))
+        setUpdateState({ ...updateState, installRecoveryAvailable: available })
+    } catch { /* Unknown never grants recovery. */ }
+}
+export async function resumePreviousAgent() {
+    if (isInstallingUpdate || !await installerIsAbsent(app.getName())) return rejectAction('An installer may still be running.')
+    try {
+        const version = await getAssistantService().recoverInstallHandoff()
+        rmSync(installerFlag('pending', version), { force: true }); rmSync(installerFlag('ready', version), { force: true })
+        setUpdateState({ ...updateState, installRecoveryAvailable: false, message: null, errorContext: null })
+        return buildActionResult(true, true)
+    } catch { return rejectAction('The previous installation could not be verified. Repair it first.') }
+}
+export function hasCurrentManualInstallerRequest(): boolean {
+    const pending = updateState.externalInstaller
+    if (!pending || pending.agentServerUpdate !== true) return false
+    try {
+        const request = installerRequests?.assertCurrent()
+        return request?.id === pending.id && request.version === pending.version
+    } catch { return false }
+}
+export function receiveInstallerUpdateRequest(argv: string[]): boolean {
+    if (isInstallingUpdate) return false
+    installerRequests ||= createInstallerRequests(join(app.getPath('userData'), 'updates', 'installer-requests'))
+    if (!installerRequests.accept(argv, app.getVersion())) return false
+    const request = installerRequests.current()!
+    void installPreflight.defer()
+    setUpdateState({ ...updateState, externalInstaller: { id: request.id, version: request.version, agentServerUpdate: true } })
+    return true
+}
+const installPreflight = createInstallPreflight({
+    version: () => updateState.externalInstaller?.version || (updateState.enabled && updateState.status === 'downloaded' ? updateState.downloadedVersion : null),
+    inspect: () => getAssistantService().inspectRuntimeInstallation(),
+    prepare: async input => {
+        if (updateState.externalInstaller) installerRequests!.assertCurrent()
+        const assistant = getAssistantService()
+        installRelease = () => assistant.cancelRuntimeInstallation()
+        installVersion = input.targetVersion
+        installOperationId = updateState.externalInstaller?.id || input.operationId
+        await assistant.prepareRuntimeInstallation({ ...input, operationId: installOperationId })
+    },
+    release: releaseInstallationResources,
+    install: () => {
+        clearUpdateTimers()
+        if (updateState.externalInstaller) {
+            installerRequests!.assertCurrent()
+            // The installer cannot continue until normal Desktop persistence and
+            // before-quit cleanup have finished. No PID is killed here.
+            readyOnQuit = () => installerRequests!.ready()
+            app.once('will-quit', readyOnQuit)
+            app.quit()
+        } else {
+            mkdirSync(join(app.getPath('userData'), 'updates'), { recursive: true })
+            writeFileSync(installerFlag('pending'), installOperationId, { mode: 0o600 })
+            readyOnQuit = () => writeFileSync(installerFlag('ready'), installOperationId, { mode: 0o600 })
+            app.once('will-quit', readyOnQuit)
+            autoUpdaterRef!.quitAndInstall()
+        }
+    }
+})
+export async function preflightAppUpdate() { await initializeUpdater(); return installPreflight.inspect() }
+export async function deferAppUpdate() {
+    await installPreflight.defer()
+    if (updateState.externalInstaller) { installerRequests?.later(); setUpdateState({ ...updateState, externalInstaller: undefined }) }
+}
+
+export async function installAppUpdate(confirmation?: AgentUpdateConfirmation): Promise<DevScopeUpdateActionResult> {
     await initializeUpdater()
 
-    if (!updaterConfigured || !autoUpdaterRef || isInstallingUpdate || updateState.status !== 'downloaded') {
+    if (!updateState.externalInstaller && (!updaterConfigured || !autoUpdaterRef || isInstallingUpdate || updateState.status !== 'downloaded')) {
         if (!updaterConfigured || !autoUpdaterRef) {
             return rejectAction(getUpdaterUnavailableMessage())
         }
@@ -512,13 +615,15 @@ export async function installAppUpdate(): Promise<DevScopeUpdateActionResult> {
         return rejectAction('No downloaded update is ready to install.')
     }
 
+    if (isInstallingUpdate) return rejectAction('Install is already in progress.')
+    if (!confirmation?.planId || typeof confirmation.stopBlockers !== 'boolean') return rejectAction('Review the agent update before installing.')
     isInstallingUpdate = true
-    clearUpdateTimers()
 
     try {
-        autoUpdaterRef.quitAndInstall()
-        return buildActionResult(true, true)
+        await installPreflight.confirm(confirmation)
+        return buildActionResult(true, isInstallingUpdate)
     } catch (error) {
+        await cancelPendingAppInstallation(error instanceof Error ? error.message : 'Installation did not start.')
         isInstallingUpdate = false
         const message = error instanceof Error ? error.message : String(error)
         setUpdateState(reduceUpdateStateOnInstallFailure(updateState, message))

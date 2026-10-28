@@ -4,7 +4,7 @@
  * their parsed React tree instead of running unified/remark again while scrolling.
  */
 
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps, type ReactNode } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import type { Element, Root } from 'hast'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
@@ -27,6 +27,8 @@ import { parseMarkdownToHast } from './markdown/markdownPipeline'
 import { createMarkdownHeadingSlug } from './markdown/markdownHeadingIds'
 import { StreamingMarkdownSpan, wrapStreamingText } from './markdown/StreamingText'
 import { enhanceSkillReferenceChips } from './markdown/skillReferences'
+import { groupMarkdownAudio } from './markdown/audioEmbeds'
+import { MarkdownAudioPlaylist } from './markdown/MarkdownAudioPlaylist'
 
 export type MarkdownMediaMode = 'none' | 'images' | 'images-and-videos'
 
@@ -54,6 +56,8 @@ export interface MarkdownRendererProps {
     onLinkNotice?: MarkdownLinkNoticeHandler
     visualTheme?: 'light' | 'dark'
     mediaMode?: MarkdownMediaMode
+    /** Real replies share one audio player. Individual embeds are available for explicit reviews. */
+    audioPresentation?: 'grouped' | 'individual'
     /** Sent user prompts retain raw skill references while displaying inline pills. */
     skillReferenceChips?: boolean
 }
@@ -101,6 +105,7 @@ function resolveCompiledKey(props: MarkdownRendererProps): string {
         props.deferCodeHighlighting ? 'defer-highlight' : 'sync-highlight',
         props.visualTheme || 'dark',
         props.mediaMode || 'images',
+        props.audioPresentation || 'grouped',
         props.skillReferenceChips ? 'skill-chips' : 'literal-skills'
     ].join('|')
 }
@@ -248,13 +253,24 @@ function getMarkdownComponents(props: MarkdownRendererProps): ReturnType<typeof 
 function compileMarkdown(props: MarkdownRendererProps): ReactNode {
     const startedAt = performance.now()
     markdownCompilationCount += 1
-    const preparedTree = (props.fadeStreamingText || props.skillReferenceChips) && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
+    const groupAudio = props.mediaMode === 'images-and-videos' && props.audioPresentation !== 'individual'
+    const preparedTree = (props.fadeStreamingText || props.skillReferenceChips || groupAudio) && props.preparedTree ? structuredClone(props.preparedTree) : props.preparedTree
     const tree = preparedTree || parseMarkdownToHast(props.content, !props.lightweight)
     if (props.skillReferenceChips) enhanceSkillReferenceChips(tree)
     prepareMarkdownTree(tree)
     const baseComponents = getMarkdownComponents(props)
     if (props.fadeStreamingText) wrapStreamingText(tree, Boolean(props.animateInitialText))
-    const components = props.fadeStreamingText ? { ...baseComponents, span: StreamingMarkdownSpan } : baseComponents
+    const components = props.fadeStreamingText ? { ...baseComponents, span: StreamingMarkdownSpan } : { ...baseComponents }
+    const audioGroup = groupAudio ? groupMarkdownAudio(tree, props.filePath) : null
+    if (audioGroup) {
+        const anchor = components.a || 'a'
+        components.a = (linkProps: ComponentProps<'a'> & { 'data-markdown-audio-group'?: string }) => {
+            const { 'data-markdown-audio-group': marker, ...rest } = linkProps
+            return marker === 'primary'
+                ? jsx(MarkdownAudioPlaylist, { ...audioGroup, filePath: props.filePath })
+                : jsx(anchor, rest)
+        }
+    }
 
     const result = toJsxRuntime(tree, {
         Fragment,
@@ -341,14 +357,15 @@ export function MarkdownContentRenderer(props: MarkdownRendererProps) {
     const documentRef = useRef<HTMLDivElement | null>(null)
     const visualTheme = props.visualTheme || activeVisualTheme
     const skillReferenceChips = props.skillReferenceChips === true
+    const audioPresentation = props.audioPresentation || 'grouped'
     const committed = useRef<{ content: string; cacheKey?: string } | null>(null)
     const animateInitialText = Boolean(fadeStreamingText && committed.current && committed.current.cacheKey === cacheKey && committed.current.content !== content)
     useLayoutEffect(() => { committed.current = { content, cacheKey } }, [content, cacheKey])
     const markdownProps = useMemo(
-        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, fadeStreamingText, animateInitialText, visualTheme, mediaMode, skillReferenceChips }),
-        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, fadeStreamingText, animateInitialText, visualTheme, skillReferenceChips]
+        () => ({ content, filePath, codeBlockMaxLines, lightweight, plainCodeBlocks, deferCodeHighlighting, preparedTree, cacheKey, transient, fadeStreamingText, animateInitialText, visualTheme, mediaMode, audioPresentation, skillReferenceChips }),
+        [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, audioPresentation, plainCodeBlocks, preparedTree, transient, fadeStreamingText, animateInitialText, visualTheme, skillReferenceChips]
     )
-    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, plainCodeBlocks, preparedTree, transient, visualTheme, skillReferenceChips])
+    const renderIdentity = useMemo(() => ({}), [cacheKey, codeBlockMaxLines, content, deferCodeHighlighting, filePath, lightweight, mediaMode, audioPresentation, plainCodeBlocks, preparedTree, transient, visualTheme, skillReferenceChips])
     const shouldDeferCompilation = !transient && content.length >= DEFERRED_MARKDOWN_LENGTH
     const [preparedIdentity, setPreparedIdentity] = useState<object | null>(null)
 
@@ -433,5 +450,6 @@ export default memo(
         previous.onInternalLinkClick === next.onInternalLinkClick &&
         previous.onLinkNotice === next.onLinkNotice &&
         previous.visualTheme === next.visualTheme &&
-        previous.mediaMode === next.mediaMode
+        previous.mediaMode === next.mediaMode &&
+        previous.audioPresentation === next.audioPresentation
 )

@@ -5,6 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorkSegmentsTest {
+    @Test fun `tool discovery stays outside action disclosures`() {
+        val entries = listOf(tool("load", "tool_search"), tool("browser-load", "browser_use"), tool("click", "computer_click"))
+        val group = ChatRailRow.Work("work", entries, false, true, entries.map { WorkActions.project(it) })
+        val segments = workSegments(group)
+        assertEquals(listOf(1, 1, 1), segments.map { (it as WorkSegment.Actions).actions.size })
+    }
     @Test fun `active action overrides intent until the action settles`() {
         val first = WorkActions.project(tool("one", "bash", "Verify the change"))
         val active = WorkActions.project(tool("two", "read", "Verify the change").copy(pending = true))

@@ -28,6 +28,8 @@ assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'getState']), tru
 assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'restart']), false, 'status relay grants no service lifecycle authority')
 assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'activateUpdate']), false, 'browser cannot invoke Desktop runtime activation')
 assert.equal(isBrowserDevscopeBridgePath(['runtimeActivation', 'refresh']), false, 'browser status observation does not grant reconnect authority')
+for (const method of ['preflightInstall', 'deferInstall', 'installUpdate', 'resumePreviousAgent']) assert.equal(isBrowserDevscopeBridgePath(['updates', method]), false, 'installer lifecycle remains native-only')
+assert.equal(isBrowserDevscopeBridgePath(['updates', 'getState']), true)
 assert.equal(isBrowserDevscopeRelayEvent({ event: 'runtimeActivationChanged', payload: live }), true)
 const copy = readRuntimeActivation()
 copy.instance!.instanceId = 'not-the-owner'

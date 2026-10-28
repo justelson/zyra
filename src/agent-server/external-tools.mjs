@@ -44,6 +44,7 @@ export class ExternalToolSessions {
 
   async openNew(client, input) {
     const chat = await this.createChat({ ...input, surface: client.surface, displayName: client.displayName });
+    this.server.assertWorkAdmission?.();
     if (!client.socket.writable) throw new AgentServerProtocolError('The tool client disconnected.', 'AGENT_SERVER_DISCONNECTED');
     const id = `external-tool:${randomUUID()}`;
     const turnId = `external-turn:${randomUUID()}`;

@@ -11,6 +11,8 @@ import { resolveImageSrc, resolveImageSrcSet } from './paths'
 import { resolveMarkdownLinkTarget } from './linkNavigation'
 import { renderMarkdownLinkLabel } from './linkLabels'
 import { SkillReferenceChip } from '../SkillReferenceChip'
+import AudioPlayer from '../AudioPlayer'
+import { isMarkdownAudioHref } from './audioEmbeds'
 
 type DivProps = HTMLAttributes<HTMLDivElement> & { align?: string }
 type SourceProps = HTMLAttributes<HTMLSourceElement> & { src?: string; srcSet?: string }
@@ -130,7 +132,7 @@ function HeadingPermalink({ id }: { id?: string }) {
 }
 
 const MARKDOWN_VIDEO_EXTENSION_PATTERN = /\.(?:mp4|webm|ogv|mov|m4v)(?:[?#].*)?$/i
-const MARKDOWN_AUDIO_EXTENSION_PATTERN = /\.(?:mp3|wav|ogg|oga|m4a|aac|flac|opus)(?:[?#].*)?$/i
+
 const MARKDOWN_IMAGE_EXTENSION_PATTERN = /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)(?:[?#].*)?$/i
 
 function isMarkdownVideoHref(value: string): boolean {
@@ -165,12 +167,10 @@ function MarkdownPlayableMedia(props: {
     return (
         <span className={`markdown-${props.kind}-frame`} data-markdown-copy={`[${props.label}](${props.href})`}>
             {props.kind === 'audio' ? (
-                <audio
-                    controls
-                    preload="metadata"
+                <AudioPlayer
                     src={resolvedSource}
-                    data-markdown-audio-target={props.href}
-                    aria-label={props.label || 'Audio'}
+                    markdownTarget={props.href}
+                    label={props.label || 'Audio'}
                     onError={() => setFailedSource(resolvedSource)}
                 />
             ) : (
@@ -186,7 +186,7 @@ function MarkdownPlayableMedia(props: {
                     <a href={resolvedSource}>Open video</a>
                 </video>
             )}
-            {props.label ? <span className={`markdown-${props.kind}-caption`}>{props.label}</span> : null}
+            {props.label && props.kind === 'video' ? <span className="markdown-video-caption">{props.label}</span> : null}
         </span>
     )
 }
@@ -319,7 +319,7 @@ export function createMarkdownComponents(
 
             if (options?.mediaMode === 'images-and-videos') {
                 if (isMarkdownVideoHref(rawHref)) return <MarkdownPlayableMedia kind="video" href={rawHref} label={childText} filePath={filePath} />
-                if (MARKDOWN_AUDIO_EXTENSION_PATTERN.test(rawHref)) return <MarkdownPlayableMedia kind="audio" href={rawHref} label={childText} filePath={filePath} />
+                if (isMarkdownAudioHref(rawHref)) return <MarkdownPlayableMedia kind="audio" href={rawHref} label={childText} filePath={filePath} />
                 if (childText && MARKDOWN_IMAGE_EXTENSION_PATTERN.test(rawHref)) return <MarkdownImage src={resolveImageSrc(rawHref, filePath)} rawSrc={rawHref} alt={childText} />
             }
 

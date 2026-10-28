@@ -6,6 +6,18 @@ import { pluginAppViewIdentity, type PluginAppViewDescriptor } from './plugin-ap
 
 type LoadedView = { html: string; csp: { connectDomains: string[]; resourceDomains: string[] } }
 
+/** Shared with the isolated permission review; decisions still belong to the view bridge. */
+export function PluginAppActionApproval({ server, tool, args, onChoose }: { server: string; tool: string; args: Record<string, unknown>; onChoose: (approved: boolean) => void }) {
+    return <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-bg)_88%,transparent)] p-3">
+        <div className="max-w-md rounded-md border border-[var(--surface-divider)] bg-[var(--color-card)] p-3 text-xs shadow-lg" role="dialog" aria-modal="true" aria-label="Approve app view action">
+            <p className="font-medium">Allow {server} to run {tool}?</p>
+            <p className="mt-1 text-sparkle-text-muted">This action comes from the Plugin view.</p>
+            <pre className="mt-2 max-h-24 overflow-auto break-all text-[10px] text-sparkle-text-secondary">{JSON.stringify(args).slice(0, 800)}</pre>
+            <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-md border border-[var(--surface-divider)] px-3 py-1.5" onClick={() => onChoose(false)}>Cancel</button><button type="button" className="inline-flex items-center gap-1 rounded-md bg-[var(--color-text)] px-3 py-1.5 text-[var(--color-bg)]" onClick={() => onChoose(true)}><ArrowUpRight size={13} />Allow once</button></div>
+        </div>
+    </div>
+}
+
 export function PluginAppView({ view }: { view: PluginAppViewDescriptor }) {
     const [open, setOpen] = useState(view.displayMode === 'automatic')
     const [loaded, setLoaded] = useState<LoadedView | null>(null)
@@ -132,14 +144,7 @@ export function PluginAppView({ view }: { view: PluginAppViewDescriptor }) {
             {loading ? <p className="flex items-center gap-2 px-3 py-4 text-xs text-sparkle-text-muted" role="status"><LoaderCircle size={14} className="animate-spin" />Loading app view…</p> : null}
             {error ? <p className="px-3 py-4 text-xs text-[var(--status-danger)]" role="alert">{error}</p> : null}
             {loaded && !error ? <iframe ref={frameRef} title={`App view from ${view.server}`} src={sandboxUrl} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => { void startBridge() }} className="block w-full border-0 bg-transparent" style={{ height }} /> : null}
-            {approval ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-bg)_88%,transparent)] p-3">
-                <div className="max-w-md rounded-md border border-[var(--surface-divider)] bg-[var(--color-card)] p-3 text-xs shadow-lg" role="dialog" aria-modal="true" aria-label="Approve app view action">
-                    <p className="font-medium">Allow {view.server} to run {approval.tool}?</p>
-                    <p className="mt-1 text-sparkle-text-muted">This action comes from the Plugin view.</p>
-                    <pre className="mt-2 max-h-24 overflow-auto break-all text-[10px] text-sparkle-text-secondary">{JSON.stringify(approval.args).slice(0, 800)}</pre>
-                    <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-md border border-[var(--surface-divider)] px-3 py-1.5" onClick={() => chooseApproval(false)}>Cancel</button><button type="button" className="inline-flex items-center gap-1 rounded-md bg-[var(--color-text)] px-3 py-1.5 text-[var(--color-bg)]" onClick={() => chooseApproval(true)}><ArrowUpRight size={13} />Allow once</button></div>
-                </div>
-            </div> : null}
+            {approval ? <PluginAppActionApproval server={view.server} tool={approval.tool} args={approval.args} onChoose={chooseApproval} /> : null}
         </div> : null}
     </div>
 }

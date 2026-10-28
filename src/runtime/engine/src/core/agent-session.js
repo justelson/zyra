@@ -20,6 +20,7 @@ import { normalizeToolResultImages } from "../utils/tool-result-images.js";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.js";
 import { executeBashWithOperations } from "./bash-executor.js";
 import {
+  assertValidCompactionSummary,
   calculateContextTokens,
   collectEntriesForBranchSummary,
   compact,
@@ -71,6 +72,8 @@ class AgentSession {
   agent;
   sessionManager;
   settingsManager;
+  /** Optional host-owned per-model policy, resolved freshly for the active model. */
+  getContextCompactionPolicy;
   _scopedModels;
   // Event subscription state
   _unsubscribeAgent;
@@ -89,6 +92,11 @@ class AgentSession {
   _compactionAbortController = void 0;
   _autoCompactionAbortController = void 0;
   _overflowRecoveryAttempted = false;
+  _contextCompactionRequest = { status: "idle" };
+  _contextCompactionInstructions;
+  /** One agent-requested attempt per user task, including failures. */
+  _contextCompactionAttempted = false;
+  _safePointAutoCompactionAttempted = false;
   // Branch summarization state
   _branchSummaryAbortController = void 0;
   // Retry state
@@ -255,15 +263,34 @@ class AgentSession {
     };
   }
   _installAgentNextTurnRefresh() {
+    const previousTransform = this.agent.transformContext;
+    this.agent.transformContext = async (messages, signal) => {
+      const transformed = previousTransform ? await previousTransform(messages, signal) : messages;
+      const bounded = await this._boundInferenceContext(transformed, signal);
+      if (bounded !== transformed && previousTransform) {
+        return this._boundInferenceContext(await previousTransform(bounded, signal), signal);
+      }
+      return bounded;
+    };
     const previousPrepareNextTurnWithContext = this.agent.prepareNextTurnWithContext ?? (this.agent.prepareNextTurn ? async (_turn, signal) => await this.agent.prepareNextTurn?.(signal) : void 0);
+    const previousShouldStop = this.agent.shouldStopAfterTurn;
+    this.agent.shouldStopAfterTurn = async (turn, signal) => signal?.aborted === true || await previousShouldStop?.(turn, signal) === true;
     this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-      const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
-      const previousContext = previousSnapshot?.context ?? turn.context;
+      let compacted = await this._processContextCompactionRequest(signal);
+      if (!compacted && !signal?.aborted && turn.toolResults.length > 0 && !this._contextCompactionAttempted && !this._safePointAutoCompactionAttempted) {
+        const previousMessages = this.agent.state.messages;
+        await this._checkCompaction(turn.message);
+        compacted = this.agent.state.messages !== previousMessages;
+      }
+      const refreshedTurn = compacted ? { ...turn, context: { ...turn.context, messages: this.agent.state.messages.slice() } } : turn;
+      const previousSnapshot = await previousPrepareNextTurnWithContext?.(refreshedTurn, signal);
+      const previousContext = previousSnapshot?.context ?? refreshedTurn.context;
       return {
         ...previousSnapshot,
         context: {
           ...previousContext,
           systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
+          messages: this.agent.state.messages.slice(),
           tools: this.agent.state.tools.slice()
         },
         model: this.agent.state.model,
@@ -324,6 +351,10 @@ class AgentSession {
   _handleAgentEvent = async (event) => {
     if (event.type === "message_start" && event.message.role === "user") {
       this._overflowRecoveryAttempted = false;
+      this._contextCompactionAttempted = false;
+      this._safePointAutoCompactionAttempted = false;
+      this._contextCompactionRequest = { status: "idle" };
+      this._contextCompactionInstructions = void 0;
       const messageText = contentText(event.message.content, "");
       if (messageText) {
         const steeringIndex = this._steeringMessages.indexOf(messageText);
@@ -779,6 +810,12 @@ class AgentSession {
         details: message.details,
         timestamp: Date.now()
       }));
+      this._validatePromptContextSize(
+        expandedText,
+        currentImages,
+        contextMessages,
+        this.isStreaming ? [] : this._pendingNextTurnMessages
+      );
       if (this.isStreaming) {
         if (!options?.streamingBehavior) {
           throw new Error(
@@ -786,9 +823,9 @@ class AgentSession {
           );
         }
         if (options.streamingBehavior === "followUp") {
-          this._queueFollowUp(expandedText, currentImages, contextMessages);
+          await this._queueFollowUp(expandedText, currentImages, contextMessages);
         } else {
-          this._queueSteer(expandedText, currentImages, contextMessages);
+          await this._queueSteer(expandedText, currentImages, contextMessages);
         }
         preflightResult?.(true);
         return;
@@ -950,7 +987,8 @@ ${args}` : skillBlock;
   /**
    * Internal: Queue a steering message (already expanded, no extension command check).
    */
-  _queueSteer(text, images, contextMessages = []) {
+  async _queueSteer(text, images, contextMessages = []) {
+    this._validatePromptContextSize(text, images, contextMessages);
     this._steeringMessages.push(text);
     this._emitQueueUpdate();
     const content = [{ type: "text", text }];
@@ -963,7 +1001,8 @@ ${args}` : skillBlock;
   /**
    * Internal: Queue a follow-up message (already expanded, no extension command check).
    */
-  _queueFollowUp(text, images, contextMessages = []) {
+  async _queueFollowUp(text, images, contextMessages = []) {
+    this._validatePromptContextSize(text, images, contextMessages);
     this._followUpMessages.push(text);
     this._emitQueueUpdate();
     const content = [{ type: "text", text }];
@@ -1290,7 +1329,120 @@ ${args}` : skillBlock;
   // =========================================================================
   // Compaction
   // =========================================================================
-  /** Generate Pi's built-in compaction summary for manual and automatic compaction. */
+  _contextInputBudget(policy = this.getContextCompactionPolicy?.()) {
+    const positive = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
+    const contextWindow = policy?.contextWindow ?? this.model?.contextWindow;
+    if (positive(policy?.usableContextWindow)) {
+      return Math.floor(positive(contextWindow) ? Math.min(contextWindow, policy.usableContextWindow) : policy.usableContextWindow);
+    }
+    if (!positive(contextWindow)) return null;
+    if (positive(policy?.maxThresholdTokens)) return Math.floor(Math.min(contextWindow, policy.maxThresholdTokens));
+    const outputHeadroom = Math.min(
+      this.model?.maxTokens && this.model.maxTokens > 0 ? this.model.maxTokens : this.settingsManager.getCompactionReserveTokens(),
+      this.settingsManager.getCompactionReserveTokens()
+    );
+    return Math.max(0, Math.floor(contextWindow - Math.max(0, outputHeadroom)));
+  }
+  async _boundInferenceContext(messages, signal) {
+    if (!this.getContextCompactionPolicy) return messages;
+    const budget = this._contextInputBudget();
+    if (budget === null) return messages;
+    const overhead = Math.ceil((this.systemPrompt.length + JSON.stringify(this.agent.state.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }))).length) / 4);
+    const fits = (context) => estimateMessagesTokens(context) + overhead <= budget;
+    if (fits(messages)) return messages;
+    if (!signal?.aborted && this.autoCompactionEnabled && !this.isCompacting && !this._safePointAutoCompactionAttempted && !this._contextCompactionAttempted) {
+      this._safePointAutoCompactionAttempted = true;
+      const before = this.agent.state.messages;
+      await this._runAutoCompaction("threshold", false);
+      if (this.agent.state.messages !== before && fits(this.agent.state.messages)) {
+        return this.agent.state.messages.slice();
+      }
+    }
+    signal?.throwIfAborted();
+    throw new Error("Queued conversation context and tool output exceed this model's safe input budget. Reduce queued input or choose a model with a larger supported context window.");
+  }
+  _validatePromptContextSize(text, images = [], contextMessages = [], additionalContext = []) {
+    if (!Array.isArray(contextMessages)) throw new Error("contextMessages must be an array");
+    const budget = this._contextInputBudget();
+    if (budget === null) return;
+    const estimatedTokens = estimateTokens({ role: "user", content: [{ type: "text", text }, ...images], timestamp: 0 }) + estimateMessagesTokens(contextMessages) + estimateMessagesTokens(additionalContext);
+    if (estimatedTokens > budget) {
+      throw new Error(`Prompt and attached context exceed this model's safe input budget (${estimatedTokens} estimated tokens > ${budget}). Reduce the prompt, images, or context before retrying.`);
+    }
+  }
+  /** Inspect only this session, without exposing transcripts or another session selector. */
+  inspectContext() {
+    const policy = this.getContextCompactionPolicy?.();
+    const estimatedTokens = estimateMessagesTokens(this.agent.state.messages);
+    const inputBudget = this._contextInputBudget(policy);
+    const contextWindow = policy?.contextWindow ?? this.model?.contextWindow ?? null;
+    return {
+      sessionId: this.sessionId,
+      messageCount: this.agent.state.messages.length,
+      pendingPromptCount: this._steeringMessages.length + this._followUpMessages.length,
+      estimatedTokens,
+      contextWindow,
+      inputBudgetTokens: inputBudget,
+      remainingTokens: inputBudget === null ? null : Math.max(0, inputBudget - estimatedTokens),
+      headroomTokens: inputBudget === null || contextWindow === null ? null : Math.max(0, contextWindow - inputBudget),
+      usage: this.getContextUsage() ?? null,
+      policy: policy ?? null,
+      compaction: { ...this._contextCompactionRequest },
+      automaticCompactionAttempted: this._safePointAutoCompactionAttempted,
+      canRequestCompaction: this.agent.state.isStreaming && !this._contextCompactionAttempted
+    };
+  }
+  /** Enqueue only. Never await maintenance from inside a tool execution. */
+  requestContextCompaction(options) {
+    if (options && Object.keys(options).some((key) => key !== "instructions")) {
+      throw new Error("Context compaction accepts only instructions for this session");
+    }
+    if (options?.instructions !== void 0 && (typeof options.instructions !== "string" || options.instructions.length > 4e3)) {
+      throw new Error("Compaction instructions must be a string of at most 4000 characters");
+    }
+    if (this._contextCompactionRequest.status === "pending" || this._contextCompactionRequest.status === "running") {
+      return { ...this._contextCompactionRequest };
+    }
+    if (!this.agent.state.isStreaming) throw new Error("Request compaction during your active task; use manual compact while idle");
+    if (this._contextCompactionAttempted) throw new Error("Context compaction was already attempted for this task; continue the task");
+    this._contextCompactionAttempted = true;
+    this._contextCompactionInstructions = options?.instructions;
+    this._contextCompactionRequest = { status: "pending" };
+    return { ...this._contextCompactionRequest };
+  }
+  async _processContextCompactionRequest(signal) {
+    if (this._contextCompactionRequest.status !== "pending") return false;
+    if (signal?.aborted) {
+      this._contextCompactionRequest = { status: "cancelled" };
+      this._contextCompactionInstructions = void 0;
+      return false;
+    }
+    this._contextCompactionRequest = { status: "running" };
+    const instructions = this._contextCompactionInstructions;
+    this._contextCompactionInstructions = void 0;
+    const originalMessages = this.agent.state.messages;
+    try {
+      const result = await this._compactContext(instructions, signal);
+      this._contextCompactionRequest = {
+        status: "completed",
+        tokensBefore: result.tokensBefore,
+        estimatedTokensAfter: result.estimatedTokensAfter
+      };
+      return true;
+    } catch (error) {
+      const cancelled = signal?.aborted === true || error instanceof Error && error.name === "AbortError";
+      this._contextCompactionRequest = {
+        status: cancelled ? "cancelled" : "failed",
+        ...cancelled ? {} : { errorMessage: error instanceof Error ? error.message : String(error) }
+      };
+      return this.agent.state.messages !== originalMessages;
+    }
+  }
+  /** Generate the built-in compaction summary for manual and automatic compaction. */
   async _runDefaultCompaction(preparation, requestModel, apiKey, headers, customInstructions, signal, env, reason) {
     return compact(
       preparation,
@@ -1325,14 +1477,24 @@ ${args}` : skillBlock;
    */
   async compact(customInstructions) {
     await this.abort();
-    this._compactionAbortController = new AbortController();
+    return this._compactContext(customInstructions);
+  }
+  /** Shared checkpoint implementation. Only the safe-point caller may use this while streaming. */
+  async _compactContext(customInstructions, signal) {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+    this._compactionAbortController = controller;
     this._emit({ type: "compaction_start", reason: "manual" });
     let fromExtension = false;
     try {
+      controller.signal.throwIfAborted();
       if (!this.model) {
         throw new Error(formatNoModelSelectedMessage());
       }
       const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
+      controller.signal.throwIfAborted();
       const pathEntries = this.sessionManager.getBranch();
       const settings = this.settingsManager.getCompactionSettings();
       const preparation = prepareCompaction(pathEntries, settings);
@@ -1393,6 +1555,10 @@ ${args}` : skillBlock;
       if (this._compactionAbortController.signal.aborted) {
         throw new Error("Compaction cancelled");
       }
+      assertValidCompactionSummary(summary);
+      if (!pathEntries.some((entry) => entry.id === firstKeptEntryId)) {
+        throw new Error("Compaction first kept entry is not in this session branch");
+      }
       this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
       const newEntries = this.sessionManager.getEntries();
       const sessionContext = this.sessionManager.buildSessionContext();
@@ -1447,6 +1613,7 @@ ${args}` : skillBlock;
       });
       throw error;
     } finally {
+      signal?.removeEventListener("abort", cancel);
       this._compactionAbortController = void 0;
     }
   }
@@ -1528,6 +1695,7 @@ ${args}` : skillBlock;
       }
       return await this._runAutoCompaction("overflow", willRetry);
     }
+    if (this._safePointAutoCompactionAttempted || this._contextCompactionAttempted) return false;
     let contextTokens;
     const directContextTokens = assistantMessage.usage ? calculateContextTokens(assistantMessage.usage) : 0;
     if (assistantMessage.stopReason === "error" || directContextTokens === 0) {
@@ -1543,7 +1711,9 @@ ${args}` : skillBlock;
     } else {
       contextTokens = directContextTokens;
     }
-    if (shouldCompact(contextTokens, contextWindow, settings)) {
+    const policy = this.getContextCompactionPolicy?.();
+    const thresholdReached = policy ? typeof policy.thresholdTokens === "number" && Number.isFinite(policy.thresholdTokens) && policy.thresholdTokens > 0 && contextTokens > policy.thresholdTokens : shouldCompact(contextTokens, contextWindow, settings);
+    if (thresholdReached) {
       return await this._runAutoCompaction("threshold", false);
     }
     return false;
@@ -1560,6 +1730,9 @@ ${args}` : skillBlock;
    */
   async _runAutoCompaction(reason, willRetry) {
     const settings = this.settingsManager.getCompactionSettings();
+    const activeSignal = this.agent.signal;
+    const cancel = () => this._autoCompactionAbortController?.abort();
+    activeSignal?.addEventListener("abort", cancel, { once: true });
     let started = false;
     let fromExtension = false;
     try {
@@ -1572,8 +1745,11 @@ ${args}` : skillBlock;
       if (!preparation) {
         return false;
       }
+      activeSignal?.throwIfAborted();
       this._emit({ type: "compaction_start", reason });
       this._autoCompactionAbortController = new AbortController();
+      if (activeSignal?.aborted) this._autoCompactionAbortController.abort();
+      if (this.agent.state.isStreaming) this._safePointAutoCompactionAttempted = true;
       started = true;
       let extensionCompaction;
       if (this._extensionRunner.hasHandlers("session_before_compact")) {
@@ -1651,6 +1827,10 @@ ${args}` : skillBlock;
         });
         return false;
       }
+      assertValidCompactionSummary(summary);
+      if (!pathEntries.some((entry) => entry.id === firstKeptEntryId)) {
+        throw new Error("Compaction first kept entry is not in this session branch");
+      }
       this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
       const newEntries = this.sessionManager.getEntries();
       const sessionContext = this.sessionManager.buildSessionContext();
@@ -1686,26 +1866,28 @@ ${args}` : skillBlock;
       return this.agent.hasQueuedMessages();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "compaction failed";
+      const aborted = activeSignal?.aborted === true || this._autoCompactionAbortController?.signal.aborted === true || error instanceof Error && error.name === "AbortError";
       if (started) {
-        const formattedErrorMessage = reason === "overflow" ? `Context overflow recovery failed: ${errorMessage}` : `Auto-compaction failed: ${errorMessage}`;
+        const formattedErrorMessage = aborted ? void 0 : reason === "overflow" ? `Context overflow recovery failed: ${errorMessage}` : `Auto-compaction failed: ${errorMessage}`;
         this._emit({
           type: "compaction_end",
           reason,
           result: void 0,
-          aborted: false,
+          aborted,
           willRetry: false,
           errorMessage: formattedErrorMessage
         });
         await this._emitSessionCompactFailed({
           reason,
           errorMessage: formattedErrorMessage,
-          aborted: false,
+          aborted,
           willRetry: false,
           fromExtension
         });
       }
       return false;
     } finally {
+      activeSignal?.removeEventListener("abort", cancel);
       this._autoCompactionAbortController = void 0;
     }
   }

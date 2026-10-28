@@ -321,7 +321,7 @@ export default function AssistantPage() {
         () => effectiveDiffTarget ? resolveAssistantDiffTarget(effectiveDiffTarget, effectiveDiffActivity) : null,
         [effectiveDiffActivity, effectiveDiffTarget]
     )
-    const { toast, showToast } = useAssistantTransientToast()
+    const { toast, showToast, dismissToast } = useAssistantTransientToast()
     useAssistantCitationNavigation(location, shell.selectedSessionId, shell.activeThreadId, showToast)
     const messageSearchRequestRef = useRef<string | null>(null)
     useEffect(() => {
@@ -625,7 +625,7 @@ export default function AssistantPage() {
                 onConfirm={() => void handleDeleteUserMessage()}
                 onCancel={handleCancelPendingMessageDelete}
             />
-            <AssistantTransientToast toast={toast} />
+            <AssistantTransientToast toast={toast} onDismiss={dismissToast} />
             {preview.previewFile ? (
                 <Suspense fallback={null}>
                     <FilePreviewModal

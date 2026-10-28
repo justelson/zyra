@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, LoaderCircle, Pause, Play, Trash2 } from 'lucide-react'
 import type { AssistantVoiceHistoryEntry } from '@shared/assistant/contracts'
 import { SettingsButton, SettingsDialog, SettingsSection } from './settings-layout'
@@ -55,6 +55,33 @@ export function VoiceHistorySettings() {
     const [entries, setEntries] = useState<AssistantVoiceHistoryEntry[]>([])
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const [page, setPage] = useState(1)
+    const [totalCount, setTotalCount] = useState(0)
+    const [totalPages, setTotalPages] = useState(1)
+    const pageRequest = useRef(0)
+    const currentPage = useRef(1)
+
+    const refreshPage = useCallback(async (requestedPage = currentPage.current) => {
+        const request = ++pageRequest.current
+        setLoading(true)
+        setError(null)
+        try {
+            const result = await window.devscope.assistant.listVoiceHistory({ page: requestedPage })
+            if (request !== pageRequest.current) return
+            if (!result.success) throw new Error(result.error || 'Could not load voice history.')
+            setEntries(result.entries)
+            // Older isolated bridges may only supply entries; production supplies all metadata.
+            const resolvedPage = result.page ?? 1
+            currentPage.current = resolvedPage
+            setPage(resolvedPage)
+            setTotalCount(result.totalCount ?? result.entries.length)
+            setTotalPages(result.totalPages ?? 1)
+        } catch (cause) {
+            if (request === pageRequest.current) setError(cause instanceof Error ? cause.message : 'Could not load voice history.')
+        } finally {
+            if (request === pageRequest.current) setLoading(false)
+        }
+    }, [])
     const [recordings, setRecordings] = useState<Record<string, string>>({})
     const recordingUrls = useRef(new Map<string, string>())
     const recordingGeneration = useRef(0)
@@ -66,24 +93,18 @@ export function VoiceHistorySettings() {
     const [deleteError, setDeleteError] = useState<string | null>(null)
 
     useEffect(() => {
-        let current = true
         recordingGeneration.current++
         // Fast Refresh can preserve state after cleanup revokes its URLs.
         setRecordings({})
         setLoadingRecording(null)
-        void window.devscope.assistant.listVoiceHistory().then(result => {
-            if (!current) return
-            if (!result.success) throw new Error(result.error || 'Could not load voice history.')
-            setEntries(result.entries)
-        }).catch(cause => { if (current) setError(cause instanceof Error ? cause.message : 'Could not load voice history.') })
-            .finally(() => { if (current) setLoading(false) })
+        void refreshPage()
         return () => {
-            current = false
+            pageRequest.current++
             recordingGeneration.current++
             for (const url of recordingUrls.current.values()) URL.revokeObjectURL(url)
             recordingUrls.current.clear()
         }
-    }, [])
+    }, [refreshPage])
 
     const loadRecording = async (id: string): Promise<string | null> => {
         const cached = recordingUrls.current.get(id)
@@ -147,6 +168,8 @@ export function VoiceHistorySettings() {
                 return next
             })
             setDeleteCandidate(null)
+            // The source clamps an emptied final page and refills any gaps on this page.
+            await refreshPage()
         } catch (cause) {
             setDeleteError(cause instanceof Error ? cause.message : 'Could not delete voice entry.')
         } finally {
@@ -161,6 +184,14 @@ export function VoiceHistorySettings() {
             {loading ? <p className="px-4 py-4 text-[12px] text-[var(--settings-text-muted)]">Loading voice history…</p> : null}
             {error ? <p role="alert" className="px-4 py-3 text-[12px] text-[var(--status-danger)]">{error}</p> : null}
             {!loading && entries.length === 0 && !error ? <p className="px-4 py-4 text-[12px] text-[var(--settings-text-muted)]">No voice input yet.</p> : null}
+            <nav aria-label="Voice history pages" className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--settings-border)] px-4 py-2 text-[12px] text-[var(--settings-text-muted)]">
+                <span aria-live="polite">{totalCount} {totalCount === 1 ? 'entry' : 'entries'} · Page {page} of {totalPages}</span>
+                <div className="flex items-center gap-2">
+                    <SettingsButton variant="ghost" onClick={() => void refreshPage()} disabled={loading || deleting}>Refresh</SettingsButton>
+                    <SettingsButton variant="ghost" onClick={() => void refreshPage(page - 1)} disabled={loading || deleting || page <= 1}>Previous</SettingsButton>
+                    <SettingsButton variant="ghost" onClick={() => void refreshPage(page + 1)} disabled={loading || deleting || page >= totalPages}>Next</SettingsButton>
+                </div>
+            </nav>
             {entries.map(entry => <article key={entry.id} className="flex h-[76px] min-w-0 flex-col justify-center gap-1.5 border-t border-[var(--settings-border)] px-4 first:border-t-0">
                 <div className="flex min-w-0 items-center justify-between gap-3 text-[11px] text-[var(--settings-text-muted)]">
                     <time dateTime={entry.createdAt} title={new Date(entry.createdAt).toLocaleString()} className="min-w-0 truncate">{new Date(entry.createdAt).toLocaleString()}</time>

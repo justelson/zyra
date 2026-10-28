@@ -6,6 +6,7 @@ import type { ControlPendingActionApproval, ControlPendingGrant, ControlTarget }
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { cn } from '@/lib/utils'
 import { AssistantComposer } from './AssistantComposer'
+import type { AssistantModelRequestProgress } from '@shared/assistant/model-progress'
 import { AssistantNewChatGreeting } from './AssistantNewChatGreeting'
 import { AssistantPendingApprovalPanel } from './AssistantPendingApprovalPanel'
 import { AssistantPendingControlApprovalPanel } from './AssistantPendingControlApprovalPanel'
@@ -23,7 +24,6 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     placement?: 'bottom' | 'center'
     paneRef?: RefObject<HTMLDivElement | null>
     newChatPrompt?: string | null
-    settled?: boolean
     pendingPlaygroundLabRequest: AssistantPlaygroundPendingLabRequest | null
     pendingApprovals: AssistantPendingApproval[]
     pendingControlActions: ControlPendingActionApproval[]
@@ -72,6 +72,9 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     activeStatusLabel: string
     isConnecting?: boolean
     reconnectPending?: boolean
+    modelRequestProgress?: AssistantModelRequestProgress | null
+    modelProgressTurnId?: string | null
+    onPingModel?: (requestId: string) => Promise<void>
     onStop?: () => Promise<void> | void
     isStopping?: boolean
     queueHeld?: boolean
@@ -215,9 +218,14 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     {placement === 'center' ? (
                         <AssistantNewChatGreeting prompt={props.newChatPrompt} />
                     ) : null}
-                    {props.settled && placement === 'bottom' ? <div role="status" className="mx-3 -mb-2 rounded-t-xl border border-b-0 border-[var(--surface-divider)] bg-[var(--surface-hover)] px-4 pb-4 pt-2 text-center text-[11px] leading-4 text-sparkle-text-muted">Send a message to unsettle this thread</div> : null}
                     <AssistantComposer
                         sessionId={props.selectedSessionId}
+                        modelInactivity={props.assistantConnected && !isWaitingForApproval && !isWaitingForControlApproval && props.onPingModel && props.onStop ? {
+                            progress: props.modelRequestProgress || null,
+                            turnId: props.modelProgressTurnId || null,
+                            onPing: props.onPingModel,
+                            onStop: async () => { await props.onStop?.() }
+                        } : undefined}
                         configurationThreadId={props.configurationThreadId}
                         useSettingsDefaults={props.useSettingsDefaults}
                         resetStateToken={props.resetComposerStateToken}

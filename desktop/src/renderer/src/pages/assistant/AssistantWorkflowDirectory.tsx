@@ -4,7 +4,7 @@ import type { WorkflowRunState } from '@shared/assistant/contracts'
 import { AssistantDirectorySearch } from './AssistantDirectorySearch'
 import { formatAssistantAgentTokens } from './assistant-agent-presentation'
 import { formatAssistantWorkflowElapsed, getAssistantWorkflowProgress } from './assistant-workflow-presentation'
-import { AssistantWorkflowAvatar, AssistantWorkflowStatusBadge } from './AssistantWorkflowPrimitives'
+import { AssistantWorkflowAvatar, AssistantWorkflowStatusBadge, type AssistantWorkflowAction } from './AssistantWorkflowPrimitives'
 import { ASSISTANT_WORKFLOW_DIRECTORY_PAGE_SIZE, assistantWorkflowCurrentPhase, projectAssistantWorkflowDirectory, type AssistantWorkflowDirectoryFilter } from './assistant-workflow-directory-model'
 import './assistant-agent-directory.css'
 import './assistant-workflow-directory.css'
@@ -13,6 +13,7 @@ export { ASSISTANT_WORKFLOW_DIRECTORY_PAGE_SIZE } from './assistant-workflow-dir
 export function AssistantWorkflowDirectory({ workflows, page, onPageChange, onOpenWorkflow, navigation,
     query = '', filter = 'all', onQueryChange, onFilterChange }: {
     workflows: WorkflowRunState[]; page: number; onPageChange: (page: number) => void; onOpenWorkflow: (id: string) => void
+    onWorkflowAction?: (action: AssistantWorkflowAction, id: string) => void
     navigation?: ReactNode; query?: string; filter?: AssistantWorkflowDirectoryFilter
     onQueryChange?: (query: string) => void; onFilterChange?: (filter: AssistantWorkflowDirectoryFilter) => void
 }) {

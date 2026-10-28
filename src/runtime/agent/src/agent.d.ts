@@ -1,5 +1,5 @@
 import type { ImageContent, Message, SimpleStreamOptions, ThinkingBudgets, Transport } from "../../providers/src/index.js";
-import type { AfterToolCallContext, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate, AgentMessage, AgentState, BeforeToolCallContext, BeforeToolCallResult, PrepareNextTurnContext, QueueMode, ShouldStopAfterTurnContext, StreamFn, ToolExecutionMode } from "./types.js";
+import type { AfterToolCallContext, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate, AgentMessage, AgentState, BeforeToolCallContext, BeforeToolCallResult, PrepareNextTurnContext, ModelRequestProgress, QueueMode, ShouldStopAfterTurnContext, StreamFn, ToolExecutionMode } from "./types.js";
 export type { QueueMode } from "./types.js";
 /** Options for constructing an {@link Agent}. */
 export interface AgentOptions {
@@ -46,6 +46,8 @@ export declare class Agent {
     prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
     prepareNextTurnWithContext?: (context: PrepareNextTurnContext, signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
     private activeRun?;
+    private modelRequestControl?;
+    private eventTail;
     /** Session identifier forwarded to providers for cache-aware backends. */
     sessionId?: string;
     /** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -94,6 +96,10 @@ export declare class Agent {
     hasQueuedMessages(): boolean;
     /** Active abort signal for the current run, if any. */
     get signal(): AbortSignal | undefined;
+    /** Snapshot for the current provider stage, never tool execution or between-turn maintenance. */
+    get modelRequestProgress(): ModelRequestProgress | null;
+    /** Cancel a silent/reasoning-only provider call and resume inside this same turn. */
+    pingModel(requestId: string, message: AgentMessage): void;
     /** Abort the current run, if one is active. */
     abort(): void;
     /**
@@ -125,4 +131,5 @@ export declare class Agent {
      * and `finishRun()` clears runtime-owned state.
      */
     private processEvents;
+    private reduceEvent;
 }

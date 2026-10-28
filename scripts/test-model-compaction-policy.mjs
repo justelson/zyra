@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { resolveModelCompactionPolicy as resolve, normalizeModelCompactionOverrides, getModelCompactionPresets, normalizeAssistantContextCompactionThreshold, shouldCompactAssistantContext } from '../src/assistant-runtime-policy.mjs';
+
+const codex = { id: 'openai-codex/synthetic', context_window: 400_000, max_context_window: 1_000_000, effective_context_window_percent: 95, auto_compact_token_limit: 360_000, maxTokens: 128_000, metadataSource: 'openai-models-manifest' };
+let result = resolve(codex);
+assert.equal(result.source, 'provider');
+assert.equal(result.thresholdTokens, 360_000);
+assert.equal(result.contextWindow, 400_000);
+assert.equal(result.usableContextWindow, 380_000);
+assert.equal(result.maxContextWindow, 1_000_000);
+assert.equal(result.metadataSource, 'openai-models-manifest');
+assert.equal(resolve({ ...codex, auto_compact_token_limit: 500_000 }).thresholdTokens, 360_000, 'Codex caps at 90% raw resolved context once, independently of effective-context percent');
+assert.equal(resolve({ ...codex, auto_compact_token_limit: 300_000 }).thresholdTokens, 300_000);
+result = resolve(codex, { 'openai-codex/synthetic': 950_000 });
+assert.equal(result.source, 'override');
+assert.equal(result.thresholdTokens, 360_000, 'raising a threshold cannot unlock advertised extended capacity');
+assert.equal(resolve(codex, { 'openai-codex/synthetic': 200_000 }).thresholdTokens, 200_000);
+assert.equal(resolve(codex, { 'other/synthetic': 20_000 }).source, 'provider', 'selectors isolate model/provider pairs');
+assert.equal(resolve({ id: 'synthetic', provider: 'openai-codex', zyraModelInfo: codex }).thresholdTokens, 360_000, 'registered models retain provider metadata');
+assert.equal(resolve({ id: 'vendor/model', provider: 'gateway', api: 'custom', contextWindow: 400000 }, { 'gateway/vendor/model': 200000 }).thresholdTokens, 200000, 'runtime model ids containing slashes retain their provider namespace');
+assert.equal(resolve({ id: 'vendor/model', provider: 'vendor', api: 'custom', contextWindow: 400000 }, { 'vendor/vendor/model': 200000 }).selector, 'vendor/vendor/model', 'native ids are not confused with full picker selectors');
+assert.equal(resolve({ id: 'gateway/vendor/model', contextWindow: 400000 }, { 'gateway/vendor/model': 200000 }).thresholdTokens, 200000, 'picker selectors are already qualified');
+const generic = { id: 'other/generic', contextWindow: 128_000, maxTokens: 128_000 };
+assert.equal(resolve(generic).thresholdTokens, 112_000, 'generic fallback reserves at most16k, not the maximum possible model output');
+assert.equal(resolve(generic).source, 'fallback');
+assert.equal(resolve({ id: 'other/small', contextWindow: 8_000 }).thresholdTokens, 6_400, 'small models retain proportional safe headroom');
+assert.equal(resolve({ id: 'other/unknown' }).contextWindow, null);
+assert.equal(resolve({ id: 'other/unknown' }).thresholdTokens, null);
+assert.equal(resolve({ id: 'other/unknown' }, { 'other/unknown': 200_000 }).source, 'unknown', 'overrides cannot invent capacity');
+assert.equal(resolve({ id: 'other/unknown', auto_compact_token_limit: 100_000 }).source, 'provider', 'known provider threshold remains usable even when window was not reported');
+assert.equal(resolve({ id: 'synthetic', provider: 'openai-codex', contextWindow: 8192, zyraModelInfo: { contextWindow: null } }).contextWindow, null, 'transport fallback cannot become discovered capacity');
+assert.equal(normalizeAssistantContextCompactionThreshold(900_000), 900_000, 'legacy preference preserved without arbitrary cap');
+assert.deepEqual(normalizeModelCompactionOverrides({ 'other/a': 900_000, 'no-selector': 1, 'other/b': -2, 'other/c': '123', 'other/d': NaN, 'other/e': 0.1 }), { 'other/a': 900_000 });
+for (const model of [codex, generic, { id: 'other/small', contextWindow: 8_000 }]) {
+  const presets = getModelCompactionPresets(model);
+  assert.ok(presets.length > 1);
+  assert.ok(presets.every(value => Number.isSafeInteger(value) && value > 0 && value <= resolve(model).maxThresholdTokens));
+}
+assert.deepEqual(getModelCompactionPresets({ id: 'other/unknown' }), []);
+assert.equal(shouldCompactAssistantContext({ contextTokens: 6_000, contextWindow: 8_000, configuredThreshold: 6_400 }), true, 'small known models are not blocked by a fixed32k floor');
+assert.equal(shouldCompactAssistantContext({ contextTokens: 0, contextWindow: 8_000, configuredThreshold: 6_400 }), false);
+console.log('Model compaction policy: provider defaults, isolated overrides, unknown/extended capacity, reserve bounds, presets and legacy preservation: ok');

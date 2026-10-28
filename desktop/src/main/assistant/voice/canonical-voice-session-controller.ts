@@ -108,7 +108,7 @@ export class CanonicalVoiceSessionController {
             const route = this.routes.activatePreparedVoice({
                 conversationId: input.conversationId,
                 expected,
-                contextVersion: input.contextVersion,
+                contextVersion: Math.max(input.contextVersion, hydratedThrough.context),
                 attachedTaskIds: input.attachedTaskIds,
                 prepared: {
                     realtimeProviderThreadId: candidate.realtimeProviderThreadId,

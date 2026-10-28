@@ -5,6 +5,7 @@ import { getUpdateActionLabel, useAppUpdates } from '@/lib/app-updates'
 import { formatDesktopVersion, resolveDesktopBuildChannel } from '@/lib/release-build-metadata'
 import { useWindowChrome } from '@/lib/useWindowChrome'
 import { getZyraPlatformLabel } from '@shared/platform-window-chrome'
+import { SettingsInfoTooltip } from './SettingsInfoTooltip'
 import { SettingsActionsMenu } from './SettingsActionsMenu'
 import { AboutLinks } from './AboutLinks'
 import { RuntimeLifecycleSection } from './RuntimeLifecycleSection'
@@ -41,7 +42,8 @@ export default function AboutSettings() {
         skippedVersion,
         skipAvailableVersion,
         remindLater,
-        clearSkippedVersion
+        clearSkippedVersion,
+        resumePreviousAgent
     } = useAppUpdates()
 
     const busy = pendingAction !== null
@@ -71,7 +73,7 @@ export default function AboutSettings() {
     }
 
     return (
-        <SettingsPageContainer navigation={<></>}>
+        <SettingsPageContainer navigation={<></>} className="[&_.zyra-settings-row_p]:truncate">
             <div className="flex flex-col items-center px-1 pt-1 text-center">
                 <h1 className="sr-only">About Zyra</h1>
                 <pre role="img" aria-label="Zyra" className="select-none text-left font-mono text-[12px] leading-[1.15] text-[var(--accent-primary)]">{ZYRA_ASCII_LOGO.join('\n')}</pre>
@@ -79,17 +81,18 @@ export default function AboutSettings() {
                     <span className="text-[18px] font-medium text-[var(--settings-text)]">{isPreviewDistribution() ? 'Zyra Dev' : 'Zyra'}</span>
                     <span aria-label="App version" className="font-mono text-[11px] text-[var(--settings-text-muted)]">{displayVersion}</span>
                 </div>
-                <p className="mt-2 max-w-[34rem] text-[12px] leading-5 text-[var(--settings-text-secondary)]">Zyra brings your AI providers, projects and tools together for desktop and terminal work.</p>
+                <p className="mt-2 max-w-[34rem] text-[12px] leading-5 text-[var(--settings-text-secondary)]">Your projects, providers and tools.</p>
             </div>
 
             <SettingsSection title="Updates" headerAction={<SettingsButton variant="ghost" onClick={openModal}>Open Update Center</SettingsButton>}>
                 {!updateState ? <SettingsNotice>Loading the desktop update service…</SettingsNotice> : null}
-                {updateState?.disabledReason ? <SettingsNotice tone="warning">{updateState.disabledReason}</SettingsNotice> : null}
-                {updateStatus === 'error' && updateState?.message ? <SettingsNotice tone="error">{updateState.message}</SettingsNotice> : null}
+                {updateState?.disabledReason ? <div className="flex items-center gap-1 px-4 py-2 text-[12px] text-[var(--settings-text-secondary)]">Manual updates<SettingsInfoTooltip label="About manual updates">{updateState.disabledReason}</SettingsInfoTooltip></div> : null}
+                {updateStatus === 'error' && updateState?.message ? <div role="alert" className="flex items-center gap-1 px-4 py-2 text-[12px] text-[var(--status-danger)]">Update failed.<SettingsInfoTooltip label="Update details">{updateState.message}</SettingsInfoTooltip></div> : null}
+                {updateState?.installRecoveryAvailable && window.devscope.updates.resumePreviousAgent ? <SettingsRow title="Previous update" description="Installation did not finish." info="Resume the verified previous agent only after the installer has closed. Partially replaced code requires an installation repair." control={<SettingsButton disabled={busy} onClick={() => void resumePreviousAgent()}>Resume agent</SettingsButton>} /> : null}
                 <SettingsRow title="Update status" description={checkedAtLabel} status={updateSummary} statusTone={updateStatus === 'error' ? 'danger' : updateStatus === 'available' || updateStatus === 'downloaded' ? 'info' : 'muted'} />
                 <SettingsRow
                     title="Update actions"
-                    description="Check, download, or install the next desktop release."
+                    description="Review before installation." info="App updates include the background agent. Running work is checked before installation, then you can stop it or choose Later."
                     control={<div className="flex items-center gap-2">
                         <SettingsButton variant={primaryUpdateAction.id === 'install' ? 'accent' : 'outline'} disabled={primaryUpdateAction.disabled} onClick={runPrimaryUpdateAction}>
                             {primaryUpdateAction.id === 'download' ? <Download size={12} /> : primaryUpdateAction.id === 'install' ? <Rocket size={12} /> : <RefreshCw size={12} className={updateStatus === 'checking' ? 'animate-spin motion-reduce:animate-none' : ''} />}

@@ -36,7 +36,7 @@ function Composer({placement='center'}){
  const [files,setFiles]=useState([image]),[preview,setPreview]=useState(null)
  const [text,setText]=useState('')
  window.fixtureDraft={setText,setFiles}
- const controller={...refs,placement,contextFiles:files,previewAttachment:preview,text,composerCursor:text.length,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],filteredModelOptions:[],projectChoices:[],
+ const controller={...refs,placement,contextFiles:files,previewAttachment:preview,text,composerCursor:text.length,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],filteredModelOptions:[],modelQuery:'',activeModelIndex:0,modelsLoading:false,modelsError:null,latestModelId:null,projectChoices:[],
  capabilities:{canSend:true,composerAvailable:true,canStop:false,showBusySendActions:false},voiceInput:{isStarting:false,isRecording:false,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
  submitLabel:'Send',isConnected:true,selectedModel:'gpt-5',selectedModelLabel:'GPT-5',selectedEffort:'medium',selectedInteractionMode:'default',selectedRuntimeMode:'default',displayedProfile:'safe-dev',zyraProfile:'concise',EFFORT_OPTIONS:['medium'],EFFORT_LABELS:{medium:'Medium'},
  setPreviewAttachment:setPreview,removeAttachment:id=>{removed.push(id);setFiles(current=>current.filter(file=>file.id!==id))},onOpenAttachmentPreview:()=>opened.push('disk'),

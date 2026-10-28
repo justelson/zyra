@@ -108,6 +108,11 @@ function areAssistantThreadsEqual(
         && left.hasActivePlan === right.hasActivePlan
         && left.hasPendingApprovals === right.hasPendingApprovals
         && left.hasPendingUserInputs === right.hasPendingUserInputs
+        && left.modelRequestProgress?.requestId === right.modelRequestProgress?.requestId
+        && left.modelRequestProgress?.turnId === right.modelRequestProgress?.turnId
+        && left.modelRequestProgress?.lastActivityAt === right.modelRequestProgress?.lastActivityAt
+        && left.modelRequestProgress?.phase === right.modelRequestProgress?.phase
+        && left.modelRequestProgress?.canPing === right.modelRequestProgress?.canPing
         && left.mobileVoice?.deviceName === right.mobileVoice?.deviceName
         && left.canonicalPresence?.state === right.canonicalPresence?.state
         && left.canonicalPresence?.activeTurnId === right.canonicalPresence?.activeTurnId

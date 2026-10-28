@@ -23,8 +23,8 @@ assert.equal(first, concurrent, 'Repeated snapshots share the same migration job
 await first
 assert.equal(peak, 1, 'Legacy choices cannot flood the catalog with parallel mutations')
 assert.deepEqual(calls, ['one', 'two', 'failed'], 'Existing canonical choices are preserved without another update')
-assert.equal(refreshes, 1, 'One refresh covers the acknowledged batch')
+assert.equal(refreshes, 0, 'Canonical metadata events cover the batch without a full assistant refresh')
 assert.deepEqual(Object.keys(JSON.parse(values.get('assistant:agent-inbox-settled-overrides:v1')!)), ['failed'], 'Only acknowledged choices leave local migration storage')
 await migrateCanonicalSettlementOverrides(sessions)
 assert.equal(calls.length, 3, 'A failed request waits before retrying on subsequent snapshots')
-console.log('Settlement migration: serial requests, shared job, canonical priority, one refresh and failed-choice retry passed.')
+console.log('Settlement migration: serial requests, shared job, canonical priority, no refresh and failed-choice retry passed.')

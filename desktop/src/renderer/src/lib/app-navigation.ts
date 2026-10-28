@@ -7,13 +7,19 @@ import { requestAssistantConversationFind } from '../pages/assistant/assistant-c
 import { requestAssistantFileSave } from '../pages/assistant/assistant-file-save-requests'
 import { assistantStore } from './assistant/assistant-store-core'
 import { getActiveAssistantThread, getSelectedAssistantSession } from './assistant/selectors'
+import { stopAppTurn } from '../pages/assistant/assistant-app-owner-state'
 
 function stopActiveAssistantTurn(): void {
     const state = assistantStore.getState()
     const session = getSelectedAssistantSession(state.snapshot)
     const thread = getActiveAssistantThread(session)
     const turn = thread?.latestTurn
-    if (session && turn?.state === 'running') void assistantStore.interruptTurn(turn.id, session.id)
+    if (session && turn?.state === 'running') {
+        // The mounted Stop owner holds the durable queue before interruption.
+        // Fail closed if it is unavailable; bypassing it could dispatch queued work.
+        try { void stopAppTurn(session.id, turn.id).catch(error => console.error('Could not stop the active turn.', error)) }
+        catch (error) { console.error('Could not stop the active turn.', error) }
+    }
 }
 
 export function dispatchAppNavigation(command: AppNavigationCommand, navigate: NavigateFunction, currentPathname = ''): void {

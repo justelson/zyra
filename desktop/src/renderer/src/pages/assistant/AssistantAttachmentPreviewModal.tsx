@@ -5,14 +5,14 @@ import { Check, Copy, X } from 'lucide-react'
 import ImagePreviewContent from '@/components/ui/file-preview/ImagePreviewContent'
 import SyntaxPreview from '@/components/ui/file-preview/SyntaxPreview'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
-import { detectCodeLanguage } from '@/components/ui/file-preview/utils'
+import { detectCodeLanguage, getFileUrl } from '@/components/ui/file-preview/utils'
 import { useSettings } from '@/lib/settings'
 import type { ComposerContextFile } from './assistant-composer-types'
 
 type AttachmentMeta = {
     name: string
     ext: string
-    category: 'image' | 'code' | 'doc'
+    category: 'image' | 'video' | 'code' | 'doc'
 }
 
 interface AssistantAttachmentPreviewModalProps {
@@ -85,6 +85,8 @@ export default function AssistantAttachmentPreviewModal({
     const { settings } = useSettings()
     const iconTheme = settings.appearanceResolvedMode
     const [copied, setCopied] = useState(false)
+    const [videoError, setVideoError] = useState(false)
+    useEffect(() => setVideoError(false), [file?.id, file?.path])
 
     useEffect(() => {
         if (!file) return
@@ -109,6 +111,7 @@ export default function AssistantAttachmentPreviewModal({
     const previewLanguage = resolvePreviewLanguage(file, meta)
     const isPastedTextPreview = file.source === 'paste' && Boolean(file.content)
     const isImagePreview = meta.category === 'image'
+    const isVideoPreview = meta.category === 'video'
     const shouldShowFormattingWarning = showFormattingWarning && !isPastedTextPreview
     const copyValue = isPastedTextPreview ? previewText : (file.path || previewText || meta.name)
     const copyTitle = isPastedTextPreview ? 'Copy pasted text' : `Copy path: ${file.path || meta.name}`
@@ -189,6 +192,20 @@ export default function AssistantAttachmentPreviewModal({
                             fileName={meta.name}
                             isExpanded
                         />
+                    ) : isVideoPreview ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-black/35">
+                            {videoError ? <p role="alert" className="px-4 text-center text-sm text-sparkle-text-muted">Video unavailable or this format is not supported. The original file is still attached.</p> : <video
+                                key={file.path}
+                                src={getFileUrl(file.path)}
+                                aria-label={meta.name}
+                                controls
+                                playsInline
+                                preload="auto"
+                                autoPlay={false}
+                                onError={() => setVideoError(true)}
+                                className="h-full min-h-0 w-full max-h-full max-w-full object-contain"
+                            />}
+                        </div>
                     ) : isPastedTextPreview ? (
                         <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-white/5 bg-sparkle-card">
                             <textarea

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { AssistantSendRealtimeVoiceMessageInput } from '@shared/assistant/contracts'
 import { idleVoiceWidgetState, type VoiceWidgetLaunch, type VoiceWidgetState } from '@shared/assistant/voice-widget'
 import { useInstructorVoiceSession } from './useInstructorVoiceSession'
+import { getNativeVoiceWidgetClient } from '@/lib/native-voice-widget'
 
 type Voice = ReturnType<typeof useInstructorVoiceSession>
 type StartResult = { success: boolean; error?: string; disposition?: 'started' | 'existing' | 'handoff-required'; state?: VoiceWidgetState }
@@ -34,14 +35,14 @@ function BrowserVoiceProvider({ children }: { children: ReactNode }) {
 }
 /** Browser fallback owns audio at application lifetime, never at the selected conversation. */
 export function AssistantVoiceProvider({ children }: { children: ReactNode }) {
-    return window.devscope.voiceWidget ? children : <BrowserVoiceProvider>{children}</BrowserVoiceProvider>
+    return getNativeVoiceWidgetClient(window.devscope.voiceWidget) ? children : <BrowserVoiceProvider>{children}</BrowserVoiceProvider>
 }
 export function useAppVoiceSession(binding?: { conversationId: string; sessionId: string }, title = 'Voice chat') {
     const browser = useContext(BrowserVoice)
     const [nativeState, setNativeState] = useState(idleVoiceWidgetState)
     const [localError, setLocalError] = useState<string | null>(null)
     const [handoff, setHandoff] = useState<{ launch: VoiceWidgetLaunch; previous: VoiceWidgetState } | null>(null)
-    const api = window.devscope.voiceWidget
+    const api = getNativeVoiceWidgetClient(window.devscope.voiceWidget)
     const bindingKey = `${binding?.sessionId || ''}:${binding?.conversationId || ''}`
     const bindingKeyRef = useRef(bindingKey)
     bindingKeyRef.current = bindingKey

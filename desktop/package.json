@@ -312,7 +312,7 @@
         "test:update-preflight": "bun scripts/test-install-preflight.ts && bun scripts/test-installer-requests.ts && bun scripts/test-installer-presence.ts && bun scripts/test-manual-update-first-run.ts && node scripts/test-agent-update-nsis.mjs",
         "preview:agent-updates": "vite --config scripts/runtime-update-preview.config.ts",
         "test:agent-update-preview": "node scripts/test-agent-update-preview.mjs",
-        "test:voice-review": "bun scripts/test-voice-approval-ownership.ts && bun scripts/test-private-voice-update-admission.ts"
+        "test:voice-review": "bun scripts/test-voice-widget-capability.ts && bun scripts/test-voice-approval-ownership.ts && bun scripts/test-private-voice-update-admission.ts"
     },
     "dependencies": {
         "@chenglou/pretext": "^0.0.5",

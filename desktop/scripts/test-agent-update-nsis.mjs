@@ -36,9 +36,34 @@ Section
  !insertmacro customInstall
 SectionEnd
 `);
-    const result = spawnSync(executable, ['/V2', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    // electron-builder compiles a separate uninstaller pass and treats warnings
+    // as errors. Never execute either generated fixture installer.
+    await writeFile(path.join(directory, 'uninstaller.nsi'), `Unicode true
+!define BUILD_UNINSTALLER
+!include "LogicLib.nsh"
+!define PROJECT_DIR "${root}"
+!define APP_FILENAME "Zyra Syntax Fixture"
+!define APP_EXECUTABLE_FILENAME "NonexistentFixture.exe"
+!define VERSION "0.8.0-dev.1"
+!include "\${PROJECT_DIR}\\build\\preview-installer.nsh"
+Name "Uninstaller syntax check only"
+OutFile "${path.join(directory, 'uninstaller-fixture.exe')}"
+InstallDir "$TEMP/Zyra Syntax Fixture"
+RequestExecutionLevel user
+Section
+ WriteUninstaller "$INSTDIR\\unused-uninstaller.exe"
+SectionEnd
+Section "Uninstall"
+ !insertmacro customCheckAppRunning
+ !insertmacro customUnInstall
+SectionEnd
+`);
+    const uninstall = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'uninstaller.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    assert.equal(uninstall.status, 0, uninstall.stdout + uninstall.stderr);
+    assert.equal(existsSync(path.join(directory, 'uninstaller-fixture.exe')), true);
+    const result = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(existsSync(path.join(directory, 'fixture.exe')), true);
-    console.log('PASS actual NSIS macro compilation, manual/automatic flags, exact-file wait and success receipt. No installer executed.');
+    console.log('PASS actual NSIS installer/uninstaller compilation with warnings-as-errors, manual/automatic flags, exact-file wait and success receipt. No installer executed.');
   } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 }

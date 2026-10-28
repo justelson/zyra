@@ -1,8 +1,10 @@
 !ifndef ZYRA_AGENT_UPDATE_HANDOFF
 !define ZYRA_AGENT_UPDATE_HANDOFF
+!ifndef BUILD_UNINSTALLER
 Var /GLOBAL ZyraAgentUpdateMutex
 Var /GLOBAL ZyraAgentUpdateNonce
 Var /GLOBAL ZyraAgentUpdateConfirmed
+!endif
 
 ; NSIS declares the agent update before replacing any installed files.
 !macro ZyraPrepareAgentUpdate

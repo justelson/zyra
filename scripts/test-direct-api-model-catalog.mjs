@@ -65,6 +65,25 @@ try {
   assert.deepEqual(changed.get('groq'), [], 'successful empty list removes stale models');
   const failed = await syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, fetchImpl: async () => { throw new Error('Offline'); } });
   assert.deepEqual(failed, changed, 'failed fetch keeps the same account last-known list');
+  const sameKeyTimeout = await syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, refreshTimeoutMs: 30,
+    fetchImpl: () => new Promise(() => {}) });
+  assert.deepEqual(sameKeyTimeout, changed, 'a discovery deadline preserves the independently revalidated same-key cache');
+  const timedRegistry = { registerProvider(provider, { models }) { this[provider] = models; }, refresh: async () => {} };
+  await applyDirectApiModelCatalog(timedRegistry, sameKeyTimeout);
+  assert.deepEqual(timedRegistry.google.map(model => model.id), ['gemini-account-new'], 'a transient timeout cannot remove the discovered model from the registry');
+  const rotatedTimeout = await syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, refreshTimeoutMs: 30,
+    fetchImpl: url => { if (url.includes('googleapis')) keys.google = 'fixture-google-timeout-rotation'; return new Promise(() => {}); } });
+  assert.deepEqual(rotatedTimeout.get('google'), getDirectApiBaseline('google'), 'a discovery timeout still rejects another key cache');
+  keys.google = 'fixture-google-a';
+  let credentialReads = 0;
+  const stalledRecheck = await syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, refreshTimeoutMs: 30,
+    authStorage: { hasAuth: provider => provider === 'google', getApiKey: () => ++credentialReads === 1 ? Promise.resolve(keys.google) : new Promise(() => {}) },
+    fetchImpl: () => new Promise(() => {}) });
+  assert.deepEqual(stalledRecheck.get('google'), getDirectApiBaseline('google'), 'the independent identity recheck is bounded and fails closed');
+  assert.equal(credentialReads, 2);
+  const cancelRefresh = new AbortController();
+  await assert.rejects(syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, signal: cancelRefresh.signal,
+    fetchImpl: () => { cancelRefresh.abort(new Error('Cancelled catalog refresh')); return new Promise(() => {}); } }), /Cancelled catalog refresh/);
   const rotatedFailure = await syncDirectApiModelCatalog({ ...options, forceRefresh: true, allowStale: true, fetchImpl: async url => {
     if (url.includes('googleapis')) keys.google = 'fixture-google-rotated';
     throw new Error('Offline during key rotation');

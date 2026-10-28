@@ -160,10 +160,16 @@ export async function syncDirectApiModelCatalog(options = {}) {
     } catch (error) {
       // A failed request must not restore another account's cached model list.
       if (identity) {
+        // Discovery expiry cannot invalidate a same-key cache. Identity gets its
+        // own bounded check, while an explicit caller cancellation still wins.
+        const recheck = new AbortController();
+        const recheckTimer = setTimeout(() => recheck.abort(new DOMException('Provider model identity check timed out.', 'TimeoutError')), timeoutMs);
+        const recheckSignal = options.signal ? AbortSignal.any([options.signal, recheck.signal]) : recheck.signal;
         try {
-          const current = await abortable(() => identityFor(options.authStorage, provider, signal), signal);
+          const current = await abortable(() => identityFor(options.authStorage, provider, recheckSignal), recheckSignal);
           if (current?.fingerprint !== identity.fingerprint) fallback = getDirectApiBaseline(provider);
         } catch { fallback = getDirectApiBaseline(provider); }
+        finally { clearTimeout(recheckTimer); }
       }
       errors.set(provider, error);
       catalog.set(provider, fallback);

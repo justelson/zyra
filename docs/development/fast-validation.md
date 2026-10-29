@@ -4,6 +4,8 @@
 
 For a manual installer delayed by online update discovery, run `bun --cwd desktop scripts/test-manual-update-latency.ts`. It executes the production manager entry points with an indefinitely stalled feed and the real preflight controller: valid native requests proceed locally, while expired requests, explicit Stop consent and automatic updater ownership remain enforced. It also runs in `test:update-preflight` and the requested Dev preview gate. No app or installer is launched locally.
 
+For Windows application-folder retirement, run `node desktop/scripts/test-installer-directory-swap.mjs`. It compiles the production NSIS hook and actual electron-builder fallback functions into a disposable native fixture. Real Windows handles force rename refusal and a locked-file failure; the old files must be restored and a separate profile sentinel must survive. Ordinary uninstall is also checked. No Zyra app is built, launched or installed by this test. It runs in `test:update-preflight` and the hosted preview behavior gate.
+
 For a Chat that stays on Working after visiting model settings, run `npm --prefix desktop run test:assistant-event-subscriptions`. It exercises the real preload adapter, settings model catalog, chat store, projector and sidebar selectors against Electron's per-window subscription semantics, including repeated visits and both cleanup orders. Native IPC transport is simulated; installed-app acceptance remains separate. This target also runs in `test:assistant-switching` and the requested Dev preview gate.
 
 Preserve the release gates. A focused unit test proves its own behavior; add the relevant integration check when a change crosses a real boundary, and report any unverified path.

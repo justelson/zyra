@@ -22,6 +22,8 @@ Manual Windows installers notify an already capable installed app with an instal
 
 If installation fails before code changes, Settings can resume the verified previous agent after confirming the installer is absent. Partially replaced or unknown code stays blocked and requires repair. These are source contracts, not evidence of an installed upgrade; run the owning gates in [fast validation](fast-validation.md).
 
+A current native installer request runs local preflight and confirmation without waiting for online updater initialization or release-feed discovery. Request identity/expiry, explicit Stop consent, exact-runtime preparation and normal quit remain required. Automatic downloads and installation retain updater initialization. `test:update-preflight` and the requested Dev behavior gate exercise the actual manager entry points with a stalled feed and the real local preflight controller.
+
 ## Delivery evidence and active runtime
 
 Track five checkpoints separately. A later checkpoint is never inferred from an earlier one.

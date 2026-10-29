@@ -590,14 +590,19 @@ const installPreflight = createInstallPreflight({
         }
     }
 })
-export async function preflightAppUpdate() { await initializeUpdater(); return installPreflight.inspect() }
+export async function preflightAppUpdate() {
+    if (!hasCurrentManualInstallerRequest()) await initializeUpdater()
+    return installPreflight.inspect()
+}
 export async function deferAppUpdate() {
     await installPreflight.defer()
     if (updateState.externalInstaller) { installerRequests?.later(); setUpdateState({ ...updateState, externalInstaller: undefined }) }
 }
 
 export async function installAppUpdate(confirmation?: AgentUpdateConfirmation): Promise<DevScopeUpdateActionResult> {
-    await initializeUpdater()
+    // A validated native installer already owns the local payload. Its consent
+    // and shutdown handoff must not wait for online release-feed discovery.
+    if (!hasCurrentManualInstallerRequest()) await initializeUpdater()
 
     if (!updateState.externalInstaller && (!updaterConfigured || !autoUpdaterRef || isInstallingUpdate || updateState.status !== 'downloaded')) {
         if (!updaterConfigured || !autoUpdaterRef) {

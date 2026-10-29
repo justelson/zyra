@@ -39,6 +39,21 @@ assert.equal(preview.nsis.uninstallerIcon, 'resources/icon-dev.ico')
 assert.equal(base.win.icon, 'icon.ico', 'Stable icon remains untouched')
 const desktopBuild = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).build
 const desktopBuildSnapshot = structuredClone(desktopBuild)
+// Runtime sources are manifest-tracked. Only dependency type declarations are
+// unnecessary at runtime; retain TypeScript implementations and all data assets.
+for (const resource of desktopBuild.extraResources.filter(item => /^zyra-runtime(?:\/node_modules)?$/.test(item.to))) {
+    const source = path.resolve('fixture-runtime')
+    const filter = new FileMatcher(source, path.resolve('fixture-output'), value => value, resource.filter).createFilter()
+    const prefix = resource.to.endsWith('/node_modules') ? '' : 'node_modules/'
+    const file = { isDirectory: () => false, isFile: () => true }
+    for (const declaration of ['index.d.ts', 'index.d.mts', 'index.d.cts', 'nested/types.d.ts'])
+        assert.equal(filter(path.join(source, `${prefix}provider/${declaration}`), file), false,
+            `Do not install dependency declaration ${declaration} through ${resource.to}`)
+    for (const asset of ['index.js', 'index.cjs', 'index.mjs', 'source.ts', 'addon.node', 'sql.wasm', 'LICENSE', 'NOTICE', 'routes.map'])
+        assert.equal(filter(path.join(source, `${prefix}provider/${asset}`), file), true, `${asset} remains installed`)
+    if (prefix) assert.equal(filter(path.join(source, 'src/runtime/index.d.mts'), file), true,
+        'Manifest-tracked source declarations remain intact')
+}
 const actualPreviewBuild = previewBuilderConfig(desktopBuild, 'preview-output')
 for (const key of ['asar', 'asarUnpack']) {
     assert.deepEqual(actualPreviewBuild[key], desktopBuild[key], `Preserve actual Desktop ${key}`)

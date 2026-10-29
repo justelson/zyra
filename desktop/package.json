@@ -433,14 +433,16 @@
                 "from": ".release/zyra-runtime",
                 "to": "zyra-runtime",
                 "filter": [
-                    "**/*"
+                    "**/*",
+                    "!node_modules/**/*.d.{ts,mts,cts}"
                 ]
             },
             {
                 "from": ".release/zyra-runtime/node_modules",
                 "to": "zyra-runtime/node_modules",
                 "filter": [
-                    "**/*"
+                    "**/*",
+                    "!**/*.d.{ts,mts,cts}"
                 ]
             },
             {

@@ -2,6 +2,8 @@
 
 **Targeted tests are the default for development.** A small fix starts with its owning test file or named target. Whole-renderer typechecks, `check:quick`, full suites and builds are checkpoints, not prerequisites for every edit.
 
+For a manual installer delayed by online update discovery, run `bun --cwd desktop scripts/test-manual-update-latency.ts`. It executes the production manager entry points with an indefinitely stalled feed and the real preflight controller: valid native requests proceed locally, while expired requests, explicit Stop consent and automatic updater ownership remain enforced. It also runs in `test:update-preflight` and the requested Dev preview gate. No app or installer is launched locally.
+
 For a Chat that stays on Working after visiting model settings, run `npm --prefix desktop run test:assistant-event-subscriptions`. It exercises the real preload adapter, settings model catalog, chat store, projector and sidebar selectors against Electron's per-window subscription semantics, including repeated visits and both cleanup orders. Native IPC transport is simulated; installed-app acceptance remains separate. This target also runs in `test:assistant-switching` and the requested Dev preview gate.
 
 Preserve the release gates. A focused unit test proves its own behavior; add the relevant integration check when a change crosses a real boundary, and report any unverified path.

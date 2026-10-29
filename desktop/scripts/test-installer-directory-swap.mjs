@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawn, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { getMakeNsisPath } from 'app-builder-lib/out/toolsets/windows.js'
 
 const desktop = path.resolve(import.meta.dirname, '..')
 const macro = path.join(desktop, 'build/installer-directory-swap.nsh')
@@ -11,9 +12,11 @@ if (process.platform !== 'win32') {
     console.log('SKIP native directory-swap fixtures on non-Windows')
     process.exit(0)
 }
-const cache = path.join(process.env.LOCALAPPDATA, 'electron-builder/Cache/nsis')
-const compiler = (await readdir(cache)).map(version => path.join(cache, version, 'makensis.exe')).find(existsSync)
-assert.ok(compiler, 'Actual NSIS compiler required')
+// A clean hosted runner reaches this gate before app packaging downloads NSIS.
+// Resolve exactly the toolset the pinned builder will use, including its checksum.
+const build = JSON.parse(await readFile(path.join(desktop, 'package.json'), 'utf8')).build
+const tool = await getMakeNsisPath(build.toolsets?.nsis, build.nsis?.customNsisBinary)
+const compiler = tool.path
 const fixture = await mkdtemp(path.join(tmpdir(), 'zyra-swap-fixture-'))
 const installed = path.join(fixture, 'application')
 const sentinel = path.join(fixture, 'profile', 'history-sentinel.txt')
@@ -25,7 +28,7 @@ const nativeFunction = name => {
     assert.ok(match, `Missing actual electron-builder ${name}`)
     return match[0].replaceAll(`un.${name}`, `un.original${name}`)
 }
-const env = { ...process.env, ZYRA_SWAP_FIXTURE_ROOT: installed }
+const env = { ...process.env, ...tool.env, ZYRA_SWAP_FIXTURE_ROOT: installed }
 function run(file, args, extra = {}) {
     const result = spawnSync(file, args, { env: { ...env, ...extra }, encoding: 'utf8', windowsHide: true, timeout: 30_000 })
     assert.ifError(result.error)

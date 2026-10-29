@@ -8,6 +8,7 @@ import { FileMatcher, getMainFileMatchers, getNodeModuleFileMatcher } from 'app-
 import { computeFileSets, computeNodeModuleFileSets, getDestinationPath } from 'app-builder-lib/out/util/appFileCopier.js'
 import { PM } from 'app-builder-lib/out/node-module-collector/index.js'
 import { Platform } from 'app-builder-lib/out/core.js'
+import { BUNDLED_RENDERER_PACKAGES } from './release/renderer-payload-contract.mjs'
 assert.equal(previewVersion('0.7.0', 12), '0.7.0-dev.12')
 assert.equal(previewVersion('0.7.0-beta.3', 13), '0.7.0-dev.13')
 assert.equal(previewVersion('0.7.0-alpha.3', 14), '0.7.0-dev.14')
@@ -87,7 +88,7 @@ async function testPreviewFileCollection() {
         const appDir = path.join(fixtureRoot, 'app')
         const destination = path.join(fixtureRoot, 'package')
         const stable = {
-            files: ['!dist/**', '!.release/**', '!resources/branding/icons/*-source.png'],
+            files: [...desktopBuild.files],
             asar: true,
             asarUnpack: ['node_modules/node-pty/**'],
             extraResources: [{ from: '.release/zyra-runtime', to: 'zyra-runtime', filter: ['**/*'] }],
@@ -96,7 +97,7 @@ async function testPreviewFileCollection() {
         const stableSnapshot = structuredClone(stable)
         const config = previewBuilderConfig(stable, path.join(fixtureRoot, 'dist'))
         const metadata = { name: 'preview-file-fixture', version: '1.0.0', main: 'out/main/index.js',
-            dependencies: { 'fixture-prod': '1.0.0' }, devDependencies: { 'fixture-dev': '1.0.0' } }
+            dependencies: { 'fixture-prod': '1.0.0', ...Object.fromEntries(BUNDLED_RENDERER_PACKAGES.map(name => [name, '1.0.0'])) }, devDependencies: { 'fixture-dev': '1.0.0' } }
         const fixtureFiles = {
             'package.json': JSON.stringify(metadata),
             'out/main/index.js': "import 'fixture-prod'",
@@ -130,6 +131,10 @@ async function testPreviewFileCollection() {
             'node_modules/fixture-dev/index.js': 'development-only dependency'
         }
         const maps = []
+        for (const name of BUNDLED_RENDERER_PACKAGES) {
+            fixtureFiles[`node_modules/${name}/package.json`] = JSON.stringify({ name, version: '1.0.0', main: 'index.js' })
+            fixtureFiles[`node_modules/${name}/index.js`] = 'raw package already compiled into the renderer'
+        }
         for (const ext of ['js', 'cjs', 'mjs', 'css']) {
             for (const prefix of ['out/renderer/assets', 'node_modules/fixture-prod/dist']) {
                 const file = `${prefix}/compiled.${ext}.map`
@@ -160,6 +165,9 @@ async function testPreviewFileCollection() {
         const appFiles = names(appSets)
         const dependencyFiles = names(dependencySets)
         const collected = new Set([...appFiles, ...dependencyFiles])
+        for (const name of BUNDLED_RENDERER_PACKAGES)
+            assert.ok(![...collected].some(file => file.startsWith(`node_modules/${name}/`)),
+                `Do not install the raw ${name} package alongside its renderer bundle`)
         const baselinePackager = { ...platformPackager, config: stable, info: { ...info, config: stable } }
         const baselineMatchers = getMainFileMatchers(appDir, destination, macroExpander, stable.win,
             baselinePackager, path.join(fixtureRoot, 'stable-dist'), false)

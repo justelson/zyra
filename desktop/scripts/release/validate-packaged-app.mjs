@@ -5,6 +5,7 @@ import path from 'node:path'
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses'
 import { normalizeReleasePlatform } from './release-contract.mjs'
 import { validateRuntimeStage } from './runtime-contract.mjs'
+import { validateRendererPayload } from './renderer-payload-contract.mjs'
 
 function arg(name, fallback = null) {
     const inline = process.argv.slice(2).find((value) => value.startsWith(`--${name}=`))
@@ -179,6 +180,7 @@ if (platform === 'macos') {
     await requireNonempty(path.join(applicationRoot, 'LICENSES.chromium.html'), 'Packaged Chromium licenses')
 }
 const runtimeRoot = path.join(resources, 'zyra-runtime')
+validateRendererPayload(path.join(resources, 'app.asar'))
 await validateRuntimeStage(runtimeRoot, { expectedVersion: version, requireDependencies: true })
 await requireNonempty(path.join(resources, 'zyra-browser-control-extension', 'manifest.json'), 'Packaged browser extension')
 

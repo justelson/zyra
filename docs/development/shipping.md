@@ -24,6 +24,10 @@ If installation fails before code changes, Settings can resume the verified prev
 
 A current native installer request runs local preflight and confirmation without waiting for online updater initialization or release-feed discovery. Request identity/expiry, explicit Stop consent, exact-runtime preparation and normal quit remain required. Automatic downloads and installation retain updater initialization. `test:update-preflight` and the requested Dev behavior gate exercise the actual manager entry points with a stalled feed and the real local preflight controller.
 
+Updated Windows uninstallers retire the previous application with a single same-volume directory rename into NSIS's private temporary directory, then use NSIS cleanup to remove it. A refused rename retains electron-builder's per-file move and partial-failure restoration. Ordinary uninstall behavior is unchanged. This moves application binaries, not the profile or chat logs. The old and new application can temporarily coexist; ensure room for both plus the installer payload. A locked leftover file can delay temporary-folder cleanup even after a successful directory rename. The existing agent shutdown and exact-image release checks still run first.
+
+The old installation supplies the uninstaller during an upgrade. Consequently the first upgrade from an older build still uses that build's removal algorithm; the new fast path becomes available on the following update. The hosted repeat-install test exercises the newly installed uninstaller. `node desktop/scripts/test-installer-directory-swap.mjs` compiles and runs only small, disposable native filesystem fixtures covering the fast path, refused rename, locked-file restoration and profile preservation.
+
 ## Delivery evidence and active runtime
 
 Track five checkpoints separately. A later checkpoint is never inferred from an earlier one.

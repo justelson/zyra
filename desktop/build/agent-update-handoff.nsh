@@ -1,5 +1,6 @@
 !ifndef ZYRA_AGENT_UPDATE_HANDOFF
 !define ZYRA_AGENT_UPDATE_HANDOFF
+!include "${PROJECT_DIR}\build\installer-directory-swap.nsh"
 !ifndef BUILD_UNINSTALLER
 Var /GLOBAL ZyraAgentUpdateMutex
 Var /GLOBAL ZyraAgentUpdateNonce

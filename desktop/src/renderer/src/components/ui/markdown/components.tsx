@@ -13,6 +13,7 @@ import { renderMarkdownLinkLabel } from './linkLabels'
 import { SkillReferenceChip } from '../SkillReferenceChip'
 import AudioPlayer from '../AudioPlayer'
 import { isMarkdownAudioHref } from './audioEmbeds'
+import { readMarkdownMediaGeometry, rememberMarkdownMediaGeometry } from './markdown-media-geometry'
 
 type DivProps = HTMLAttributes<HTMLDivElement> & { align?: string }
 type SourceProps = HTMLAttributes<HTMLSourceElement> & { src?: string; srcSet?: string }
@@ -146,6 +147,7 @@ function MarkdownPlayableMedia(props: {
     kind: 'audio' | 'video'
 }) {
     const resolvedSource = resolveImageSrc(props.href, props.filePath)
+    const geometry = readMarkdownMediaGeometry(resolvedSource)
     const [failedSource, setFailedSource] = useState<string | null>(null)
 
     useEffect(() => {
@@ -179,6 +181,10 @@ function MarkdownPlayableMedia(props: {
                     preload="metadata"
                     playsInline
                     src={resolvedSource}
+                    width={geometry?.width}
+                    height={geometry?.height}
+                    style={{ height: 'auto' }}
+                    onLoadedMetadata={event => rememberMarkdownMediaGeometry(resolvedSource, event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
                     data-markdown-video-target={props.href}
                     aria-label={props.label || 'Video'}
                     onError={() => setFailedSource(resolvedSource)}
@@ -197,10 +203,12 @@ function MarkdownImage({
     alt,
     className,
     onError,
+    onLoad,
     ...props
 }: ImgHTMLAttributes<HTMLImageElement> & { rawSrc?: string }) {
     const resolvedSource = resolveImageSrc(String(src || ''))
     const targetSource = String(rawSrc || src || '').trim()
+    const geometry = props.width === undefined && props.height === undefined ? readMarkdownMediaGeometry(resolvedSource) : undefined
     const [failedSource, setFailedSource] = useState<string | null>(null)
     const [loadedSource, setLoadedSource] = useState<string | null>(null)
 
@@ -229,6 +237,7 @@ function MarkdownImage({
                 tabIndex={0}
                 data-markdown-image-target={targetSource}
                 className="markdown-image-open"
+                style={{ minHeight: loadedSource !== resolvedSource && !geometry && props.height === undefined ? '6rem' : undefined }}
                 aria-label={alt ? `Open image: ${alt}` : 'Open image'}
                 title="Open image"
             >
@@ -237,13 +246,19 @@ function MarkdownImage({
                 ) : null}
                 <img
                     {...props}
+                    width={props.width ?? geometry?.width}
+                    height={props.height ?? geometry?.height}
                     src={resolvedSource}
                     alt={alt || ''}
                     loading="lazy"
                     decoding="async"
                     draggable={false}
                     className={cn('h-auto max-w-full rounded-lg border border-white/10', className)}
-                    onLoad={() => setLoadedSource(resolvedSource)}
+                    onLoad={event => {
+                        rememberMarkdownMediaGeometry(resolvedSource, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
+                        setLoadedSource(resolvedSource)
+                        onLoad?.(event)
+                    }}
                     onError={(event) => {
                         onError?.(event)
                         setFailedSource(resolvedSource)

@@ -72,7 +72,7 @@ function render() {
         {location.search.includes('unreadCompletion=1') && <CompletionViewReporter />}
         <AssistantAgentInboxSidebar sessions={sessions} pinnedSessionIds={pinnedIds} activeSessionId={selected} activeThreadId={`${selected}-thread`} commandPending={disabled}
             pendingControlThreadIds={new Set()} projectIconOverrides={{}} onSelectSession={id => { selected = id; render() }}
-            onCreateProjectChat={() => undefined} onRename={() => undefined} getSessionMenuItems={() => []} onOpenContextMenu={() => undefined}
+            onCreateProjectChat={() => undefined} onRename={() => undefined} getSessionMenuItems={() => [{ id: 'rename', label: 'Rename chat', onSelect: () => undefined }, { id: 'copy-thread-id', label: 'Copy thread ID', disabled: true, onSelect: () => undefined }]} onOpenContextMenu={() => undefined}
             headerActions={<RailButton label="New chat" icon={<Bot size={16} />} disabled={disabled} onClick={() => undefined} />} />
         <div hidden data-agent-reference><Bot size={15} strokeWidth={1.9} /></div>
     </div>))
@@ -123,21 +123,40 @@ async function checkExplicitOrderControls() {
     agentUndo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'agent Undo restores rendered order')
     const dragged = original.at(-1)!
     const target = original[0]!
+    const menuTrigger = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+    menuTrigger.click()
+    await waitForCheck(() => Boolean(document.querySelector('[role="menu"]')), 'chat options open on the first click')
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    check(!/Move up|Move down/.test(menu.textContent || ''), 'manual direction commands are absent from chat options')
+    check(menu.getBoundingClientRect().width <= 166, 'chat options use a compact menu width')
+    const menuItem = menu.querySelector<HTMLElement>('[role="menuitem"]')!
+    check(menuItem.getBoundingClientRect().height <= 29, 'chat menu rows are compact')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await waitForCheck(() => !document.querySelector('[role="menu"]'), 'chat options dismiss cleanly')
     const transfer = new DataTransfer()
     const source = row(dragged).querySelector<HTMLElement>('[draggable="true"]')!
     const destination = row(target).querySelector<HTMLElement>('[draggable="true"]')!
     check(source && destination, 'only explicit movable chat rows expose native drag controls')
-    const move = () => {
+    const move = async () => {
+        const savedOrder = localStorage.getItem(key)
+        const buttonBefore = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.getBoundingClientRect()
         source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }))
-        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+        await sleep(30)
+        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: destination.getBoundingClientRect().top + 1 }))
+        await waitForCheck(() => rowIds(false).startsWith(dragged + ','), 'drag has a live reordered preview before drop')
+        check(localStorage.getItem(key) === savedOrder, 'preview does not persist an unfinished drag')
+        check(source.dataset.sidebarDragging === 'true' && destination.dataset.sidebarDrop === 'before', 'preview marks its dragged row and drop edge')
+        check(!row(target).getAttribute('title'), 'chat row has no oversized inherited native tooltip')
+        const buttonAfter = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+        check(!buttonAfter.hasAttribute('title') && Math.abs(buttonAfter.getBoundingClientRect().x - buttonBefore.x) < 1, 'chat menu has no tooltip banner and its horizontal target never shifts')
         destination.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: destination.getBoundingClientRect().top + 1 }))
     }
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
-    move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
+    await move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
     const undo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
     check(undo?.closest('[data-assistant-toast]'), 'explicit movement offers floating toast Undo')
     undo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'Undo restores exact previous order')
-    move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
+    await move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
     check(JSON.parse(localStorage.getItem(key) || '{}').chats[0] === dragged, 'drag order is saved before remount')
     flushSync(() => root.render(<div />)); render()
     await waitForCheck(() => rowIds(false) === expected, 'saved explicit order survives a real sidebar remount')
@@ -265,7 +284,7 @@ async function checkRowHoverActions() {
         await movePointer(900, 750)
         await sleep(200)
         check(getComputedStyle(actions).opacity === '0', `${id}: clicking then leaving hides hover actions`)
-        check(actions.getBoundingClientRect().width < .5, `${id}: leaving releases the action slot`)
+        check(actions.getBoundingClientRect().width >= 48, `${id}: hidden action targets retain a stable width`)
         check(getComputedStyle(target).backgroundColor === selectedBackground, 'Selected highlight remains after pointer leaves')
         if (id === 'child') check(row(id).querySelector<HTMLElement>('span.whitespace-nowrap.tabular-nums')!.getBoundingClientRect().width > 0, 'Recency remains readable after leaving the selected card')
         // Offscreen windows cannot acquire OS keyboard focus. Test the actual
@@ -316,13 +335,13 @@ async function run() {
         const settle = child.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!
         const actions = settle.parentElement!.parentElement!
         const menu = child.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
-        check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, `Menu button fits its reveal slot at ${fontSize}px: ${JSON.stringify({slot: actions.getBoundingClientRect().width, content: actions.firstElementChild!.getBoundingClientRect().width, focused: document.activeElement?.outerHTML.slice(0, 250), focusWithin: child.matches(':focus-within'), opacity: getComputedStyle(actions).opacity, columns: getComputedStyle(actions).gridTemplateColumns})}`)
+        check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, `Menu button fits its reveal slot at ${fontSize}px: ${JSON.stringify({slot: actions.getBoundingClientRect().width, content: actions.firstElementChild!.getBoundingClientRect().width, menuWidth: menu.getBoundingClientRect().width, firstActionWidth: actions.querySelector('button')!.getBoundingClientRect().width, gap: getComputedStyle(actions.firstElementChild!).gap, menuRight: menu.getBoundingClientRect().right, slotRight: actions.getBoundingClientRect().right, menuClass: menu.className, focused: document.activeElement?.outerHTML.slice(0, 250), focusWithin: child.matches(':focus-within'), opacity: getComputedStyle(actions).opacity, columns: getComputedStyle(actions).gridTemplateColumns})}`)
         check(menu.getBoundingClientRect().right <= child.querySelector('[role="button"]')!.getBoundingClientRect().right - 2, 'Menu button retains right-edge clearance')
         ;(document.activeElement as HTMLElement).blur()
         await keyboardFocusStyle('child', false)
         await movePointer(900, 750, true)
         await sleep(180)
-        check(actions.getBoundingClientRect().width < .5, 'Hidden controls release all of their layout width')
+        check(actions.getBoundingClientRect().width >= 52, 'Hidden action targets keep their stationary slot instead of shifting under the pointer')
     }
     document.documentElement.style.fontSize = ''
     results.push('action slots fit their full controls at compact and enlarged interface text sizes')
@@ -497,4 +516,4 @@ async function checkThreadMessages() {
     return results
 }
 ;(window as any).sidebarContinuityCheck = location.search.includes('chatOrder=1') ? (async () => { render(); await sleep(300); await checkExplicitOrderControls(); return results })() : location.search.includes('threadMessages=1') ? checkThreadMessages() : location.search.includes('unreadCompletion=1') ? checkUnreadCompletion()
-    : location.search.includes('agentColors=1') ? checkAgentColors().then(() => results) : location.search.includes('rowHoverActions=1') ? checkRowHoverActions() : location.search.includes('voiceRecorderInput=1') ? checkVoiceRecorderInput(root) : location.search.includes('conversationMarkers=1') ? checkConversationMarkers(root) : run()
+    : location.search.includes('agentColors=1') ? checkAgentColors().then(() => results) : location.search.includes('rowHoverActions=1') ? checkRowHoverActions().catch(error => { console.error(error.stack); throw error }) : location.search.includes('voiceRecorderInput=1') ? checkVoiceRecorderInput(root) : location.search.includes('conversationMarkers=1') ? checkConversationMarkers(root) : run()

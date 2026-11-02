@@ -87,7 +87,7 @@ export function AnchoredNativeOverlay({ children, anchorRef, inputRegionRef, ena
 
 function MeasuredInputRegion({ regionRef, anchorBounds, onBounds }: {
     regionRef: RefObject<HTMLElement | null>
-    anchorBounds: { left: number; top: number }
+    anchorBounds: { left: number; top: number; width: number; height: number }
     onBounds: (bounds: NativeOverlayBounds) => void
 }) {
     useLayoutEffect(() => {
@@ -106,6 +106,6 @@ function MeasuredInputRegion({ regionRef, anchorBounds, onBounds }: {
         position.observe(region, { attributes: true, attributeFilter: ['style', 'class'] })
         update()
         return () => { observer.disconnect(); position.disconnect() }
-    }, [regionRef, anchorBounds.left, anchorBounds.top, onBounds])
+    }, [regionRef, anchorBounds.left, anchorBounds.top, anchorBounds.width, anchorBounds.height, onBounds])
     return null
 }

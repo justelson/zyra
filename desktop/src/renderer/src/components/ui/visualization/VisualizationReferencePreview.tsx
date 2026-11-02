@@ -109,12 +109,11 @@ export const VisualizationReferencePreview = memo(function VisualizationReferenc
                     <Expand size={14} />
                 </button>
             </header>
-            <div className="flex min-h-0 flex-col" style={{ height: 320 }}>
+            <div className="min-w-0" style={resource.kind === 'scene3d' ? { height: 320 } : undefined}>
             <Suspense fallback={<ArtifactCreationState kind="visualization" phase="loading" className="h-full !min-h-0 !rounded-none !border-0"/>}>
                 {resource.kind === 'html' ? (
                     <VisualizationPreview
                         hideHeader
-                        fill
                         block={{
                             kind: 'visualization',
                             start: 0,
@@ -127,7 +126,7 @@ export const VisualizationReferencePreview = memo(function VisualizationReferenc
                         streaming={false}
                     />
                 ) : resource.kind === 'mermaid' ? (
-                    <MermaidDiagram chart={revision.source} fill hideExpand />
+                    <MermaidDiagram chart={revision.source} natural hideExpand />
                 ) : (
                     <Scene3DViewer source={revision.source} expanded />
                 )}

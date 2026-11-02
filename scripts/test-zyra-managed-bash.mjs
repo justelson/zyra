@@ -124,15 +124,20 @@ try {
     stopReason: "toolUse",
     timestamp: Date.now(),
   };
+  // Between-turn compaction runs after a settled tool batch, not an empty turn.
+  const toolResult = {
+    role: "toolResult", toolCallId: "runtime-long", toolName: "bash",
+    content: running.content, details: running.details, isError: false, timestamp: Date.now(),
+  };
   const nextTurnSnapshot = await runtime.session.agent.prepareNextTurnWithContext?.({
     message: assistantMessage,
-    toolResults: [],
+    toolResults: [toolResult],
     context: {
       systemPrompt: runtime.session.agent.state.systemPrompt,
-      messages: [assistantMessage],
+      messages: [assistantMessage, toolResult],
       tools: runtime.session.agent.state.tools,
     },
-    newMessages: [assistantMessage],
+    newMessages: [assistantMessage, toolResult],
   }, new AbortController().signal);
   runtime.session._checkCompaction = originalCheckCompaction;
 

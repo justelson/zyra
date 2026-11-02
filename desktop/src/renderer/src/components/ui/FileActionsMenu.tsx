@@ -34,11 +34,12 @@ interface FileActionsMenuProps {
     openButtonClassName?: string
     menuClassName?: string
     title?: string
+    showTooltip?: boolean
     disabled?: boolean
     triggerIcon?: React.ReactNode
     presentation?: 'portal' | 'inline'
     preferredDirection?: 'up' | 'down'
-    density?: 'default' | 'compact'
+    density?: 'default' | 'compact' | 'chat-compact'
     menuWidth?: number
     matchTriggerWidth?: boolean
     anchorRef?: RefObject<HTMLElement | null>
@@ -63,6 +64,7 @@ export function FileActionsMenu({
     openButtonClassName,
     menuClassName,
     title = 'Actions',
+    showTooltip = true,
     disabled = false,
     triggerIcon,
     presentation = 'portal',
@@ -104,7 +106,9 @@ export function FileActionsMenu({
         left: number
         side: 'left' | 'right'
     } | null>(null)
-    const compact = density === 'compact'
+    const chatCompact = density === 'chat-compact'
+    const compact = density !== 'default'
+    const rowHeight = chatCompact ? 28 : compact ? 32 : 34
     const radioSelection = selectionMode === 'radio'
     const handleEscapeLocally = radioSelection || containEscape
     const resolvedMenuWidth = menuWidth || (compact ? 176 : 180)
@@ -159,7 +163,7 @@ export function FileActionsMenu({
         const viewportPadding = 12
         const gap = 6
         const separatorCount = items.filter((item) => item.separatorBefore).length
-        const estimatedMenuHeight = Math.min(360, items.length * (compact ? 32 : 34) + separatorCount * 5 + 14 + (menuLabel ? 36 : 0))
+        const estimatedMenuHeight = Math.min(360, items.length * rowHeight + separatorCount * 5 + 14 + (menuLabel ? 36 : 0))
         const rect = contextAnchor
             ? { top: contextAnchor.y, bottom: contextAnchor.y, left: contextAnchor.x, right: contextAnchor.x + preferredWidth, width: 0 }
             : button.getBoundingClientRect()
@@ -215,7 +219,7 @@ export function FileActionsMenu({
             window.removeEventListener('resize', handleResize)
             observer?.disconnect()
         }
-    }, [compact, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef, contextAnchor])
+    }, [compact, rowHeight, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef, contextAnchor])
 
     useEffect(() => {
         if (!open) {
@@ -290,7 +294,7 @@ export function FileActionsMenu({
         cancelSubmenuClose()
         focusAfterSubmenuMount.current = focus
         setExpandedItemId(item.id)
-        setSubmenuPosition(resolveFileActionsSubmenuPosition(element.getBoundingClientRect(), 196, item.choices.length, 32, window.innerWidth, window.innerHeight))
+        setSubmenuPosition(resolveFileActionsSubmenuPosition(element.getBoundingClientRect(), 196, item.choices.length, chatCompact ? 28 : 32, window.innerWidth, window.innerHeight))
         if (focus && expandedItemId === item.id && submenuRef.current) {
             focusAfterSubmenuMount.current = false
             submenuRef.current.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
@@ -388,9 +392,9 @@ export function FileActionsMenu({
                             }}
                             className={cn(
                                 'flex min-w-0 flex-1 items-center gap-2 text-left transition-colors',
-                                compact
-                                    ? 'min-h-8 px-2 py-1.5 text-[11px] leading-none'
-                                    : 'px-2.5 py-2 text-xs',
+                                chatCompact
+                                    ? 'min-h-7 px-2 py-1 text-xs leading-none'
+                                    : compact ? 'min-h-8 px-2 py-1.5 text-[11px] leading-none' : 'px-2.5 py-2 text-xs',
                                 item.choices?.length || item.secondaryAction
                                     ? 'rounded-l-[4px] rounded-r-none'
                                     : compact ? 'rounded-[4px]' : 'rounded-md',
@@ -423,7 +427,7 @@ export function FileActionsMenu({
                                         return
                                     }
                                     setExpandedItemId(item.id)
-                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(event.currentTarget.getBoundingClientRect(), 168, item.choices?.length || 0, compact ? 32 : 34, window.innerWidth, window.innerHeight))
+                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(event.currentTarget.getBoundingClientRect(), 168, item.choices?.length || 0, rowHeight, window.innerWidth, window.innerHeight))
                                 }}
                                 className={cn(
                                     'inline-flex w-7 shrink-0 items-center justify-center rounded-r-[4px] text-sparkle-text-muted transition-colors hover:text-sparkle-text',
@@ -468,7 +472,7 @@ export function FileActionsMenu({
                     buttonClassName,
                     open && (openButtonClassName || 'border-0 bg-white/10 text-white opacity-100')
                 )}
-                title={title}
+                title={showTooltip ? title : undefined}
                 aria-label={title}
                 data-state={open ? 'open' : 'closed'}
                 aria-haspopup="menu"
@@ -555,7 +559,8 @@ export function FileActionsMenu({
                                 void choice.onSelect()
                             }}
                             className={cn(
-                                'flex min-h-8 w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-[10px] leading-none transition-colors',
+                                'flex w-full items-center gap-2 rounded-[4px] px-2 text-left leading-none transition-colors',
+                                chatCompact ? 'min-h-7 py-1 text-xs' : 'min-h-8 py-1.5 text-[10px]',
                                 choice.disabled
                                     ? 'cursor-not-allowed text-sparkle-text-muted/35'
                                     : choice.danger

@@ -17,9 +17,15 @@ try {
   server = new ZyraAgentServer(options);
   client = new ZyraAgentServerClient({ ...options, verifyRuntimeRevision: true });
   let starts = 0;
-  client.startServer = () => { starts++; startup = server.start(); };
+  let markStarted;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  client.startServer = () => { starts++; startup = server.start(); markStarted(); };
   const connecting = client.connect();
+  // Admission is asynchronous. Observe launch after that guard, without waiting
+  // for the full fingerprint/handshake or imposing a wall-clock delay.
+  await Promise.race([started, connecting]);
   assert.equal(starts, 1, 'a missing service starts while the client fingerprint is being read');
+  assert.equal(client.expectedRuntimeRevision, null, 'launch precedes full fingerprint acceptance');
   await Promise.all([connecting, client.connect()]);
   assert.equal(starts, 1, 'concurrent callers share one server launch and handshake');
   assert.equal(client.serverRuntimeRevision, await readRuntimeRevision(root), 'acceptance still verifies the full runtime revision');

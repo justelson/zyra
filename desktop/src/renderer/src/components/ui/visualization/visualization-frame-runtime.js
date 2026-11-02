@@ -21,10 +21,21 @@
         pending = true
         requestAnimationFrame(() => {
             pending = false
-            parent.postMessage({ type: 'zyra:visualization-height', channel, height: Math.ceil(mountedContent.getBoundingClientRect().height) }, '*')
+            const contentHeight = Math.max(mountedContent.getBoundingClientRect().height, mountedContent.scrollHeight)
+            const horizontalGutter = Math.max(0, innerHeight - document.documentElement.clientHeight)
+            parent.postMessage({ type: 'zyra:visualization-height', channel, height: Math.ceil(contentHeight + horizontalGutter) }, '*')
         })
     }
     new ResizeObserver(report).observe(mountedContent)
+    addEventListener('resize', report)
+    if (event.data.fitContent === true) {
+        addEventListener('wheel', wheel => {
+            if (wheel.ctrlKey || wheel.shiftKey || !wheel.deltaY || Math.abs(wheel.deltaX) >= Math.abs(wheel.deltaY)) return
+            const unit = wheel.deltaMode === 1 ? 21 : wheel.deltaMode === 2 ? innerHeight : 1
+            wheel.preventDefault()
+            parent.postMessage({ type: 'zyra:visualization-wheel', channel, deltaY: Math.max(-10_000, Math.min(10_000, wheel.deltaY * unit)) }, '*')
+        }, { passive: false })
+    }
     addEventListener('load', report)
     document.fonts.ready.then(report)
     report()

@@ -1,6 +1,7 @@
 // @refresh reset
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
 import { ComposerTextInput } from './ComposerTextInput'
+import { AssistantComposerQueue, useAssistantComposerQueueState } from './AssistantComposerQueue'
 import { NewChatGitDrawer } from './NewChatGitDrawer'
 import { ASSISTANT_COMPOSER_FOCUS_CLASS_NAME } from './assistant-composer-focus'
 import { useAssistantComposerFocus } from './useAssistantComposerFocus'
@@ -15,17 +16,11 @@ import { cn } from '@/lib/utils'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
 import { FileEntryIcon } from '@/components/ui/FileEntryIcon'
 import {
-    ChevronDown,
-    ChevronUp,
-    Zap,
     FileCode2,
     FileImage,
     FileText,
-    GripVertical,
-    Pencil,
     Plus,
     SendHorizontal,
-    Trash2,
     X
 } from 'lucide-react'
 import AssistantAttachmentPreviewModal from './AssistantAttachmentPreviewModal'
@@ -143,10 +138,7 @@ export function AssistantComposerView({
     const canSend = capabilities.canSend
     const showBusySendActions = capabilities.showBusySendActions
     const [textareaScrollTop, setTextareaScrollTop] = useState(0)
-    const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState<string | null>(null)
-    const [queueEdit, setQueueEdit] = useState<{ id: string; text: string } | null>(null)
-    const [queueEditError, setQueueEditError] = useState<string | null>(null)
-    useEffect(() => { setQueueEdit(null); setQueueEditError(null) }, [controller.loadedSessionId])
+    const queueState = useAssistantComposerQueueState(controller.loadedSessionId)
     const [promptResources, setPromptResources] = useState<AssistantPromptResourcesPayload | null>(() =>
         readCachedPromptResources(controller.projectPath)
     )
@@ -560,171 +552,7 @@ export function AssistantComposerView({
                             ) : (
                                 <>
                             <AnimatedHeight isOpen={controller.queuedMessages.length > 0} duration={220}>
-                                <div
-                                    data-composer-attachment-item="true"
-                                    className="pointer-events-auto mx-auto w-[calc(100%-1rem)] overflow-hidden rounded-[20px] rounded-b-[4px] border border-white/[0.06] bg-sparkle-card/95 shadow-[0_8px_18px_rgba(0,0,0,0.10)] backdrop-blur-xl sm:w-[calc(100%-2.25rem)]"
-                                >
-                                    <div className="flex items-center justify-between border-b border-white/[0.06] px-3.5 py-1.5">
-                                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/42">
-                                            {controller.queueHeld ? 'Held' : 'Queued'} {controller.queuedMessages.length}
-                                        </span>
-                                        {controller.queueHeld ? <button type="button" onClick={() => void controller.onResumeQueue?.()} disabled={!controller.onResumeQueue || controller.isStopping || !controller.isConnected} className="text-xs text-sparkle-text-secondary hover:text-sparkle-text disabled:opacity-40">Resume queue</button> : null}
-                                    </div>
-                                    <div className={cn(
-                                        'custom-scrollbar overflow-y-auto',
-                                        controller.queuedMessages.length >= 3 && 'max-h-[9.75rem]'
-                                    )}>
-                                        {controller.queuedMessages.map((queuedMessage, index) => {
-                                            const isForce = queuedMessage.dispatchMode === 'steer'
-                                            const isPaused = queuedMessage.status === 'paused' || queuedMessage.status === 'held' || queuedMessage.status === 'failed'
-                                            const isSendingQueued = queuedMessage.status === 'sending'
-                                            const waitingForCompaction = queuedMessage.status === 'compacting'
-                                            const queuePromptLabel = queuedMessage.prompt.trim() || 'Attachment-only message'
-                                            const queuedFileCount = queuedMessage.contextFiles.length
-                                            const canForceQueuedMessage = !isSendingQueued && !waitingForCompaction && Boolean(controller.onForceQueuedMessage) && (!isForce || isPaused)
-                                            const canEditQueuedMessage = Boolean(controller.onUpdateQueuedMessage) && queuedMessage.status !== 'sending'
-                                            const editing = queueEdit?.id === queuedMessage.id
-                                            const editQueuedMessage = () => {
-                                                if (!canEditQueuedMessage) return
-                                                controller.onHoldQueue?.()
-                                                setQueueEdit({ id: queuedMessage.id, text: queuedMessage.prompt })
-                                                setQueueEditError(null)
-                                            }
-                                            return (
-                                                <div
-                                                    key={queuedMessage.id}
-                                                    onDragOver={(event) => {
-                                                        if (!controller.onMoveQueuedMessage || !draggedQueuedMessageId || draggedQueuedMessageId === queuedMessage.id) return
-                                                        event.preventDefault()
-                                                        event.dataTransfer.dropEffect = 'move'
-                                                    }}
-                                                    onDrop={(event) => {
-                                                        if (!controller.onMoveQueuedMessage || !draggedQueuedMessageId || draggedQueuedMessageId === queuedMessage.id) return
-                                                        event.preventDefault()
-                                                        void controller.onMoveQueuedMessage(draggedQueuedMessageId, queuedMessage.id)
-                                                        setDraggedQueuedMessageId(null)
-                                                    }}
-                                                    className={cn(
-                                                        'relative flex items-start gap-2.5 px-3.5 py-2',
-                                                        index > 0 && 'border-t border-white/[0.06]',
-                                                        isForce && 'bg-amber-500/10',
-                                                        isPaused && 'bg-white/[0.02]',
-                                                        draggedQueuedMessageId === queuedMessage.id && 'opacity-45'
-                                                    )}
-                                                >
-                                                    <div className={cn(
-                                                        'mt-1 shrink-0',
-                                                        controller.onMoveQueuedMessage ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
-                                                        isForce
-                                                            ? 'text-amber-100/45'
-                                                            : isPaused
-                                                                ? 'text-rose-100/45'
-                                                                : 'text-white/20'
-                                                    )}
-                                                        draggable={Boolean(controller.onMoveQueuedMessage)}
-                                                        onDragStart={(event) => {
-                                                            if (!controller.onMoveQueuedMessage) return
-                                                            setDraggedQueuedMessageId(queuedMessage.id)
-                                                            event.dataTransfer.effectAllowed = 'move'
-                                                            event.dataTransfer.setData('text/plain', queuedMessage.id)
-                                                        }}
-                                                        onDragEnd={() => setDraggedQueuedMessageId(null)}
-                                                        title="Drag to reorder queued messages"
-                                                    >
-                                                        <GripVertical size={14} />
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        {isPaused || isSendingQueued || waitingForCompaction || queuedFileCount > 0 ? (
-                                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                                {isSendingQueued ? <span className="text-[11px] text-sparkle-text-muted" role="status">Sending…</span> : null}
-                                                                {waitingForCompaction ? <span className="text-[11px] text-sparkle-text-muted" role="status">Letting compaction finish</span> : null}
-                                                                {isPaused ? (
-                                                                    <span className="rounded-full bg-rose-500/12 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-rose-100/85">
-                                                                        Held
-                                                                    </span>
-                                                                ) : null}
-                                                                {queuedFileCount > 0 ? (
-                                                                    <span className="text-[10px] uppercase tracking-[0.14em] text-white/28">
-                                                                        {queuedFileCount} file{queuedFileCount === 1 ? '' : 's'}
-                                                                    </span>
-                                                                ) : null}
-                                                            </div>
-                                                        ) : null}
-                                                        {editing && queueEdit ? <div className="space-y-2 pt-1">
-                                                            <textarea aria-label="Edit queued message" value={queueEdit.text} onChange={event => setQueueEdit({ id: queuedMessage.id, text: event.target.value })} className="min-h-16 w-full resize-y rounded-md border border-[var(--surface-divider)] bg-transparent p-2 text-sm outline-none focus:border-[var(--accent-primary)]" />
-                                                            <div className="flex items-center gap-3 text-xs">
-                                                                <button type="button" onClick={async () => {
-                                                                    const saved = await controller.onUpdateQueuedMessage?.(queuedMessage.id, queueEdit.text)
-                                                                    if (saved === false) { setQueueEditError('Could not save. The queued message may have started or storage is unavailable.'); return }
-                                                                    setQueueEdit(null); setQueueEditError(null)
-                                                                }}>Save</button>
-                                                                <button type="button" onClick={() => { setQueueEdit(null); setQueueEditError(null) }}>Cancel</button>
-                                                            </div>
-                                                            {queueEditError ? <p role="alert" className="text-xs text-amber-200">{queueEditError}</p> : null}
-                                                        </div> : <button
-                                                            type="button"
-                                                            onClick={editQueuedMessage}
-                                                            disabled={!canEditQueuedMessage}
-                                                            className="mt-0.5 block w-full cursor-text whitespace-pre-wrap break-words text-left text-[12.5px] leading-5 text-sparkle-text transition-colors hover:text-white disabled:cursor-default disabled:text-sparkle-text"
-                                                            title={queuePromptLabel}
-                                                            style={{
-                                                                display: '-webkit-box',
-                                                                WebkitBoxOrient: 'vertical',
-                                                                WebkitLineClamp: 2,
-                                                                overflow: 'hidden'
-                                                            }}
-                                                        >
-                                                            {queuePromptLabel}
-                                                        </button>}
-                                                    </div>
-                                                    <div className="ml-2 flex shrink-0 items-center justify-end gap-1 self-center">
-                                                        {controller.onMoveQueuedMessage && controller.queuedMessages.length > 1 ? <span className="flex flex-col">
-                                                            <button type="button" disabled={index === 0} onClick={() => void controller.onMoveQueuedMessage?.(queuedMessage.id, controller.queuedMessages[index - 1].id)} aria-label={`Move queued message ${index + 1} up`} title="Move up" className="inline-flex size-4 items-center justify-center rounded text-white/45 hover:bg-white/[0.08] focus-visible:text-white disabled:opacity-25"><ChevronUp size={12} /></button>
-                                                            <button type="button" disabled={index === controller.queuedMessages.length - 1} onClick={() => void controller.onMoveQueuedMessage?.(queuedMessage.id, controller.queuedMessages[index + 1].id)} aria-label={`Move queued message ${index + 1} down`} title="Move down" className="inline-flex size-4 items-center justify-center rounded text-white/45 hover:bg-white/[0.08] focus-visible:text-white disabled:opacity-25"><ChevronDown size={12} /></button>
-                                                        </span> : null}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => void controller.onDeleteQueuedMessage?.(queuedMessage.id)}
-                                                            disabled={!controller.onDeleteQueuedMessage}
-                                                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-white/[0.02] text-white/38 transition-colors hover:bg-rose-500/12 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-35"
-                                                            title="Delete queued message"
-                                                        >
-                                                            <Trash2 size={13} />
-                                                        </button>
-                                                        <button
-                                                        type="button"
-                                                        onClick={editQueuedMessage}
-                                                            disabled={!canEditQueuedMessage}
-                                                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-white/[0.02] text-white/38 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                                                            title="Edit queued message"
-                                                        >
-                                                            <Pencil size={13} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => void controller.onForceQueuedMessage?.(queuedMessage.id)}
-                                                            disabled={!canForceQueuedMessage}
-                                                            className={cn(
-                                                                'inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[11px] font-semibold transition-colors',
-                                                                canForceQueuedMessage
-                                                                    ? 'bg-amber-500/12 text-amber-100 hover:bg-amber-500/18'
-                                                                    : 'bg-white/[0.05] text-white/35'
-                                                            )}
-                                                            title={canForceQueuedMessage
-                                                                ? 'Steer the current turn with this message without stopping it'
-                                                                : isForce
-                                                                    ? 'This message is being delivered as a steer'
-                                                                    : 'Steer is unavailable while preparing or compacting'}
-                                                        >
-                                                            <Zap size={11} />
-                                                            <span>Steer</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
+                                <AssistantComposerQueue controller={controller} state={queueState} />
                             </AnimatedHeight>
                             {controller.placement !== 'center' ? <ComposerAttachmentsShelf
                                 contextFiles={controller.contextFiles}

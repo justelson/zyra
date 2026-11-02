@@ -2323,7 +2323,7 @@ function runStatusLineColorRegression() {
       getContextUsage: () => ({ percent: 72 }),
       sessionManager: {
         getCwd: () => "C:\\Users\\dev\\project",
-        getEntries: () => [{ type: "message", message: { role: "assistant", usage: { cost: { total: 0.3 } } } }],
+        getEntries: () => [{ type: "message", message: { role: "assistant", usage: { cost: { total: 0.3 }, costComplete: false } } }],
       },
       modelRegistry: {
         isUsingOAuth: () => false,
@@ -2337,7 +2337,12 @@ function runStatusLineColorRegression() {
   assert.match(line, /\x1b\[38;5;213mfull access/);
   assert.doesNotMatch(stripAnsi(line), /\bbuilder\b/, "the footer shows permission mode instead of the profile overlay");
   assert.match(line, /\x1b\[38;2;255;255;0mContext 28% left/);
-  assert.match(line, /\x1b\[38;5;82m~\$0\.300\+ \?/, "legacy cost is colored and retains its uncertainty markers");
+  assert.match(line, /\x1b\[38;5;82m~\$0\.300\+ \?/, "incomplete legacy cost is colored and retains its uncertainty markers");
+
+  runtime.session.sessionManager.getEntries = () => [{ type: "message", message: { role: "assistant", usage: { cost: { total: 0.3, source: "reported" } } } }];
+  const reportedLine = renderStatusLine(runtime, 120);
+  assert.match(reportedLine, /\x1b\[38;5;82m~\$0\.300\x1b/, "known reported cost keeps its color without an uncertainty suffix");
+  assert.doesNotMatch(stripAnsi(reportedLine), /\+ \?/);
 
   runtime.permissionMode = "approval-required";
   runtime.session.getContextUsage = () => undefined;
@@ -2353,9 +2358,9 @@ function runStatusLineCostCacheRegression() {
   const entries = [
     { type: "message", message: { role: "assistant", usage: { cost: { total: 0.25 } } } },
   ];
-  entries[Symbol.iterator] = function* iterator() {
+  entries.entries = function* iterator() {
     iterations += 1;
-    yield entries[0];
+    yield [0, entries[0]];
   };
   const runtime = {
     profile: "builder",

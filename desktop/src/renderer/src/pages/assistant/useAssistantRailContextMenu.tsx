@@ -16,7 +16,7 @@ export function useAssistantRailContextMenu() {
     const contextMenuPortal = contextMenu ? (
         <FileActionsMenu key={contextMenu.key} items={contextMenu.items} title={contextMenu.title}
             contextAnchor={{ x: contextMenu.x, y: contextMenu.y }} onDismiss={() => setContextMenu(null)}
-            density="compact" presentation="portal" containEscape revealSecondaryOnHover />
+            density="chat-compact" presentation="portal" containEscape showTooltip={false} menuWidth={164} />
     ) : null
     return { openContextMenu, contextMenuPortal }
 }

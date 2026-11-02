@@ -31,6 +31,13 @@ let stopFails = false
 // No installed preferences or credentials participate in this menu fixture.
 ;(window as any).devscope = {
     copyToClipboard: async (value: string) => { calls.push(`copy:${value}`); return { success: true } },
+    assistant: { settleSession: async (id: string, settled: boolean) => {
+        const target = sessions.find(session => session.id === id)
+        if (!target) return { success: false, error: 'Fixture chat missing' }
+        Object.assign(target, { settled, settlementManual: true })
+        renderMenus()
+        return { success: true }
+    } },
     preferences: { onChanged: () => () => {}, get: async () => ({ success: true, snapshot: { revision: 0, settings: { assistantMemoryEnabled: false }, desktopLegacyMigrationComplete: true } }) },
     secrets: { migrateLegacyHostedAiKeys: async () => ({ success: true, status: { groqConfigured: false, geminiConfigured: false, legacyMigrationComplete: true } }) }
 }
@@ -102,6 +109,8 @@ async function move(x: number, y: number) {
 async function hover(label: string) {
     check(button(label), `Hover target ${label} exists; menu: ${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}`)
     const rect = button(label).getBoundingClientRect()
+    // Re-enter reopened menus so the real submenu pointer-enter runs.
+    await move(Math.max(4, innerWidth - 20), Math.max(4, innerHeight - 20))
     await move(rect.left + 40, rect.top + rect.height / 2)
 }
 async function sidebar(id = 'other') {
@@ -125,6 +134,7 @@ async function run() {
     if ((window as any).stopRecoveryOnly) {
         await sleep(150)
         await header()
+        check(Array.from(document.querySelectorAll('[role="menu"] button')).filter(item => item.textContent?.trim() === 'Stop active turn').length === 1, 'Recovery menu contains exactly one Stop action')
         check(button('Stop active turn') && !button('Stop active turn').disabled, 'Recovery Stop is present without running UI state or presence')
         button('Stop active turn').click(); await sleep(100)
         check(calls.filter(call => call === 'stop:selected').length === 1, 'Recovery Stop invokes the owning chat once')
@@ -148,13 +158,19 @@ async function run() {
     check(threadActions?.choices?.find(item => item.id === 'copy-thread-id')?.disabled, 'An unattached sidebar chat cannot copy its local thread ID')
     await sleep(150)
     await header()
-    for (const label of ['Settle chat', 'Pin chat', 'Rename chat', 'Regenerate chat title', 'New thread', 'Copy thread ID', 'Attach project', 'Archive chat', 'Delete chat']) check(button(label), `Header contains ${label}`)
+    for (const label of ['Settle chat', 'Pin chat', 'Rename chat', 'Regenerate chat title', 'Thread', 'Project', 'Archive chat', 'Delete chat']) check(button(label), `Header contains ${label}`)
+    check(button('Thread').getBoundingClientRect().height <= 29, 'header menu rows are compact')
+    check(!/Move up|Move down/.test(document.querySelector('[role="menu"]')!.textContent || ''), 'manual direction options stay out of chat menus')
+    await hover('Thread'); check(button('New thread') && button('Copy thread ID'), 'header retains thread actions in a compact submenu')
+    check(button('New thread').getBoundingClientRect().height <= 29, 'header portaled submenu uses the same compact density')
+    await hover('Project'); check(button('Attach project'), 'header retains the project action when available')
+    check(Array.from(document.querySelectorAll('[role="menu"] button')).filter(item => item.textContent?.trim() === 'Stop active turn').length === 1, 'Header contains exactly one Stop action')
     check(button('Stop active turn') && !button('Stop active turn').disabled, 'Stop remains reachable even when saved chat state is ready and presence is absent')
     button('Stop active turn').click(); await sleep(100)
     check(calls.includes('stop:selected'), 'Recovery Stop targets its owning chat')
     await header()
     button('Pin chat').click(); await sleep(100)
-    await sidebar('selected'); check(button('Unpin chat') && button('Unpin chat to settle').disabled, 'Header pin reaches sidebar and prevents settlement')
+    await sidebar('selected'); check(button('Unpin chat') && !button('Unpin chat to settle'), 'Header pin reaches sidebar and hides unavailable settlement')
     button('Unpin chat').click(); await sleep(100)
     await header(); check(button('Pin chat'), 'Sidebar unpin reaches header'); button('Settle chat').click(); await sleep(100)
     await sidebar('selected'); check(button('Un-settle chat'), 'Header settlement reaches sidebar'); button('Un-settle chat').click(); await sleep(100)
@@ -162,8 +178,9 @@ async function run() {
     check(calls.includes('regenerate:selected'), 'Header regeneration callback is wired')
     await sidebar(); check(!button('New thread') && !button('Attach project'), 'Sidebar keeps secondary actions in submenus')
     const rowHeight = button('Thread').getBoundingClientRect().height
-    check(rowHeight >= 30 && rowHeight <= 34, `Sidebar rows stay compact (${rowHeight}px during menu animation)`)
+    check(rowHeight >= 27 && rowHeight <= 29, `Sidebar rows stay compact (${rowHeight}px during menu animation)`)
     await hover('Thread'); check(button('New thread') && button('Copy thread ID'), 'Thread submenu opens on hover')
+    check(button('New thread').getBoundingClientRect().height <= 29, 'sidebar portaled submenu uses the same compact density')
     const rect = button('Copy thread ID').getBoundingClientRect(); await move(rect.left + 40, rect.top + rect.height / 2); await sleep(200)
     check(button('Copy thread ID'), 'Pointer can cross the submenu gap'); button('Copy thread ID').click(); await sleep()
     check(calls.includes('copy:other-canonical'), 'Copy targets the clicked, unselected chat canonical thread')

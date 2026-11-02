@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
             for (const mark of [...bars, ...cells]) {
                 const actual = pixel(parent.x + mark.box.x - body.box.x + 3, parent.y + mark.box.y - body.box.y + 3)
                 const expectedColor = rgb(mark.css['background-color'])
-                assert(actual.every((channel, index) => Math.abs(channel - expectedColor[index]) <= 2), `${mode}: painted chart pixel matches computed color ${mark.css['background-color']} (${actual})`)
+                assert(actual.every((channel, index) => Math.abs(channel - expectedColor[index]) <= 2), `${mode}: painted chart pixel matches computed color ${mark.css['background-color']} (${actual}); frame opacity ${await window.webContents.executeJavaScript('getComputedStyle(document.querySelector("iframe")).opacity')}`)
             }
             assert.deepEqual(pixel(parent.x + parent.width - 2, parent.y + parent.height - 2), pixel(2, 2), `${mode}: the iframe canvas must blend into the page`)
             if (screenshots) await writeFile(path.join(screenshots, `${mode}${width ? '-narrow' : ''}.png`), image.toPNG())
@@ -143,6 +143,24 @@ app.whenReady().then(async () => {
         }
     }
     console.log('PASS: dark/light and 320px real iframe pixels, data geometry, contrast, monotonic heat scale and palette exports')
+    const naturalHeight = await window.webContents.executeJavaScript('window.visualizationNaturalHeightCase()')
+    assert(naturalHeight >= 981, `a tall visualization shows its complete content, not the authored 160px cap: ${naturalHeight}`)
+    const naturalFrame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
+    const naturalOverflow = await naturalFrame.executeJavaScript('({horizontal:document.documentElement.scrollWidth>innerWidth,vertical:document.documentElement.scrollHeight>innerHeight+1,svgWidth:document.querySelector("svg").getBoundingClientRect().width})')
+    assert(naturalOverflow.horizontal && !naturalOverflow.vertical, 'only horizontal visualization overflow needs an inner scrollbar')
+    assert(naturalOverflow.svgWidth >= 1200, `wide SVG labels retain authored size rather than shrinking to the viewport: ${naturalOverflow.svgWidth}`)
+    await window.webContents.executeJavaScript('window.scrollTo(0,0)')
+    const wheelPoint = await window.webContents.executeJavaScript('(()=>{const r=document.querySelector("iframe").getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(Math.min(innerHeight-60,r.y+100))}})()')
+    await naturalFrame.executeJavaScript('window.fixtureWheelEvents=[];addEventListener("wheel",e=>fixtureWheelEvents.push({y:e.deltaY,x:e.deltaX,ctrl:e.ctrlKey}),true)')
+    await window.webContents.executeJavaScript('window.fixtureWheelMessages=[];addEventListener("message",e=>{if(e.data?.type==="zyra:visualization-wheel")fixtureWheelMessages.push(e.data)})')
+    // DevTools delivers trusted renderer input even though this disposable
+    // window intentionally never acquires OS focus or becomes visible.
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...wheelPoint })
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', ...wheelPoint, deltaY: 180, deltaX: 0 })
+    await new Promise(resolve => setTimeout(resolve, 160))
+    const wheelResult = await window.webContents.executeJavaScript('({scrollY,scrollHeight:document.documentElement.scrollHeight,height:innerHeight,messages:fixtureWheelMessages})')
+    assert(wheelResult.scrollY > 0, 'a real vertical wheel over the sandbox moves the parent chat/page: ' + JSON.stringify({point:wheelPoint,parent:wheelResult,child:await naturalFrame.executeJavaScript('fixtureWheelEvents')}))
+    console.log('PASS: full natural height, horizontal-only overflow, real wheel routing over opaque iframe')
     for (const font of ['bricolage', 'hanken', 'managed:visualization-fixture']) {
         await window.webContents.executeJavaScript(`window.visualizationFontCase('${font}')`)
         const parentDocument = (await cdp('DOM.getDocument')).root
@@ -183,18 +201,22 @@ app.whenReady().then(async () => {
     const interactive = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
     window.webContents.focus()
     const beforeExpansion = await interactive.executeJavaScript(`(()=>{const point=document.querySelector('circle');point.focus();return {point:point.outerHTML,focused:document.activeElement===point,width:document.body.clientWidth,gutter:getComputedStyle(document.documentElement).scrollbarGutter,tooltip:document.querySelector('[role=tooltip]').textContent,tooltipVisible:!document.querySelector('[role=tooltip]').hidden,summaryWidth:document.querySelector('summary').getBoundingClientRect().width}})()`)
-    assert.equal(beforeExpansion.gutter, 'stable')
+    assert.equal(beforeExpansion.gutter, 'auto')
     assert.equal(beforeExpansion.tooltip, 'Sample: 84 units', JSON.stringify(beforeExpansion))
     assert(beforeExpansion.tooltipVisible, 'data-point preview is also available through keyboard focus')
     assert(beforeExpansion.summaryWidth >= beforeExpansion.width - 3, 'disclosure fills the content width')
     const animating = await interactive.executeJavaScript(`(()=>{document.querySelector('summary').click();return document.getAnimations().length})()`)
     assert(animating > 0, 'disclosure expansion animates')
     await new Promise(resolve => setTimeout(resolve, 350))
-    const expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,overflow:document.documentElement.scrollHeight>document.documentElement.clientHeight})`)
-    assert(expanded.open && expanded.overflow, 'expanded data remains scrollable within the authored cap')
+    let expanded
+    for (let attempt = 0; attempt < 50; attempt++) {
+        expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,scrollHeight:document.documentElement.scrollHeight,viewport:innerHeight,contentHeight:document.querySelector('.zyra-viz-content').getBoundingClientRect().height,overflow:document.documentElement.scrollHeight>innerHeight+1})`)
+        if (expanded.open && !expanded.overflow) break
+        await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert(expanded.open && !expanded.overflow, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
     assert.equal(expanded.width, beforeExpansion.width, 'scrollbar appearance does not move content sideways')
-    for (let i = 0; i < 40 && await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') !== 320; i++) await new Promise(resolve => setTimeout(resolve, 25))
-    assert.equal(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height'), 320)
+    assert(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') > 320, 'opening a long table grows the chat visualization beyond its initial height')
     await interactive.executeJavaScript(`document.querySelector('summary').click()`)
     for (let i = 0; i < 40 && await interactive.executeJavaScript('document.querySelector("details").open'); i++) await new Promise(resolve => setTimeout(resolve, 25))
     assert.equal(await interactive.executeJavaScript('document.querySelector("details").open'), false, await interactive.executeJavaScript(`JSON.stringify({expanded:document.querySelector('summary').getAttribute('aria-expanded'),animations:document.getAnimations().map(a=>({state:a.playState,time:a.currentTime})),hidden:document.hidden})`))

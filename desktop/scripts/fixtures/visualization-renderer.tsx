@@ -89,7 +89,7 @@ function InitialHeightProbe() {
     ;(window as any).devscope.copyToClipboard = originalBridge
     await until(() => !document.querySelector('[role="menu"]'))
     assert(document.activeElement === info, 'copy returns focus to the trigger')
-    assert(parseFloat(frame.style.height) <= 240, 'content height is capped at the authored maximum')
+    assert(parseFloat(frame.style.height) > 0, 'content has a reserved height while its natural size is measured')
     frame.loading = 'eager'
     await wait(120)
     assert(frame.getAttribute('sandbox') === 'allow-scripts', 'app-owned presentation runs without same-origin access')
@@ -152,7 +152,7 @@ function InitialHeightProbe() {
     await wait(120)
     assert(unexpectedWindows === 0, 'browser menus and source dialogs never open native companion windows')
     window.open = originalOpen
-    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed fixed-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
+    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed natural-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
 })()
 
 const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as const
@@ -163,6 +163,14 @@ const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as co
     await until(() => { const height = document.querySelector('iframe')!.getBoundingClientRect().height; return height > 80 && height < 200 })
     return document.querySelector('iframe')!.getBoundingClientRect().height
 }
+;(window as any).visualizationNaturalHeightCase = async () => {
+    document.querySelector<HTMLElement>('#root')!.style.width = '320px'
+    render('<visualization title="Tall and wide" height="160">\n<svg width="1200" height="60" viewBox="0 0 1200 60"><text x="10" y="30">Readable wide chart labels</text></svg><div style="width:1200px;height:960px;background:var(--viz-track)">Wide timeline</div><p>Visible final section</p>\n</visualization>', false)
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
+    return document.querySelector('iframe')!.getBoundingClientRect().height
+}
+
 const heatRows = [
     ['Kitchen', [15, 40, 85, 30, 65, 95, 20]],
     ['Lab', [70, 25, 45, 95, 35, 60, 80]],

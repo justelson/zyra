@@ -20,7 +20,7 @@ import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
 import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
 import { useAssistantSettlementOverrides, migrateCanonicalSettlementOverrides } from './assistant-settlement-store'
-import { createChatSettlementMenuItem } from './assistant-chat-actions-menu'
+import { availableChatActionMenuItems, createChatSettlementMenuItem } from './assistant-chat-actions-menu'
 import { AssistantTuiPresenceIndicator } from './AssistantTuiPresenceIndicator'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
 import { assistantSessionMobileDevices, isAssistantSessionOpenInTui } from './assistant-tui-presence'
@@ -75,7 +75,6 @@ type Props = {
 }
 
 type SidebarRowProps = Props & {
-    getSidebarOrderMenuItems: (item: SidebarItem) => FileActionsMenuItem[]
     getSidebarShortcutCommand: (item: SidebarItem) => string | undefined
     getSidebarDragProps?: (item: SidebarItem) => HTMLAttributes<HTMLDivElement>
 }
@@ -153,25 +152,24 @@ function getAgentInboxMenuItems(item: SidebarItem, onToggleSettlement: (item: Si
     const settlementActions = actions.some(action => action.id === 'settle' || action.id === 'unsettle')
         ? actions.map(action => action.id === 'settle' || action.id === 'unsettle' ? settlement : action)
         : [settlement, ...actions]
-    return [...settlementActions, ...props.getSidebarOrderMenuItems(item)]
+    return availableChatActionMenuItems(settlementActions.filter(action =>
+        !((action.id === 'settle' || action.id === 'unsettle') && (item.pinned || isWorkingItem(item)))
+    ), props.commandPending)
 }
 
-function InboxRowActions({ item, action, onAction, props, showLabel = false, inFlow = false }: {
+function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
     item: SidebarItem
     action: 'settle' | 'unsettle'
     onAction: (item: SidebarItem) => void
     props: SidebarRowProps
     showLabel?: boolean
-    inFlow?: boolean
 }) {
     const menuItems = getAgentInboxMenuItems(item, onAction, props)
     return (
         <div className={cn(
-            'pointer-events-none z-[1] translate-x-1 opacity-0 duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-visible/agent-inbox-row:pointer-events-auto group-has-[:focus-visible]/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 group-hover/agent-inbox-row:opacity-100 group-focus-visible/agent-inbox-row:opacity-100 group-has-[:focus-visible]/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:translate-x-0 has-[:focus-visible]:opacity-100 motion-reduce:transition-none',
-            inFlow
-                ? 'relative grid min-w-0 shrink-0 grid-cols-[0fr] overflow-hidden transition-[grid-template-columns,margin-left,opacity,transform] group-hover/agent-inbox-row:ml-1.5 group-focus-visible/agent-inbox-row:ml-1.5 group-has-[:focus-visible]/agent-inbox-row:ml-1.5 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:ml-1.5 group-hover/agent-inbox-row:grid-cols-[1fr] group-focus-visible/agent-inbox-row:grid-cols-[1fr] group-has-[:focus-visible]/agent-inbox-row:grid-cols-[1fr] group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:grid-cols-[1fr]'
-                : 'absolute right-0 top-1/2 -translate-y-1/2 transition-[opacity,transform]',
-            !inFlow && (showLabel ? 'w-[4.75rem]' : 'w-[3.25rem]')
+            'pointer-events-none z-[1] opacity-0 duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-visible/agent-inbox-row:pointer-events-auto group-has-[:focus-visible]/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:opacity-100 group-focus-visible/agent-inbox-row:opacity-100 group-has-[:focus-visible]/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 motion-reduce:transition-none',
+            'absolute right-0 top-1/2 -translate-y-1/2 transition-opacity',
+            showLabel ? 'w-[max(4.75rem,76px)]' : 'w-[max(3.25rem,52px)]'
         )}>
             <div className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
                 <button
@@ -195,9 +193,10 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false, inF
                     triggerIcon={<MoreHorizontal size={14} />}
                     presentation="portal"
                     rootClassName="flex shrink-0 items-center"
-                    density="compact"
-                    revealSecondaryOnHover
-                    buttonClassName="h-6 w-6 rounded-md text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
+                    density="chat-compact"
+                    showTooltip={false}
+                    menuWidth={164}
+                    buttonClassName="!h-6 !w-6 rounded-md text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text"
                     openButtonClassName="rounded-md bg-[var(--surface-hover)] text-sparkle-text opacity-100"
                 />
             </div>
@@ -214,16 +213,16 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     const menuItems = getAgentInboxMenuItems(item, onSettle, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
-            <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')} title={[title, item.projectPath, model.modelName, item.thread?.lastError].filter(Boolean).join('\n')}>
+            <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
                 <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
                     <div className="flex h-5 min-w-0 items-center gap-1.5">
                         {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
                         <span title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
-                        <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 text-xs">
+                        <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 pr-[max(3.25rem,52px)] text-xs">
                             <span className="shrink-0">
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
                             </span>
-                            <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} inFlow />
+                            <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} />
                         </div>
                     </div>
                     <div className="mt-1 flex min-w-0">
@@ -255,7 +254,7 @@ function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarIte
             <div role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-muted/70 hover:bg-[var(--surface-hover)] hover:text-sparkle-text')} title={title}>
                 {work ? <AssistantWorkContextIcon work={work} dimmed={!item.active} /> : <ProjectMark group={item.project} dimmed={!item.active} />}
                 <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
-                <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end">
+                <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end pr-[max(3.25rem,52px)]">
                     {item.status !== 'ready' ? <span className="mr-1 inline-flex shrink-0 text-sparkle-text-muted" title={item.status === 'done' ? 'New response' : item.status}>
                         {item.status === 'working' ? <CircleDashed size={13} /> : item.status === 'done' ? <CheckCircle2 size={13} /> : <span className="text-[10px]">{item.status}</span>}
                     </span> : null}
@@ -269,7 +268,7 @@ function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarIte
                     <span className="max-w-20 shrink-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity,transform] duration-150 ease-out group-hover/agent-inbox-row:max-w-0 group-focus-visible/agent-inbox-row:max-w-0 group-has-[:focus-visible]/agent-inbox-row:max-w-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:max-w-0 group-hover/agent-inbox-row:translate-x-1 group-focus-visible/agent-inbox-row:translate-x-1 group-has-[:focus-visible]/agent-inbox-row:translate-x-1 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-1 group-hover/agent-inbox-row:opacity-0 group-focus-visible/agent-inbox-row:opacity-0 group-has-[:focus-visible]/agent-inbox-row:opacity-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-0 motion-reduce:transition-none">
                         <span className="whitespace-nowrap text-xs tabular-nums text-sparkle-text-muted/55">{formatAssistantSidebarRelativeTime(item.activityAt)}</span>
                     </span>
-                    <InboxRowActions item={item} action={action} onAction={onAction} props={props} inFlow />
+                    <InboxRowActions item={item} action={action} onAction={onAction} props={props} />
                 </div>
             </div>
         </li>
@@ -281,6 +280,8 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [projectMenuOpen, setProjectMenuOpen] = useState(false)
     const [projectSearch, setProjectSearch] = useState('')
     const [settledExpanded, setSettledExpanded] = useState(false)
+    const [settledMaxHeight, setSettledMaxHeight] = useState(320)
+    const [dragPreview, setDragPreview] = useState<{ id: string; target: string; group: 'pinned' | 'chats'; placement: 'before' | 'after' } | null>(null)
     const [sidebarOrder, setSidebarGroupOrder] = useAssistantInboxOrder()
     const { toast: localToast, showToast: showLocalToast, dismissToast } = useAssistantTransientToast()
     const showToast = props.onShowToast || showLocalToast
@@ -293,8 +294,11 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const projectSearchRef = useRef<HTMLInputElement | null>(null)
     const scrollRef = useRef<HTMLDivElement | null>(null)
     const scrollPositionRef = useRef(0)
-    const listRef = useRef<HTMLUListElement | null>(null)
-    const settledHeaderRef = useRef<HTMLLIElement | null>(null)
+    const listRef = useRef<HTMLDivElement | null>(null)
+    const chatsListRef = useRef<HTMLUListElement | null>(null)
+    const settledScrollRef = useRef<HTMLDivElement | null>(null)
+    const settledScrollPositionRef = useRef(0)
+    const settledHeaderRef = useRef<HTMLButtonElement | null>(null)
     const previousLayoutRectsRef = useRef(new Map<string, { top: number; height: number }>())
     const layoutAnimationsRef = useRef(new Map<string, Animation>())
 
@@ -369,7 +373,18 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const visibleSettled = settledItems.slice(0, settledVisibleCount)
     const desiredSettled = settledExpanded ? visibleSettled : visibleSettled.filter((item) => item.active)
     const stableLayout = useStableSidebarGroups([desiredPriority, desiredRecent, desiredSettled])
-    const [priorityItems, recentItems, renderedSettled] = stableLayout.groups
+    const [stablePriority, stableRecent, renderedSettled] = stableLayout.groups
+    const previewOrder = (group: SidebarItem[], name: 'pinned' | 'chats') => {
+        if (!dragPreview || dragPreview.group !== name || dragPreview.id === dragPreview.target) return group
+        const dragged = group.find(item => item.session.id === dragPreview.id)
+        if (!dragged || !group.some(item => item.session.id === dragPreview.target)) return group
+        const ordered = group.filter(item => item !== dragged)
+        const index = ordered.findIndex(item => item.session.id === dragPreview.target)
+        ordered.splice(index + (dragPreview.placement === 'after' ? 1 : 0), 0, dragged)
+        return ordered
+    }
+    const priorityItems = previewOrder(stablePriority, 'pinned')
+    const recentItems = previewOrder(stableRecent, 'chats')
     // Explicit choices move immediately. Keep hover holds for automatic
     // status/recency changes, not canonical settlement or header-menu actions.
     const settlementChoices = JSON.stringify(visibleSessions.map(session => [session.id, session.settled, session.settlementManual]).sort())
@@ -417,34 +432,30 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 if ((event.target as Element).closest('button,textarea,input')) { event.preventDefault(); return }
                 event.dataTransfer.setData('application/x-zyra-chat-order', item.session.id)
                 event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setDragImage(event.currentTarget, 32, 24)
+                setDragPreview({ id: item.session.id, target: item.session.id, group: item.pinned ? 'pinned' : 'chats', placement: 'before' })
             },
-            onDragOver: event => { if (!item.settled && event.dataTransfer.types.includes('application/x-zyra-chat-order')) event.preventDefault() },
+            onDragEnd: () => setDragPreview(null),
+            'data-sidebar-dragging': dragPreview?.id === item.session.id || undefined,
+            'data-sidebar-drop': dragPreview?.target === item.session.id && dragPreview.id !== item.session.id ? dragPreview.placement : undefined,
+            onDragOver: event => {
+                if (item.settled || !dragPreview || dragPreview.id === item.session.id || (item.pinned ? 'pinned' : 'chats') !== dragPreview.group) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                const rect = event.currentTarget.getBoundingClientRect()
+                const placement = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+                setDragPreview(current => current?.target === item.session.id && current.placement === placement ? current : { ...dragPreview, target: item.session.id, placement })
+            },
             onDrop: event => {
                 const draggedId = event.dataTransfer.getData('application/x-zyra-chat-order')
                 const dragged = allItems.find(entry => entry.session.id === draggedId)
                 if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned || draggedId === item.session.id) return
                 event.preventDefault()
                 const rect = event.currentTarget.getBoundingClientRect()
-                moveChat(draggedId, item.session.id, item.pinned ? 'pinned' : 'chats', event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
+                moveChat(draggedId, item.session.id, item.pinned ? 'pinned' : 'chats', dragPreview?.target === item.session.id ? dragPreview.placement : event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
+                setDragPreview(null)
             }
-        }),
-        getSidebarOrderMenuItems: (item) => {
-            if (item.settled) return []
-            const group = item.pinned ? 'pinned' : 'chats'
-            const visible = item.pinned ? priorityItems : recentItems
-            const visibleIds = visible.map(entry => entry.session.id)
-            const index = visibleIds.indexOf(item.session.id)
-            return ([-1, 1] as const).map(direction => ({
-                id: direction === -1 ? 'sidebar-move-up' : 'sidebar-move-down',
-                label: direction === -1 ? 'Move up' : 'Move down',
-                separatorBefore: direction === -1,
-                disabled: index < 0 || index + direction < 0 || index + direction >= visibleIds.length,
-                onSelect: () => {
-                    const neighbor = visibleIds[index + direction]
-                    if (neighbor) moveChat(item.session.id, neighbor, group, direction < 0 ? 'before' : 'after')
-                }
-            }))
-        }
+        })
     }
     const hiddenSettledCount = settledItems.length - visibleSettled.length
     const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
@@ -456,29 +467,31 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     ].join('|')
 
     const measureSettledInitialWindow = useCallback(() => {
-        const scroller = scrollRef.current
+        const container = listRef.current
+        const chats = chatsListRef.current
         const header = settledHeaderRef.current
-        if (!scroller || !header) return
-        // Use layout coordinates within the positioned scroller. Visual rects
-        // include in-flight motion and scroll anchoring; feeding those back
-        // into the rendered row count can oscillate at a row boundary.
-        const headerContentBottom = header.offsetTop + header.offsetHeight
-        const availableHeight = Math.max(0, scroller.clientHeight - headerContentBottom)
-        const nextCount = resolveAssistantAgentInboxSettledInitialCount(availableHeight)
+        if (!container || !chats || !header) return
+        // Settled grows upward while Chats retains an independent usable viewport.
+        const retainedChats = Math.min(chats.scrollHeight, 160, container.clientHeight * 0.4)
+        const maximum = Math.max(header.offsetHeight + 37, container.clientHeight - retainedChats - 12)
+        setSettledMaxHeight(current => current === maximum ? current : maximum)
+        const nextCount = resolveAssistantAgentInboxSettledInitialCount(Math.max(0, maximum - header.offsetHeight))
         setSettledInitialCount((current) => current === nextCount ? current : nextCount)
     }, [])
 
     useLayoutEffect(() => {
         // Reordering/restoring must not scroll the navigation to the moved row.
         if (scrollRef.current) scrollRef.current.scrollTop = scrollPositionRef.current
+        if (settledScrollRef.current) settledScrollRef.current.scrollTop = settledScrollPositionRef.current
         measureSettledInitialWindow()
     }, [layoutKey, measureSettledInitialWindow, settledItems.length])
 
     useEffect(() => {
-        const scroller = scrollRef.current
-        if (!scroller || typeof ResizeObserver === 'undefined') return
+        const container = listRef.current
+        if (!container || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(measureSettledInitialWindow)
-        observer.observe(scroller)
+        observer.observe(container)
+        if (chatsListRef.current) observer.observe(chatsListRef.current)
         return () => observer.disconnect()
     }, [measureSettledInitialWindow])
 
@@ -615,11 +628,13 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 </div>
             ) : null}
             </div>
-            <div ref={scrollRef} onPointerEnter={stableLayout.hold} onPointerLeave={stableLayout.release}
-                onScroll={(event) => { scrollPositionRef.current = event.currentTarget.scrollTop }}
+            <div ref={listRef} onPointerEnter={stableLayout.hold} onPointerLeave={stableLayout.release}
                 onFocusCapture={stableLayout.hold} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) stableLayout.release() }}
-                className="assistant-chat-scrollbar assistant-sidebar-scrollbar relative min-h-0 flex-1 overflow-y-scroll overflow-x-hidden pr-0.5 [overflow-anchor:none]">
-                <ul ref={listRef} role="list" className="flex flex-col gap-px">
+                className="flex min-h-0 flex-1 flex-col overflow-hidden" data-sidebar-groups>
+                <div ref={scrollRef} data-sidebar-scroll="chats"
+                    onScroll={(event) => { scrollPositionRef.current = event.currentTarget.scrollTop }}
+                    className="assistant-chat-scrollbar assistant-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-0.5 [overflow-anchor:none]">
+                <ul ref={chatsListRef} role="list" aria-label="Chats" className="flex flex-col gap-px">
                     {priorityItems.length > 0 ? (
                         <li className="list-none">
                             <div className="mb-1 flex w-full items-center gap-2 px-2.5 text-left">
@@ -638,9 +653,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                         </li>
                     ) : null}
                     {recentItems.map((item) => <AgentInboxCard key={`${item.session.id}:recent`} item={item} onSettle={(target) => setSettlement(target, 'settled')} props={rowProps} />)}
-                    {settledItems.length > 0 ? <li ref={settledHeaderRef} className="list-none"><button type="button" onClick={() => setSettledExpanded((expanded) => !expanded)} aria-expanded={settledExpanded} className="mb-1 mt-3 flex w-full items-center gap-2 px-2.5 text-left"><span className="text-xs font-medium text-sparkle-text-muted/50">{settledExpanded ? 'Settled' : `Settled (${settledItems.length})`}</span><span className="h-px flex-1 bg-[var(--surface-divider)]/60" /><ChevronDown size={12} className={cn('text-sparkle-text-muted/50 transition-transform', settledExpanded && 'rotate-180')} /></button></li> : null}
-                    {renderedSettled.map((item) => <AgentInboxSlimRow key={`${item.session.id}:settled`} item={item} action="unsettle" onAction={(target) => setSettlement(target, 'active')} props={rowProps} />)}
-                    {settledExpanded && hiddenSettledCount > 0 ? <li className="list-none"><button type="button" onClick={() => setSettledAdditionalCount((count) => count + SETTLED_PAGE_COUNT)} className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--surface-divider)] font-mono text-[11px] text-sparkle-text-muted transition-colors hover:border-solid hover:bg-[var(--surface-hover)] hover:text-sparkle-text">See {Math.min(hiddenSettledCount, SETTLED_PAGE_COUNT)} more</button></li> : null}
                 </ul>
                 {items.length === 0 ? (
                     <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-sparkle-text-muted/60">
@@ -648,6 +660,16 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                         {projectGroups.length === 0 ? <button type="button" onClick={() => void props.onCreateProjectChat()} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--surface-divider)] px-2.5 py-1 text-[11px] font-medium text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text"><FolderPlus size={12} />Add project</button> : null}
                     </div>
                 ) : null}
+                </div>
+                {settledItems.length > 0 ? <section aria-label="Settled chats" className="mt-3 flex min-h-0 shrink-0 flex-col" style={{ maxHeight: settledMaxHeight }}>
+                    <button ref={settledHeaderRef} type="button" onClick={() => setSettledExpanded((expanded) => !expanded)} aria-expanded={settledExpanded} aria-controls="assistant-settled-chats" className="flex h-7 w-full shrink-0 items-center gap-2 px-2.5 text-left"><span className="text-xs font-medium text-sparkle-text-muted/65">{settledExpanded ? 'Settled' : `Settled (${settledItems.length})`}</span><span className="h-px flex-1 bg-[var(--surface-divider)]/60" /><ChevronDown size={12} className={cn('text-sparkle-text-muted/60 transition-transform motion-reduce:transition-none', settledExpanded && 'rotate-180')} /></button>
+                    <div ref={settledScrollRef} data-sidebar-scroll="settled" onScroll={event => { settledScrollPositionRef.current = event.currentTarget.scrollTop }} className="assistant-chat-scrollbar assistant-sidebar-scrollbar min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 [overflow-anchor:none]">
+                        <ul id="assistant-settled-chats" aria-label="Settled" className="flex flex-col gap-px">
+                            {renderedSettled.map((item) => <AgentInboxSlimRow key={`${item.session.id}:settled`} item={item} action="unsettle" onAction={(target) => setSettlement(target, 'active')} props={rowProps} />)}
+                            {settledExpanded && hiddenSettledCount > 0 ? <li className="list-none"><button type="button" onClick={() => setSettledAdditionalCount((count) => count + SETTLED_PAGE_COUNT)} className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md text-[11px] text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text">See {Math.min(hiddenSettledCount, SETTLED_PAGE_COUNT)} more</button></li> : null}
+                        </ul>
+                    </div>
+                </section> : null}
             </div>
             {!props.onShowToast ? <AssistantTransientToast toast={localToast} onDismiss={dismissToast} /> : null}
         </>

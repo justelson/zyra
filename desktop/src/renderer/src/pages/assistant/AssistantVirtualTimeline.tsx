@@ -30,6 +30,12 @@ import {
     updateAssistantHistoryScrollVelocity
 } from './assistant-history-streaming-policy'
 
+import {
+    captureAssistantTimelineMediaAnchor,
+    measureAssistantTimelineMediaAnchorDelta,
+    type AssistantTimelineMediaAnchor
+} from './assistant-timeline-media-anchor'
+
 const keyExtractor = (row: TimelineDisplayRow) => row.id
 const getItemType = (row: TimelineDisplayRow) => row.kind
 const DEFAULT_DISCLOSURE_SETTLE_MS = 420
@@ -107,6 +113,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const initialHistoryBackfillReadyRef = useRef(false)
     const initialHistoryBackfillActiveRef = useRef(true)
     const initialHistoryBackfillPagesRef = useRef(0)
+    const mediaAnchorRef = useRef<AssistantTimelineMediaAnchor | null>(null)
     const previousScrollTopRef = useRef(0)
     const previousScrollSampleAtRef = useRef(0)
     const previousInputSampleAtRef = useRef(0)
@@ -199,6 +206,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         anchorRowId: string | null = null
     ) => {
         window.clearTimeout(disclosureTimerRef.current)
+        mediaAnchorRef.current = null
         disclosureAnchorRowIdRef.current = anchorRowId
         setDisclosureLayoutActive(true)
         disclosureTimerRef.current = window.setTimeout(() => {
@@ -225,8 +233,35 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
 
     const updateScrollMode = useCallback((nextMode: AssistantTimelineScrollMode) => {
         scrollModeRef.current = nextMode
+        if (nextMode === 'following-end') mediaAnchorRef.current = null
         setScrollMode((current) => current === nextMode ? current : nextMode)
     }, [])
+
+    const canAnchorMedia = useCallback(() => (
+        activeWindowKeyRef.current === props.windowKey
+        && settledWindowKeyRef.current === props.windowKey
+        && scrollModeRef.current === 'free-scrolling'
+        && !completionFollowActiveRef.current
+        && !disclosureTimerRef.current
+        && !props.selectionHydrating
+    ), [props.selectionHydrating, props.windowKey])
+
+    const compensateIntraRowMedia = useCallback(() => {
+        const element = props.scrollContainerRef?.current || scrollElement
+        const anchor = mediaAnchorRef.current
+        if (!element || !anchor || !canAnchorMedia()) {
+            mediaAnchorRef.current = null
+            return
+        }
+        const delta = measureAssistantTimelineMediaAnchorDelta(anchor, element, props.windowKey)
+        if (delta === null) {
+            mediaAnchorRef.current = null
+            return
+        }
+        // Row-origin movement belongs to LegendList MVCP. Only restore the
+        // visible character's changing offset INSIDE its existing row.
+        if (Math.abs(delta) > 0.01) element.scrollTop += delta
+    }, [canAnchorMedia, props.scrollContainerRef, props.windowKey, scrollElement])
 
     const followLatest = useCallback((animated = false) => {
         clearCompletionEndFollow()
@@ -844,6 +879,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             estimatedItemSize={90}
             initialScrollAtEnd
             onLoad={handleInitialLoad}
+            onItemSizeChanged={compensateIntraRowMedia}
             maintainVisibleContentPosition={maintainVisibleContentPosition}
             maintainScrollAtEnd={scrollMode === 'following-end' && !(startupSettled && stoppedPresentation) ? {
                 animated: startupSettled && textStreaming && !reducedMotion,
@@ -868,7 +904,11 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                     const resolvedMode = resolveAssistantTimelineScrollMode(element)
                     const previousScrollTop = previousScrollTopRef.current
                     const scrollDelta = element.scrollTop - previousScrollTop
+                    // MVCP/media compensation can increase scrollTop without
+                    // user motion. Reacquire follow only after real down intent.
                     const movingTowardEnd = scrollDelta > 0.5
+                        && lastDownwardIntentAtRef.current > lastUpwardIntentAtRef.current
+                        && now - lastDownwardIntentAtRef.current < 1500
                     const scrollbarDemand = resolveAssistantScrollbarHistoryDemand({
                         dragActive: scrollbarDragActiveRef.current,
                         dragDirection: scrollbarDragDirectionRef.current,
@@ -885,7 +925,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                         lastDownwardIntentAtRef.current = Number.NEGATIVE_INFINITY
                         lastUpwardIntentAtRef.current = now
                         requestOlderPage()
-                    } else if (scrollbarDemand.requestDirection === 'newer' && userNavigationAwayRef.current && props.hasNewer) {
+                    } else if (scrollbarDemand.requestDirection === 'newer' && userNavigationAwayRef.current) {
                         const elapsed = previousScrollSampleAtRef.current > 0 ? now - previousScrollSampleAtRef.current : 16
                         scrollVelocityRef.current = updateAssistantHistoryScrollVelocity(
                             scrollVelocityRef.current,
@@ -899,7 +939,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                     const followState = resolveAssistantTimelineModeAfterScroll({
                         userNavigatedAway: userNavigationAwayRef.current,
                         resolvedMode,
-                        movingTowardEnd,
+                        movingTowardEnd: movingTowardEnd || scrollbarDemand.requestDirection === 'newer',
                         disclosureLayoutActive
                     })
                     userNavigationAwayRef.current = followState.userNavigatedAway
@@ -907,6 +947,9 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                     previousScrollTopRef.current = element.scrollTop
                     previousScrollSampleAtRef.current = now
                 }
+                mediaAnchorRef.current = canAnchorMedia()
+                    ? captureAssistantTimelineMediaAnchor(element, props.windowKey)
+                    : null
                 props.onScrollContainer?.(element)
             }}
             style={{ visibility: coldHistoryPending ? 'hidden' : undefined }}

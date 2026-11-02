@@ -19,20 +19,41 @@ try {
     await writeFile(join(directory, 'visualization-frame.html'), visualizationFrameDocument())
     await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${policy}<style>
     html,body,#root{height:100%;margin:0}:root{--color-bg:#101318;--color-card:#181c22;--color-text:#eef1f6;--color-text-muted:#a8b0bd;--accent-primary:#568cff;--surface-divider:#343b46}
-    body{font:14px system-ui;background:var(--color-bg);color:var(--color-text)}.h-full{height:100%}.w-full{width:100%}.relative{position:relative}.absolute{position:absolute}.inset-0{inset:0}.pb-4{padding-bottom:16px}.my-3{margin:12px 0}.mb-2{margin-bottom:8px}.flex{display:flex}.items-center{align-items:center}iframe{display:block;width:100%;border:0}figure{margin:12px 0}p{margin:8px 0}header{height:26px}.min-w-0{min-width:0}.gap-1{gap:4px}.text-sparkle-text-muted{color:var(--color-text-muted)}
+    body{font:14px system-ui;background:var(--color-bg);color:var(--color-text)}.h-full{height:100%}.w-full{width:100%}.relative{position:relative}.absolute{position:absolute}.inset-0{inset:0}.pb-4{padding-bottom:16px}.my-3{margin:12px 0}.mb-2{margin-bottom:8px}.flex{display:flex}.items-center{align-items:center}iframe{display:block;width:100%;border:0}figure{margin:12px 0}p{margin:8px 0}header{height:26px}.markdown-image-frame,.markdown-image-open,.markdown-video-frame{display:block}.markdown-image-open{position:relative;width:fit-content;max-width:100%}.markdown-image-open-label,.markdown-image-loading{display:none}img{height:auto;max-width:100%}video{display:block;max-width:100%;max-height:560px}.min-w-0{min-width:0}.gap-1{gap:4px}.text-sparkle-text-muted{color:var(--color-text-muted)}
     </style></head><body><div id="root"></div><script src="./fixture.js"></script></body></html>`)
     const metadata = JSON.parse(await readFile(join(desktop, 'node_modules/@legendapp/list/package.json'), 'utf8'))
     await writeFile(join(directory, 'run.cjs'), `
         const {app,BrowserWindow}=require('electron');
         const fs=require('node:fs');
         app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});
-        const timer=setTimeout(()=>{console.error('Visualization scroll fixture timed out');app.exit(1)},35000);
+        const timer=setTimeout(()=>{console.error('Visualization scroll fixture timed out');app.exit(1)},60000);
         app.whenReady().then(async()=>{
             const window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
             window.webContents.on('console-message',event=>{if(event.message.startsWith('[visual-scroll]'))console.log(event.message)});
             await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
-            const result=await window.webContents.executeJavaScript('window.visualizationScrollCheck');
-            result.environment={electron:process.versions.electron,chromium:process.versions.chrome,platform:process.platform,legendList:${JSON.stringify(metadata.version)},productionReact:true,hiddenWindow:true,offscreen:true,os:${JSON.stringify(os.release())},cpu:${JSON.stringify(os.cpus()[0]?.model)},logicalCpus:${os.cpus().length},totalMemoryGiB:${Math.round(os.totalmem() / 2 ** 30)}};
+            // CDP dispatch reaches an offscreen Chromium surface without OS focus.
+            // These are trusted compositor inputs, not synthetic DOM wheel events.
+            window.webContents.debugger.attach('1.3');
+            let draining=false;
+            const inputTimer=setInterval(async()=>{
+                if(draining||window.isDestroyed())return;
+                draining=true;
+                try{
+                    const inputs=await window.webContents.executeJavaScript('(window.visualizationScrollInputs||[]).splice(0)');
+                    for(const input of inputs){
+                        if(input.type==='resize')window.setSize(input.width,input.height);
+                        else {
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.y});
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseWheel',x:input.x,y:input.y,deltaX:0,deltaY:input.deltaY});
+                        }
+                        await new Promise(resolve=>setTimeout(resolve,100));
+                        await window.webContents.executeJavaScript('window.visualizationScrollInputDone('+input.id+')');
+                    }
+                }catch(error){console.error(error)}finally{draining=false}
+            },25);
+            let result;
+            try{result=await window.webContents.executeJavaScript('window.visualizationScrollCheck')}finally{clearInterval(inputTimer);window.webContents.debugger.detach()};
+            result.environment={electron:process.versions.electron,chromium:process.versions.chrome,platform:process.platform,legendList:${JSON.stringify(metadata.version)},productionReact:true,hiddenWindow:true,offscreen:true,input:'trusted CDP Input.dispatchMouseEvent',os:${JSON.stringify(os.release())},cpu:${JSON.stringify(os.cpus()[0]?.model)},logicalCpus:${os.cpus().length},totalMemoryGiB:${Math.round(os.totalmem() / 2 ** 30)}};
             fs.writeFileSync(${JSON.stringify(join(directory, 'report.json'))},JSON.stringify(result,null,2));
             console.log(JSON.stringify(result,null,2));
             clearTimeout(timer);window.destroy();app.quit();
@@ -51,7 +72,8 @@ try {
         if (result.supportsAtomicMove && (result.updates.frameReloads > 0 || result.samples.some(sample => sample.frameReloads > 0))) throw new Error('Unchanged previews reloaded during chat updates or scrolling')
         if (result.cache.entries > result.cache.maxEntries || result.cache.bytes > result.cache.maxBytes) throw new Error('Visualization cache exceeded its memory limit')
         if (result.samples[2].sanitizations > 0) throw new Error('Warm scrolling must reuse sanitized documents')
-        console.log('PASS: no unchanged-frame reloads, bounded cache and no repeat sanitization on warm scrolling')
+        if (!result.mixedMedia?.trustedWheels || !result.mixedMedia.iframeWheel || !result.mixedMedia.explicitLatest || result.mixedMedia.stability.some(check => check.driftPx > 2)) throw new Error('Mixed-media reading/follow checks did not pass')
+        console.log('PASS: unchanged-frame reuse, bounded cache, trusted wheel input and stable mixed-media prose within 2px')
     }
     if (report) { await mkdir(dirname(resolve(report)), { recursive: true }); await writeFile(resolve(report), await readFile(join(directory, 'report.json'))) }
 } finally { await rm(directory, { recursive: true, force: true }) }

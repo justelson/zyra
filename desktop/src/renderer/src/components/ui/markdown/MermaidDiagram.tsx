@@ -1,5 +1,5 @@
 import { defaultThemeTokens } from '@shared/preferences/default-theme-tokens'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import mermaid from 'mermaid'
 import './diagram-canvas.css'
 import { useMarkdownVisualTheme } from './markdownTheme'
@@ -78,7 +78,7 @@ function hashString(input: string): string {
     return Math.abs(hash).toString(36)
 }
 
-export const MermaidDiagram = memo(function MermaidDiagram({ chart, fill = false, hideExpand = false }: { chart: string; fill?: boolean; hideExpand?: boolean }) {
+export const MermaidDiagram = memo(function MermaidDiagram({ chart, fill = false, hideExpand = false, natural = false }: { chart: string; fill?: boolean; hideExpand?: boolean; natural?: boolean }) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const visualTheme = useMarkdownVisualTheme()
     const themeRevision = useThemeRevision()
@@ -140,6 +140,18 @@ export const MermaidDiagram = memo(function MermaidDiagram({ chart, fill = false
         }
     }, [activeTheme.variables, cacheKey, chart])
 
+    useLayoutEffect(() => {
+        if (!natural) return
+        const diagram = containerRef.current?.querySelector('svg')
+        const bounds = diagram?.viewBox.baseVal
+        if (!diagram || !bounds?.width || !bounds.height) return
+        // Keep intrinsic geometry readable; wide diagrams scroll horizontally.
+        diagram.style.width = `${bounds.width}px`
+        diagram.style.height = `${bounds.height}px`
+        diagram.style.maxWidth = 'none'
+        diagram.style.flexShrink = '0'
+    }, [svg, natural])
+
     if (error) {
         return (
             <div ref={containerRef} className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
@@ -155,7 +167,7 @@ export const MermaidDiagram = memo(function MermaidDiagram({ chart, fill = false
     return (
         <><div className={fill ? 'mermaid-canvas mermaid-reveal group relative flex min-h-0 flex-1 flex-col' : 'mermaid-canvas mermaid-reveal group relative rounded-lg border border-[var(--surface-divider)] bg-sparkle-card'}>
             {!hideExpand && <button type="button" aria-label="Expand diagram" title="Expand diagram" onClick={() => setExpanded(true)} className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-md border border-[var(--surface-divider)] bg-sparkle-card text-sparkle-text-muted hover:text-sparkle-text"><Expand size={15}/></button>}
-            <div ref={containerRef} className={fill ? 'mermaid-diagram flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 [&>svg]:max-h-full [&>svg]:max-w-full' : 'mermaid-diagram flex items-center justify-center overflow-x-auto p-4'} dangerouslySetInnerHTML={{ __html: svg }}/>
+            <div ref={containerRef} className={fill ? 'mermaid-diagram flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 [&>svg]:max-h-full [&>svg]:max-w-full' : natural ? 'mermaid-diagram flex items-start justify-start overflow-x-auto p-4' : 'mermaid-diagram flex items-center justify-center overflow-x-auto p-4'} dangerouslySetInnerHTML={{ __html: svg }}/>
         </div>{expanded ? <MermaidExpandedView svg={svg} onClose={() => setExpanded(false)}/> : null}</>
     )
-}, (previous, next) => previous.chart === next.chart && previous.fill === next.fill && previous.hideExpand === next.hideExpand)
+}, (previous, next) => previous.chart === next.chart && previous.fill === next.fill && previous.hideExpand === next.hideExpand && previous.natural === next.natural)

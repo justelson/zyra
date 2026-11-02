@@ -133,10 +133,10 @@ const assertGeometry = (label: string) => {
         classes: visual()!.className }
     evidence.motion = motion
     console.log('toast-native real motion media/CSS', JSON.stringify(motion))
+    check(motion.ownerReduced === reduced && motion.childReduced === reduced, 'requested real motion preference matches in both owner and resized native child')
     check(cold.some(sample => sample.opacity === 0 && sample.dy >= 15), 'cold mount paints a hidden, translated entrance frame')
     if (reduced) {
         check(cold.every(sample => sample.opacity === 0 || sample.opacity === 1), 'reduced motion has no intermediate opacity frames')
-        check(motion.ownerReduced && motion.childReduced, 'real reduced-motion media matches in both owner and resized native child')
         // Tailwind transition-none sets transition-property:none; duration-200
         // can remain 0.2s without animating any property.
         check(motion.transitionProperty === 'none', 'reduced motion disables every real CSS transition property')

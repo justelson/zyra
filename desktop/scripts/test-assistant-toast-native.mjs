@@ -22,6 +22,7 @@ const evidence = process.argv.includes('--evidence') ? resolve(desktop, '../docs
 // default standalone regression never depends on ignored evidence files.
 const before = process.argv.includes('--before') ? resolve(desktop, '../docs.local/assistant-toast-native/AssistantToast.before.tsx') : null
 const evidenceName = reduced => before ? 'before' : reduced ? 'reduced-motion' : 'native-toast'
+const hostReducedMotion = process.argv.includes('--host-reduced-motion')
 try {
     if (evidence) await mkdir(evidence, { recursive: true })
     stage('bundling real toast/portal fixture')
@@ -46,11 +47,18 @@ try {
         const harness = join(directory, `run-${reduced}.cjs`)
         await writeFile(harness, `const {app,BrowserWindow}=require('electron');const fs=require('node:fs');app.disableHardwareAcceleration();console.log('toast-native Electron process loaded; awaiting app ready');
             app.setPath('userData',${JSON.stringify(join(directory, `profile-${reduced}`))});
-            ${reduced ? "app.commandLine.appendSwitch('force-prefers-reduced-motion');" : ''}
+            ${reduced || hostReducedMotion ? "app.commandLine.appendSwitch('force-prefers-reduced-motion');" : ''}
             let window,pumping=true;const timeout=setTimeout(()=>{console.error('Native toast check timed out');app.exit(1)},30000);
             app.whenReady().then(async()=>{console.log('toast-native Electron ready; creating hidden offscreen fixture');window=new BrowserWindow({show:false,width:1000,height:800,useContentSize:true,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
                 window.webContents.on('console-message',(_event,level,message)=>{if(level>=2)console.error(message);else if(message.startsWith('toast-native'))console.log(message)});
                 window.webContents.on('paint',()=>{});window.webContents.setFrameRate(60);window.webContents.startPainting();
+                // Start the renderer before sending CDP commands, then set real
+                // media before loading the owner and its same-page child iframe.
+                await window.loadURL('about:blank');
+                console.log('toast-native renderer ready; setting real motion media');
+                window.webContents.debugger.attach('1.3');
+                await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:${JSON.stringify(reduced ? 'reduce' : 'no-preference')}}]});
+                console.log('toast-native real motion media configured');
                 await window.loadFile(${JSON.stringify(html)},{query:{reduced:${JSON.stringify(String(reduced))}}});
                 console.log('toast-native HTML loaded; awaiting renderer checks');
                 const pump=(async()=>{while(pumping){const request=await window.webContents.executeJavaScript('window.toastNativeRequest && !window.toastNativeRequest.done ? window.toastNativeRequest : null');

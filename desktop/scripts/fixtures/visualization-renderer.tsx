@@ -171,6 +171,44 @@ const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as co
     return document.querySelector('iframe')!.getBoundingClientRect().height
 }
 
+;(window as any).visualizationViewportHeightCase = async () => {
+    const host = document.querySelector<HTMLElement>('#root')!
+    host.style.width = '320px'
+    const checks: { label: string; height: number }[] = []
+    const stable = async (label: string, expected: number) => {
+        await until(() => Math.abs(document.querySelector('iframe')!.getBoundingClientRect().height - expected) <= 1).catch(() => { throw new Error(`${label}: expected ${expected}px, got ${document.querySelector('iframe')!.getBoundingClientRect().height}px`) })
+        const heights: number[] = []
+        for (let i = 0; i < 10; i++) { await wait(40); heights.push(document.querySelector('iframe')!.getBoundingClientRect().height) }
+        assert(heights.every(height => Math.abs(height - expected) <= 1), `${label} must settle without frame-height feedback: ${heights}`)
+        checks.push({ label, height: heights.at(-1)! })
+    }
+    for (const test of [
+        { label: 'inline vh', html: '<div style="height:100vh">Chart</div>', height: 181 },
+        { label: 'custom property and calc', html: '<style>.chart{--basis:100dvh;height:calc(var(--basis) + 12px)}.literal:before{content:"100vh"}@keyframes sample{from{height:50vh}to{height:100vh}}</style><div class="chart"><span class="literal"></span>Chart</div>', height: 193 },
+        { label: 'vmin', html: '<div style="height:100vmin">Chart</div>', height: 181, narrow: 141 },
+        { label: 'vmax', html: '<div style="height:100vmax">Chart</div>', height: 341, narrow: 181 },
+        { label: 'height media oscillation', html: '<style>.chart{height:240px}@media(min-height:200px){.chart{height:80px}}</style><div class="chart">Chart</div>', height: 261 },
+        { label: 'orientation media oscillation', html: '<style>.chart{height:40px}@media(orientation:landscape){.chart{height:500px}}</style><div class="chart">Chart</div>', height: 521, narrow: 61 },
+        { label: 'aspect-ratio media oscillation', html: '<style>.chart{height:80px}@media(min-aspect-ratio:3/2){.chart{height:500px}}</style><div class="chart">Chart</div>', height: 521, narrow: 101 },
+        { label: 'width media breakpoint', html: '<style>.chart{height:80px}@media(min-width:300px){.chart{height:180px}}</style><div class="chart">Chart</div>', height: 201, narrow: 101 },
+        { label: 'mixed native motion preference', html: '<style>.chart{height:40px}@media(min-height:100px) and (prefers-reduced-motion:reduce){.chart{height:180px}}</style><div class="chart">Chart</div>', height: matchMedia('(prefers-reduced-motion:reduce)').matches ? 201 : 61 },
+    ]) {
+        host.style.width = '320px'
+        render(`<visualization title="${test.label}" height="160">\n${test.html}<p>Caption</p>\n</visualization>`, false)
+        await until(() => document.querySelector('iframe'))
+        await waitForFrame(document.querySelector('iframe')!)
+        await stable(test.label, test.height)
+        if (test.narrow !== undefined) {
+            const frame = document.querySelector('iframe')!
+            host.style.width = '120px'
+            await stable(`${test.label} narrow`, test.narrow)
+            assert(document.querySelector('iframe') === frame, 'width changes retain the iframe instead of remounting it')
+        }
+    }
+    host.style.width = '320px'
+    return checks
+}
+
 const heatRows = [
     ['Kitchen', [15, 40, 85, 30, 65, 95, 20]],
     ['Lab', [70, 25, 45, 95, 35, 60, 80]],

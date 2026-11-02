@@ -439,9 +439,13 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             'data-sidebar-dragging': dragPreview?.id === item.session.id || undefined,
             'data-sidebar-drop': dragPreview?.target === item.session.id && dragPreview.id !== item.session.id ? dragPreview.placement : undefined,
             onDragOver: event => {
-                if (item.settled || !dragPreview || dragPreview.id === item.session.id || (item.pinned ? 'pinned' : 'chats') !== dragPreview.group) return
+                if (item.settled || !dragPreview || (item.pinned ? 'pinned' : 'chats') !== dragPreview.group) return
+                if (dragPreview.id === item.session.id && dragPreview.target === item.session.id) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
+                // The preview can move the dragged row under a stationary pointer.
+                // Keep that drop zone without replacing its saved destination.
+                if (dragPreview.id === item.session.id) return
                 const rect = event.currentTarget.getBoundingClientRect()
                 const placement = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
                 setDragPreview(current => current?.target === item.session.id && current.placement === placement ? current : { ...dragPreview, target: item.session.id, placement })
@@ -449,10 +453,15 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             onDrop: event => {
                 const draggedId = event.dataTransfer.getData('application/x-zyra-chat-order')
                 const dragged = allItems.find(entry => entry.session.id === draggedId)
-                if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned || draggedId === item.session.id) return
+                if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned) return
+                const group = item.pinned ? 'pinned' : 'chats'
+                const preview = dragPreview?.id === draggedId && dragPreview.group === group ? dragPreview : null
+                const targetId = draggedId === item.session.id ? preview?.target : item.session.id
+                const target = allItems.find(entry => entry.session.id === targetId)
+                if (!target || target.session.id === draggedId || target.settled || target.pinned !== dragged.pinned) return
                 event.preventDefault()
                 const rect = event.currentTarget.getBoundingClientRect()
-                moveChat(draggedId, item.session.id, item.pinned ? 'pinned' : 'chats', dragPreview?.target === item.session.id ? dragPreview.placement : event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
+                moveChat(draggedId, target.session.id, group, preview?.target === target.session.id ? preview.placement : event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
                 setDragPreview(null)
             }
         })

@@ -50,7 +50,7 @@ export const VisualizationPreview = memo(function VisualizationPreview({ block, 
         observer.observe(owner.body, { attributes: true, attributeFilter: ['class', 'style'] })
         return () => { view.removeEventListener(ZYRA_THEME_CHANGED_EVENT, update); view.removeEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, update); observer.disconnect() }
     }, [])
-    const source = useMemo(() => mounted && block.state === 'complete' ? buildVisualizationDocument(block.html, block.title, theme, { inline: true, fitContent: !fill }) : '', [mounted, block.html, block.title, block.state, theme, fill])
+    const source = useMemo(() => mounted && block.state === 'complete' ? buildVisualizationDocument(block.html, block.title, theme, { inline: true, fitContent: !fill, viewportHeight: block.height }) : '', [mounted, block.html, block.title, block.state, block.height, theme, fill])
     const initializeFrame = () => frame.current?.contentWindow?.postMessage({ type: 'zyra:visualization-init', channel, document: source, fitContent: !fill }, '*')
     useEffect(() => {
         const view = root.current?.ownerDocument.defaultView

@@ -133,29 +133,44 @@ async function checkExplicitOrderControls() {
     check(menuItem.getBoundingClientRect().height <= 29, 'chat menu rows are compact')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await waitForCheck(() => !document.querySelector('[role="menu"]'), 'chat options dismiss cleanly')
-    const transfer = new DataTransfer()
-    const source = row(dragged).querySelector<HTMLElement>('[draggable="true"]')!
-    const destination = row(target).querySelector<HTMLElement>('[draggable="true"]')!
-    check(source && destination, 'only explicit movable chat rows expose native drag controls')
-    const move = async () => {
+    const move = async (draggedId = dragged, targetId = target, placement: 'before' | 'after' = 'before') => {
+        await waitForCheck(() => !document.getAnimations().some(animation => animation.playState === 'running' && (animation.effect as KeyframeEffect)?.target?.matches('[data-agent-inbox-layout-id]')), 'the previous reorder settles before a new drag gesture')
+        const transfer = new DataTransfer()
+        const source = row(draggedId).querySelector<HTMLElement>('[draggable="true"]')!
+        const destination = row(targetId).querySelector<HTMLElement>('[draggable="true"]')!
+        check(source && destination, 'only explicit movable chat rows expose native drag controls')
+        const preview = rowIds(false).split(',').filter(id => id !== draggedId)
+        preview.splice(preview.indexOf(targetId) + (placement === 'after' ? 1 : 0), 0, draggedId)
         const savedOrder = localStorage.getItem(key)
-        const buttonBefore = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.getBoundingClientRect()
+        const buttonBefore = row(targetId).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.getBoundingClientRect()
         source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }))
         await sleep(30)
-        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: destination.getBoundingClientRect().top + 1 }))
-        await waitForCheck(() => rowIds(false).startsWith(dragged + ','), 'drag has a live reordered preview before drop')
+        const destinationBounds = destination.getBoundingClientRect()
+        const dropPoint = { clientX: destinationBounds.left + 20, clientY: placement === 'after' ? destinationBounds.bottom - 8 : destinationBounds.top + 8 }
+        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint }))
+        await waitForCheck(() => rowIds(false) === preview.join(','), 'drag has a live reordered preview before drop')
         check(localStorage.getItem(key) === savedOrder, 'preview does not persist an unfinished drag')
-        check(source.dataset.sidebarDragging === 'true' && destination.dataset.sidebarDrop === 'before', 'preview marks its dragged row and drop edge')
-        check(!row(target).getAttribute('title'), 'chat row has no oversized inherited native tooltip')
-        const buttonAfter = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+        check(source.dataset.sidebarDragging === 'true' && destination.dataset.sidebarDrop === placement, 'preview marks its dragged row and drop edge')
+        check(!row(targetId).getAttribute('title'), 'chat row has no oversized inherited native tooltip')
+        const buttonAfter = row(targetId).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         check(!buttonAfter.hasAttribute('title') && Math.abs(buttonAfter.getBoundingClientRect().x - buttonBefore.x) < 1, 'chat menu has no tooltip banner and its horizontal target never shifts')
-        destination.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: destination.getBoundingClientRect().top + 1 }))
+        await sleep(350)
+        const actualDropTarget = document.elementFromPoint(dropPoint.clientX, dropPoint.clientY)?.closest<HTMLElement>('[draggable="true"]')
+        check(actualDropTarget === source, `the live preview moves the dragged row beneath the stationary pointer: ${JSON.stringify({ draggedId, targetId, placement, dropPoint, hit: actualDropTarget?.closest<HTMLElement>('[data-agent-inbox-layout-id]')?.dataset.agentInboxLayoutId, source: source.getBoundingClientRect(), destination: destination.getBoundingClientRect() })}`)
+        const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint })
+        actualDropTarget.dispatchEvent(over)
+        check(over.defaultPrevented, 'the previewed row remains an accepted drop zone beneath the pointer')
+        actualDropTarget.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint }))
     }
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
     await move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
     const undo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
     check(undo?.closest('[data-assistant-toast]'), 'explicit movement offers floating toast Undo')
     undo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'Undo restores exact previous order')
+    await move(original[0], original[1], 'after')
+    await waitForCheck(() => rowIds(false) === [original[1], original[0], ...original.slice(2)].join(','), 'dropping adjacent downward beneath the stationary pointer persists its preview')
+    Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!.click()
+    await waitForCheck(() => rowIds(false) === original.join(','), 'downward drag Undo restores exact order')
     await move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
     check(JSON.parse(localStorage.getItem(key) || '{}').chats[0] === dragged, 'drag order is saved before remount')
     flushSync(() => root.render(<div />)); render()

@@ -71,7 +71,7 @@ function sanitizeVisualizationHtml(html: string): string {
 }
 
 /** Defense in depth: an allowlist, restricted URLs, a deny-by-default CSP, and iframe sandbox. */
-export function buildVisualizationDocument(html: string, title: string, theme: VisualizationTheme, { inline = false, fitContent = false }: { inline?: boolean; fitContent?: boolean } = {}): string {
+export function buildVisualizationDocument(html: string, title: string, theme: VisualizationTheme, { inline = false, fitContent = false, viewportHeight = 320 }: { inline?: boolean; fitContent?: boolean; viewportHeight?: number } = {}): string {
     const sanitized = sanitizeVisualizationHtml(html)
     // Match the inline iframe's normal color scheme to avoid Chromium's opaque canvas
     // on theme changes. Theme colors still come from the variables below.
@@ -79,5 +79,6 @@ export function buildVisualizationDocument(html: string, title: string, theme: V
     const trustedFont = theme.fontResource?.css ?? ''
     const policy = trustedFont ? VISUALIZATION_CSP.replace("font-src 'none'", 'font-src data:') : VISUALIZATION_CSP
     const presentation = `html{scrollbar-gutter:${fitContent ? 'auto' : 'stable'};overflow-x:auto;overflow-y:${fitContent ? 'hidden' : 'auto'}}.zyra-viz-content{display:flow-root}.zyra-viz-content>:last-child{margin-bottom:0}figcaption,small{display:block;margin-top:8px;color:var(--viz-muted);font-size:12px;line-height:1.5}details{margin-top:12px;border:1px solid var(--viz-border);border-radius:6px}summary{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;cursor:pointer;list-style:none;color:var(--viz-text);font-size:12px}summary::-webkit-details-marker{display:none}summary:before{content:'›';font-size:18px;line-height:1;transition:transform 220ms}summary[aria-expanded=true]:before,details[open]>summary:not([aria-expanded=false]):before{transform:rotate(90deg)}summary:hover{background:color-mix(in srgb,var(--viz-text) 4%,transparent)}.zyra-disclosure-body{padding:0 12px 8px;display:flow-root}.zyra-chart-tooltip{position:fixed;z-index:10;pointer-events:none;max-width:260px;padding:7px 10px;border:1px solid var(--viz-border);border-radius:6px;background:var(--viz-bg);color:var(--viz-text);font-size:12px;box-shadow:0 4px 16px #0003}.zyra-chart-tooltip[hidden]{display:none}`
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${style}${presentation}${trustedFont}</style></head><body><div class="zyra-viz-content">${sanitized}</div></body></html>`
+    const viewport = fitContent ? `<meta name="zyra-viz-viewport-height" content="${Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : 320}">` : ''
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1">${viewport}<title>${escapeHtml(title)}</title><style>${style}${presentation}${trustedFont}</style></head><body><div class="zyra-viz-content">${sanitized}</div></body></html>`
 }

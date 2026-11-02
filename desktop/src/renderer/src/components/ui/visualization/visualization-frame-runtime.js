@@ -1,3 +1,5 @@
+import { installStableVisualizationViewport } from './visualization-viewport-runtime.js'
+
 // App-owned presentation only. Runs in an opaque sandbox with no network access.
 (() => {
     if (window === window.top) return
@@ -15,19 +17,23 @@
     for (const style of parsed.head.querySelectorAll('style')) document.head.append(document.importNode(style, true))
     document.body.replaceChildren(document.importNode(content, true))
     const mountedContent = document.body.firstElementChild
+    const refreshViewport = event.data.fitContent === true
+        ? installStableVisualizationViewport(mountedContent, Number(parsed.head.querySelector('meta[name="zyra-viz-viewport-height"]')?.content))
+        : () => {}
     let pending = false
     const report = () => {
         if (pending) return
         pending = true
         requestAnimationFrame(() => {
             pending = false
+            refreshViewport()
             const contentHeight = Math.max(mountedContent.getBoundingClientRect().height, mountedContent.scrollHeight)
             const horizontalGutter = Math.max(0, innerHeight - document.documentElement.clientHeight)
             parent.postMessage({ type: 'zyra:visualization-height', channel, height: Math.ceil(contentHeight + horizontalGutter) }, '*')
         })
     }
     new ResizeObserver(report).observe(mountedContent)
-    addEventListener('resize', report)
+    addEventListener('resize', () => { refreshViewport(); report() })
     if (event.data.fitContent === true) {
         addEventListener('wheel', wheel => {
             if (wheel.ctrlKey || wheel.shiftKey || !wheel.deltaY || Math.abs(wheel.deltaX) >= Math.abs(wheel.deltaY)) return

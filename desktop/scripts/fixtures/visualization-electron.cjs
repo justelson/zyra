@@ -5,7 +5,8 @@ const { writeFile } = require('node:fs/promises')
 const directory = process.env.ZYRA_VISUALIZATION_FIXTURE
 app.setPath('userData', path.join(directory, 'profile'))
 let window
-const timer = setTimeout(() => { console.error('Visualization fixture timed out'); app.exit(1) }, 25000)
+// Includes repeated viewport-unit/media-query settling and responsive cases.
+const timer = setTimeout(() => { console.error('Visualization fixture timed out'); app.exit(1) }, 60000)
 app.whenReady().then(async () => {
     window = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } })
     const diagnostics = []
@@ -161,6 +162,8 @@ app.whenReady().then(async () => {
     const wheelResult = await window.webContents.executeJavaScript('({scrollY,scrollHeight:document.documentElement.scrollHeight,height:innerHeight,messages:fixtureWheelMessages})')
     assert(wheelResult.scrollY > 0, 'a real vertical wheel over the sandbox moves the parent chat/page: ' + JSON.stringify({point:wheelPoint,parent:wheelResult,child:await naturalFrame.executeJavaScript('fixtureWheelEvents')}))
     console.log('PASS: full natural height, horizontal-only overflow, real wheel routing over opaque iframe')
+    await window.webContents.executeJavaScript('window.visualizationViewportHeightCase()')
+    console.log('PASS: viewport-relative chart height settles without iframe resize feedback')
     for (const font of ['bricolage', 'hanken', 'managed:visualization-fixture']) {
         await window.webContents.executeJavaScript(`window.visualizationFontCase('${font}')`)
         const parentDocument = (await cdp('DOM.getDocument')).root
@@ -209,12 +212,12 @@ app.whenReady().then(async () => {
     assert(animating > 0, 'disclosure expansion animates')
     await new Promise(resolve => setTimeout(resolve, 350))
     let expanded
-    for (let attempt = 0; attempt < 50; attempt++) {
-        expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,scrollHeight:document.documentElement.scrollHeight,viewport:innerHeight,contentHeight:document.querySelector('.zyra-viz-content').getBoundingClientRect().height,overflow:document.documentElement.scrollHeight>innerHeight+1})`)
-        if (expanded.open && !expanded.overflow) break
-        await new Promise(resolve => setTimeout(resolve, 20))
+    for (let attempt = 0; attempt < 120; attempt++) {
+        expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,scrollHeight:document.documentElement.scrollHeight,viewport:innerHeight,contentHeight:document.querySelector('.zyra-viz-content').getBoundingClientRect().height,overflow:document.documentElement.scrollHeight>innerHeight+1,animating:document.getAnimations().some(animation=>animation.playState==='running'||animation.pending)})`)
+        if (expanded.open && !expanded.overflow && !expanded.animating) break
+        await new Promise(resolve => setTimeout(resolve, 25))
     }
-    assert(expanded.open && !expanded.overflow, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
+    assert(expanded.open && !expanded.overflow && !expanded.animating, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
     assert.equal(expanded.width, beforeExpansion.width, 'scrollbar appearance does not move content sideways')
     assert(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') > 320, 'opening a long table grows the chat visualization beyond its initial height')
     await interactive.executeJavaScript(`document.querySelector('summary').click()`)

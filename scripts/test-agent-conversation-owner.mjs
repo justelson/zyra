@@ -13,7 +13,7 @@ const owner = {connectedResult:{project:'/fixture',cwd:'/fixture'}, detach(clien
 const agent = {providerSessionId:'child-session',cwd:'/fixture/child'};
 const view = {sessionKey:'child-session',async connect(input){calls.push(['connect-child',input]);return {threadId:'child-session'};},attach(client){calls.push(['attach-child',client.clientId]);}};
 const client = {surface:'desktop',clientId:'client-1'};
-const server = {
+const server = Object.assign(Object.create(ZyraAgentServer.prototype), {
   sessions:new Map(),
   catalog:{registerProject:p=>p,resolveAlias:id=>id,async find(id){return id==='child-session'?child:id==='parent-session'?parent:null;},recordAttachment(input){calls.push(['record',input]);}},
   findAgentOwner(){return this.sessions.has('parent-session')?{owner,agent}:null;},
@@ -26,7 +26,14 @@ const server = {
     }
     return ZyraAgentServer.prototype.attachSession.call(this,incoming,params);
   }
-};
+});
+server.updateMaintenance = {};
+await assert.rejects(server.attachSession(client,{project:'/fixture',session:'child-session'}), {code:'AGENT_SERVER_UPDATE_PENDING'});
+server.updateMaintenance = null;
+server.retiring = true;
+await assert.rejects(server.attachSession(client,{project:'/fixture',session:'child-session'}), {code:'AGENT_SERVER_UPDATE_PENDING'});
+server.retiring = false;
+assert.deepEqual(calls,[], 'Real admission rejects maintenance and retirement before owner restoration');
 const result=await server.attachSession(client,{project:'/fixture',session:'child-session',localThreadId:'local-child',permissionMode:'read-only'});
 assert.equal(result.canonicalChatId,'child-session');
 assert.deepEqual(calls.map(call=>call[0]),['restore-owner','detach-owner','connect-child','attach-child','record']);

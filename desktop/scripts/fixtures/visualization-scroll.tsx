@@ -1,9 +1,11 @@
-import { createRef } from 'react'
+import { createRef, useState, type ComponentType } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import type { LegendListRef } from '@legendapp/list/react'
 import DOMPurify from 'dompurify'
+import { createMarkdownComponents } from '../../src/renderer/src/components/ui/markdown/components'
 import { AssistantVirtualTimeline } from '../../src/renderer/src/pages/assistant/AssistantVirtualTimeline'
+import { captureAssistantTimelineMediaAnchor } from '../../src/renderer/src/pages/assistant/assistant-timeline-media-anchor'
 import { VisualizationMessage } from '../../src/renderer/src/components/ui/visualization/VisualizationMessage'
 import { getVisualizationDocumentCacheStats } from '../../src/renderer/src/components/ui/visualization/visualization-document'
 import type { TimelineDisplayRow } from '../../src/renderer/src/pages/assistant/assistant-timeline-helpers'
@@ -67,7 +69,37 @@ const rows: TimelineDisplayRow[] = Array.from({ length: 20 }, (_, i) => ({
 }))
 const marker: TimelineDisplayRow = { id: 'new-prompt', kind: 'message', createdAt: date, message: { id: 'new-prompt', role: 'user', text: 'A new prompt', streaming: false, createdAt: date, updatedAt: date } }
 const markdown = (text: string) => text.trim() ? <p>{text}</p> : null
-const renderRow = (row: TimelineDisplayRow) => row.kind === 'message' ? <VisualizationMessage content={row.message.text} streaming={false} renderMarkdown={markdown} /> : null
+const mediaComponents = createMarkdownComponents(undefined, { mediaMode: 'images-and-videos', plainCodeBlocks: true })
+const RealImage = mediaComponents.img as ComponentType<any>
+const RealLink = mediaComponents.a as ComponentType<any>
+const releasedMedia = new Set<string>()
+const mediaReleases = new Map<string, () => void>()
+const svgImage = (width: number, height: number) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#568cff"/></svg>`)}`
+let shortVideo = ''
+let tallVideo = ''
+function DeferredMedia({ id, kind = 'image' }: { id: string; kind?: 'image' | 'video' }) {
+    const [released, setReleased] = useState(releasedMedia.has(id))
+    mediaReleases.set(id, () => { releasedMedia.add(id); setReleased(true) })
+    return kind === 'image'
+        ? <RealImage src={released ? svgImage(560, id === 'previous' ? 680 : 540) : svgImage(16, 16)} alt={id} />
+        : <RealLink href={`${released ? tallVideo : shortVideo}#clip.webm`}>{id}</RealLink>
+}
+const mixedRows: TimelineDisplayRow[] = Array.from({ length: 12 }, (_, i) => ({
+    id: `mixed-${i}`, kind: 'message', createdAt: date,
+    message: { id: `mixed-${i}`, role: 'assistant', text: `Mixed media ${i}`, streaming: false, createdAt: date, updatedAt: date }
+}))
+const renderRow = (row: TimelineDisplayRow) => {
+    if (row.kind !== 'message') return null
+    if (!row.id.startsWith('mixed-')) return <VisualizationMessage content={row.message.text} streaming={false} renderMarkdown={markdown} />
+    if (row.id === 'mixed-0') return <><p>Previous row deferred image.</p><DeferredMedia id="previous" /></>
+    return <>
+        <DeferredMedia id={`same-${row.id}`} />
+        <DeferredMedia id={`video-${row.id}`} kind="video" />
+        {Array.from({ length: 36 }, (_, i) => <p key={i} data-reading-probe={`${row.id}-${i}`}>Visible prose {i}. This text must remain in place while media above it finishes loading.</p>)}
+        <VisualizationMessage content={chart(Number(row.id.slice(6)))} streaming={false} renderMarkdown={markdown} />
+        {row.id === 'mixed-11' ? <><button data-space-control onClick={() => { (window as any).spaceControlClicks = ((window as any).spaceControlClicks || 0) + 1 }}>Inspect details</button><textarea data-space-editor rows={1} defaultValue="" /></> : null}
+    </>
+}
 const render = (data: TimelineDisplayRow[]) => flushSync(() => root.render(<AssistantVirtualTimeline
     rows={data} windowKey="visual-scroll" listRef={listRef} scrollContainerRef={scrollRef}
     contentInsetEndAdjustment={0} isWorking={data.some(row => row.id === 'new-prompt')} selectionHydrating={false}
@@ -77,7 +109,197 @@ const render = (data: TimelineDisplayRow[]) => flushSync(() => root.render(<Assi
 const delta = (before: typeof stats) => Object.fromEntries(Object.entries(stats).map(([key, value]) => [key, value - before[key as keyof typeof stats]]))
 const percentile = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))]
 
+// Main-process CDP compositor input, not dispatchEvent + scrollTop, proves wheel routing.
+const inputRequests: { id: number; type: string; [key: string]: unknown }[] = []
+const inputResolvers = new Map<number, () => void>()
+let nextInputId = 0
+;(window as any).visualizationScrollInputs = inputRequests
+;(window as any).visualizationScrollInputDone = (id: number) => { inputResolvers.get(id)?.(); inputResolvers.delete(id) }
+const hostInput = (input: { type: string; [key: string]: unknown }) => new Promise<void>(resolve => {
+    const id = ++nextInputId
+    inputResolvers.set(id, resolve)
+    inputRequests.push({ ...input, id })
+})
+const realWheel = async (deltaY: number, target: Element = scrollRef.current!) => {
+    const rect = target.getBoundingClientRect()
+    const element = scrollRef.current!
+    const before = element.scrollTop
+    await hostInput({ type: 'wheel', x: Math.round(rect.left + rect.width / 2), y: Math.round(Math.max(4, rect.top) + Math.min(rect.height / 2, 80)), deltaY })
+    await pause(180)
+    if (Math.abs(element.scrollTop - before) < 2) throw new Error(`Hidden Electron wheel must actually move chat: ${JSON.stringify({ before, after: element.scrollTop, deltaY, target: target.tagName, top: rect.top, bottom: rect.bottom })}`)
+}
+async function makeVideo(width: number, height: number) {
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const context = canvas.getContext('2d')!
+    const stream = canvas.captureStream(10)
+    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' })
+    const chunks: BlobPart[] = []
+    recorder.ondataavailable = event => chunks.push(event.data)
+    const stopped = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
+    recorder.start()
+    for (let i = 0; i < 3; i++) { context.fillStyle = i % 2 ? '#568cff' : '#224488'; context.fillRect(0, 0, width, height); await pause(110) }
+    recorder.stop(); await stopped
+    stream.getTracks().forEach(track => track.stop())
+    return URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }))
+}
+async function checkMixedMediaScroll() {
+    shortVideo = await makeVideo(320, 180)
+    tallVideo = await makeVideo(180, 480)
+    render(mixedRows)
+    await pause(350)
+    const scroller = scrollRef.current!
+    let trustedWheels = 0
+    scroller.addEventListener('wheel', event => { if (event.isTrusted) trustedWheels++ })
+    await until(() => document.querySelector('iframe[data-visualization-ready="true"]'), 'Mixed visualization must be ready')
+    const bottomFrame = [...document.querySelectorAll('iframe')].at(-1)!
+    await realWheel(-80, bottomFrame)
+    const probe = (row = 1, paragraph = 0) => document.querySelector<HTMLElement>(`[data-reading-probe="mixed-${row}-${paragraph}"]`)!
+    const read = async (row: number, paragraph = 0) => {
+        // Programmatic positioning is setup only. The following real wheel owns reading mode.
+        await listRef.current!.scrollToIndex({ index: row, animated: false })
+        await until(() => probe(row, paragraph), 'Reading probe must mount')
+        await pause(180)
+        scroller.scrollTop += probe(row, paragraph).getBoundingClientRect().top - scroller.getBoundingClientRect().top - 50
+        await pause(120)
+        await realWheel(-24)
+        await pause(120)
+    }
+    const stability: { label: string; driftPx: number }[] = []
+    const stable = async (label: string, action: () => void | Promise<void>, row = 1, paragraph = 0) => {
+        const node = probe(row, paragraph)
+        const before = node.getBoundingClientRect().top
+        await action()
+        await pause(420)
+        const driftPx = Math.abs(node.getBoundingClientRect().top - before)
+        stability.push({ label, driftPx })
+        if (!node.isConnected || driftPx > 2) throw new Error(`${label}: visible prose moved ${driftPx}px`)
+    }
+    await read(1)
+    if (!mediaReleases.has('previous')) throw new Error('Previous row must still be mounted for growth test')
+    await stable('previous-row image load (MVCP only)', () => mediaReleases.get('previous')!())
+    await stable('same-row image load', () => mediaReleases.get('same-mixed-1')!())
+    await stable('same-row video metadata', () => mediaReleases.get('video-mixed-1')!())
+    await stable('viewport resize', () => hostInput({ type: 'resize', width: 880, height: 800 }))
+    const oldProbe = probe()
+    await read(10, 20)
+    await until(() => !oldProbe.isConnected, 'Reading row must virtualize away')
+    await read(1)
+    if (probe() === oldProbe) throw new Error('Return must exercise a remounted row')
+    await stable('remounted reader remains stable', async () => { await pause(300) })
+    await listRef.current!.scrollToEnd({ animated: false }); await pause(200)
+    await realWheel(-32)
+    const distance = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+    // A layout compensation near the end must not undo the last upward intent.
+    const paragraphs = [...document.querySelectorAll<HTMLElement>('[data-reading-probe^="mixed-11-"]')]
+    const visible = paragraphs.find(node => { const rect = node.getBoundingClientRect(); return rect.top > 0 && rect.bottom < scroller.clientHeight })!
+    if (!visible) throw new Error('Near-end prose must be visible')
+    const paragraph = Number(visible.dataset.readingProbe!.split('-').at(-1))
+    await stable('near-end upward intent survives compensation', () => mediaReleases.get('same-mixed-11')!(), 11, paragraph)
+    render([...mixedRows, marker]); await pause(250)
+    if (distance() < 20) throw new Error('A layout correction falsely reacquired end follow after upward intent')
+    scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => distance() <= 2, 'Explicit Latest must restore end follow')
+    const trackPointers: unknown[] = []
+    scroller.addEventListener('pointerdown', event => { if (event.isTrusted) trackPointers.push({ x: event.clientX, y: event.clientY, target: (event.target as Element).tagName }) })
+    for (const holdMs of [30, 600]) {
+        render(mixedRows); await pause(250)
+        scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+        await until(() => distance() <= 2, 'Scrollbar setup follows the latest content')
+        await realWheel(-Math.round(scroller.clientHeight * 0.55))
+        const bounds = scroller.getBoundingClientRect()
+        await hostInput({ type: 'scrollbar', x: bounds.right - 1, y: bounds.top + scroller.clientHeight - 2, holdMs })
+        await until(() => distance() <= 2, `Stationary scrollbar track press reaches bottom: ${JSON.stringify(trackPointers)}`)
+        render([...mixedRows, marker]); await pause(300)
+        if (distance() > 2) throw new Error(`Stationary scrollbar track ${holdMs}ms did not resume follow: distance=${distance()}, pointers=${JSON.stringify(trackPointers)}`)
+    }
+    render(mixedRows); await pause(200)
+    scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => distance() <= 2, 'Space setup reaches latest')
+    await realWheel(-Math.round(scroller.clientHeight * 0.45))
+    scroller.tabIndex = 0
+    scroller.focus({ preventScroll: true })
+    if (document.activeElement !== scroller) throw new Error('Timeline owns native Space keyboard focus')
+    await hostInput({ type: 'key', shift: false }); await pause(250)
+    await until(() => distance() <= 2, 'Native Space pages to the bottom')
+    render([...mixedRows, marker]); await pause(300)
+    if (distance() > 2) throw new Error(`Native Space paging did not resume follow: distance=${distance()}`)
+    await hostInput({ type: 'key', shift: true }); await pause(250)
+    if (distance() < 20) throw new Error('Native Shift+Space must page upward')
+    render(mixedRows); await pause(250)
+    if (distance() < 20) throw new Error('Shift+Space must retain reading mode across a data update')
+    render(mixedRows); await pause(150)
+    scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => distance() <= 2, 'Thumb reversal setup reaches latest')
+    const thumbBounds = scroller.getBoundingClientRect()
+    const thumbSize = Math.max(parseFloat(getComputedStyle(scroller).getPropertyValue('--assistant-scrollbar-thumb-min-height')), scroller.clientHeight ** 2 / scroller.scrollHeight)
+    await hostInput({ type: 'thumb-reverse', x: thumbBounds.right - 1, y: thumbBounds.top + scroller.clientHeight - thumbSize / 2,
+        upY: thumbBounds.top + scroller.clientHeight - thumbSize / 2 - 100, downY: thumbBounds.top + scroller.clientHeight - 2 })
+    await until(() => distance() <= 2, 'Reversed native thumb drag reaches bottom')
+    const nativeThumb = (window as any).visualizationThumbTrace
+    if (!(nativeThumb.before > nativeThumb.afterUp + 2 && nativeThumb.afterDown > nativeThumb.afterUp + 2)) throw new Error('Native thumb must really scroll in both directions')
+    render([...mixedRows, marker]); await pause(300)
+    if (distance() > 2) throw new Error(`Reversing a native thumb drag did not resume follow: distance=${distance()}, native=${JSON.stringify(nativeThumb)}`)
+    for (const selector of ['[data-space-control]', '[data-space-editor]']) {
+        render(mixedRows); await pause(150)
+        scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+        await until(() => distance() <= 2, 'Control setup reaches latest')
+        await realWheel(-40)
+        const control = document.querySelector<HTMLElement>(selector)!
+        if (control instanceof HTMLTextAreaElement) control.value = ''
+        control.focus({ preventScroll: true })
+        const clicks = (window as any).spaceControlClicks || 0
+        await hostInput({ type: 'key', shift: false }); await pause(150)
+        if (control instanceof HTMLTextAreaElement) {
+            if (control.value !== ' ') throw new Error('Native Space inserts text in the focused editor')
+        } else if ((window as any).spaceControlClicks !== clicks + 1) throw new Error('Native Space activates the focused button')
+        // Positive layout compensation after a consuming key cannot count as
+        // page-down intent or reacquire end-following.
+        scroller.scrollTop = scroller.scrollHeight; await pause(150)
+        render([...mixedRows, marker]); await pause(300)
+        if (distance() < 20) throw new Error(`Space consumed by ${selector} falsely resumed following`)
+    }
+    if (trackPointers.length < 2) throw new Error('Both native scrollbar gestures must deliver trusted pointer input')
+    if (!trustedWheels) throw new Error('No trusted Electron wheel reached chat')
+    URL.revokeObjectURL(shortVideo); URL.revokeObjectURL(tallVideo)
+    return { stability, trustedWheels, trustedScrollbarPresses: trackPointers.length, scrollbarTrack: true, thumbReversal: true, keyboardPaging: true, keyboardControls: true, iframeWheel: true, explicitLatest: true, remount: true, syntheticMedia: 'real SVG decoding and canvas-recorded WebM metadata through production Markdown components' }
+}
+
+function checkBoundedAnchorFallback() {
+    const caretDescriptor = Object.getOwnPropertyDescriptor(document, 'caretRangeFromPoint')
+    const scroller = document.createElement('div')
+    scroller.style.cssText = 'position:fixed;top:20px;left:20px;width:300px;height:80px;overflow:hidden'
+    const row = document.createElement('div')
+    row.dataset.assistantTimelineRowId = 'bounded-fallback'
+    for (let i = 0; i < 256; i++) {
+        const paragraph = document.createElement('p')
+        paragraph.style.cssText = 'position:absolute;top:-2000px'
+        paragraph.textContent = 'Offscreen prose'
+        row.append(paragraph)
+    }
+    const visible = document.createElement('p')
+    visible.textContent = 'Visible fallback reading anchor'
+    row.append(visible)
+    scroller.append(row)
+    document.body.append(scroller)
+    // The fallback must stop at 256 semantic matches, without allocating a full
+    // querySelectorAll result for a long mounted reply.
+    scroller.querySelectorAll = () => { throw new Error('Unbounded semantic query') }
+    Object.defineProperty(document, 'caretRangeFromPoint', { configurable: true, value: undefined })
+    try {
+        if (captureAssistantTimelineMediaAnchor(scroller, 'fallback')) throw new Error('Fallback exceeded its 256-block bound')
+        row.firstElementChild!.remove()
+        const anchor = captureAssistantTimelineMediaAnchor(scroller, 'fallback')
+        if (anchor?.text !== visible.firstChild || anchor.rowId !== 'bounded-fallback') throw new Error('Bounded fallback lost its visible character anchor')
+    } finally {
+        scroller.remove()
+        if (caretDescriptor) Object.defineProperty(document, 'caretRangeFromPoint', caretDescriptor)
+        else delete (document as Document & { caretRangeFromPoint?: unknown }).caretRangeFromPoint
+    }
+}
+
 ;(window as any).visualizationScrollCheck = (async () => {
+    checkBoundedAnchorFallback()
     const started = performance.now()
     render(rows)
     await until(() => scrollRef.current && document.querySelector('iframe'), 'Real virtualized previews must mount')
@@ -132,5 +354,6 @@ const percentile = (values: number[], p: number) => [...values].sort((a, b) => a
     render(changed)
     await until(() => { const current = [...document.querySelectorAll('iframe')].find(node => node.title === 'Chart 39'); return current && !bottomFrames.includes(current) && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
     if ([...document.querySelectorAll('iframe')].some(node => node.getAttribute('sandbox') !== 'allow-scripts')) throw new Error('Sandbox permissions changed')
-    return { workload: { rows: 20, chartsPerRow: 2, barsPerChart: 80, samples: 3, framesPerSample: 64, warmup: 'initial mount and six prompt update pairs' }, supportsAtomicMove: Boolean(moveBefore), initial, updates, updateTrace, samples, totals: stats, cache: getVisualizationDocumentCacheStats(), correctness: ['source changes invalidate', 'trusted helper sandbox stays opaque'] }
+    const mixedMedia = await checkMixedMediaScroll()
+    return { mixedMedia, workload: { rows: 20, chartsPerRow: 2, barsPerChart: 80, samples: 3, framesPerSample: 64, warmup: 'initial mount and six prompt update pairs' }, supportsAtomicMove: Boolean(moveBefore), initial, updates, updateTrace, samples, totals: stats, cache: getVisualizationDocumentCacheStats(), correctness: ['source changes invalidate', 'trusted helper sandbox stays opaque'] }
 })()

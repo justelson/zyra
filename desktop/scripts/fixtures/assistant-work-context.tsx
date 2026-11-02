@@ -34,7 +34,7 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
     document.getElementById('preserved-focus')!.focus()
     update('a', 'C:/workspace/zyra', 'coding')
     await until(() => row('a').querySelector('.lucide-code'), 'work fallback before artwork arrives')
-    check(row('a').textContent?.includes('zyra'), 'actual folder replaces Chat')
+    check(row('a').textContent?.includes('Code · Zyra'), 'short work label replaces the raw folder')
     update('a', 'C:/workspace/Tracks', 'music')
     await until(() => row('a').querySelector('.lucide-music'), 'changed work replaces its icon')
     releaseArtwork()

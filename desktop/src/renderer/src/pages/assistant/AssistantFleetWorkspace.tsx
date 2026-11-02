@@ -145,6 +145,7 @@ export function AssistantFleetWorkspace(props: AssistantFleetWorkspaceProps) {
                     page={workflowPage}
                     onPageChange={setWorkflowPage}
                     onOpenWorkflow={props.onSelectWorkflow}
+                    onWorkflowAction={props.onWorkflowAction}
                 />
             )}
         </section>

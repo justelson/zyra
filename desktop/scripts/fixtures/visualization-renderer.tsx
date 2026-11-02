@@ -89,7 +89,7 @@ function InitialHeightProbe() {
     ;(window as any).devscope.copyToClipboard = originalBridge
     await until(() => !document.querySelector('[role="menu"]'))
     assert(document.activeElement === info, 'copy returns focus to the trigger')
-    assert(parseFloat(frame.style.height) <= 240, 'content height is capped at the authored maximum')
+    assert(parseFloat(frame.style.height) > 0, 'content has a reserved height while its natural size is measured')
     frame.loading = 'eager'
     await wait(120)
     assert(frame.getAttribute('sandbox') === 'allow-scripts', 'app-owned presentation runs without same-origin access')
@@ -152,7 +152,7 @@ function InitialHeightProbe() {
     await wait(120)
     assert(unexpectedWindows === 0, 'browser menus and source dialogs never open native companion windows')
     window.open = originalOpen
-    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed fixed-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
+    return [...(location.protocol === 'chrome-extension:' ? ['real browser adapter uses in-page controls; no native companion windows', 'extension settings destinations, quota, errors, keyboard and bridged font loading'] : []), 'stable initial preview height and bounded immutable sanitization cache', 'unboxed natural-height preview and two-action keyboard menu', 'streaming and cancellation', 'sandbox, sanitizer, network policy and SVG/CSS', 'theme updates and authored colors', 'copy and download safe export document', 'fenced examples and historical messages']
 })()
 
 const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as const
@@ -163,6 +163,61 @@ const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as co
     await until(() => { const height = document.querySelector('iframe')!.getBoundingClientRect().height; return height > 80 && height < 200 })
     return document.querySelector('iframe')!.getBoundingClientRect().height
 }
+;(window as any).visualizationNaturalHeightCase = async () => {
+    document.querySelector<HTMLElement>('#root')!.style.width = '320px'
+    render('<visualization title="Tall and wide" height="160">\n<svg width="1200" height="60" viewBox="0 0 1200 60"><text x="10" y="30">Readable wide chart labels</text></svg><div style="width:1200px;height:960px;background:var(--viz-track)">Wide timeline</div><p>Visible final section</p>\n</visualization>', false)
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
+    return document.querySelector('iframe')!.getBoundingClientRect().height
+}
+
+;(window as any).visualizationScrollablePanelCase = async () => {
+    render('<visualization title="Scrollable panel" height="160">\n<div id="scroll-panel" style="height:160px;overflow-y:auto"><div style="height:640px">Scrollable chart details</div></div><p>Caption</p>\n</visualization>', false)
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
+    await until(() => document.querySelector('iframe')!.getBoundingClientRect().height >= 180)
+    document.body.style.minHeight = '2000px'
+    window.scrollTo(0, 0)
+}
+
+;(window as any).visualizationViewportHeightCase = async () => {
+    const host = document.querySelector<HTMLElement>('#root')!
+    host.style.width = '320px'
+    const checks: { label: string; height: number }[] = []
+    const stable = async (label: string, expected: number) => {
+        await until(() => Math.abs(document.querySelector('iframe')!.getBoundingClientRect().height - expected) <= 1).catch(() => { throw new Error(`${label}: expected ${expected}px, got ${document.querySelector('iframe')!.getBoundingClientRect().height}px`) })
+        const heights: number[] = []
+        for (let i = 0; i < 10; i++) { await wait(40); heights.push(document.querySelector('iframe')!.getBoundingClientRect().height) }
+        assert(heights.every(height => Math.abs(height - expected) <= 1), `${label} must settle without frame-height feedback: ${heights}`)
+        checks.push({ label, height: heights.at(-1)! })
+    }
+    for (const test of [
+        { label: 'inline vh', html: '<div style="height:100vh">Chart</div>', height: 181 },
+        { label: 'custom property and calc', html: '<style>.chart{--basis:100dvh;height:calc(var(--basis) + 12px)}.literal:before{content:"100vh"}@keyframes sample{from{height:50vh}to{height:100vh}}</style><div class="chart"><span class="literal"></span>Chart</div>', height: 193 },
+        { label: 'vmin', html: '<div style="height:100vmin">Chart</div>', height: 181, narrow: 141 },
+        { label: 'vmax', html: '<div style="height:100vmax">Chart</div>', height: 341, narrow: 181 },
+        { label: 'height media oscillation', html: '<style>.chart{height:240px}@media(min-height:200px){.chart{height:80px}}</style><div class="chart">Chart</div>', height: 261 },
+        { label: 'orientation media oscillation', html: '<style>.chart{height:40px}@media(orientation:landscape){.chart{height:500px}}</style><div class="chart">Chart</div>', height: 521, narrow: 61 },
+        { label: 'aspect-ratio media oscillation', html: '<style>.chart{height:80px}@media(min-aspect-ratio:3/2){.chart{height:500px}}</style><div class="chart">Chart</div>', height: 521, narrow: 101 },
+        { label: 'width media breakpoint', html: '<style>.chart{height:80px}@media(min-width:300px){.chart{height:180px}}</style><div class="chart">Chart</div>', height: 201, narrow: 101 },
+        { label: 'mixed native motion preference', html: '<style>.chart{height:40px}@media(min-height:100px) and (prefers-reduced-motion:reduce){.chart{height:180px}}</style><div class="chart">Chart</div>', height: matchMedia('(prefers-reduced-motion:reduce)').matches ? 201 : 61 },
+    ]) {
+        host.style.width = '320px'
+        render(`<visualization title="${test.label}" height="160">\n${test.html}<p>Caption</p>\n</visualization>`, false)
+        await until(() => document.querySelector('iframe'))
+        await waitForFrame(document.querySelector('iframe')!)
+        await stable(test.label, test.height)
+        if (test.narrow !== undefined) {
+            const frame = document.querySelector('iframe')!
+            host.style.width = '120px'
+            await stable(`${test.label} narrow`, test.narrow)
+            assert(document.querySelector('iframe') === frame, 'width changes retain the iframe instead of remounting it')
+        }
+    }
+    host.style.width = '320px'
+    return checks
+}
+
 const heatRows = [
     ['Kitchen', [15, 40, 85, 30, 65, 95, 20]],
     ['Lab', [70, 25, 45, 95, 35, 60, 80]],

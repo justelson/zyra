@@ -1,6 +1,9 @@
 import { build } from 'esbuild'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
+import tailwindConfig from '../tailwind.config.js'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,9 +19,14 @@ try {
         nodePaths: [join(desktop, 'node_modules')],
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, logLevel: 'silent'
     })
+    const css = await postcss([tailwindcss({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerQueue.tsx')] })])
+        .process(`${await readFile(join(desktop, 'src/renderer/src/styles/theme-tokens.css'), 'utf8')}\n@tailwind base;\n@tailwind components;\n@tailwind utilities;`, { from: undefined })
+    await writeFile(join(directory, 'renderer.css'), css.css)
+    const screenshot = resolve(process.env.ZYRA_QUEUE_SCREENSHOT || join(desktop, '../docs.local/qa/assistant-composer-queue.png'))
+    await mkdir(dirname(screenshot), { recursive: true })
     const html = join(directory, 'index.html')
     await writeFile(join(directory, 'renderer.js'), bundle.outputFiles.find(file => file.path.endsWith('.js')).text)
-    await writeFile(html, '<!doctype html><html><head><meta charset="utf-8"></head><body><script src="renderer.js"></script></body></html>')
+    await writeFile(html, '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="renderer.css"></head><body style="background:var(--color-bg);color:var(--color-text);font-family:system-ui"><script src="renderer.js"></script></body></html>')
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `
         const { app, BrowserWindow } = require('electron');
@@ -30,6 +38,9 @@ try {
             await window.loadFile(${JSON.stringify(html)});
             const results = await window.webContents.executeJavaScript('window.runComposerQueueChecks()');
             for (const result of results) console.log('PASS: ' + result);
+            await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+            require('node:fs').writeFileSync(${JSON.stringify(screenshot)}, (await window.webContents.capturePage()).toPNG());
+            console.log('Queue screenshot: ' + ${JSON.stringify(screenshot)});
             clearTimeout(timeout); app.quit();
         }).catch(error => { console.error(error); app.exit(1); });
     `)

@@ -42,11 +42,12 @@ try {
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});
         const timer=setTimeout(()=>{console.error('Edge fixture timed out');app.exit(1)},30000);
-        app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:900,height:700,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+        app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:900,height:700,webPreferences:{offscreen:${chatMenus ? 'false' : 'true'},backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
         window.webContents.on('console-message',(event)=>{if(event.level==='error')console.error(event.message)});
         await window.loadFile(${JSON.stringify(html)});
+        ${chatMenus ? "window.webContents.debugger.attach('1.3');" : ''}
         let pumping=true;const pump=(async()=>{while(pumping){const request=await window.webContents.executeJavaScript('window.sidebarPointerRequest && !window.sidebarPointerRequest.done ? {x:window.sidebarPointerRequest.x,y:window.sidebarPointerRequest.y,type:window.sidebarPointerRequest.type} : null');
-        if(request){window.webContents.sendInputEvent({type:request.type,x:request.x,y:request.y});await window.webContents.executeJavaScript('window.sidebarPointerRequest.done=true')}
+        if(request){${chatMenus ? "await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:request.x,y:request.y});" : 'window.webContents.sendInputEvent({type:request.type,x:request.x,y:request.y});'}await window.webContents.executeJavaScript('window.sidebarPointerRequest.done=true')}
         await new Promise(resolve=>setTimeout(resolve,10))}})();
         const results=await window.webContents.executeJavaScript('window.sidebarEdgeCheck');
         for(const result of results)console.log('PASS: '+result);

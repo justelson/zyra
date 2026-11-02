@@ -33,7 +33,18 @@ export function createChatSettlementMenuItem(options: Pick<ChatActionMenuOptions
     }
 }
 
-/** Both surfaces share the same actions; only the sidebar groups secondary actions. */
+/** Hide permanently unavailable choices, but do not reshuffle during a pending command. */
+export function availableChatActionMenuItems(items: FileActionsMenuItem[], pending = false): FileActionsMenuItem[] {
+    if (pending) return items
+    return items.flatMap(item => {
+        if (item.disabled) return []
+        const choices = item.choices?.filter(choice => !choice.disabled)
+        if (item.submenuOnly && !choices?.length) return []
+        return [{ ...item, choices, secondaryAction: item.secondaryAction?.disabled ? undefined : item.secondaryAction }]
+    })
+}
+
+/** Both surfaces share the same actions and group secondary actions when compact. */
 export function createChatActionMenuItems(options: ChatActionMenuOptions, compact = false): FileActionsMenuItem[] {
     const { disabled, pinned, projectLocked, projectPath } = options
     const thread: FileActionsMenuItem[] = [

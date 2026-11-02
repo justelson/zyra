@@ -4,7 +4,7 @@ import { FileActionsMenu } from '@/components/ui/FileActionsMenu'
 import type { AssistantChatDisplayMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { copyChatThreadId } from './assistant-chat-menu-state'
-import { createChatActionMenuItems } from './assistant-chat-actions-menu'
+import { availableChatActionMenuItems, createChatActionMenuItems } from './assistant-chat-actions-menu'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicator'
@@ -111,7 +111,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
         onTogglePinned: props.onTogglePinned, onToggleSettlement: props.onToggleSettlement,
         onRegenerateTitle: props.onRegenerateTitle,
         onArchive: onArchiveChat, onDelete: onDeleteChat
-    })
+    }, true)
 
     if (canonicalThreadId && props.onStopActiveTurn) headerMenuItems.push({
         id: 'stop-active-turn', label: stopPending ? 'Checking active turn…' : 'Stop active turn',
@@ -152,13 +152,16 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
                         <AssistantSessionTitleText title={selectedSessionTitle} generating={titleGenerating} reveal={false} />
                     </h2>
                     <FileActionsMenu
-                        items={headerMenuItems}
+                        items={availableChatActionMenuItems(headerMenuItems, actionsDisabled || stopPending)}
                         rootClassName={minimal ? 'assistant-header-actions' : undefined}
                         title="Chat actions"
+                        density="chat-compact"
+                        showTooltip={false}
+                        menuWidth={164}
                         triggerIcon={<MoreHorizontal size={14} className="rotate-90" />}
                         presentation="portal"
                         buttonClassName={cn(
-                            'h-5 w-5 rounded-md border-transparent bg-transparent p-0 text-sparkle-text-muted hover:border-transparent hover:bg-[var(--surface-hover)] hover:text-sparkle-text',
+                            '!h-5 !w-5 rounded-md border-transparent bg-transparent p-0 text-sparkle-text-muted hover:border-transparent hover:bg-[var(--surface-hover)] hover:text-sparkle-text',
                             minimal && 'shrink-0'
                         )}
                         openButtonClassName="rounded-md border-transparent bg-[var(--surface-hover)] p-0 text-sparkle-text"

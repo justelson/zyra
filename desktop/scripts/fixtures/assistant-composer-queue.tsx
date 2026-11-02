@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AssistantComposerQueue, useAssistantComposerQueueState, type AssistantComposerQueueProps } from '../../src/renderer/src/pages/assistant/AssistantComposerQueue'
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { useAssistantQueuedComposer, type AssistantQueuedComposerSessionState } from '../../src/renderer/src/pages/assistant/useAssistantQueuedComposer'
@@ -275,5 +276,113 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     check(!await actions.handleSendPrompt('do not overwrite recovery evidence', [], options) && actions.queuePersistenceError, 'corrupt storage rejects acceptance and is surfaced')
     check(localStorage.getItem(ASSISTANT_COMPOSER_QUEUE_STORAGE_KEY) === '{broken', 'corrupt queue record preserved')
     reset()
+    results.push(...await runQueuePresentationChecks())
     return results
 } })
+
+async function runQueuePresentationChecks() {
+    const calls: string[] = []
+    let saveWorks = false
+    let props: AssistantComposerQueueProps = {
+        loadedSessionId: 'presentation-chat', isConnected: true, isStopping: false, queueHeld: true,
+        queuedMessages: [
+            { id: 'one', prompt: 'Keep the permission panel clear and easy to scan.', contextFiles: [file], status: 'held', dispatchMode: 'queue' },
+            { id: 'two', prompt: 'Use the same theme tokens for the next pass.', contextFiles: [], status: 'held', dispatchMode: 'steer' }
+        ] as AssistantComposerQueueProps['queuedMessages'],
+        onHoldQueue: () => { calls.push('hold') },
+        onResumeQueue: () => { calls.push('resume') },
+        onDeleteQueuedMessage: id => { calls.push(`delete:${id}`) },
+        onForceQueuedMessage: id => { calls.push(`steer:${id}`) },
+        onMoveQueuedMessage: (id, target) => { calls.push(`move:${id}:${target}`) },
+        onUpdateQueuedMessage: (id, text) => { calls.push(`save:${id}:${text}`); return saveWorks }
+    }
+    function QueueHarness({ visible }: { visible: boolean }) {
+        const state = useAssistantComposerQueueState(props.loadedSessionId)
+        return visible ? <AssistantComposerQueue controller={props} state={state} /> : null
+    }
+    container = document.createElement('div'); container.style.cssText = 'width:760px;max-width:100%;margin:32px auto'
+    document.body.append(container); root = createRoot(container)
+    const render = (patch: Partial<AssistantComposerQueueProps> = {}, visible = true) => {
+        props = { ...props, ...patch }
+        flushSync(() => root!.render(<QueueHarness visible={visible} />))
+    }
+    const row = (id = 'one') => container!.querySelector<HTMLElement>(`[data-queued-message-id="${id}"]`)!
+    const button = (label: string, host: ParentNode = container!) => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(node => node.getAttribute('aria-label') === label || node.textContent === label)!
+    const click = (label: string, host: ParentNode = container!) => flushSync(() => button(label, host).click())
+    const type = (text: string) => {
+        const textarea = container!.querySelector('textarea')!
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, text)
+        flushSync(() => textarea.dispatchEvent(new Event('input', { bubbles: true })))
+    }
+    render()
+    check(container.querySelector('section[aria-label="Queued messages"]')?.classList.contains('rounded-xl'), 'queue has one named rounded-xl panel')
+    check(container.textContent?.includes('1 file') && container.textContent.includes('On hold.'), 'attachment count and held status rendered')
+    click('Resume queue'); click('Steer', row()); click('Delete queued message', row())
+    check(calls.join('|') === 'resume|steer:one|delete:one', 'compact actions target exact message')
+    click('Edit queued message', row()); type('edited buffer')
+    check(calls.includes('hold'), 'editing holds queue before changing local buffer')
+    click('Save'); await sleep()
+    check(container.querySelector('[role="alert"]') && container.querySelector('textarea')?.value === 'edited buffer', 'failed Save retains buffer and accessible error')
+    click('Cancel')
+    check(!container.querySelector('textarea') && !container.querySelector('[role="alert"]') && row().textContent?.includes('Keep the permission'), 'Cancel clears error without changing queued prompt')
+    click('Edit queued message', row()); type('successful edit'); saveWorks = true
+    click('Save'); await sleep()
+    check(calls.includes('save:one:successful edit') && !container.querySelector('textarea'), 'Save forwards exact text and closes editor after success')
+    const reorderKey = (index: number, key: string, altKey = true) => flushSync(() => button(`Reorder queued message ${index}`).dispatchEvent(new KeyboardEvent('keydown', { key, altKey, bubbles: true, cancelable: true })))
+    check(!container.querySelector('[title="Move up"], [title="Move down"]'), 'visible up/down actions removed')
+    const handle = button('Reorder queued message 1')
+    handle.focus()
+    check(document.activeElement === handle && Boolean(handle.getAttribute('aria-describedby')) && handle.getAttribute('aria-keyshortcuts')?.includes('Alt+ArrowDown'), 'drag handle is focusable with accessible reorder instructions')
+    const beforeKeys = calls.length
+    reorderKey(1, 'ArrowUp'); reorderKey(2, 'ArrowDown'); reorderKey(1, 'ArrowDown', false)
+    check(calls.length === beforeKeys, 'handle guards queue boundaries and ordinary arrow keys')
+    reorderKey(1, 'ArrowDown'); reorderKey(2, 'ArrowUp')
+    check(calls.includes('move:one:two') && calls.includes('move:two:one'), 'Alt+Arrow keys target neighboring queue identity')
+    const dataTransfer = new DataTransfer()
+    let dragImage: Element | null = null
+    Object.defineProperty(dataTransfer, 'setDragImage', { value: (element: Element) => { dragImage = element } })
+    flushSync(() => row().querySelector('[draggable]')!.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer })))
+    check(dragImage === row(), 'native drag image uses the full message row')
+    // Native drag events arrive in separate browser tasks. React assigns dragover
+    // continuous priority, so flushSync around synthetic dispatch alone does not
+    // establish that the drag state/preview has committed before the next event.
+    await until(() => row().classList.contains('opacity-45'), 'dragstart commits the source row before dragover')
+    const beforeDrop = calls.length
+    flushSync(() => row('two').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer })))
+    check(calls.length === beforeDrop, 'dragover does not mutate the queue')
+    await until(() => Boolean(row('two').querySelector('[data-queue-drop-edge="after"]')), 'downward dragover commits trailing drop-edge preview')
+    check(calls.length === beforeDrop, 'drop edge previews downward move without queue mutation')
+    flushSync(() => row('two').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer })))
+    check(dataTransfer.getData('text/plain') === 'one' && calls.filter(call => call === 'move:one:two').length === 2 && !container.querySelector('[data-queue-drop-edge]'), 'drop commits exact reorder once and clears preview')
+    flushSync(() => row('two').querySelector('[draggable]')!.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer })))
+    await until(() => row('two').classList.contains('opacity-45'), 'reverse dragstart commits the source row')
+    flushSync(() => row().dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer })))
+    await until(() => Boolean(row().querySelector('[data-queue-drop-edge="before"]')), 'upward move previews the leading edge')
+    const beforeCancelDrag = calls.length
+    flushSync(() => row('two').querySelector('[draggable]')!.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer })))
+    check(!container.querySelector('[data-queue-drop-edge]') && calls.length === beforeCancelDrag, 'cancelled drag clears preview without persisting')
+    click('Edit queued message', row()); type('retained while suggestions open')
+    render({}, false); render()
+    check(container.querySelector('textarea')?.value === 'retained while suggestions open', 'suggestion shelf replacement retains edit buffer')
+    render({ loadedSessionId: 'other-chat' }); await sleep()
+    check(!container.querySelector('textarea'), 'Chat change resets local editor')
+    const originalMessages = props.queuedMessages
+    render({ queuedMessages: originalMessages.map((message, index) => ({ ...message, status: index === 0 ? 'sending' : 'compacting' })) })
+    check(button('Edit queued message', row()).disabled && button('Steer', row()).disabled && button('Steer', row('two')).disabled, 'sending edit and sending/compaction steer remain unavailable')
+    check(container.textContent?.includes('Sending…') && container.textContent.includes('Letting compaction finish'), 'sending and compaction announce status')
+    render({ isConnected: false }); check(button('Resume queue').disabled, 'disconnected Resume disabled')
+    render({ isConnected: true, isStopping: true }); check(button('Resume queue').disabled, 'stopping Resume disabled')
+    render({ isStopping: false, queuedMessages: originalMessages })
+    for (const width of [760, 360]) {
+        container.style.width = `${width}px`
+        await sleep()
+        const panel = container.querySelector('section')!
+        check(panel.scrollWidth <= panel.clientWidth + 1, `queue panel fits ${width}px without horizontal overflow`)
+        for (const node of container.querySelectorAll('button, textarea')) {
+            const bounds = node.getBoundingClientRect(), outer = panel.getBoundingClientRect()
+            check(bounds.left >= outer.left && bounds.right <= outer.right + 1, `queue action stays inside ${width}px panel`)
+        }
+    }
+    container.style.width = '760px'
+    return ['actual queue UI: Save/error/Cancel, held/resume, exact steer/delete, status guards, full-row drag ghost/drop-edge preview and accessible handle Alt+Arrow ordering, Chat/suggestion edit continuity, 360px layout']
+}

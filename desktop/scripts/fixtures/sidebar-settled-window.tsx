@@ -15,14 +15,14 @@ Element.prototype.getBoundingClientRect = function () {
     // Fault injection at the production crash boundary. Native cases below
     // cover actual layout; this case supplies changing visual geometry while
     // layout coordinates stay fixed, as can happen during interrupted motion.
-    if (transientHeaderGeometry && this instanceof HTMLElement && this.tagName === 'LI' && this.textContent === 'Settled') {
-        const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
+    if (transientHeaderGeometry && this instanceof HTMLElement && this.matches('[aria-controls="assistant-settled-chats"]')) {
+        const scroller = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')!
         const count = document.querySelectorAll('[data-agent-inbox-layout-id]').length
         const available = count === 2 ? 74.000001 : 73.999999
         const bottom = bounds.call(scroller).bottom - available - scroller.scrollTop
         rect = new DOMRect(rect.x, bottom - rect.height, rect.width, rect.height)
     }
-    if (this instanceof HTMLElement && (this.classList.contains('assistant-sidebar-scrollbar') || this.tagName === 'LI' && this.textContent === 'Settled')) {
+    if (this instanceof HTMLElement && (this.classList.contains('assistant-sidebar-scrollbar') || this.matches('[aria-controls="assistant-settled-chats"]'))) {
         measurements.push({ tag: this.tagName, top: rect.top, height: rect.height, scrollTop: this.scrollTop, offsetTop: this.offsetTop, rows: document.querySelectorAll('[data-agent-inbox-layout-id]').length })
         if (measurements.length > 32) measurements.shift()
     }
@@ -64,7 +64,7 @@ async function run() {
         render(sessions[0]!.id)
         await expandSettled()
         await sleep()
-        const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')
+        const scroller = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')
         if (scroller) scroller.scrollTop = scroller.scrollHeight
         render(sessions.at(-1)!.id)
         await sleep()
@@ -91,8 +91,9 @@ async function run() {
         render(sessions[0]!.id)
         await expandSettled()
         await sleep()
-        const scroller = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
-        const header = [...scroller.querySelectorAll('li')].find(row => row.textContent === 'Settled')!
+        const scroller = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')!
+        const header = document.querySelector<HTMLElement>('[aria-controls="assistant-settled-chats"]')!
+        check(scroller && header, 'The independent Settled scroller and its disclosure exist')
         const headerBottom = header.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop
         const overhead = height - scroller.getBoundingClientRect().height + headerBottom
         for (const rows of [1, 2, 5, 10]) for (const fraction of [-1 / 64, 0, 1 / 64]) {
@@ -102,7 +103,7 @@ async function run() {
             render(sessions.at(-1)!.id)
             await sleep()
             check(!caught, `${key}:${rows}:${fraction}: ${String(caught)}; native measurements=${JSON.stringify(measurements)}`)
-            const current = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
+            const current = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')!
             current.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))
             render(sessions[0]!.id)
             await sleep()
@@ -180,6 +181,8 @@ async function run() {
     await expandSettled()
     await sleep()
     check(!caught, `Transient visual geometry must not feed back through row count: ${String(caught)}`)
+    const stressHeader = document.querySelector<HTMLElement>('[aria-controls="assistant-settled-chats"]')!
+    check(Math.abs(stressHeader.getBoundingClientRect().bottom - bounds.call(stressHeader).bottom) > 1, 'Transient header geometry injection targets the actual disclosure')
     transientHeaderGeometry = false
     const beforePage = document.querySelectorAll('[data-agent-inbox-layout-id]').length
     const nextPage = [...document.querySelectorAll('button')].find(button => button.textContent?.startsWith('See '))!

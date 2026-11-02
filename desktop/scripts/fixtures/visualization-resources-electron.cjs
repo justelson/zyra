@@ -4,19 +4,28 @@ const path = require('node:path')
 const { writeFile } = require('node:fs/promises')
 const directory = process.env.ZYRA_RESOURCE_FIXTURE
 app.setPath('userData', path.join(directory, 'profile'))
-// Hosted Linux has no GPU. Keep real WebGL/canvas assertions using Chromium's
-// software backend, scoped to this disposable, sandboxed fixture process.
-if ((process.platform === 'linux' && process.env.CI) || process.env.ZYRA_TEST_SOFTWARE_RENDERING === '1') {
+// Hosted desktops may lack a hardware GPU. Keep real WebGL/canvas assertions
+// on a consistent software backend in this disposable, sandboxed process.
+if (process.env.CI || process.env.ZYRA_TEST_SOFTWARE_RENDERING === '1') {
     app.commandLine.appendSwitch('use-angle', 'swiftshader')
     app.commandLine.appendSwitch('enable-unsafe-swiftshader')
     app.commandLine.appendSwitch('ignore-gpu-blocklist')
 }
+if (process.env.ZYRA_RESOURCE_HOST_REDUCED_MOTION === '1') app.commandLine.appendSwitch('force-prefers-reduced-motion')
 const timer = setTimeout(() => { console.error('Visualization resource fixture timeout'); app.exit(1) }, 45000)
 app.whenReady().then(async () => {
-    const window = new BrowserWindow({ show: false, width: 1100, height: 780, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    const hostWidth = Number(process.env.ZYRA_RESOURCE_HOST_WIDTH || 1100)
+    assert(Number.isInteger(hostWidth) && hostWidth >= 320 && hostWidth <= 3840)
+    const window = new BrowserWindow({ show: false, width: hostWidth, height: 780, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    // Creation bounds can be clamped to a hosted desktop's work area.
+    // These wide-library assertions need a real viewport above 1050px.
+    window.setContentSize(1200, 780)
     const messages = []
     window.webContents.on('console-message', event => { messages.push(event.message) })
     window.webContents.on('render-process-gone', (_event, details) => { console.error('Fixture renderer exited:', details) })
+    await window.loadURL('about:blank')
+    window.webContents.debugger.attach('1.3')
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] })
     await window.loadFile(path.join(directory, 'index.html'))
     const evaluate = async code => {
         try { return await window.webContents.executeJavaScript(code) }
@@ -24,7 +33,7 @@ app.whenReady().then(async () => {
     }
     const wait = async expression => {
         for (let attempt = 0; attempt < 160; attempt++) { if (await evaluate(expression)) return; await new Promise(resolve => setTimeout(resolve, 50)) }
-        throw new Error(`Timed out: ${expression}\nBody: ${await evaluate('document.body.textContent')}\n${messages.join('\n')}`)
+        throw new Error(`Timed out: ${expression}\nViewport: ${await evaluate('JSON.stringify({width:innerWidth,workspace:document.querySelector(".assistant-resources-workspace")?.clientWidth})')}\nBody: ${await evaluate('document.body.textContent')}\n${messages.join('\n')}`)
     }
     const mode = name => evaluate(`document.querySelector('[data-fixture-mode="${name}"]').click()`)
     const clickLabel = label => evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(button=>button.textContent.trim().startsWith(${JSON.stringify(label)}) || button.getAttribute('aria-label')===${JSON.stringify(label)} || button.getAttribute('aria-label')===${JSON.stringify(label)}+' visualization');if(!button)throw new Error('Missing button '+${JSON.stringify(label)});button.click()})()`)
@@ -39,6 +48,8 @@ app.whenReady().then(async () => {
         if (process.env.ZYRA_RESOURCE_SCREENSHOTS) await writeFile(path.join(process.env.ZYRA_RESOURCE_SCREENSHOTS, `${name}.png`), image.toPNG())
         return image
     }
+    await wait(`innerWidth >= 1050 && document.querySelector('.assistant-resources-workspace')?.clientWidth >= 1050`)
+    assert.equal(await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`), false, 'this camera-animation fixture explicitly exercises normal motion')
     await wait(`document.body.textContent.includes('Shapes and a UFO')`)
     assert.equal(await evaluate(`document.querySelectorAll('canvas').length`), 0, 'library thumbnails do not create GPU contexts')
     assert.equal(await evaluate(`document.querySelector('select[aria-label="Visualization scope"]').closest('.assistant-resources-toolbar')!==null`), true, 'scope belongs to the existing header, not a second status row')
@@ -134,6 +145,15 @@ app.whenReady().then(async () => {
     await mode('embed')
     await wait(`document.querySelector('[data-visualization-version="1"] iframe[data-visualization-ready]') !== null`)
     assert.equal(await evaluate(`document.querySelector('[data-visualization-version]').dataset.visualizationVersion`), '1', 'chat embed remains pinned even when latest is version two')
+    await mode('embed-tall')
+    await wait(`document.querySelector('iframe[data-visualization-ready]')!==null`)
+    assert(await evaluate(`document.querySelector('iframe').getBoundingClientRect().height`) > 960, 'saved HTML shows the final section beyond its 160px hint')
+    await mode('embed-diagram-tall')
+    await wait(`document.querySelector('.mermaid-diagram svg')!==null`)
+    assert(await evaluate(`document.querySelector('.mermaid-diagram').getBoundingClientRect().height`) > 640, 'tall saved diagrams show their complete intrinsic height')
+    await mode('embed-diagram-wide')
+    await wait(`document.querySelector('.mermaid-diagram svg')!==null`)
+    assert(await evaluate(`(()=>{const e=document.querySelector('.mermaid-diagram');return e.scrollWidth>e.clientWidth && e.scrollHeight<=e.clientHeight+1})()`), 'wide saved diagrams scroll horizontally without vertical clipping or tiny labels')
     await mode('continuity')
     await wait(`document.querySelector('canvas')?.style.opacity==='1' && document.querySelector('iframe[data-visualization-ready]')!==null`)
     await evaluate(`(()=>{window.retainedCanvas=document.querySelector('canvas');window.retainedFrame=document.querySelector('iframe');window.retainedFrameWindow=window.retainedFrame.contentWindow;window.fixtureGetBaseline=window.fixtureGetCalls||0})()`)

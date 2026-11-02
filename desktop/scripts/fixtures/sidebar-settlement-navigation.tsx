@@ -124,12 +124,21 @@ async function run() {
     })
     selected = 'settled'; sessions = [older, ...peers]; render(); await sleep()
     check(isSettled() && renderedIds()[0] !== 'settled', 'Old settled chat starts below newer active chats')
-    const scroll = document.querySelector<HTMLElement>('.assistant-sidebar-scrollbar')!
+    const container = document.querySelector<HTMLElement>('[data-sidebar-groups]')!
+    const settledSection = document.querySelector<HTMLElement>('[aria-label="Settled chats"]')!
+    const settledScroller = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')!
+    const collapsedBottom = settledSection.getBoundingClientRect().bottom
+    check(Math.abs(collapsedBottom - container.getBoundingClientRect().bottom) < 2, 'collapsed Settled stays anchored to the sidebar bottom')
+    const scroll = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
+    check(scroll !== settledScroller, 'Chats and Settled own independent scroll viewports')
     scroll.scrollTop = 180
     scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
     await sleep()
     const beforeRestoreScroll = scroll.scrollTop
     check(beforeRestoreScroll === 180, 'Restore fixture has a real nonzero scroll position')
+    await expandSettled()
+    check(Math.abs(settledSection.getBoundingClientRect().bottom - collapsedBottom) < 2, 'opening Settled expands upward without moving its bottom edge')
+    check(scroll.scrollTop === beforeRestoreScroll && settledScroller.scrollTop === 0, 'opening Settled does not move Chats or inherit its scroll offset')
     row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click(); await sleep()
     check(!isSettled() && renderedIds()[0] === 'settled', 'Explicitly restoring an old chat places it above all newer chats')
     check(scroll.scrollTop === beforeRestoreScroll, 'Restoring to the top preserves the sidebar scroll position')
@@ -137,6 +146,22 @@ async function run() {
     check(renderedIds()[0] === 'settled' && scroll.scrollTop === beforeRestoreScroll, 'Snapshot refresh preserves restored order and scroll')
     render(false); render(); await sleep()
     check(renderedIds()[0] === 'settled' && !isSettled(), 'Restored top position survives saved-order reload on remount')
-    return ['collapsed Settled retains active-row access; settlement survives shell/history navigation, metadata refresh and remount; legacy choices upgrade; projected work revives chats; explicit restore puts old chats first, preserves scroll and survives order reload']
+    render(false)
+    sessions = [...peers, ...Array.from({ length: 45 }, (_, index) => ({ ...older, id: `settled-${index}`, title: `Settled ${index}`, settled: true, settlementManual: true }))]
+    selected = peers[0].id
+    render(); await sleep(); await expandSettled()
+    const chatsViewport = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
+    const settledViewport = document.querySelector<HTMLElement>('[data-sidebar-scroll="settled"]')!
+    const more = Array.from(settledViewport.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent?.startsWith('See '))!
+    check(more, 'Settled retains access to additional chats')
+    more.click(); await sleep()
+    check(chatsViewport.scrollHeight > chatsViewport.clientHeight && settledViewport.scrollHeight > settledViewport.clientHeight, 'long groups both get usable scroll areas')
+    chatsViewport.scrollTop = 120; chatsViewport.dispatchEvent(new Event('scroll', { bubbles: true }))
+    settledViewport.scrollTop = 90; settledViewport.dispatchEvent(new Event('scroll', { bubbles: true }))
+    check(chatsViewport.scrollTop === 120 && settledViewport.scrollTop === 90, 'Chats and Settled scroll independently')
+    const finalSection = document.querySelector<HTMLElement>('[aria-label="Settled chats"]')!.getBoundingClientRect()
+    const finalContainer = document.querySelector<HTMLElement>('[data-sidebar-groups]')!.getBoundingClientRect()
+    check(Math.abs(finalSection.bottom - finalContainer.bottom) < 2 && finalSection.top >= chatsViewport.getBoundingClientRect().bottom, 'long Settled remains bottom anchored without covering Chats')
+    return ['canonical settlement selector notification while hovered/focused; collapsed active access; settlement/navigation/restore persistence; bottom-anchored upward expansion; independent long Chats/Settled scrolling and load-more']
 }
 ;(window as any).sidebarContinuityCheck = run()

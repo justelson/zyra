@@ -1,4 +1,6 @@
 import { build } from 'esbuild'
+import assert from 'node:assert/strict'
+import { resolveViewportDimensions } from '../src/renderer/src/components/ui/visualization/visualization-viewport-runtime.js'
 import { spawn } from 'node:child_process'
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,6 +11,12 @@ import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import config from '../tailwind.config.js'
 import { visualizationFrameDocument } from './maint/visualization-frame-document.mjs'
+
+const viewport = { width: 320, height: 160, vertical: false }
+assert.equal(resolveViewportDimensions('height:calc(100vh + 5vmin);--h:2e1v\\68;', viewport), 'height:calc(160px + 8px);--h:32px;')
+assert.equal(resolveViewportDimensions('width:50dvw;height:100svh;min-height:100lvh;max-height:100dvh', viewport), 'width:160px;height:160px;min-height:160px;max-height:160px')
+assert.equal(resolveViewportDimensions('content:"100vh";font-family:vh;/*100vh*/background:url("data:text/plain,100vh");--width100vh:10px', viewport), 'content:"100vh";font-family:vh;/*100vh*/background:url("data:text/plain,100vh");--width100vh:10px')
+assert.equal(resolveViewportDimensions('width:100vi;height:100vb', { ...viewport, vertical: true }), 'width:160px;height:320px')
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const extensionSurface = process.argv.includes('--extension')

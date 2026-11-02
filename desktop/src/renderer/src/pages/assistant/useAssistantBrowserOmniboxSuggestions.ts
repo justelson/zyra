@@ -45,7 +45,6 @@ export function useAssistantBrowserOmniboxSuggestions(query: string, history: De
             })
         }, 120)
         return () => {
-            generation.current++
             cancelled = true
             window.clearTimeout(timer)
         }

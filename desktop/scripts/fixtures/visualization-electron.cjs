@@ -5,7 +5,8 @@ const { writeFile } = require('node:fs/promises')
 const directory = process.env.ZYRA_VISUALIZATION_FIXTURE
 app.setPath('userData', path.join(directory, 'profile'))
 let window
-const timer = setTimeout(() => { console.error('Visualization fixture timed out'); app.exit(1) }, 25000)
+// Includes repeated viewport-unit/media-query settling and responsive cases.
+const timer = setTimeout(() => { console.error('Visualization fixture timed out'); app.exit(1) }, 60000)
 app.whenReady().then(async () => {
     window = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } })
     const diagnostics = []
@@ -135,7 +136,7 @@ app.whenReady().then(async () => {
             for (const mark of [...bars, ...cells]) {
                 const actual = pixel(parent.x + mark.box.x - body.box.x + 3, parent.y + mark.box.y - body.box.y + 3)
                 const expectedColor = rgb(mark.css['background-color'])
-                assert(actual.every((channel, index) => Math.abs(channel - expectedColor[index]) <= 2), `${mode}: painted chart pixel matches computed color ${mark.css['background-color']} (${actual})`)
+                assert(actual.every((channel, index) => Math.abs(channel - expectedColor[index]) <= 2), `${mode}: painted chart pixel matches computed color ${mark.css['background-color']} (${actual}); frame opacity ${await window.webContents.executeJavaScript('getComputedStyle(document.querySelector("iframe")).opacity')}`)
             }
             assert.deepEqual(pixel(parent.x + parent.width - 2, parent.y + parent.height - 2), pixel(2, 2), `${mode}: the iframe canvas must blend into the page`)
             if (screenshots) await writeFile(path.join(screenshots, `${mode}${width ? '-narrow' : ''}.png`), image.toPNG())
@@ -143,6 +144,64 @@ app.whenReady().then(async () => {
         }
     }
     console.log('PASS: dark/light and 320px real iframe pixels, data geometry, contrast, monotonic heat scale and palette exports')
+    const naturalHeight = await window.webContents.executeJavaScript('window.visualizationNaturalHeightCase()')
+    assert(naturalHeight >= 981, `a tall visualization shows its complete content, not the authored 160px cap: ${naturalHeight}`)
+    const naturalFrame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
+    const naturalOverflow = await naturalFrame.executeJavaScript('({horizontal:document.documentElement.scrollWidth>innerWidth,vertical:document.documentElement.scrollHeight>innerHeight+1,svgWidth:document.querySelector("svg").getBoundingClientRect().width})')
+    assert(naturalOverflow.horizontal && !naturalOverflow.vertical, 'only horizontal visualization overflow needs an inner scrollbar')
+    assert(naturalOverflow.svgWidth >= 1200, `wide SVG labels retain authored size rather than shrinking to the viewport: ${naturalOverflow.svgWidth}`)
+    await window.webContents.executeJavaScript('window.scrollTo(0,0)')
+    const wheelPoint = await window.webContents.executeJavaScript('(()=>{const r=document.querySelector("iframe").getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(Math.min(innerHeight-60,r.y+100))}})()')
+    await naturalFrame.executeJavaScript('window.fixtureWheelEvents=[];addEventListener("wheel",e=>fixtureWheelEvents.push({y:e.deltaY,x:e.deltaX,ctrl:e.ctrlKey}),true)')
+    await window.webContents.executeJavaScript('window.fixtureWheelMessages=[];addEventListener("message",e=>{if(e.data?.type==="zyra:visualization-wheel")fixtureWheelMessages.push(e.data)})')
+    // DevTools delivers trusted renderer input even though this disposable
+    // window intentionally never acquires OS focus or becomes visible.
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...wheelPoint })
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', ...wheelPoint, deltaY: 180, deltaX: 0 })
+    await new Promise(resolve => setTimeout(resolve, 160))
+    const wheelResult = await window.webContents.executeJavaScript('({scrollY,scrollHeight:document.documentElement.scrollHeight,height:innerHeight,messages:fixtureWheelMessages})')
+    assert(wheelResult.scrollY > 0, 'a real vertical wheel over the sandbox moves the parent chat/page: ' + JSON.stringify({point:wheelPoint,parent:wheelResult,child:await naturalFrame.executeJavaScript('fixtureWheelEvents')}))
+    console.log('PASS: full natural height, horizontal-only overflow, real wheel routing over opaque iframe')
+    await window.webContents.executeJavaScript('window.visualizationViewportHeightCase()')
+    console.log('PASS: viewport-relative chart height settles without iframe resize feedback')
+    await window.webContents.executeJavaScript('window.visualizationScrollablePanelCase()')
+    const panelFrame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
+    const panelWheel = async (deltaY, selector = '#scroll-panel') => {
+        const local = await panelFrame.executeJavaScript(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(),p=document.querySelector('#scroll-panel').getBoundingClientRect();return {x:(Math.max(r.left,p.left)+Math.min(r.right,p.right))/2,y:(Math.max(r.top,p.top)+Math.min(r.bottom,p.bottom))/2}})()`)
+        const box = await window.webContents.executeJavaScript('(()=>{const r=document.querySelector("iframe").getBoundingClientRect();return {x:r.x,y:r.y}})()')
+        const point = { x: Math.round(box.x + local.x), y: Math.round(box.y + local.y) }
+        await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+        await cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaY, deltaX: 0 })
+        await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    await panelWheel(80)
+    const panelScroll = await panelFrame.executeJavaScript('document.querySelector("#scroll-panel").scrollTop')
+    const parentScroll = await window.webContents.executeJavaScript('scrollY')
+    assert(panelScroll >= 79 && parentScroll === 0, `authored panels consume their native wheel before chat scrolls: panel=${panelScroll}, parent=${parentScroll}`)
+    await panelFrame.executeJavaScript('(()=>{const p=document.querySelector("#scroll-panel");p.scrollTop=p.scrollHeight-p.clientHeight-20})()')
+    await panelWheel(80)
+    assert.equal(await panelFrame.executeJavaScript('(()=>{const p=document.querySelector("#scroll-panel");return p.scrollHeight-p.clientHeight-p.scrollTop})()'), 0)
+    assert(Math.abs(await window.webContents.executeJavaScript('scrollY') - 60) <= 1, 'only the 60px downward remainder reaches the chat')
+    await window.webContents.executeJavaScript('scrollTo(0,100)')
+    await panelFrame.executeJavaScript('document.querySelector("#scroll-panel").scrollTop=20')
+    await panelWheel(-80)
+    assert.equal(await panelFrame.executeJavaScript('document.querySelector("#scroll-panel").scrollTop'), 0)
+    assert(Math.abs(await window.webContents.executeJavaScript('scrollY') - 40) <= 1, 'only the 60px upward remainder reaches the chat')
+    await window.webContents.executeJavaScript('scrollTo(0,0)')
+    await panelFrame.executeJavaScript('(()=>{const p=document.querySelector("#scroll-panel");p.scrollTop=p.scrollHeight;p.style.overscrollBehaviorY="contain"})()')
+    await panelWheel(80)
+    assert.equal(await window.webContents.executeJavaScript('scrollY'), 0, 'authored overscroll containment blocks parent forwarding')
+    await panelFrame.executeJavaScript('(()=>{const p=document.querySelector("#scroll-panel");p.style.overscrollBehaviorY="auto";p.scrollTop=p.scrollHeight-p.clientHeight-20;p.dispatchEvent(new WheelEvent("wheel",{bubbles:true,cancelable:true,deltaY:1,deltaMode:2}))})()')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert(Math.abs(await window.webContents.executeJavaScript('scrollY') - 140) <= 1, 'page deltas use the authored panel viewport before forwarding')
+    await window.webContents.executeJavaScript('scrollTo(0,0)')
+    await panelFrame.executeJavaScript(`(()=>{const p=document.querySelector('#scroll-panel');p.innerHTML='<div style="height:640px;position:relative"><div id="inner-panel" style="position:absolute;bottom:0;height:80px;width:100%;overflow-y:auto"><div style="height:320px">Nested content</div></div></div>';p.scrollTop=p.scrollHeight-p.clientHeight-40;const inner=document.querySelector('#inner-panel');inner.scrollTop=inner.scrollHeight-inner.clientHeight-20})()`)
+    await panelWheel(80, '#inner-panel')
+    assert(Math.abs(await window.webContents.executeJavaScript('scrollY') - 20) <= 1, 'nested panels consume their combined capacity before the final 20px reaches chat')
+    const nativeGestures = await panelFrame.executeJavaScript(`['control','shift','horizontal'].map(kind=>{const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:80,deltaX:kind==='horizontal'?100:0,ctrlKey:kind==='control',shiftKey:kind==='shift'});document.querySelector('#inner-panel').dispatchEvent(event);return !event.defaultPrevented})`)
+    assert(nativeGestures.every(Boolean), 'zoom, shift and horizontal gestures remain native')
+    await window.webContents.executeJavaScript('document.body.style.minHeight="";scrollTo(0,0)')
+    console.log('PASS: native authored panel scrolling, bidirectional partial remainders, nested capacity, page units and overscroll containment')
     for (const font of ['bricolage', 'hanken', 'managed:visualization-fixture']) {
         await window.webContents.executeJavaScript(`window.visualizationFontCase('${font}')`)
         const parentDocument = (await cdp('DOM.getDocument')).root
@@ -183,18 +242,22 @@ app.whenReady().then(async () => {
     const interactive = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
     window.webContents.focus()
     const beforeExpansion = await interactive.executeJavaScript(`(()=>{const point=document.querySelector('circle');point.focus();return {point:point.outerHTML,focused:document.activeElement===point,width:document.body.clientWidth,gutter:getComputedStyle(document.documentElement).scrollbarGutter,tooltip:document.querySelector('[role=tooltip]').textContent,tooltipVisible:!document.querySelector('[role=tooltip]').hidden,summaryWidth:document.querySelector('summary').getBoundingClientRect().width}})()`)
-    assert.equal(beforeExpansion.gutter, 'stable')
+    assert.equal(beforeExpansion.gutter, 'auto')
     assert.equal(beforeExpansion.tooltip, 'Sample: 84 units', JSON.stringify(beforeExpansion))
     assert(beforeExpansion.tooltipVisible, 'data-point preview is also available through keyboard focus')
     assert(beforeExpansion.summaryWidth >= beforeExpansion.width - 3, 'disclosure fills the content width')
     const animating = await interactive.executeJavaScript(`(()=>{document.querySelector('summary').click();return document.getAnimations().length})()`)
     assert(animating > 0, 'disclosure expansion animates')
     await new Promise(resolve => setTimeout(resolve, 350))
-    const expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,overflow:document.documentElement.scrollHeight>document.documentElement.clientHeight})`)
-    assert(expanded.open && expanded.overflow, 'expanded data remains scrollable within the authored cap')
+    let expanded
+    for (let attempt = 0; attempt < 120; attempt++) {
+        expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,scrollHeight:document.documentElement.scrollHeight,viewport:innerHeight,contentHeight:document.querySelector('.zyra-viz-content').getBoundingClientRect().height,overflow:document.documentElement.scrollHeight>innerHeight+1,animating:document.getAnimations().some(animation=>animation.playState==='running'||animation.pending)})`)
+        if (expanded.open && !expanded.overflow && !expanded.animating) break
+        await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert(expanded.open && !expanded.overflow && !expanded.animating, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
     assert.equal(expanded.width, beforeExpansion.width, 'scrollbar appearance does not move content sideways')
-    for (let i = 0; i < 40 && await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') !== 320; i++) await new Promise(resolve => setTimeout(resolve, 25))
-    assert.equal(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height'), 320)
+    assert(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') > 320, 'opening a long table grows the chat visualization beyond its initial height')
     await interactive.executeJavaScript(`document.querySelector('summary').click()`)
     for (let i = 0; i < 40 && await interactive.executeJavaScript('document.querySelector("details").open'); i++) await new Promise(resolve => setTimeout(resolve, 25))
     assert.equal(await interactive.executeJavaScript('document.querySelector("details").open'), false, await interactive.executeJavaScript(`JSON.stringify({expanded:document.querySelector('summary').getAttribute('aria-expanded'),animations:document.getAnimations().map(a=>({state:a.playState,time:a.currentTime})),hidden:document.hidden})`))

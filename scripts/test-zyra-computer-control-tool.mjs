@@ -80,7 +80,7 @@ assert.equal(prepareZyraComputerToolsForPrompt({
   computerToolSearchName: COMPUTER_TOOL_SEARCH_NAME,
 }, 'Use computer control to open Calculator.'), true)
 assert(COMPUTER_TOOLSET_NAMES.every((name) => session.active.includes(name)), 'explicit computer-control prompts preload the deferred tools before the first model turn')
-assert(!session.active.includes(COMPUTER_TOOL_SEARCH_NAME), 'an already-preloaded turn cannot waste its first provider round trip on tool search')
+assert(session.active.includes(COMPUTER_TOOL_SEARCH_NAME), 'preloading retains discovery while all computer tools are already available without a search round trip')
 applyComputerSearchOnlyState(session)
 
 const search = tools.find((tool) => tool.name === COMPUTER_TOOL_SEARCH_NAME)

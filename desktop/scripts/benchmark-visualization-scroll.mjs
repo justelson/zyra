@@ -17,7 +17,9 @@ try {
     if (!policy) throw new Error('Real app CSP must be present')
     await writeFile(join(directory, 'fixture.js'), bundle.outputFiles[0].text)
     await writeFile(join(directory, 'visualization-frame.html'), visualizationFrameDocument())
-    await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${policy}<style>
+    const appCss = await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8')
+    const scrollbarCss = (appCss.match(/\.assistant-(?:chat|timeline)-scrollbar[^{}]*\{[^{}]*\}/g) || []).join('\n')
+    await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${policy}<style>${scrollbarCss}
     html,body,#root{height:100%;margin:0}:root{--color-bg:#101318;--color-card:#181c22;--color-text:#eef1f6;--color-text-muted:#a8b0bd;--accent-primary:#568cff;--surface-divider:#343b46}
     body{font:14px system-ui;background:var(--color-bg);color:var(--color-text)}.h-full{height:100%}.w-full{width:100%}.relative{position:relative}.absolute{position:absolute}.inset-0{inset:0}.pb-4{padding-bottom:16px}.my-3{margin:12px 0}.mb-2{margin-bottom:8px}.flex{display:flex}.items-center{align-items:center}iframe{display:block;width:100%;border:0}figure{margin:12px 0}p{margin:8px 0}header{height:26px}.markdown-image-frame,.markdown-image-open,.markdown-video-frame{display:block}.markdown-image-open{position:relative;width:fit-content;max-width:100%}.markdown-image-open-label,.markdown-image-loading{display:none}img{height:auto;max-width:100%}video{display:block;max-width:100%;max-height:560px}.min-w-0{min-width:0}.gap-1{gap:4px}.text-sparkle-text-muted{color:var(--color-text-muted)}
     </style></head><body><div id="root"></div><script src="./fixture.js"></script></body></html>`)
@@ -42,7 +44,12 @@ try {
                     const inputs=await window.webContents.executeJavaScript('(window.visualizationScrollInputs||[]).splice(0)');
                     for(const input of inputs){
                         if(input.type==='resize')window.setSize(input.width,input.height);
-                        else {
+                        else if(input.type==='scrollbar'){
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.y});
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:input.x,y:input.y,button:'left',buttons:1,clickCount:1});
+                            await new Promise(resolve=>setTimeout(resolve,input.holdMs));
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:input.x,y:input.y,button:'left',buttons:0,clickCount:1});
+                        } else {
                             await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.y});
                             await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseWheel',x:input.x,y:input.y,deltaX:0,deltaY:input.deltaY});
                         }
@@ -72,7 +79,7 @@ try {
         if (result.supportsAtomicMove && (result.updates.frameReloads > 0 || result.samples.some(sample => sample.frameReloads > 0))) throw new Error('Unchanged previews reloaded during chat updates or scrolling')
         if (result.cache.entries > result.cache.maxEntries || result.cache.bytes > result.cache.maxBytes) throw new Error('Visualization cache exceeded its memory limit')
         if (result.samples[2].sanitizations > 0) throw new Error('Warm scrolling must reuse sanitized documents')
-        if (!result.mixedMedia?.trustedWheels || !result.mixedMedia.iframeWheel || !result.mixedMedia.explicitLatest || result.mixedMedia.stability.some(check => check.driftPx > 2)) throw new Error('Mixed-media reading/follow checks did not pass')
+        if (!result.mixedMedia?.trustedWheels || !result.mixedMedia.iframeWheel || !result.mixedMedia.explicitLatest || !result.mixedMedia.scrollbarTrack || result.mixedMedia.trustedScrollbarPresses < 2 || result.mixedMedia.stability.some(check => check.driftPx > 2)) throw new Error('Mixed-media reading/follow checks did not pass')
         console.log('PASS: unchanged-frame reuse, bounded cache, trusted wheel input and stable mixed-media prose within 2px')
     }
     if (report) { await mkdir(dirname(resolve(report)), { recursive: true }); await writeFile(resolve(report), await readFile(join(directory, 'report.json'))) }

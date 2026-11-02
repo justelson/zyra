@@ -199,9 +199,23 @@ async function checkMixedMediaScroll() {
     if (distance() < 20) throw new Error('A layout correction falsely reacquired end follow after upward intent')
     scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
     await until(() => distance() <= 2, 'Explicit Latest must restore end follow')
+    const trackPointers: unknown[] = []
+    scroller.addEventListener('pointerdown', event => { if (event.isTrusted) trackPointers.push({ x: event.clientX, y: event.clientY, target: (event.target as Element).tagName }) })
+    for (const holdMs of [30, 600]) {
+        render(mixedRows); await pause(250)
+        scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+        await until(() => distance() <= 2, 'Scrollbar setup follows the latest content')
+        await realWheel(-Math.round(scroller.clientHeight * 0.55))
+        const bounds = scroller.getBoundingClientRect()
+        await hostInput({ type: 'scrollbar', x: bounds.right - 1, y: bounds.top + scroller.clientHeight - 2, holdMs })
+        await until(() => distance() <= 2, `Stationary scrollbar track press reaches bottom: ${JSON.stringify(trackPointers)}`)
+        render([...mixedRows, marker]); await pause(300)
+        if (distance() > 2) throw new Error(`Stationary scrollbar track ${holdMs}ms did not resume follow: distance=${distance()}, pointers=${JSON.stringify(trackPointers)}`)
+    }
+    if (trackPointers.length < 2) throw new Error('Both native scrollbar gestures must deliver trusted pointer input')
     if (!trustedWheels) throw new Error('No trusted Electron wheel reached chat')
     URL.revokeObjectURL(shortVideo); URL.revokeObjectURL(tallVideo)
-    return { stability, trustedWheels, iframeWheel: true, explicitLatest: true, remount: true, syntheticMedia: 'real SVG decoding and canvas-recorded WebM metadata through production Markdown components' }
+    return { stability, trustedWheels, trustedScrollbarPresses: trackPointers.length, scrollbarTrack: true, iframeWheel: true, explicitLatest: true, remount: true, syntheticMedia: 'real SVG decoding and canvas-recorded WebM metadata through production Markdown components' }
 }
 
 function checkBoundedAnchorFallback() {

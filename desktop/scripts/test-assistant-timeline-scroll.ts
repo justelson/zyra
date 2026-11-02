@@ -17,6 +17,7 @@ import {
     resolveAssistantInitialHistoryBackfill,
     resolveAssistantHistoryStreamPlan,
     resolveAssistantScrollbarHistoryDemand,
+    resolveAssistantScrollbarTrackDirection,
     updateAssistantHistoryScrollVelocity
 } from '../src/renderer/src/pages/assistant/assistant-history-streaming-policy'
 import { replaceAssistantTimelineActivityEntry } from '../src/renderer/src/pages/assistant/useAssistantTimelineEntries'
@@ -166,6 +167,15 @@ assert.ok(updateAssistantHistoryScrollVelocity(0, 700, 16) > updateAssistantHist
 assert.equal(normalizeAssistantHistoryWheelDelta(3, 0, 900), 3)
 assert.equal(normalizeAssistantHistoryWheelDelta(3, 1, 900), 48, 'line-mode wheels match the Markdown viewer pixel normalization')
 assert.equal(normalizeAssistantHistoryWheelDelta(1, 2, 900), 900, 'page-mode wheels normalize to the viewport')
+const track = { viewportSize: 800, scrollHeight: 8000, scrollTop: 3600, minimumThumbSize: 24 }
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 600 }), 'newer', 'a stationary click below the thumb supplies explicit downward intent')
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 100 }), 'older')
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 400 }), null, 'a stationary thumb press cannot turn layout compensation into user motion')
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, scrollHeight: 800000, scrollTop: 0, pointerOffset: 20 }), null, 'long histories respect the CSS-owned minimum thumb, not an unrealistically tiny ratio')
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, scrollHeight: 800000, scrollTop: 0, pointerOffset: 30 }), 'newer')
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, scrollHeight: 800, pointerOffset: 700 }), null)
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: Number.NaN }), null)
+assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 400, minimumThumbSize: Number.NaN }), null)
 assert.deepEqual(resolveAssistantScrollbarHistoryDemand({
     dragActive: false,
     dragDirection: null,

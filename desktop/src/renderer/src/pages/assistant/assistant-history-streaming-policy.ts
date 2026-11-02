@@ -112,6 +112,25 @@ export function resolveAssistantHistoryStreamPlan(
 
 export type AssistantHistoryDirection = 'older' | 'newer'
 
+export function resolveAssistantScrollbarTrackDirection(input: {
+    pointerOffset: number
+    viewportSize: number
+    scrollHeight: number
+    scrollTop: number
+    minimumThumbSize: number
+}): AssistantHistoryDirection | null {
+    if (!Object.values(input).every(Number.isFinite) || input.viewportSize <= 0
+        || input.scrollHeight <= input.viewportSize || input.minimumThumbSize <= 0
+        || input.pointerOffset < 0 || input.pointerOffset > input.viewportSize) return null
+    // Timeline CSS owns a button-free track and this minimum thumb length.
+    // A press inside the thumb remains directionless until actual pointer motion.
+    const thumbSize = Math.min(input.viewportSize, Math.max(input.minimumThumbSize, input.viewportSize ** 2 / input.scrollHeight))
+    const scrollable = input.scrollHeight - input.viewportSize
+    const thumbTop = clamp(input.scrollTop, 0, scrollable) / scrollable * (input.viewportSize - thumbSize)
+    return input.pointerOffset < thumbTop ? 'older'
+        : input.pointerOffset > thumbTop + thumbSize ? 'newer' : null
+}
+
 export function resolveAssistantScrollbarHistoryDemand(input: {
     dragActive: boolean
     dragDirection: AssistantHistoryDirection | null

@@ -308,6 +308,20 @@ body.light .office-preview-root {
   background: var(--surface-scrollbar-hover);
 }
 
+/* The timeline's input policy reads this owned thumb geometry for track clicks. */
+.assistant-timeline-scrollbar {
+  --assistant-scrollbar-thumb-min-height: 24px;
+}
+
+.assistant-timeline-scrollbar::-webkit-scrollbar-thumb {
+  min-height: var(--assistant-scrollbar-thumb-min-height);
+}
+
+.assistant-timeline-scrollbar::-webkit-scrollbar-button:vertical {
+  display: none;
+  height: 0;
+}
+
 /* ============================================================================
    Smooth Physics-Based Scrolling
    ============================================================================ */

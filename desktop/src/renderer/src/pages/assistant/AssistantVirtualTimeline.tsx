@@ -27,6 +27,7 @@ import {
     shouldRevealAssistantInitialHistory,
     resolveAssistantHistoryStreamPlan,
     resolveAssistantScrollbarHistoryDemand,
+    resolveAssistantScrollbarTrackDirection,
     updateAssistantHistoryScrollVelocity
 } from './assistant-history-streaming-policy'
 
@@ -598,8 +599,26 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                 cancelDisclosureAnchor()
                 stopFollowingForUserNavigation()
                 scrollbarDragActiveRef.current = true
-                scrollbarDragDirectionRef.current = null
+                const css = getComputedStyle(scrollElement)
+                const actualGutter = scrollElement.offsetWidth - scrollElement.clientWidth
+                    || parseFloat(getComputedStyle(scrollElement, '::-webkit-scrollbar').width) || 0
+                const direction = event.button === 0 && event.clientX >= bounds.right - actualGutter ? resolveAssistantScrollbarTrackDirection({
+                    pointerOffset: event.clientY - bounds.top - scrollElement.clientTop,
+                    viewportSize: scrollElement.clientHeight,
+                    scrollHeight: scrollElement.scrollHeight,
+                    scrollTop: scrollElement.scrollTop,
+                    minimumThumbSize: parseFloat(css.getPropertyValue('--assistant-scrollbar-thumb-min-height'))
+                }) : null
+                scrollbarDragDirectionRef.current = direction
                 scrollbarDragLastYRef.current = event.clientY
+                if (direction === 'older') {
+                    lastDownwardIntentAtRef.current = Number.NEGATIVE_INFINITY
+                    recordUpwardIntent(scrollElement.clientHeight)
+                    requestOlderPage()
+                } else if (direction === 'newer') {
+                    recordDownwardIntent(scrollElement.clientHeight)
+                    requestOrRetryNewerPage()
+                }
                 return
             }
             const button = target.closest('button[aria-expanded]')
@@ -636,6 +655,13 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             )
             lastUpwardIntentAtRef.current = now
         }
+        const recordDownwardIntent = (distancePx: number, now = performance.now()) => {
+            const elapsed = previousInputSampleAtRef.current > 0 ? now - previousInputSampleAtRef.current : 16
+            previousInputSampleAtRef.current = now
+            scrollVelocityRef.current = updateAssistantHistoryScrollVelocity(scrollVelocityRef.current, distancePx, elapsed)
+            lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
+            lastDownwardIntentAtRef.current = now
+        }
         const handleWheel = (event: WheelEvent) => {
             if (event.ctrlKey || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return
             cancelDisclosureAnchor()
@@ -658,24 +684,13 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                 recordUpwardIntent(wheelDistance)
                 requestOlderPage()
             } else if (event.deltaY > 0) {
-                const now = performance.now()
-                const elapsed = previousInputSampleAtRef.current > 0 ? now - previousInputSampleAtRef.current : 16
-                previousInputSampleAtRef.current = now
-                scrollVelocityRef.current = updateAssistantHistoryScrollVelocity(scrollVelocityRef.current, wheelDistance, elapsed)
-                lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
-                lastDownwardIntentAtRef.current = now
+                recordDownwardIntent(wheelDistance)
                 requestOrRetryNewerPage()
             }
         }
         const handleKeyDown = (event: KeyboardEvent) => {
             if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) {
-                const now = performance.now()
-                const distance = event.key === 'ArrowDown' ? 36 : scrollElement.clientHeight
-                const elapsed = previousInputSampleAtRef.current > 0 ? now - previousInputSampleAtRef.current : 16
-                previousInputSampleAtRef.current = now
-                scrollVelocityRef.current = updateAssistantHistoryScrollVelocity(scrollVelocityRef.current, distance, elapsed)
-                lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
-                lastDownwardIntentAtRef.current = now
+                recordDownwardIntent(event.key === 'ArrowDown' ? 36 : scrollElement.clientHeight)
                 requestOrRetryNewerPage()
                 return
             }
@@ -703,12 +718,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                     recordUpwardIntent(Math.abs(nextY - previousY))
                     requestOlderPage()
                 } else {
-                    const now = performance.now()
-                    const elapsed = previousInputSampleAtRef.current > 0 ? now - previousInputSampleAtRef.current : 16
-                    previousInputSampleAtRef.current = now
-                    scrollVelocityRef.current = updateAssistantHistoryScrollVelocity(scrollVelocityRef.current, Math.abs(nextY - previousY), elapsed)
-                    lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
-                    lastDownwardIntentAtRef.current = now
+                    recordDownwardIntent(Math.abs(nextY - previousY))
                     requestOrRetryNewerPage()
                 }
             }
@@ -954,7 +964,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             }}
             style={{ visibility: coldHistoryPending ? 'hidden' : undefined }}
             aria-busy={coldHistoryPending || !startupSettled}
-            className="assistant-chat-scrollbar h-full w-full overflow-x-hidden [overflow-anchor:none]"
+            className="assistant-chat-scrollbar assistant-timeline-scrollbar h-full w-full overflow-x-hidden [overflow-anchor:none]"
             contentContainerClassName="mx-auto w-full max-w-3xl px-4 pt-0 md:translate-x-[2px]"
         />
         {coldHistoryPending ? <div role="status" className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-sparkle-text-muted">Loading chat…</div> : null}

@@ -171,6 +171,15 @@ const snacks = [['Moon chips', 84], ['Byte bites', 57], ['RAM rolls', 32]] as co
     return document.querySelector('iframe')!.getBoundingClientRect().height
 }
 
+;(window as any).visualizationScrollablePanelCase = async () => {
+    render('<visualization title="Scrollable panel" height="160">\n<div id="scroll-panel" style="height:160px;overflow-y:auto"><div style="height:640px">Scrollable chart details</div></div><p>Caption</p>\n</visualization>', false)
+    await until(() => document.querySelector('iframe'))
+    await waitForFrame(document.querySelector('iframe')!)
+    await until(() => document.querySelector('iframe')!.getBoundingClientRect().height >= 180)
+    document.body.style.minHeight = '2000px'
+    window.scrollTo(0, 0)
+}
+
 ;(window as any).visualizationViewportHeightCase = async () => {
     const host = document.querySelector<HTMLElement>('#root')!
     host.style.width = '320px'

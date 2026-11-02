@@ -5,10 +5,12 @@ import { buildSync } from 'esbuild'
 
 const runtimePath = fileURLToPath(new URL('../../src/renderer/src/components/ui/visualization/visualization-frame-runtime.js', import.meta.url))
 const viewportPath = fileURLToPath(new URL('../../src/renderer/src/components/ui/visualization/visualization-viewport-runtime.js', import.meta.url))
+const wheelPath = fileURLToPath(new URL('../../src/renderer/src/components/ui/visualization/visualization-wheel-runtime.js', import.meta.url))
+const runtimePaths = [runtimePath, viewportPath, wheelPath]
 let cachedSources = ''
 let cachedScript = ''
 export function visualizationFrameDocument() {
-    const sources = [runtimePath, viewportPath].map(file => readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).join('\0')
+    const sources = runtimePaths.map(file => readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).join('\0')
     if (sources !== cachedSources) {
         cachedScript = buildSync({ entryPoints: [runtimePath], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022', logLevel: 'silent' }).outputFiles[0].text
         cachedSources = sources
@@ -22,8 +24,8 @@ export function visualizationFramePlugin() {
     return {
         name: 'zyra:visualization-frame',
         configureServer(server) {
-            server.watcher.add([runtimePath, viewportPath])
-            const refresh = file => { if (file === runtimePath || file === viewportPath) server.ws.send({ type: 'full-reload', path: '*' }) }
+            server.watcher.add(runtimePaths)
+            const refresh = file => { if (runtimePaths.includes(file)) server.ws.send({ type: 'full-reload', path: '*' }) }
             server.watcher.on('change', refresh)
             server.httpServer?.once('close', () => server.watcher.off('change', refresh))
             server.middlewares.use((request, response, next) => {

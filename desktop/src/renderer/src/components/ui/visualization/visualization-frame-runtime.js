@@ -1,4 +1,5 @@
 import { installStableVisualizationViewport } from './visualization-viewport-runtime.js'
+import { consumeVisualizationWheelDelta } from './visualization-wheel-runtime.js'
 
 // App-owned presentation only. Runs in an opaque sandbox with no network access.
 (() => {
@@ -36,10 +37,8 @@ import { installStableVisualizationViewport } from './visualization-viewport-run
     addEventListener('resize', () => { refreshViewport(); report() })
     if (event.data.fitContent === true) {
         addEventListener('wheel', wheel => {
-            if (wheel.ctrlKey || wheel.shiftKey || !wheel.deltaY || Math.abs(wheel.deltaX) >= Math.abs(wheel.deltaY)) return
-            const unit = wheel.deltaMode === 1 ? 21 : wheel.deltaMode === 2 ? innerHeight : 1
-            wheel.preventDefault()
-            parent.postMessage({ type: 'zyra:visualization-wheel', channel, deltaY: Math.max(-10_000, Math.min(10_000, wheel.deltaY * unit)) }, '*')
+            const remaining = consumeVisualizationWheelDelta(wheel)
+            if (remaining !== null && remaining !== 0) parent.postMessage({ type: 'zyra:visualization-wheel', channel, deltaY: remaining }, '*')
         }, { passive: false })
     }
     addEventListener('load', report)

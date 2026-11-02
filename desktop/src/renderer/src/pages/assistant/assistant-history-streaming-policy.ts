@@ -112,6 +112,30 @@ export function resolveAssistantHistoryStreamPlan(
 
 export type AssistantHistoryDirection = 'older' | 'newer'
 
+export function resolveAssistantScrollbarReleaseDirection(input: {
+    previousY: number | null
+    pointerY: number
+    direction: AssistantHistoryDirection | null
+}): AssistantHistoryDirection | null {
+    if (input.previousY === null || !Number.isFinite(input.previousY) || !Number.isFinite(input.pointerY)) return null
+    const delta = input.pointerY - input.previousY
+    return Math.abs(delta) > 2 ? delta < 0 ? 'older' : 'newer' : input.direction
+}
+
+export function resolveAssistantSpaceScrollDirection(input: {
+    key: string
+    shiftKey: boolean
+    ctrlKey: boolean
+    altKey: boolean
+    metaKey: boolean
+    defaultPrevented: boolean
+    isComposing: boolean
+}, consumesSpace: boolean): AssistantHistoryDirection | null {
+    if (![' ', 'Spacebar'].includes(input.key) || consumesSpace || input.defaultPrevented
+        || input.isComposing || input.ctrlKey || input.altKey || input.metaKey) return null
+    return input.shiftKey ? 'older' : 'newer'
+}
+
 export function resolveAssistantScrollbarTrackDirection(input: {
     pointerOffset: number
     viewportSize: number

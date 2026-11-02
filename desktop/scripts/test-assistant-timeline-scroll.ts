@@ -18,6 +18,8 @@ import {
     resolveAssistantHistoryStreamPlan,
     resolveAssistantScrollbarHistoryDemand,
     resolveAssistantScrollbarTrackDirection,
+    resolveAssistantSpaceScrollDirection,
+    resolveAssistantScrollbarReleaseDirection,
     updateAssistantHistoryScrollVelocity
 } from '../src/renderer/src/pages/assistant/assistant-history-streaming-policy'
 import { replaceAssistantTimelineActivityEntry } from '../src/renderer/src/pages/assistant/useAssistantTimelineEntries'
@@ -167,6 +169,19 @@ assert.ok(updateAssistantHistoryScrollVelocity(0, 700, 16) > updateAssistantHist
 assert.equal(normalizeAssistantHistoryWheelDelta(3, 0, 900), 3)
 assert.equal(normalizeAssistantHistoryWheelDelta(3, 1, 900), 48, 'line-mode wheels match the Markdown viewer pixel normalization')
 assert.equal(normalizeAssistantHistoryWheelDelta(1, 2, 900), 900, 'page-mode wheels normalize to the viewport')
+assert.equal(resolveAssistantScrollbarReleaseDirection({ previousY: 100, pointerY: 140, direction: null }), 'newer')
+assert.equal(resolveAssistantScrollbarReleaseDirection({ previousY: 140, pointerY: 100, direction: null }), 'older')
+assert.equal(resolveAssistantScrollbarReleaseDirection({ previousY: 100, pointerY: 100, direction: null }), null, 'stationary thumb release cannot infer intent from a layout change')
+assert.equal(resolveAssistantScrollbarReleaseDirection({ previousY: null, pointerY: 140, direction: 'newer' }), null, 'track presses retain their own ownership path')
+const space = { key: ' ', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, defaultPrevented: false, isComposing: false }
+assert.equal(resolveAssistantSpaceScrollDirection(space, false), 'newer')
+assert.equal(resolveAssistantSpaceScrollDirection({ ...space, shiftKey: true }, false), 'older')
+assert.equal(resolveAssistantSpaceScrollDirection({ ...space, key: 'Spacebar' }, false), 'newer')
+assert.equal(resolveAssistantSpaceScrollDirection({ ...space, key: 'Enter' }, false), null)
+assert.equal(resolveAssistantSpaceScrollDirection(space, true), null, 'controls that own Space cannot create page-down intent')
+for (const flag of ['ctrlKey', 'altKey', 'metaKey', 'defaultPrevented', 'isComposing'] as const) {
+    assert.equal(resolveAssistantSpaceScrollDirection({ ...space, [flag]: true }, false), null, `${flag} must preserve a non-paging Space`)
+}
 const track = { viewportSize: 800, scrollHeight: 8000, scrollTop: 3600, minimumThumbSize: 24 }
 assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 600 }), 'newer', 'a stationary click below the thumb supplies explicit downward intent')
 assert.equal(resolveAssistantScrollbarTrackDirection({ ...track, pointerOffset: 100 }), 'older')

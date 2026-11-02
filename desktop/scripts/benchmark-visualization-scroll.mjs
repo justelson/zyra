@@ -36,6 +36,7 @@ try {
             // CDP dispatch reaches an offscreen Chromium surface without OS focus.
             // These are trusted compositor inputs, not synthetic DOM wheel events.
             window.webContents.debugger.attach('1.3');
+            await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled',{enabled:true});
             let draining=false;
             const inputTimer=setInterval(async()=>{
                 if(draining||window.isDestroyed())return;
@@ -44,7 +45,23 @@ try {
                     const inputs=await window.webContents.executeJavaScript('(window.visualizationScrollInputs||[]).splice(0)');
                     for(const input of inputs){
                         if(input.type==='resize')window.setSize(input.width,input.height);
-                        else if(input.type==='scrollbar'){
+                        else if(input.type==='thumb-reverse'){
+                            const thumbTrace={before:await window.webContents.executeJavaScript('document.querySelector(".assistant-timeline-scrollbar").scrollTop')};
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.y});
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:input.x,y:input.y,button:'left',buttons:1,clickCount:1});
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.upY,button:'left',buttons:1});
+                            await new Promise(resolve=>setTimeout(resolve,150));
+                            thumbTrace.afterUp=await window.webContents.executeJavaScript('document.querySelector(".assistant-timeline-scrollbar").scrollTop');
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.downY,button:'left',buttons:1});
+                            await new Promise(resolve=>setTimeout(resolve,150));
+                            thumbTrace.afterDown=await window.webContents.executeJavaScript('document.querySelector(".assistant-timeline-scrollbar").scrollTop');
+                            await window.webContents.executeJavaScript('window.visualizationThumbTrace='+JSON.stringify(thumbTrace));
+                            await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:input.x,y:input.downY,button:'left',buttons:0,clickCount:1});
+                        } else if(input.type==='key'){
+                            const parameters={key:' ',code:'Space',windowsVirtualKeyCode:32,nativeVirtualKeyCode:32,modifiers:input.shift?8:0};
+                            await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',...parameters,text:' ',unmodifiedText:' '});
+                            await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',...parameters});
+                        } else if(input.type==='scrollbar'){
                             await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:input.x,y:input.y});
                             await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:input.x,y:input.y,button:'left',buttons:1,clickCount:1});
                             await new Promise(resolve=>setTimeout(resolve,input.holdMs));
@@ -60,7 +77,7 @@ try {
             },25);
             let result;
             try{result=await window.webContents.executeJavaScript('window.visualizationScrollCheck')}finally{clearInterval(inputTimer);window.webContents.debugger.detach()};
-            result.environment={electron:process.versions.electron,chromium:process.versions.chrome,platform:process.platform,legendList:${JSON.stringify(metadata.version)},productionReact:true,hiddenWindow:true,offscreen:true,input:'trusted CDP Input.dispatchMouseEvent',os:${JSON.stringify(os.release())},cpu:${JSON.stringify(os.cpus()[0]?.model)},logicalCpus:${os.cpus().length},totalMemoryGiB:${Math.round(os.totalmem() / 2 ** 30)}};
+            result.environment={electron:process.versions.electron,chromium:process.versions.chrome,platform:process.platform,legendList:${JSON.stringify(metadata.version)},productionReact:true,hiddenWindow:true,offscreen:true,input:'trusted CDP Input.dispatchMouseEvent/Input.dispatchKeyEvent',os:${JSON.stringify(os.release())},cpu:${JSON.stringify(os.cpus()[0]?.model)},logicalCpus:${os.cpus().length},totalMemoryGiB:${Math.round(os.totalmem() / 2 ** 30)}};
             fs.writeFileSync(${JSON.stringify(join(directory, 'report.json'))},JSON.stringify(result,null,2));
             console.log(JSON.stringify(result,null,2));
             clearTimeout(timer);window.destroy();app.quit();
@@ -79,7 +96,7 @@ try {
         if (result.supportsAtomicMove && (result.updates.frameReloads > 0 || result.samples.some(sample => sample.frameReloads > 0))) throw new Error('Unchanged previews reloaded during chat updates or scrolling')
         if (result.cache.entries > result.cache.maxEntries || result.cache.bytes > result.cache.maxBytes) throw new Error('Visualization cache exceeded its memory limit')
         if (result.samples[2].sanitizations > 0) throw new Error('Warm scrolling must reuse sanitized documents')
-        if (!result.mixedMedia?.trustedWheels || !result.mixedMedia.iframeWheel || !result.mixedMedia.explicitLatest || !result.mixedMedia.scrollbarTrack || result.mixedMedia.trustedScrollbarPresses < 2 || result.mixedMedia.stability.some(check => check.driftPx > 2)) throw new Error('Mixed-media reading/follow checks did not pass')
+        if (!result.mixedMedia?.trustedWheels || !result.mixedMedia.iframeWheel || !result.mixedMedia.explicitLatest || !result.mixedMedia.scrollbarTrack || !result.mixedMedia.thumbReversal || !result.mixedMedia.keyboardPaging || !result.mixedMedia.keyboardControls || result.mixedMedia.trustedScrollbarPresses < 2 || result.mixedMedia.stability.some(check => check.driftPx > 2)) throw new Error('Mixed-media reading/follow checks did not pass')
         console.log('PASS: unchanged-frame reuse, bounded cache, trusted wheel input and stable mixed-media prose within 2px')
     }
     if (report) { await mkdir(dirname(resolve(report)), { recursive: true }); await writeFile(resolve(report), await readFile(join(directory, 'report.json'))) }

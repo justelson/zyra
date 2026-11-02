@@ -28,6 +28,8 @@ import {
     resolveAssistantHistoryStreamPlan,
     resolveAssistantScrollbarHistoryDemand,
     resolveAssistantScrollbarTrackDirection,
+    resolveAssistantSpaceScrollDirection,
+    resolveAssistantScrollbarReleaseDirection,
     updateAssistantHistoryScrollVelocity
 } from './assistant-history-streaming-policy'
 
@@ -43,6 +45,7 @@ const DEFAULT_DISCLOSURE_SETTLE_MS = 420
 const DISCLOSURE_SETTLE_PADDING_MS = 80
 const COMPLETION_LAYOUT_SETTLE_MS = 720
 const ASSISTANT_TIMELINE_USER_JUMP_EVENT = 'assistant:timeline-user-jump'
+const SPACE_CONSUMING_CONTROL_SELECTOR = 'button,input,textarea,select,summary,audio[controls],video[controls],[role~="button"],[role~="checkbox"],[role~="radio"],[role~="switch"],[role~="tab"],[role~="option"],[role~="menuitem"],[role~="menuitemcheckbox"],[role~="menuitemradio"],[role~="treeitem"],[role~="slider"],[role~="spinbutton"],[role~="combobox"],[role~="listbox"],[role~="textbox"],[role~="searchbox"],[role~="scrollbar"]'
 
 type LegendScrollViewHandle = {
     getScrollableNode?: () => HTMLElement | null
@@ -598,19 +601,22 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                 if (event.clientX < bounds.right - scrollbarGutter) return
                 cancelDisclosureAnchor()
                 stopFollowingForUserNavigation()
-                scrollbarDragActiveRef.current = true
                 const css = getComputedStyle(scrollElement)
                 const actualGutter = scrollElement.offsetWidth - scrollElement.clientWidth
                     || parseFloat(getComputedStyle(scrollElement, '::-webkit-scrollbar').width) || 0
-                const direction = event.button === 0 && event.clientX >= bounds.right - actualGutter ? resolveAssistantScrollbarTrackDirection({
+                const nativeScrollbarPress = event.button === 0 && event.clientX >= bounds.right - actualGutter
+                const direction = nativeScrollbarPress ? resolveAssistantScrollbarTrackDirection({
                     pointerOffset: event.clientY - bounds.top - scrollElement.clientTop,
                     viewportSize: scrollElement.clientHeight,
                     scrollHeight: scrollElement.scrollHeight,
                     scrollTop: scrollElement.scrollTop,
                     minimumThumbSize: parseFloat(css.getPropertyValue('--assistant-scrollbar-thumb-min-height'))
                 }) : null
+                scrollbarDragActiveRef.current = nativeScrollbarPress
                 scrollbarDragDirectionRef.current = direction
-                scrollbarDragLastYRef.current = event.clientY
+                // Native track presses keep their click direction. Thumb drags
+                // can reverse direction through subsequent primary motion.
+                scrollbarDragLastYRef.current = nativeScrollbarPress && !direction ? event.clientY : null
                 if (direction === 'older') {
                     lastDownwardIntentAtRef.current = Number.NEGATIVE_INFINITY
                     recordUpwardIntent(scrollElement.clientHeight)
@@ -632,15 +638,44 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             handleTimelinePointerDown(event as unknown as PointerEvent)
         }
         const trackScrollbarDragDirection = (event: PointerEvent) => {
-            if (!scrollbarDragActiveRef.current) return
+            if (!scrollbarDragActiveRef.current || !(event.buttons & 1)) return
             const previousY = scrollbarDragLastYRef.current
-            scrollbarDragLastYRef.current = event.clientY
-            if (scrollbarDragDirectionRef.current || previousY === null) return
+            if (previousY === null) return
             const deltaY = event.clientY - previousY
             if (Math.abs(deltaY) <= 2) return
+            scrollbarDragLastYRef.current = event.clientY
             scrollbarDragDirectionRef.current = deltaY < 0 ? 'older' : 'newer'
+            const now = performance.now()
+            lastUpwardIntentAtRef.current = deltaY < 0 ? now : Number.NEGATIVE_INFINITY
+            lastDownwardIntentAtRef.current = deltaY > 0 ? now : Number.NEGATIVE_INFINITY
         }
-        const finishScrollbarDrag = () => {
+        const finishScrollbarDrag = (event?: Event) => {
+            // Native thumbs may capture movement without DOM pointermove. A
+            // release displacement is still explicit input; layout delta isn't.
+            if (scrollbarDragActiveRef.current && event?.type === 'pointerup' && (event as PointerEvent).button === 0) {
+                const direction = resolveAssistantScrollbarReleaseDirection({
+                    previousY: scrollbarDragLastYRef.current,
+                    pointerY: (event as PointerEvent).clientY,
+                    direction: scrollbarDragDirectionRef.current
+                })
+                if (direction === 'older') {
+                    lastDownwardIntentAtRef.current = Number.NEGATIVE_INFINITY
+                    lastUpwardIntentAtRef.current = performance.now()
+                    requestOlderPage()
+                } else if (direction === 'newer') {
+                    lastUpwardIntentAtRef.current = Number.NEGATIVE_INFINITY
+                    lastDownwardIntentAtRef.current = performance.now()
+                    requestOrRetryNewerPage()
+                    const followState = resolveAssistantTimelineModeAfterScroll({
+                        userNavigatedAway: userNavigationAwayRef.current,
+                        resolvedMode: resolveAssistantTimelineScrollMode(scrollElement),
+                        movingTowardEnd: true,
+                        disclosureLayoutActive: disclosureTimerRef.current !== 0
+                    })
+                    userNavigationAwayRef.current = followState.userNavigatedAway
+                    updateScrollMode(followState.mode)
+                }
+            }
             scrollbarDragActiveRef.current = false
             scrollbarDragDirectionRef.current = null
             scrollbarDragLastYRef.current = null
@@ -689,12 +724,17 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             }
         }
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) {
+            const isSpace = [' ', 'Spacebar'].includes(event.key)
+            const target = isSpace && event.target instanceof Element ? event.target : null
+            const editable = target?.closest<HTMLElement>('[contenteditable]')
+            const consumesSpace = Boolean(editable?.isContentEditable || target?.closest(SPACE_CONSUMING_CONTROL_SELECTOR))
+            const spaceDirection = resolveAssistantSpaceScrollDirection(event, consumesSpace)
+            if (['ArrowDown', 'PageDown', 'End'].includes(event.key) || spaceDirection === 'newer') {
                 recordDownwardIntent(event.key === 'ArrowDown' ? 36 : scrollElement.clientHeight)
                 requestOrRetryNewerPage()
                 return
             }
-            const upwardIntent = ['ArrowUp', 'PageUp', 'Home'].includes(event.key)
+            const upwardIntent = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) || spaceDirection === 'older'
             if (!upwardIntent) return
             cancelDisclosureAnchor()
             stopFollowingForUserNavigation()

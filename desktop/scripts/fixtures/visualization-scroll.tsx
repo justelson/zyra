@@ -97,6 +97,7 @@ const renderRow = (row: TimelineDisplayRow) => {
         <DeferredMedia id={`video-${row.id}`} kind="video" />
         {Array.from({ length: 36 }, (_, i) => <p key={i} data-reading-probe={`${row.id}-${i}`}>Visible prose {i}. This text must remain in place while media above it finishes loading.</p>)}
         <VisualizationMessage content={chart(Number(row.id.slice(6)))} streaming={false} renderMarkdown={markdown} />
+        {row.id === 'mixed-11' ? <><button data-space-control onClick={() => { (window as any).spaceControlClicks = ((window as any).spaceControlClicks || 0) + 1 }}>Inspect details</button><textarea data-space-editor rows={1} defaultValue="" /></> : null}
     </>
 }
 const render = (data: TimelineDisplayRow[]) => flushSync(() => root.render(<AssistantVirtualTimeline
@@ -212,10 +213,56 @@ async function checkMixedMediaScroll() {
         render([...mixedRows, marker]); await pause(300)
         if (distance() > 2) throw new Error(`Stationary scrollbar track ${holdMs}ms did not resume follow: distance=${distance()}, pointers=${JSON.stringify(trackPointers)}`)
     }
+    render(mixedRows); await pause(200)
+    scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => distance() <= 2, 'Space setup reaches latest')
+    await realWheel(-Math.round(scroller.clientHeight * 0.45))
+    scroller.tabIndex = 0
+    scroller.focus({ preventScroll: true })
+    if (document.activeElement !== scroller) throw new Error('Timeline owns native Space keyboard focus')
+    await hostInput({ type: 'key', shift: false }); await pause(250)
+    await until(() => distance() <= 2, 'Native Space pages to the bottom')
+    render([...mixedRows, marker]); await pause(300)
+    if (distance() > 2) throw new Error(`Native Space paging did not resume follow: distance=${distance()}`)
+    await hostInput({ type: 'key', shift: true }); await pause(250)
+    if (distance() < 20) throw new Error('Native Shift+Space must page upward')
+    render(mixedRows); await pause(250)
+    if (distance() < 20) throw new Error('Shift+Space must retain reading mode across a data update')
+    render(mixedRows); await pause(150)
+    scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => distance() <= 2, 'Thumb reversal setup reaches latest')
+    const thumbBounds = scroller.getBoundingClientRect()
+    const thumbSize = Math.max(parseFloat(getComputedStyle(scroller).getPropertyValue('--assistant-scrollbar-thumb-min-height')), scroller.clientHeight ** 2 / scroller.scrollHeight)
+    await hostInput({ type: 'thumb-reverse', x: thumbBounds.right - 1, y: thumbBounds.top + scroller.clientHeight - thumbSize / 2,
+        upY: thumbBounds.top + scroller.clientHeight - thumbSize / 2 - 100, downY: thumbBounds.top + scroller.clientHeight - 2 })
+    await until(() => distance() <= 2, 'Reversed native thumb drag reaches bottom')
+    const nativeThumb = (window as any).visualizationThumbTrace
+    if (!(nativeThumb.before > nativeThumb.afterUp + 2 && nativeThumb.afterDown > nativeThumb.afterUp + 2)) throw new Error('Native thumb must really scroll in both directions')
+    render([...mixedRows, marker]); await pause(300)
+    if (distance() > 2) throw new Error(`Reversing a native thumb drag did not resume follow: distance=${distance()}, native=${JSON.stringify(nativeThumb)}`)
+    for (const selector of ['[data-space-control]', '[data-space-editor]']) {
+        render(mixedRows); await pause(150)
+        scroller.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+        await until(() => distance() <= 2, 'Control setup reaches latest')
+        await realWheel(-40)
+        const control = document.querySelector<HTMLElement>(selector)!
+        if (control instanceof HTMLTextAreaElement) control.value = ''
+        control.focus({ preventScroll: true })
+        const clicks = (window as any).spaceControlClicks || 0
+        await hostInput({ type: 'key', shift: false }); await pause(150)
+        if (control instanceof HTMLTextAreaElement) {
+            if (control.value !== ' ') throw new Error('Native Space inserts text in the focused editor')
+        } else if ((window as any).spaceControlClicks !== clicks + 1) throw new Error('Native Space activates the focused button')
+        // Positive layout compensation after a consuming key cannot count as
+        // page-down intent or reacquire end-following.
+        scroller.scrollTop = scroller.scrollHeight; await pause(150)
+        render([...mixedRows, marker]); await pause(300)
+        if (distance() < 20) throw new Error(`Space consumed by ${selector} falsely resumed following`)
+    }
     if (trackPointers.length < 2) throw new Error('Both native scrollbar gestures must deliver trusted pointer input')
     if (!trustedWheels) throw new Error('No trusted Electron wheel reached chat')
     URL.revokeObjectURL(shortVideo); URL.revokeObjectURL(tallVideo)
-    return { stability, trustedWheels, trustedScrollbarPresses: trackPointers.length, scrollbarTrack: true, iframeWheel: true, explicitLatest: true, remount: true, syntheticMedia: 'real SVG decoding and canvas-recorded WebM metadata through production Markdown components' }
+    return { stability, trustedWheels, trustedScrollbarPresses: trackPointers.length, scrollbarTrack: true, thumbReversal: true, keyboardPaging: true, keyboardControls: true, iframeWheel: true, explicitLatest: true, remount: true, syntheticMedia: 'real SVG decoding and canvas-recorded WebM metadata through production Markdown components' }
 }
 
 function checkBoundedAnchorFallback() {

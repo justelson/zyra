@@ -168,7 +168,8 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
     return (
         <div className={cn(
             'pointer-events-none z-[1] opacity-0 duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-visible/agent-inbox-row:pointer-events-auto group-has-[:focus-visible]/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:opacity-100 group-focus-visible/agent-inbox-row:opacity-100 group-has-[:focus-visible]/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 motion-reduce:transition-none',
-            'absolute right-0 top-1/2 -translate-y-1/2 transition-opacity',
+            // Translate inside the reserved gutter; never collapse the slot or shift reading geometry.
+            'absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 transition-[opacity,transform] group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 has-[:focus-visible]:translate-x-0',
             showLabel ? 'w-[max(4.75rem,76px)]' : 'w-[max(3.25rem,52px)]'
         )}>
             <div className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
@@ -214,10 +215,10 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
             <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
-                <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
-                    <div className="flex h-5 min-w-0 items-center gap-1.5">
+                <div className={cn('relative z-10 px-2.5 py-2', work ? 'min-h-[4.875rem]' : 'h-[4.875rem]')}>
+                    <div className={cn('flex min-w-0 items-center gap-1.5', work ? 'min-h-5' : 'h-5')}>
                         {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
-                        <span title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
+                        <span data-work-label={work ? true : undefined} title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 text-xs text-sparkle-text-secondary/85', work ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
                         <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 pr-[max(3.25rem,52px)] text-xs">
                             <span className="shrink-0">
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>

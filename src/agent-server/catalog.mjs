@@ -298,7 +298,7 @@ export class CanonicalChatCatalog {
     const previous = this.workContextUpdates.get(canonicalChatId) || Promise.resolve();
     const pending = previous.catch(() => {}).then(async () => {
       const saved = readChatWorkContext(this.record.metadata[canonicalChatId]?.workContext);
-      if (saved && saved.folderPath === next.folderPath && saved.kind === next.kind) return this.find(canonicalChatId, { allProjects: true });
+      if (saved && saved.folderPath === next.folderPath && saved.kind === next.kind && saved.shortName === next.shortName) return this.find(canonicalChatId, { allProjects: true });
       return this.updateChat(canonicalChatId, { workContext: { ...next, updatedAt: new Date().toISOString() } });
     });
     this.workContextUpdates.set(canonicalChatId, pending);

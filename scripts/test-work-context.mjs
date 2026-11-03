@@ -23,6 +23,12 @@ let session, server, client;
 try {
   for (const bad of [{ kind: 'made-up' }, { kind: 'coding', folderPath: '../outside' }, { kind: 'music', folderPath: 'https://example.com' }, { kind: 'research', folderPath: '/a\nb' }, { kind: 'coding', folderPath: folder, target: 'another-chat' }]) assert.throws(() => normalizeWorkContextInput(bad));
   assert.equal(readChatWorkContext({ folderPath: folder, kind: 'coding', updatedAt: 'bad' }), null);
+  // Semantic names are metadata, not a mechanical folder basename.
+  const named = normalizeWorkContextInput({ folderPath: folder, kind: 'coding', shortName: 'Chat scroll' });
+  assert.equal(named.shortName, 'Chat scroll');
+  assert.equal(readChatWorkContext({ ...named, updatedAt: new Date().toISOString() }).shortName, 'Chat scroll');
+  assert.ok(readChatWorkContext({ folderPath: folder, kind: 'coding', updatedAt: new Date().toISOString() }), 'legacy context remains readable');
+  for (const shortName of ['', 'a'.repeat(25), '2026-10-31', 'C:/workspace', 'Assistant', 'bad\nname']) assert.throws(() => normalizeWorkContextInput({ folderPath: folder, kind: 'coding', shortName }));
   let approvals = 0;
   const gate = createZyraPermissionGateExtension({ project: folder, filesystemScope: { roots: [{ path: folder, access: 'read-only' }] }, getPermissionMode: () => 'read-only', requestPermission: async () => { approvals++; return 'decline'; } });
   assert.equal(gate.canReadWorkFolder(folder), true);
@@ -32,15 +38,18 @@ try {
   const proposals = [];
   const controller = createWorkContextController({ onUpdate: async next => proposals.push(next), canReadFolder: value => gate.canReadWorkFolder(value) });
   assert.match(controller.prepare(null), /substantial work/);
-  const first = await controller.tool.execute('work-1', { folderPath: folder, kind: 'coding' });
+  assert.match(controller.prepare({ folderPath: folder, kind: 'coding', updatedAt: new Date().toISOString() }), /upgrade/i);
+  await assert.rejects(controller.tool.execute('missing-name', { folderPath: folder, kind: 'coding' }), /shortName/);
+  const first = await controller.tool.execute('work-1', { folderPath: folder, kind: 'coding', shortName: 'Chat scroll' });
   assert.equal(first.details.hiddenFromTimeline, true);
-  await controller.tool.execute('same', { folderPath: folder, kind: 'coding' }); assert.equal(proposals.length, 1);
-  await assert.rejects(controller.tool.execute('outside', { folderPath: directory, kind: 'research' }), /scope/);
-  await assert.rejects(controller.tool.execute('file', { folderPath: file, kind: 'coding' }), /not a file/);
+  await controller.tool.execute('same', { folderPath: folder, kind: 'coding', shortName: 'Chat scroll' }); assert.equal(proposals.length, 1);
+  await controller.tool.execute('name-only', { folderPath: folder, kind: 'coding', shortName: 'Preview build' }); assert.equal(proposals.length, 2, 'same folder and category can describe different actual tasks');
+  await assert.rejects(controller.tool.execute('outside', { folderPath: directory, kind: 'research', shortName: 'Scope check' }), /scope/);
+  await assert.rejects(controller.tool.execute('file', { folderPath: file, kind: 'coding', shortName: 'File check' }), /not a file/);
   await assert.rejects(controller.tool.execute('aborted', { kind: 'music' }, AbortSignal.abort()), /cancelled/);
   assert.equal(approvals, 0, 'decorating a Chat never prompts for or grants folder access');
   const failing = createWorkContextController({ onUpdate: async () => { throw new Error('Owner unavailable'); }, canReadFolder: () => true });
-  await assert.rejects(failing.tool.execute('failure', { kind: 'research' }), /Owner unavailable/);
+  await assert.rejects(failing.tool.execute('failure', { kind: 'research', shortName: 'Owner check' }), /Owner unavailable/);
 
   // Real SDK/provider tool loop, persisted transcript, hidden per-turn instructions.
   const { runZyraPrompt } = await import('../src/zyra-sdk.mjs');
@@ -50,7 +59,7 @@ try {
   const provider = (_model, context) => {
     const events = new AssistantMessageEventStream(); const initial = calls++ === 0;
     if (initial) { assert.ok(context.tools.some(tool => tool.name === 'set_work_context')); assert.match(JSON.stringify(context.messages), /substantial work/); assert.equal(context.messages.filter(message => message.role === 'user' && message.content?.some(part => part.text === 'Repair the app')).length, 1, 'the original user prompt is unchanged and appears once alongside hidden metadata context'); }
-    const message = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, usage, timestamp: Date.now(), stopReason: initial ? 'toolUse' : 'stop', content: initial ? [{ type: 'toolCall', id: 'metadata', name: 'set_work_context', arguments: { folderPath: folder, kind: 'debugging' } }] : [{ type: 'text', text: 'The repair is verified.' }] };
+    const message = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, usage, timestamp: Date.now(), stopReason: initial ? 'toolUse' : 'stop', content: initial ? [{ type: 'toolCall', id: 'metadata', name: 'set_work_context', arguments: { folderPath: folder, kind: 'debugging', shortName: 'Chat scroll' } }] : [{ type: 'text', text: 'The repair is verified.' }] };
     queueMicrotask(() => { events.push({ type: 'start', partial: message }); events.push({ type: 'done', reason: message.stopReason, message }); events.end(); }); return events;
   };
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(directory, 'auth.json'), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
@@ -76,7 +85,7 @@ try {
     isAlive() { return true; } dispose() {} sendControlResponse() {}
     async request(type, payload) {
       if (type === 'connect') return { threadId: chat.canonicalChatId, cwd: directory };
-      if (type === 'prompt') { received = payload.workContext; this.emit('event', { type: 'session_work_context', target: other.canonicalChatId, workContext: { folderPath: folder, kind: 'coding' } }); }
+      if (type === 'prompt') { received = payload.workContext; this.emit('event', { type: 'session_work_context', target: other.canonicalChatId, workContext: { folderPath: folder, kind: 'coding', shortName: 'Preview build' } }); }
       return {};
     }
   }
@@ -91,9 +100,13 @@ try {
   assert.equal(canonical.cwd, directory); assert.equal(canonical.project, directory); assert.equal(canonical.title, chat.title);
   assert.equal((await catalog.find(other.canonicalChatId)).workContext, null, 'worker metadata is bound to its own Chat, not any supplied target or selected UI');
   await send('second'); assert.equal(received.kind, 'coding', 'reconnection/next turn receives authoritative prior metadata');
-  await Promise.all([catalog.setWorkContext(chat.canonicalChatId, { folderPath: folder, kind: 'research' }), catalog.setWorkContext(chat.canonicalChatId, { folderPath: null, kind: 'music' })]);
+  assert.equal(received.shortName, 'Preview build', 'next-turn transport retains semantic name');
+  await catalog.setWorkContext(chat.canonicalChatId, { folderPath: folder, kind: 'coding', shortName: 'Chat scroll' });
+  assert.equal((await catalog.find(chat.canonicalChatId)).workContext.shortName, 'Chat scroll', 'canonical duplicate detection includes name-only changes');
+  await Promise.all([catalog.setWorkContext(chat.canonicalChatId, { folderPath: folder, kind: 'research', shortName: 'Model comparison' }), catalog.setWorkContext(chat.canonicalChatId, { folderPath: null, kind: 'music', shortName: 'Piano arrangement' })]);
   const cold = new CanonicalChatCatalog({ stateDirectory: directory, index });
   assert.equal((await cold.find(chat.canonicalChatId)).workContext.kind, 'music', 'ordered updates survive cold catalog load');
+  assert.equal((await cold.find(chat.canonicalChatId)).workContext.shortName, 'Piano arrangement', 'cold catalog retains semantic name');
   console.log('PASS: strict self-owned metadata, scope/symlink/abort guards without grants, real SDK/provider loop, hidden history, ordered canonical transport, next-turn hydration and cold recovery');
 } finally {
   client?.close(); await server?.stop(); session?.dispose();

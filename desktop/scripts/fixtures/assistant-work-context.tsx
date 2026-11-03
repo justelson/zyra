@@ -22,11 +22,11 @@ let sessions = [make('a', 'Investigate transcription and voice chat', 'C:/worksp
 const initial = sessions.map(session => ({ id: session.id, cwd: session.threads[0].cwd, projectId: session.projectId }))
 let selections = 0
 const root = createRoot(document.getElementById('root')!)
-const render = () => root.render(<div style={{ width: 330, height: 690, display: 'flex', flexDirection: 'column', padding: 12, background: '#171717', borderRight: '1px solid #292929' }}><input id="preserved-focus" style={{ position: 'absolute', left: -1000 }} /><div style={{ padding: '12px 10px', fontSize: 13, fontWeight: 600 }}>Chats</div><AssistantAgentInboxSidebar sessions={sessions} activeSessionId="b" activeThreadId="thread-b" commandPending={false} pendingControlThreadIds={new Set()} projectIconOverrides={{}} headerActions={null} onCreateProjectChat={() => {}} onSelectSession={() => { selections++ }} onRename={() => {}} getSessionMenuItems={() => []} onOpenContextMenu={() => {}} /></div>)
+const render = () => root.render(<div id="work-context-sidebar-fixture" style={{ width: 330, height: 690, display: 'flex', flexDirection: 'column', padding: 12, background: '#171717', borderRight: '1px solid #292929' }}><input id="preserved-focus" style={{ position: 'absolute', left: -1000 }} /><div style={{ padding: '12px 10px', fontSize: 13, fontWeight: 600 }}>Chats</div><AssistantAgentInboxSidebar sessions={sessions} activeSessionId="b" activeThreadId="thread-b" commandPending={false} pendingControlThreadIds={new Set()} projectIconOverrides={{}} headerActions={null} onCreateProjectChat={() => {}} onSelectSession={() => { selections++ }} onRename={() => {}} getSessionMenuItems={() => []} onOpenContextMenu={() => {}} /></div>)
 const row = (id: string) => document.querySelector<HTMLElement>(`[data-agent-inbox-layout-id="${id}"]`)!
 const check = (value: unknown, message: string) => { if (!value) throw new Error(message) }
 const until = async (predicate: () => unknown, message: string) => { const deadline = Date.now() + 5000; while (!predicate()) { if (Date.now() > deadline) throw new Error('Timeout: ' + message); await new Promise(resolve => setTimeout(resolve, 10)) } }
-const update = (id: string, folderPath: string | null, kind: NonNullable<AssistantSession['workContext']>['kind']) => { sessions = sessions.map(session => session.id === id ? { ...session, workContext: { folderPath, kind, updatedAt: new Date().toISOString() } } : session); render() }
+const update = (id: string, folderPath: string | null, kind: NonNullable<AssistantSession['workContext']>['kind'], shortName = kind === 'music' ? 'Piano arrangement' : kind === 'research' ? 'Model comparison' : 'Chat scroll') => { sessions = sessions.map(session => session.id === id ? { ...session, workContext: { folderPath, kind, shortName, updatedAt: new Date().toISOString() } } : session); render() }
 render()
 Object.assign(window, { sidebarContinuityCheck: (async () => {
     await until(() => row('a'), 'initial rows')
@@ -34,7 +34,20 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
     document.getElementById('preserved-focus')!.focus()
     update('a', 'C:/workspace/zyra', 'coding')
     await until(() => row('a').querySelector('.lucide-code'), 'work fallback before artwork arrives')
-    check(row('a').textContent?.includes('Code · Zyra'), 'short work label replaces the raw folder')
+    check(row('a').textContent?.includes('Code · Chat scroll'), 'semantic task name replaces the raw folder')
+    update('a', 'C:/workspace/zyra', 'coding', 'Preview build')
+    await until(() => row('a').textContent?.includes('Code · Preview build'), 'same folder supports a different actual task')
+    update('a', 'C:/workspace/2026-10-31_122530', 'video', 'Classic edit')
+    await until(() => row('a').textContent?.includes('Video · Classic edit'), 'timestamp folder uses supplied semantic name')
+    const fixture = document.getElementById('work-context-sidebar-fixture')!
+    for (const width of [240, 280, 330, 400]) {
+        fixture.style.width = `${width}px`
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        const label = row('a').querySelector<HTMLElement>('[data-work-label]')!
+        check(label.textContent === 'Video · Classic edit', `full work name at ${width}px`)
+        check(getComputedStyle(label).textOverflow !== 'ellipsis' && label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1, `work label wraps without truncation at ${width}px`)
+    }
+    fixture.style.width = '330px'
     update('a', 'C:/workspace/Tracks', 'music')
     await until(() => row('a').querySelector('.lucide-music'), 'changed work replaces its icon')
     releaseArtwork()

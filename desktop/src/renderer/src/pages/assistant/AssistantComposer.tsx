@@ -40,6 +40,7 @@ function AssistantComposerImpl(props: AssistantComposerProps) {
     return (
         <AssistantComposerView
             controller={controller}
+            queueState={props.queueState}
             modelInactivity={props.modelInactivity}
             realtimeVoiceDisabled={props.realtimeVoiceDisabled}
             onPrepareRealtimeVoice={prepareRealtimeVoice}

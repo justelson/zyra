@@ -15,7 +15,7 @@ try {
     const makeChat = (id: string, projectId: string, source = 'chat') => ({ id, title: id, projectId, projectPath: `/projects/${projectId}`, workingRoot: `/projects/${projectId}`, activeThreadId: `thread-${id}`, threads: [{ id: `thread-${id}`, providerThreadId: `canonical-${id}`, source, model: 'test/model', runtimeMode: 'approval-required', thinking: 'medium', latestTurn: { id: `turn-${id}`, state: 'running' } }] })
     const chats = [makeChat('origin', 'allowed'), makeChat('other', 'allowed'), makeChat('foreign', 'private'), makeChat('supporting', 'allowed', 'subagent')]
     const snapshot = { sessions: chats, selectedSessionId: 'foreign' }
-    const renames: string[] = [], rendererRequests: unknown[] = [], creates: Record<string, unknown>[] = []
+    const renames: string[] = [], rendererRequests: unknown[] = [], creates: Record<string, unknown>[] = [], historyReads: string[] = []
     let originDeleted = false
     const service = {
         ensureCanonicalChatAvailable: async () => !originDeleted,
@@ -24,7 +24,10 @@ try {
         createSession: async (input: Record<string, unknown>) => { creates.push(input); return { success: true, sessionId: 'new-chat' } },
         listModels: async () => ({ success: true, models: [] }),
         getSessionTurnUsage: async () => ({ success: true, usage: { turns: Array.from({ length: 200 }, (_, index) => ({ id: `usage-${index}` })), totals: { contextTokens: 128 }, fetchedAt: 'observed' } }),
-        getHistoryAroundMessage: async (threadId: string, messageId: string) => ({ threadId, messageId }),
+        searchChats: async () => ({ success: true, result: { matches: chats.map(chat => ({ sessionId: chat.id, threadId: `thread-${chat.id}`, messageId: `message-${chat.id}`, snippet: `Answer in ${chat.id}` })) } }),
+        getHistoryAroundMessage: async (threadId: string, messageId: string) => { historyReads.push(threadId); return { threadId, messageId, messages: [{ id: messageId, role: 'assistant', text: 'Persisted foreign Chat answer' }] } },
+        getTurnDetail: async (threadId: string, turnId: string) => ({ success: true, detail: { threadId, turnId, response: 'Persisted foreign turn' } }),
+        listVisualizations: async ({ threadId }: { threadId: string }) => ({ success: true, resources: [{ id: 'foreign-visual', threadId }] }),
     } as unknown as AssistantService
     const deps = { stateDirectory: directory, getAssistant: () => service,
         setup: { preferences, secrets: { getHostedAiStatus: async () => ({ groqConfigured: false, geminiConfigured: false }) } },
@@ -42,16 +45,40 @@ try {
     await assert.rejects(app.execute(operation('app', 'read', { area: 'order', target: 'origin', input: { owner: 'live', group: 'chats', before: 'other' } }, { permissionMode: 'read-only' })), /Reads never change/)
     await assert.rejects(app.execute(operation('app', 'preview', { area: 'queues', target: 'origin' })), /Reads never change/)
     assert.equal(rendererRequests.length, beforeInvalidRead, 'read-classified verbs cannot reach a mutating owner fallback')
-    const list = await app.execute(operation('app', 'list', { area: 'chats' }))
-    assert.deepEqual((list.chats as Array<{ id: string }>).map(chat => chat.id), ['origin', 'other'])
-    const childList = await app.execute(operation('app', 'list', { area: 'chats' }, { child: true }))
-    assert.deepEqual((childList.chats as Array<{ id: string }>).map(chat => chat.id), ['origin'])
-    await assert.rejects(app.execute(operation('app', 'list', { area: 'chats' }, { appScope: 'installation', approved: false })), /actual user consent/)
-    const expanded = await app.execute(operation('app', 'list', { area: 'chats' }, { appScope: 'installation', approved: true }))
-    assert.deepEqual((expanded.chats as Array<{ id: string }>).map(chat => chat.id), ['origin', 'other', 'foreign'], 'real per-operation consent expands only app-object scope, not filesystem roots')
+    const expectedChatIds = ['origin', 'other', 'foreign']
+    const list = await app.execute(operation('app', 'list', { area: 'chats' }, { approved: false }))
+    assert.deepEqual((list.chats as Array<{ id: string }>).map(chat => chat.id), expectedChatIds)
+    for (const permissionMode of ['read-only', 'approval-required', 'full-access']) for (const child of [false, true]) {
+        const caller = { child, permissionMode, approved: false, canonicalChatId: child ? 'canonical-supporting' : actor.canonicalChatId }
+        for (const target of [undefined, 'current']) {
+            const currentRead = await app.execute(operation('app', 'inspect', { area: 'chats', target }, caller))
+            assert.equal((currentRead.chat as { id: string }).id, 'origin', 'supporting-agent default/current resolves its authenticated parent Chat, never the selected UI or hidden child transcript')
+        }
+        const visible = await app.execute(operation('app', 'list', { area: 'chats' }, caller))
+        assert.deepEqual((visible.chats as Array<{ id: string }>).map(chat => chat.id), expectedChatIds, 'root/supporting agents can discover Chats across Projects without consent')
+        const expanded = await app.execute(operation('app', 'list', { area: 'chats' }, { ...caller, appScope: 'installation' }))
+        assert.deepEqual((expanded.chats as Array<{ id: string }>).map(chat => chat.id), expectedChatIds)
+        const found = await app.execute(operation('app', 'search', { area: 'chats', query: 'Answer' }, caller))
+        assert.deepEqual((found.result as { matches: Array<{ sessionId: string }> }).matches.map(match => match.sessionId), expectedChatIds)
+        const read = await app.execute(operation('app', 'read', { area: 'chats', target: 'foreign', input: { messageId: 'message-foreign' } }, caller))
+        assert.equal((read.history as { messages: Array<{ text: string }> }).messages[0].text, 'Persisted foreign Chat answer')
+        const work = await app.execute(operation('app', 'read', { area: 'work', target: 'foreign', input: { turnId: 'turn-foreign' } }, caller))
+        assert.equal((work.detail as { threadId: string }).threadId, 'thread-foreign')
+        const resources = await app.execute(operation('app', 'list', { area: 'resources', target: 'foreign' }, caller))
+        assert.equal((resources.resources as Array<{ threadId: string }>)[0].threadId, 'thread-foreign')
+    }
+    await assert.rejects(app.execute(operation('app', 'list', { area: 'projects' }, { appScope: 'installation', approved: false })), /actual user consent/)
+    await assert.rejects(app.execute(operation('app', 'rename', { area: 'chats', target: 'foreign', input: { title: 'Unauthorized', expectedTitle: 'foreign' } }, { approved: false })), /Project/)
+    assert.equal(renames.length, 0, 'global chat-read capability never authorizes a foreign write')
+    const projectless = { ...makeChat('projectless', ''), projectId: null, projectPath: null, workingRoot: null }
+    chats.push(projectless as unknown as typeof chats[number])
+    const projectlessList = await app.execute(operation('app', 'list', { area: 'chats' }, { canonicalChatId: 'canonical-projectless', parentChatId: 'canonical-projectless', child: true, approved: false }))
+    assert.deepEqual((projectlessList.chats as Array<{ id: string }>).map(chat => chat.id), [...expectedChatIds, 'projectless'], 'projectless callers have the same read access')
+    chats.pop()
     const current = await app.execute(operation('app', 'inspect', { area: 'chats', target: 'current' }))
     assert.equal((current.chat as { id: string }).id, 'origin', 'current is authenticated origin, not the foreign selected UI Chat')
-    await assert.rejects(app.execute(operation('app', 'inspect', { area: 'chats', target: 'foreign' })), /Project/)
+    const foreign = await app.execute(operation('app', 'inspect', { area: 'chats', target: 'foreign' }, { approved: false }))
+    assert.equal((foreign.chat as { id: string }).id, 'foreign')
     await assert.rejects(app.execute(operation('app', 'inspect', { area: 'chats', target: 'supporting' })), /Project/)
     await assert.rejects(app.execute(operation('app', 'list', {}, { namespaceId: 'wrong-namespace' })), /namespace/)
     await assert.rejects(app.execute(operation('settings', 'get', {})), /not dumped/)
@@ -78,6 +105,11 @@ try {
     await assert.rejects(app.execute(operation('app', 'rename', { area: 'chats', input: { title: 'bad', expectedTitle: 'origin' } }, { child: true })), /cannot mutate/)
     const liveRequired = operation('settings', 'apply', { expectedRevision: (await preferences.get({ surface: 'desktop' })).revision, patch: { appearanceCodeScale: 120 } })
     await assert.rejects(new AgentAppService(deps).execute(liveRequired), /Live authenticated/)
+    const globalRead = operation('app', 'read', { area: 'chats', target: 'foreign', input: { messageId: 'message-foreign' } }, { child: true, approved: false })
+    await assert.rejects(new AgentAppService(deps).execute(globalRead), /Live authenticated/, 'no consent prompt does not remove live owner validation')
+    const readsBeforeStop = historyReads.length
+    await assert.rejects(app.execute(globalRead, async () => { throw new Error('Originating read turn stopped') }), /read turn stopped/)
+    assert.equal(historyReads.length, readsBeforeStop, 'a stopped caller cannot read persisted history')
     let release!: () => void, started!: () => void
     const entered = new Promise<void>(resolve => { started = resolve })
     deps.actions = { 'test.wait': { label: 'Synthetic owner', route: '/settings', effect: 'fixture only', run: async () => { started(); await new Promise<void>(resolve => { release = resolve }); return { done: true } } } }

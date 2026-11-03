@@ -284,8 +284,88 @@ async function checkUnreadCompletion() {
     return ['working/unread/read Done and Stopped stay full-size in Chats in creation order; duplicate events preserve read state, card geometry and exact positions']
 }
 
+async function checkRowHoverMotion(id: string) {
+    const target = row(id).querySelector<HTMLElement>('[role="button"]')!
+    const settle = target.querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat cannot be settled"]')!
+    const actions = settle.parentElement!.parentElement!
+    await movePointer(900, 750, true); await sleep(200)
+    const hidden = actions.getBoundingClientRect()
+    const style = getComputedStyle(actions)
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('zyra-reduce-motion')
+    // Assert the real stylesheet contract before interacting: opacity-only
+    // reveals used to pass this path despite losing all horizontal motion.
+    if (!reduced) {
+        check(style.transitionProperty.includes('transform') && style.transitionProperty.includes('opacity'), 'Row actions transition both slide and fade, not opacity alone')
+        check(Number.parseFloat(style.transitionDuration) > 0, 'Normal motion has a nonzero reveal duration')
+    } else {
+        check(style.transitionProperty === 'none' || Number.parseFloat(style.transitionDuration) <= .00001, 'Reduced motion disables row-action transitions')
+    }
+    const reducedRules = (rules: CSSRuleList): boolean => Array.from(rules).some(rule => {
+        if (rule instanceof CSSMediaRule && rule.conditionText.includes('prefers-reduced-motion: reduce')) {
+            return rule.cssText.includes('motion-reduce') && /transition-property:\s*none/.test(rule.cssText)
+        }
+        return 'cssRules' in rule && reducedRules((rule as CSSGroupingRule).cssRules)
+    })
+    check(Array.from(document.styleSheets).some(sheet => reducedRules(sheet.cssRules)), 'Compiled application CSS retains its reduced-motion transition override')
+    const status = target.querySelector<HTMLElement>('span.whitespace-nowrap.tabular-nums')!
+    const artwork = target.firstElementChild!.firstElementChild!.firstElementChild as HTMLElement
+    const modelRow = target.firstElementChild!.lastElementChild as HTMLElement
+    const reading = [status, artwork, modelRow, ...target.querySelectorAll<HTMLElement>('span[aria-label], [data-assistant-presence-group]')]
+    const before = reading.map(element => element.getBoundingClientRect())
+    const verifyGeometry = () => {
+        const slot = actions.getBoundingClientRect()
+        check(Math.abs(slot.width - hidden.width) < .5 && actions.offsetWidth >= 52, `Slide keeps the full reserved action-slot width: ${JSON.stringify({ width: slot.width, hiddenWidth: hidden.width, layoutWidth: actions.offsetWidth, transform: getComputedStyle(actions).transform })}`)
+        check(status.getBoundingClientRect().right <= slot.left + .5, 'Sliding controls never cover status or recency')
+        reading.forEach((element, index) => {
+            const bounds = element.getBoundingClientRect()
+            check(Math.abs(bounds.x - before[index].x) < .5 && Math.abs(bounds.width - before[index].width) < .5, 'Hover preserves title, status, model/artwork and presence reading geometry')
+        })
+        const button = target.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+        check(button.getBoundingClientRect().right <= target.getBoundingClientRect().right - 2, 'Sliding menu target stays within the reserved right edge')
+    }
+    const rect = target.getBoundingClientRect()
+    const transitions = new Set<CSSTransition>()
+    const captureTransition = (event: TransitionEvent) => {
+        if (event.target !== actions || reduced) return
+        // Capture at transitionrun, before a busy host can consume the entire
+        // 150ms reveal while the input bridge acknowledges the pointer event.
+        for (const animation of actions.getAnimations()) {
+            if (animation instanceof CSSTransition) { animation.pause(); transitions.add(animation) }
+        }
+    }
+    actions.addEventListener('transitionrun', captureTransition)
+    await movePointer(rect.left + 45, rect.top + rect.height / 2)
+    if (!reduced) {
+        await waitForCheck(() => [...transitions].some(animation => animation.transitionProperty === 'transform'), `Hover creates a genuine transform transition: ${JSON.stringify({ hiddenX: hidden.x, currentX: actions.getBoundingClientRect().x, opacity: getComputedStyle(actions).opacity, transform: getComputedStyle(actions).transform, hovered: target.matches(':hover'), transitions: [...transitions].map(animation => animation.transitionProperty) })}`)
+        actions.removeEventListener('transitionrun', captureTransition)
+        for (const animation of transitions) { animation.pause(); animation.currentTime = Number(animation.effect!.getTiming().duration) / 2 }
+        await new Promise(requestAnimationFrame)
+        const intermediate = actions.getBoundingClientRect()
+        check(intermediate.x < hidden.x && intermediate.x > hidden.x - 4, 'Intermediate frame slides within the subtle four-pixel reveal')
+        check(Number(getComputedStyle(actions).opacity) > 0 && Number(getComputedStyle(actions).opacity) < 1, 'Intermediate frame genuinely fades')
+        verifyGeometry()
+        transitions.forEach(animation => animation.play())
+    }
+    actions.removeEventListener('transitionrun', captureTransition)
+    await sleep(200)
+    check(getComputedStyle(actions).opacity === '1', 'Motion ends with fully visible actions')
+    check(Math.abs(hidden.x - actions.getBoundingClientRect().x - 4) < .5, 'Actions slide four pixels into their stable reserved slot')
+    verifyGeometry()
+    await movePointer(900, 750); await sleep(200)
+    check(Math.abs(actions.getBoundingClientRect().x - hidden.x) < .5 && getComputedStyle(actions).opacity === '0', 'Exit restores hidden slide-and-fade state')
+    verifyGeometry()
+}
+
 async function checkRowHoverActions() {
     render(); await sleep(250)
+    for (const width of [240, 300, 420]) {
+        document.getElementById('rail')!.style.width = `${width}px`
+        for (const id of ['child', 'other']) await checkRowHoverMotion(id)
+    }
+    document.getElementById('rail')!.style.width = '300px'
+    const originallyReduced = document.body.classList.contains('zyra-reduce-motion')
+    document.body.classList.add('zyra-reduce-motion')
+    try { await checkRowHoverMotion('child') } finally { if (!originallyReduced) document.body.classList.remove('zyra-reduce-motion') }
     for (const id of ['child', 'other']) {
         const target = row(id).querySelector<HTMLElement>('[role="button"]')!
         const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat cannot be settled"]')!
@@ -324,7 +404,7 @@ async function checkRowHoverActions() {
         await sleep(200)
         await waitForCheck(() => menu.getAttribute('aria-expanded') === 'false' && getComputedStyle(actions).opacity === '0', 'Closing the menu releases pointer hover actions')
     }
-    return ['selected compact and working rows hide pointer-hover actions on exit; highlight and recency remain; keyboard and open-menu access pass']
+    return ['slide-and-fade styles and intermediate frames preserve reserved slots and reading geometry at 240/300/420px; reduced-motion CSS, selected/working exit, keyboard and open-menu access pass']
 }
 
 async function run() {

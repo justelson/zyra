@@ -20,6 +20,8 @@ export function useAssistantComposerQueueState(sessionId: AssistantComposerQueue
     return { draggedId, setDraggedId, dropTargetId, setDropTargetId, edit, setEdit, error, setError }
 }
 
+export type AssistantComposerQueueState = ReturnType<typeof useAssistantComposerQueueState>
+
 /** Presentation only. Queue ownership and dispatch stay in the controller. */
 export function AssistantComposerQueue({ controller, state }: { controller: AssistantComposerQueueProps; state: ReturnType<typeof useAssistantComposerQueueState> }) {
     const { draggedId, setDraggedId, dropTargetId, setDropTargetId, edit, setEdit, error, setError } = state

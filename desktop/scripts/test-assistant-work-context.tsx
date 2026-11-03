@@ -22,18 +22,25 @@ const thread = {
     hasPendingApprovals: false, hasPendingUserInputs: false, latestTurn: null, createdAt: now, updatedAt: now
 } as AssistantThread
 const base = { id: 'work-chat', title: 'Investigate transcription', mode: 'work', projectPath: null, workingRoot: thread.cwd, projectId: null, chatScope: null, threads: [thread], threadIds: [thread.id], activeThreadId: thread.id, archived: false, playgroundLabId: null, pendingLabRequest: null, createdAt: now, updatedAt: now } as AssistantSession
-const workContext = { folderPath: 'C:/workspace/zyra', kind: 'coding' as const, updatedAt: now }
+const workContext = { folderPath: 'C:/workspace/zyra', kind: 'coding' as const, shortName: 'Chat scroll', updatedAt: now }
 const render = (session: AssistantSession) => renderToStaticMarkup(createElement(SettingsProvider, null, createElement(AssistantAgentInboxSidebar, { sessions: [session], activeSessionId: session.id, activeThreadId: thread.id, commandPending: false, pendingControlThreadIds: new Set<string>(), projectIconOverrides: {}, headerActions: null, onCreateProjectChat: () => {}, onSelectSession: () => {}, onRename: () => {}, getSessionMenuItems: () => [], onOpenContextMenu: () => {} })))
 const before = JSON.stringify(base)
 assert.match(render(base), />Chat</, 'untouched chats remain neutral until substantial work is reported')
 const coding = render({ ...base, workContext })
-assert.match(coding, />Code · Zyra</, 'work label combines a short category and readable folder name')
+assert.match(coding, />Code · Chat scroll</, 'work label combines category and actual task name')
+assert.match(coding, /data-work-label="true"[^>]*whitespace-normal/)
+assert.doesNotMatch(coding.match(/<span data-work-label="true"[^>]*>/)?.[0] || '', /truncate|text-ellipsis|line-clamp/, 'semantic label wraps without ellipsis')
+assert.match(render({ ...base, workContext: { ...workContext, shortName: 'Preview build' } }), />Code · Preview build</, 'same folder can describe a different task')
+assert.match(render({ ...base, workContext: { ...workContext, folderPath: 'C:/media/2026-10-31_122530', kind: 'video', shortName: 'Classic edit' } }), />Video · Classic edit</, 'timestamp folder never supplies the visible work name')
+const legacy = render({ ...base, workContext: { folderPath: 'C:/media/2026-10-31_122530', kind: 'video', updatedAt: now } })
+assert.match(legacy, />Video</, 'legacy metadata retains its honest category')
+assert.doesNotMatch(legacy, />Video ·/, 'legacy names are not guessed from timestamp folders')
 assert.match(coding, /data-work-kind="coding"/)
 assert.match(coding, /lucide-code/)
 assert.equal(JSON.stringify(base), before, 'rendering changes neither cwd nor Project membership')
 const research = render({ ...base, workContext: { ...workContext, folderPath: null, kind: 'research' } })
-assert.match(research, />Research · Workspace</, 'unknown task folder falls back to the agent directory')
-assert.match(render({ ...base, workContext: { ...workContext, folderPath: 'C:/media/dropout-selected-fullres-2026-11', kind: 'video' } }), />Video · Dropout</, 'known work folders omit export suffixes without changing identity')
+assert.match(research, />Research · Chat scroll</, 'semantic name is independent of the fallback artwork directory')
+assert.match(render({ ...base, workContext: { ...workContext, folderPath: 'C:/media/export-selected-fullres-2026-11', kind: 'video', shortName: 'Classic edit' } }), />Video · Classic edit</, 'export folder identity stays independent of semantic work name')
 assert.match(research, /lucide-search/)
 assert.match(render({ ...base, workContext: { ...workContext, kind: 'music' } }), /lucide-music/)
 primeProjectDetailsCache({ path: 'C:/workspace/zyra', name: 'Zyra', type: 'node', projectIconPath: 'C:/workspace/zyra/public/icon.png', frameworks: [], markers: [] })
@@ -49,7 +56,7 @@ try {
     const restored = readAssistantPersistenceRecord(db)!.snapshot
     assert.deepEqual(restored.sessions[0].workContext, workContext, 'SQLite cache retains context on cold read')
     assert.equal(restored.sessions[0].projectPath, null)
-    const changed = { ...workContext, folderPath: null, kind: 'music' as const, updatedAt: new Date(Date.parse(now) + 60_000).toISOString() }
+    const changed = { ...workContext, folderPath: null, kind: 'music' as const, shortName: 'Piano arrangement', updatedAt: new Date(Date.parse(now) + 60_000).toISOString() }
     const next = applyAssistantDomainEvent(restored, { id: 'work-update', sequence: 1, type: 'session.updated', occurredAt: changed.updatedAt, sessionId: base.id, threadId: thread.id, payload: { sessionId: base.id, patch: { workContext: changed } } })
     assert.deepEqual(next.sessions[0].workContext, changed, 'ordinary session projection updates metadata without changing selected Chat')
     assert.equal(next.selectedSessionId, base.id)

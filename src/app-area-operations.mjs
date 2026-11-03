@@ -8,6 +8,16 @@ export const APP_AREA_OPERATIONS = Object.freeze({
   work: ['inspect', 'read', 'stop'], attention: ['inspect'], agents: ['inspect'], workflows: ['inspect'],
   resources: ['list', 'read'], runtime: ['inspect'], files: [], git: [], browser: [], computer: [],
 });
+const CHAT_READ_AREAS = new Set(['chats', 'work', 'resources', 'attention', 'agents', 'workflows']);
+const CHAT_READ_VERBS = new Set(['list', 'inspect', 'search', 'read', 'preview']);
+
+/** Conversation reads are installation-wide, never administrative or filesystem grants. */
+export function isAppChatRead(input) {
+  const area = input?.params?.area;
+  return input?.domain === 'app' && typeof area === 'string' && CHAT_READ_AREAS.has(area)
+    && CHAT_READ_VERBS.has(input.operation) && isAppAreaOperation(area, input.operation);
+}
+
 export function isAppAreaOperation(area, operation) {
   return !area ? operation === 'list' : Object.hasOwn(APP_AREA_OPERATIONS, area) && APP_AREA_OPERATIONS[area].includes(operation);
 }

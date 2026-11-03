@@ -311,7 +311,8 @@ async function checkRowHoverMotion(id: string) {
     const liveStatus = Boolean(status.querySelector('.assistant-agent-inbox-working-text'))
     const artwork = target.firstElementChild!.firstElementChild!.firstElementChild as HTMLElement
     const titleRow = target.querySelector<HTMLElement>('[data-agent-inbox-title]')!
-    const reading = [status, artwork, titleRow, ...target.querySelectorAll<HTMLElement>('span[aria-label], [data-assistant-presence-group]')]
+    const metadataRow = target.querySelector<HTMLElement>('[data-agent-inbox-metadata]')!
+    const reading = [status, artwork, titleRow, metadataRow, ...target.querySelectorAll<HTMLElement>('span[aria-label], [data-assistant-presence-group]')]
     const before = reading.map(element => element.getBoundingClientRect())
     check(Math.abs(target.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, 'Working status and normal recency share the same right padding')
     check(getComputedStyle(status).visibility === 'visible', 'Status or recency remains visible before interaction')
@@ -320,7 +321,7 @@ async function checkRowHoverMotion(id: string) {
         check(Math.abs(slot.width - hidden.width) < .5 && actions.offsetWidth >= 52, `Slide keeps the full reserved action-slot width: ${JSON.stringify({ width: slot.width, hiddenWidth: hidden.width, layoutWidth: actions.offsetWidth, transform: getComputedStyle(actions).transform })}`)
         if (liveStatus) {
             check(getComputedStyle(status).visibility === 'visible', 'Working status stays visible during the action reveal')
-            check(status.getBoundingClientRect().bottom <= slot.top || status.getBoundingClientRect().right <= slot.left + .5, 'Title-line actions never cover the right-aligned working status')
+            check(status.getBoundingClientRect().bottom <= slot.top || status.getBoundingClientRect().right <= slot.left + .5, 'Metadata-line actions never cover the right-aligned working status')
         }
         else check(getComputedStyle(status).visibility === (target.matches(':hover') ? 'hidden' : 'visible'), 'Actions swap with recency instead of reserving blank space after it')
         reading.forEach((element, index) => {
@@ -411,7 +412,7 @@ async function checkRowHoverActions() {
         await sleep(200)
         await waitForCheck(() => menu.getAttribute('aria-expanded') === 'false' && getComputedStyle(actions).opacity === '0', 'Closing the menu releases pointer hover actions')
     }
-    return ['right-aligned recency and shared hover-action slot preserve two-line reading geometry at 240/300/420px; slide/fade, reduced motion, live status, keyboard and open-menu access pass']
+    return ['right-aligned recency and shared hover-action slot preserve three-row reading geometry at 240/300/420px; slide/fade, reduced motion, live status, keyboard and open-menu access pass']
 }
 
 async function run() {
@@ -528,7 +529,7 @@ async function run() {
         const menu = row('child').querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, 'Active card menu fits its reveal slot')
         check(menu.getBoundingClientRect().right <= row('child').querySelector('[role="button"]')!.getBoundingClientRect().right - 2, 'Active card menu stays inside the right edge')
-        check(status.getBoundingClientRect().bottom <= settle.getBoundingClientRect().top || status.getBoundingClientRect().right <= settle.getBoundingClientRect().left, 'Right-aligned working state and title-line hover actions never overlap')
+        check(status.getBoundingClientRect().bottom <= settle.getBoundingClientRect().top || status.getBoundingClientRect().right <= settle.getBoundingClientRect().left, 'Right-aligned working state and metadata-line hover actions never overlap')
         check(getComputedStyle(settle.parentElement!.parentElement!).opacity === '1', 'Focus reveals the animated actions')
     }
     results.push('titles, status, and animated actions fit 240/300/420px sidebars without overlap')

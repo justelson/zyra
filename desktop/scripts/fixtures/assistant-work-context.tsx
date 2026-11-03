@@ -15,7 +15,7 @@ Object.assign(window, { devscope: { getProjectDetails: async (path: string) => {
     return { success: true, project: { name: path.split('/').pop(), type: 'unknown', frameworks: [], markers: [], projectIconPath: path.endsWith('/zyra') ? artwork : path.endsWith('/broken') ? 'data:image/png;base64,notanimage' : null } }
 } } })
 const make = (id: string, title: string, cwd: string) => {
-    const thread = { id: 'thread-' + id, source: 'root', state: 'ready', cwd, model: 'fixture/model', lastError: null, messages: [{ id: 'answer-' + id, role: 'assistant', text: 'Saved answer', createdAt: now, updatedAt: now }], activities: [], pendingApprovals: [], pendingUserInputs: [], messageCount: 1, activityCount: 0, hasPendingApprovals: false, hasPendingUserInputs: false, latestTurn: null, createdAt: now, updatedAt: now } as unknown as AssistantThread
+    const thread = { id: 'thread-' + id, source: 'root', state: 'ready', cwd, model: 'openai/gpt-6.1-sol', lastError: null, messages: [{ id: 'answer-' + id, role: 'assistant', text: 'Saved answer', createdAt: now, updatedAt: now }], activities: [], pendingApprovals: [], pendingUserInputs: [], messageCount: 1, activityCount: 0, hasPendingApprovals: false, hasPendingUserInputs: false, latestTurn: null, createdAt: now, updatedAt: now } as unknown as AssistantThread
     return { id, title, mode: 'work', projectPath: null, workingRoot: cwd, projectId: null, chatScope: null, threads: [thread], threadIds: [thread.id], activeThreadId: thread.id, archived: false, createdAt: now, updatedAt: now } as AssistantSession
 }
 let sessions = [make('a', 'Investigate transcription and voice chat', 'C:/workspace'), make('b', 'Make latest MIDI piano-only and slower', 'C:/workspace/Music'), make('c', 'Compare model usage', 'C:/workspace/Research')]
@@ -50,9 +50,15 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
         const status = card.querySelector<HTMLElement>('[data-agent-inbox-status]')!
         const subtitle = card.querySelector<HTMLElement>('[data-agent-inbox-title]')!
         check(Math.abs(card.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, `timestamp sits at normal 10px right padding at ${width}px`)
-        check(parseFloat(getComputedStyle(label).fontSize) > parseFloat(getComputedStyle(subtitle.firstElementChild!).fontSize), 'short name has stronger hierarchy than the chat title')
-        check(!card.textContent?.includes('model') && label.title.includes('fixture/model'), 'model detail moves to the work-label tooltip without a third line')
-        check(card.getBoundingClientRect().height === 64, `ordinary two-line row stays compact at ${width}px`)
+        const heading = card.querySelector<HTMLElement>('[data-agent-inbox-heading]')!
+        const metadata = card.querySelector<HTMLElement>('[data-agent-inbox-metadata]')!
+        const titleText = subtitle.firstElementChild as HTMLElement
+        check(parseFloat(getComputedStyle(titleText).fontSize) > parseFloat(getComputedStyle(label).fontSize), 'chat title has stronger hierarchy than its quiet work context')
+        check(getComputedStyle(titleText).color !== getComputedStyle(label).color, 'primary chat title has distinct contrast from context')
+        check(Math.abs(subtitle.getBoundingClientRect().left - heading.getBoundingClientRect().left) < 1 && Math.abs(subtitle.getBoundingClientRect().width - heading.getBoundingClientRect().width) < 1, 'primary title uses the full row width without icon indentation')
+        check(metadata.textContent?.includes('gpt-6.1-sol') && metadata.querySelector('[aria-label="openai model provider"]'), 'actual thread model and provider icon are visible in the third row')
+        check(subtitle.getBoundingClientRect().top >= heading.getBoundingClientRect().bottom && metadata.getBoundingClientRect().top >= subtitle.getBoundingClientRect().bottom, 'context, title and metadata form three distinct rows')
+        check(card.getBoundingClientRect().height === 80, `ordinary three-row card has breathing room at ${width}px`)
     }
     fixture.style.width = '330px'
     update('a', 'C:/workspace/Tracks', 'music')
@@ -90,10 +96,10 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
         const style = getComputedStyle(label)
         check(label.textContent === 'Chat row redesign', 'the complete semantic name stays in the DOM, not a rewritten abbreviation')
         check(style.whiteSpace === 'nowrap' && label.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, `work name never wraps beside the running timer at ${width}px`)
-        check(card.getBoundingClientRect().height === 64, `running timer does not add a third text level at ${width}px`)
+        check(card.getBoundingClientRect().height === 80, `running timer preserves the three-row card at ${width}px`)
         check(Math.abs(card.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, `working timer aligns to the same 10px right padding as recency at ${width}px`)
         check(label.getBoundingClientRect().right <= status.getBoundingClientRect().left, 'single-line label stays separate from the unchanged running timer')
         if (width === 400) check(label.scrollWidth <= label.clientWidth + 1, 'normal-width sidebar shows the complete work name beside the running timer')
     }
-    return ['actual sidebar live folder/category updates and existing artwork', 'missing/broken artwork fallback and stale old-folder isolation', 'per-chat current-directory fallback without focus, selection or authority changes', 'single-line work names beside running timers at 240/280/330/400px; normal width retains the full name']
+    return ['actual sidebar live folder/category updates and existing artwork', 'missing/broken artwork fallback and stale old-folder isolation', 'per-chat current-directory fallback without focus, selection or authority changes', 'three-row hierarchy, full-width primary title, visible provider/model and right-aligned running timer at 240/280/330/400px']
 })() })

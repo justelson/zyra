@@ -34,18 +34,25 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
     document.getElementById('preserved-focus')!.focus()
     update('a', 'C:/workspace/zyra', 'coding')
     await until(() => row('a').querySelector('.lucide-code'), 'work fallback before artwork arrives')
-    check(row('a').textContent?.includes('Code · Chat scroll'), 'semantic task name replaces the raw folder')
+    check(row('a').querySelector('[data-work-label]')?.textContent === 'Chat scroll', 'semantic task name leads without a generic category prefix')
     update('a', 'C:/workspace/zyra', 'coding', 'Preview build')
-    await until(() => row('a').textContent?.includes('Code · Preview build'), 'same folder supports a different actual task')
+    await until(() => row('a').querySelector('[data-work-label]')?.textContent === 'Preview build', 'same folder supports a different actual task')
     update('a', 'C:/workspace/2026-10-31_122530', 'video', 'Classic edit')
-    await until(() => row('a').textContent?.includes('Video · Classic edit'), 'timestamp folder uses supplied semantic name')
+    await until(() => row('a').querySelector('[data-work-label]')?.textContent === 'Classic edit', 'timestamp folder uses supplied semantic name')
     const fixture = document.getElementById('work-context-sidebar-fixture')!
     for (const width of [240, 280, 330, 400]) {
         fixture.style.width = `${width}px`
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
         const label = row('a').querySelector<HTMLElement>('[data-work-label]')!
-        check(label.textContent === 'Video · Classic edit', `full work name at ${width}px`)
-        check(getComputedStyle(label).textOverflow !== 'ellipsis' && label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1, `work label wraps without truncation at ${width}px`)
+        check(label.textContent === 'Classic edit', `full work name at ${width}px`)
+        check(getComputedStyle(label).whiteSpace === 'nowrap' && label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1, `short work name stays fully readable on one line at ${width}px`)
+        const card = row('a').querySelector<HTMLElement>('[role="button"]')!
+        const status = card.querySelector<HTMLElement>('[data-agent-inbox-status]')!
+        const subtitle = card.querySelector<HTMLElement>('[data-agent-inbox-title]')!
+        check(Math.abs(card.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, `timestamp sits at normal 10px right padding at ${width}px`)
+        check(parseFloat(getComputedStyle(label).fontSize) > parseFloat(getComputedStyle(subtitle.firstElementChild!).fontSize), 'short name has stronger hierarchy than the chat title')
+        check(!card.textContent?.includes('model') && label.title.includes('fixture/model'), 'model detail moves to the work-label tooltip without a third line')
+        check(card.getBoundingClientRect().height === 64, `ordinary two-line row stays compact at ${width}px`)
     }
     fixture.style.width = '330px'
     update('a', 'C:/workspace/Tracks', 'music')
@@ -61,7 +68,7 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
     update('b', null, 'music')
     update('c', null, 'research')
     await until(() => row('b').querySelector('.lucide-music') && row('c').querySelector('.lucide-search'), 'per-chat fallback icons')
-    check(row('b').textContent?.includes('Music') && row('c').textContent?.includes('Research'), 'missing work folder falls back to each agent directory')
+    check(row('b').querySelector('[data-work-label]')?.textContent === 'Piano arrangement' && row('c').querySelector('[data-work-label]')?.textContent === 'Model comparison', 'missing work folder keeps the semantic name independent of artwork fallback')
     update('a', 'C:/workspace/zyra', 'coding')
     await until(() => row('a').querySelector('img')?.naturalWidth, 'restore branded final state')
     check(row('b').querySelector('.lucide-music') && row('c').querySelector('.lucide-search'), 'updating one Chat retains other Chats\' work metadata')
@@ -70,5 +77,23 @@ Object.assign(window, { sidebarContinuityCheck: (async () => {
     check(document.activeElement?.id === 'preserved-focus', 'updates do not move focus')
     check(JSON.stringify(sessions.map(session => ({ id: session.id, cwd: session.threads[0].cwd, projectId: session.projectId }))) === JSON.stringify(initial), 'metadata never changes execution cwd or Project')
     check(calls.some(path => path.endsWith('/zyra')), 'app resolves artwork from reported folder')
-    return ['actual sidebar live folder/category updates and existing artwork', 'missing/broken artwork fallback and stale old-folder isolation', 'per-chat current-directory fallback without focus, selection or authority changes']
+    update('a', 'C:/workspace/zyra', 'coding', 'Chat row redesign')
+    sessions = sessions.map(session => session.id === 'a' ? { ...session, threads: session.threads.map(thread => ({ ...thread, canonicalPresence: { state: 'running' as const, clients: [] }, latestTurn: { id: 'running-turn', state: 'running' as const, requestedAt: now, startedAt: new Date(Date.parse(now) - 6 * 60_000).toISOString(), completedAt: null } })) } : session)
+    render()
+    await until(() => row('a').textContent?.includes('Working'), 'running timer appears beside the reported work name')
+    for (const width of [240, 280, 330, 400]) {
+        fixture.style.width = `${width}px`
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        const label = row('a').querySelector<HTMLElement>('[data-work-label]')!
+        const card = row('a').querySelector<HTMLElement>('[role="button"]')!
+        const status = card.querySelector<HTMLElement>('[data-agent-inbox-status]')!
+        const style = getComputedStyle(label)
+        check(label.textContent === 'Chat row redesign', 'the complete semantic name stays in the DOM, not a rewritten abbreviation')
+        check(style.whiteSpace === 'nowrap' && label.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, `work name never wraps beside the running timer at ${width}px`)
+        check(card.getBoundingClientRect().height === 64, `running timer does not add a third text level at ${width}px`)
+        check(Math.abs(card.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, `working timer aligns to the same 10px right padding as recency at ${width}px`)
+        check(label.getBoundingClientRect().right <= status.getBoundingClientRect().left, 'single-line label stays separate from the unchanged running timer')
+        if (width === 400) check(label.scrollWidth <= label.clientWidth + 1, 'normal-width sidebar shows the complete work name beside the running timer')
+    }
+    return ['actual sidebar live folder/category updates and existing artwork', 'missing/broken artwork fallback and stale old-folder isolation', 'per-chat current-directory fallback without focus, selection or authority changes', 'single-line work names beside running timers at 240/280/330/400px; normal width retains the full name']
 })() })

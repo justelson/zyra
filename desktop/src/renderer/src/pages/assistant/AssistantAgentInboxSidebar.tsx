@@ -12,7 +12,6 @@ import type { AssistantProject, AssistantSession, AssistantThread } from '@share
 import { FileActionsMenu, type FileActionsMenuItem } from '@/components/ui/FileActionsMenu'
 import { cn } from '@/lib/utils'
 import { isAssistantUserFacingSession } from '@/lib/assistant/selectors'
-import { SettingsProviderIcon } from '../settings/SettingsProviderIcon'
 import { AssistantProjectIcon } from './AssistantProjectIcon'
 import { AssistantWorkContextIcon } from './AssistantWorkContextIcon'
 import { resolveSidebarWorkContext } from './assistant-work-context'
@@ -168,7 +167,7 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
     return (
         <div className={cn(
             'pointer-events-none z-[1] opacity-0 duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-visible/agent-inbox-row:pointer-events-auto group-has-[:focus-visible]/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:opacity-100 group-focus-visible/agent-inbox-row:opacity-100 group-has-[:focus-visible]/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 motion-reduce:transition-none',
-            // Translate inside the reserved gutter; never collapse the slot or shift reading geometry.
+            // Translate inside the stable slot shared with recency; never shift the text.
             'absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 transition-[opacity,transform] group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 has-[:focus-visible]:translate-x-0',
             showLabel ? 'w-[max(4.75rem,76px)]' : 'w-[max(3.25rem,52px)]'
         )}>
@@ -209,35 +208,34 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     const title = getSessionDisplayTitle(item.session)
     const work = resolveSidebarWorkContext(item.session, item.thread)
     const model = resolveAssistantInboxModelPresentation(item.thread?.model)
+    const hasStatus = item.status !== 'ready'
     const receded = (item.status === 'ready' || item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active
     const activate = () => void props.onSelectSession(item.session.id)
     const menuItems = getAgentInboxMenuItems(item, onSettle, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
             <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
-                <div className={cn('relative z-10 px-2.5 py-2', work ? 'min-h-[4.875rem]' : 'h-[4.875rem]')}>
-                    <div className={cn('flex min-w-0 items-center gap-1.5', work ? 'min-h-5' : 'h-5')}>
+                <div className="relative z-10 min-h-16 px-2.5 py-2">
+                    <div className="flex min-h-6 min-w-0 items-center gap-1.5" data-agent-inbox-heading>
                         {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
-                        <span data-work-label={work ? true : undefined} title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 text-xs text-sparkle-text-secondary/85', work ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
-                        <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 pr-[max(3.25rem,52px)] text-xs">
-                            <span className="shrink-0">
+                        <span data-work-label={work ? true : undefined} data-agent-inbox-model={model.modelName || undefined} title={[work?.folderPath, model.modelName ? `Model: ${item.thread?.model}` : null].filter(Boolean).join('\n') || undefined} className={cn('min-w-0 flex-1 truncate text-[13px] font-semibold', receded ? 'text-sparkle-text-secondary' : 'text-sparkle-text')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
+                        <div className="relative ml-auto flex h-6 min-w-[max(3.25rem,52px)] shrink-0 items-center justify-end text-xs">
+                            <span data-agent-inbox-status className={cn('shrink-0', !hasStatus && 'group-hover/agent-inbox-row:invisible group-focus-visible/agent-inbox-row:invisible group-has-[:focus-visible]/agent-inbox-row:invisible group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:invisible')}>
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
                             </span>
-                            <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} />
                         </div>
                     </div>
-                    <div className="mt-1 flex min-w-0">
-                        <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm', receded ? 'font-normal text-sparkle-text-secondary/80' : 'font-medium text-sparkle-text')} />
-                    </div>
-                    <div className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sparkle-text-muted/75">
-                        {model.provider ? <span role="img" aria-label={`${model.provider} model provider`} className="inline-flex shrink-0"><SettingsProviderIcon provider={model.provider === 'anthropic' ? 'claude' : model.provider === 'google' ? 'gemini' : model.provider} size={13} /></span> : null}
-                        <span className="min-w-0 flex-1 truncate whitespace-nowrap">{model.modelName || 'Assistant'}</span>
+                    <div className={cn('relative mt-1 flex min-w-0 items-center gap-1.5 pl-[22px] text-sparkle-text-muted/75', hasStatus && 'pr-[max(3.25rem,52px)]')} data-agent-inbox-title>
+                        <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className="min-w-0 flex-1 text-xs font-normal text-sparkle-text-secondary/80" />
                         {item.pinned ? <span aria-label="Pinned chat" title="Pinned chat" className="inline-flex shrink-0"><Pin size={12} /></span> : null}
                         {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? <span className="inline-flex shrink-0 items-center" data-assistant-presence-group>
                             <AssistantAgentPresenceIndicator thread={item.thread} />
                             {item.tuiOpen ? <AssistantTuiPresenceIndicator focusable={false} /> : null}
                             {item.mobileDevices.length > 0 ? <AssistantTuiPresenceIndicator focusable={false} mobileDevices={item.mobileDevices} /> : null}
                         </span> : null}
+                    </div>
+                    <div className={cn('absolute right-2.5 h-6 w-[max(3.25rem,52px)]', hasStatus ? 'top-8' : 'top-2')}>
+                        <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} />
                     </div>
                 </div>
             </div>

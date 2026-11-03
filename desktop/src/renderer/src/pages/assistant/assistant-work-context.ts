@@ -18,5 +18,5 @@ export function resolveSidebarWorkContext(
     const category = workLabels[work.kind]
     // Legacy metadata cannot tell us the actual task. Keep its honest category until
     // the next substantial-work turn upgrades it, never guess from folder names.
-    return { kind: work.kind, folderPath, label: work.shortName ? `${category} · ${work.shortName}` : category }
+    return { kind: work.kind, folderPath, label: work.shortName || category }
 }

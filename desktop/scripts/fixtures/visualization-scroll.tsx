@@ -349,10 +349,20 @@ function checkBoundedAnchorFallback() {
         console.log(`[visual-scroll] sample ${sample + 1} complete`)
         samples.push({ ...delta(before), medianFrameMs: percentile(intervals, .5), p95FrameMs: percentile(intervals, .95), maxFrameMs: Math.max(...intervals), framesOver32ms: intervals.filter(value => value > 32).length })
     }
+    // The measured scroll can finish with the last row outside the lazy-load
+    // viewport. Exercise that case explicitly, then mount the target before
+    // testing same-row invalidation rather than timing its offscreen loading.
+    const lastChart = () => document.querySelector<HTMLIFrameElement>('iframe[title="Chart 39"]')
+    scrollRef.current!.dispatchEvent(new WheelEvent('wheel', { deltaY: -10000, bubbles: true }))
+    await listRef.current!.scrollToIndex({ index: 0, animated: false })
+    await until(() => !lastChart(), 'Source-change setup must virtualize the target away')
+    scrollRef.current!.dispatchEvent(new CustomEvent('assistant:timeline-follow-end', { bubbles: true }))
+    await until(() => lastChart()?.dataset.visualizationReady === 'true', 'Source-change target must mount and load')
+    const beforeChange = lastChart()
     // Same-row content updates must still change the rendered document.
     const changed = rows.map((row, i) => i === 19 && row.kind === 'message' ? { ...row, message: { ...row.message, text: row.message.text.replace('Synthetic chart 39', 'Changed chart 39') } } : row)
     render(changed)
-    await until(() => { const current = [...document.querySelectorAll('iframe')].find(node => node.title === 'Chart 39'); return current && !bottomFrames.includes(current) && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
+    await until(() => { const current = lastChart(); return current && current !== beforeChange && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
     if ([...document.querySelectorAll('iframe')].some(node => node.getAttribute('sandbox') !== 'allow-scripts')) throw new Error('Sandbox permissions changed')
     const mixedMedia = await checkMixedMediaScroll()
     return { mixedMedia, workload: { rows: 20, chartsPerRow: 2, barsPerChart: 80, samples: 3, framesPerSample: 64, warmup: 'initial mount and six prompt update pairs' }, supportsAtomicMove: Boolean(moveBefore), initial, updates, updateTrace, samples, totals: stats, cache: getVisualizationDocumentCacheStats(), correctness: ['source changes invalidate', 'trusted helper sandbox stays opaque'] }

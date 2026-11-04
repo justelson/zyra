@@ -1,11 +1,12 @@
 // @refresh reset
-import { memo, useCallback, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useNonPassiveWheel } from '@/lib/useNonPassiveWheel'
 import type { AssistantApprovalDecision, AssistantPendingApproval, AssistantPendingUserInput, AssistantPlaygroundPendingLabRequest, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { ControlPendingActionApproval, ControlPendingGrant, ControlTarget } from '@shared/agent-control/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { cn } from '@/lib/utils'
 import { AssistantComposer } from './AssistantComposer'
+import { useAssistantComposerQueueState } from './AssistantComposerQueue'
 import type { AssistantModelRequestProgress } from '@shared/assistant/model-progress'
 import { AssistantNewChatGreeting } from './AssistantNewChatGreeting'
 import { AssistantPendingApprovalPanel } from './AssistantPendingApprovalPanel'
@@ -19,6 +20,12 @@ import { ASSISTANT_COMPOSER_OVERLAY_TOP_PADDING_PX } from './assistant-pane-layo
 import type { AssistantComposerProjectRoot, AssistantComposerSendOptions, AssistantElementBounds, AssistantQueuedComposerMessage, ComposerContextFile } from './assistant-composer-types'
 import { useAssistantComposerPlacementMotion } from './useAssistantComposerPlacementMotion'
 import type { AssistantProjectChoice } from './assistant-project-choices'
+
+function syncAttentionShelfOffset(node: HTMLDivElement | null, bounds: AssistantElementBounds | null) {
+    if (!node) return
+    const offset = bounds && Number.isFinite(bounds.top) ? Math.max(0, node.getBoundingClientRect().top - bounds.top) : 0
+    node.style.setProperty('--assistant-attention-shelf-offset', `${offset}px`)
+}
 
 export const AssistantConversationComposerPane = memo(function AssistantConversationComposerPane(props: {
     placement?: 'bottom' | 'center'
@@ -110,14 +117,36 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
 }) {
     const placement = props.placement || 'bottom'
     useAssistantComposerPlacementMotion(props.paneRef, placement)
+    const queueState = useAssistantComposerQueueState(props.selectedSessionId)
+    const dockRef = useRef<HTMLDivElement | null>(null)
+    const shelfBoundsRef = useRef<AssistantElementBounds | null>(null)
+    const setDockRef = useCallback((node: HTMLDivElement | null) => {
+        dockRef.current = node
+        syncAttentionShelfOffset(node, shelfBoundsRef.current)
+    }, [])
+    const handleShelfBoundsChange = useCallback((bounds: AssistantElementBounds | null) => {
+        // Measure only the ordinary shelf; attention must not feed back into its anchor.
+        shelfBoundsRef.current = bounds
+        syncAttentionShelfOffset(dockRef.current, bounds)
+        props.onAttachmentShelfBoundsChange?.(bounds)
+    }, [props.onAttachmentShelfBoundsChange, props.selectedSessionId, props.resetComposerStateToken])
     const hasPendingPlaygroundLabRequest = Boolean(props.pendingPlaygroundLabRequest)
     const isWaitingForControlApproval = props.pendingControlActions.length > 0 || props.pendingControlGrants.length > 0
-    const isWaitingForApproval = props.pendingApprovals.length > 0
+    const isWaitingForApproval = props.pendingApprovals.some(approval => approval.status === 'pending')
     const pendingTerminalAccessRequest = getPendingTerminalAccessRequest(props.pendingUserInputs)
     const questionInputs = props.pendingUserInputs.filter(request => request.requestId !== pendingTerminalAccessRequest?.requestId)
     const pendingQuestionInputs = questionInputs.filter(request => request.mode !== 'async')
     const asyncQuestions = questionInputs.filter(request => request.mode === 'async')
     const hasPendingQuestions = pendingQuestionInputs.length > 0
+    // Only a deliberate Answer click replaces the message dock. Keep the owner
+    // with the selection so request/session changes can never auto-open a dock.
+    const [answering, setAnswering] = useState<{ sessionId: string | null; resetToken: string | null; requestId: string } | null>(null)
+    const canAnswerAsync = !isWaitingForControlApproval && !isWaitingForApproval && !pendingTerminalAccessRequest && !hasPendingQuestions && !hasPendingPlaygroundLabRequest
+    const answeringAsync = Boolean(canAnswerAsync && answering && answering.sessionId === props.selectedSessionId && answering.resetToken === (props.resetComposerStateToken ?? null) && answering.requestId === asyncQuestions[0]?.requestId)
+    useEffect(() => {
+        if (!answeringAsync) setAnswering(null)
+    }, [answeringAsync, props.selectedSessionId, props.resetComposerStateToken])
+    const showMessageDock = isWaitingForControlApproval || isWaitingForApproval || (!hasPendingQuestions && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest)
     const isConnecting = props.isConnecting ?? (props.commandPending && !props.assistantConnected)
     const reconnectPending = props.reconnectPending ?? (props.commandPending && !props.assistantConnected)
     const composerDisabledReason = deriveAssistantComposerDisabledReason({
@@ -154,13 +183,6 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     pendingActions={props.pendingControlActions}
                     pendingGrants={props.pendingControlGrants}
                     targets={props.controlTargets}
-                />
-            ) : null}
-            {!isWaitingForControlApproval && isWaitingForApproval ? (
-                <AssistantPendingApprovalPanel
-                    pendingApprovals={props.pendingApprovals}
-                    responding={props.commandPending}
-                    onRespond={props.respondApproval}
                 />
             ) : null}
             {!isWaitingForControlApproval && !isWaitingForApproval && pendingTerminalAccessRequest ? (
@@ -200,25 +222,42 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                     onDecline={props.declinePendingPlaygroundLabRequest}
                 />
             ) : null}
-            {!isWaitingForControlApproval && !isWaitingForApproval && !hasPendingQuestions && !pendingTerminalAccessRequest && asyncQuestions.length > 0 ? <AssistantAsyncQuestionCard
-                key={asyncQuestions[0]?.requestId}
-                pendingUserInputs={asyncQuestions} responding={props.userInputResponding} onRespond={props.respondUserInput} onDismiss={props.onDismissUserInput}
-                agentWorking={props.thinking} sessionId={props.selectedSessionId} assistantAvailable={props.assistantAvailable} assistantConnected={props.assistantConnected}
-                selectedProjectPath={props.selectedProjectPath} availableModels={props.availableModels} activeModel={props.activeModel} modelsLoading={props.modelsLoading}
-                runtimeMode={props.runtimeMode} interactionMode={props.interactionMode} activeProfile={props.activeProfile} activeStatusLabel={props.activeStatusLabel} isConnecting={isConnecting}
-            /> : null}
-            {!hasPendingQuestions && !hasPendingPlaygroundLabRequest && !pendingTerminalAccessRequest ? (
+            {showMessageDock ? (
                 <div
+                    ref={setDockRef}
                     className={cn(
-                        'mx-auto w-full transition-[max-width] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                        'relative isolate mx-auto w-full transition-[max-width] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                         placement === 'center' ? 'max-w-2xl' : 'max-w-[760px]'
                     )}
                     data-assistant-composer-hitbox="true"
                 >
-                    {placement === 'center' ? (
+                    {placement === 'center' && !answeringAsync ? (
                         <AssistantNewChatGreeting prompt={props.newChatPrompt} />
                     ) : null}
-                    <AssistantComposer
+                    {!isWaitingForControlApproval && isWaitingForApproval ? (
+                        <AssistantPendingApprovalPanel
+                            pendingApprovals={props.pendingApprovals}
+                            responding={props.commandPending}
+                            onRespond={props.respondApproval}
+                        />
+                    ) : null}
+                    {canAnswerAsync && asyncQuestions.length > 0 ? <AssistantAsyncQuestionCard
+                        key={`${props.selectedSessionId}:${props.resetComposerStateToken ?? ''}:${asyncQuestions[0]?.requestId}`}
+                        expanded={answeringAsync}
+                        onExpandedChange={expanded => {
+                            const owner = { sessionId: props.selectedSessionId, resetToken: props.resetComposerStateToken ?? null, requestId: asyncQuestions[0].requestId }
+                            setAnswering(current => expanded ? owner : current?.sessionId === owner.sessionId && current.resetToken === owner.resetToken && current.requestId === owner.requestId ? null : current)
+                        }}
+                        pendingUserInputs={asyncQuestions} responding={props.userInputResponding} onRespond={props.respondUserInput} onDismiss={props.onDismissUserInput}
+                        agentWorking={props.thinking} sessionId={props.selectedSessionId} assistantAvailable={props.assistantAvailable} assistantConnected={props.assistantConnected}
+                        selectedProjectPath={props.selectedProjectPath} availableModels={props.availableModels} activeModel={props.activeModel} modelsLoading={props.modelsLoading}
+                        runtimeMode={props.runtimeMode} interactionMode={props.interactionMode} activeProfile={props.activeProfile} activeStatusLabel={props.activeStatusLabel} isConnecting={isConnecting}
+                    /> : null}
+                    {/* Unmounting flushes the session draft/attachments and stops mic
+                        capture through the existing composer/voice cleanup. Never
+                        CSS-hide a second composer or a live recorder. */}
+                    {!answeringAsync ? <AssistantComposer
+                        queueState={queueState}
                         sessionId={props.selectedSessionId}
                         modelInactivity={props.assistantConnected && !isWaitingForApproval && !isWaitingForControlApproval && props.onPingModel && props.onStop ? {
                             progress: props.modelRequestProgress || null,
@@ -272,7 +311,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         onOverflowWheel={props.onOverflowWheel}
                         onBlockedSend={props.onBlockedSend}
                         onOpenAttachmentPreview={props.onOpenAttachmentPreview}
-                        onAttachmentShelfBoundsChange={props.onAttachmentShelfBoundsChange}
+                        onAttachmentShelfBoundsChange={handleShelfBoundsChange}
                         onDraftStarted={props.onDraftStarted}
                         onRefreshModels={props.refreshModels}
                         onStop={props.onStop}
@@ -283,7 +322,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         onUpdateQueuedMessage={props.onUpdateQueuedMessage}
                         onSend={props.sendPrompt}
                         reconnectPending={reconnectPending}
-                    />
+                    /> : null}
                 </div>
             ) : null}
         </div>

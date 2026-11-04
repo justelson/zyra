@@ -1,7 +1,7 @@
 // @refresh reset
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
 import { ComposerTextInput } from './ComposerTextInput'
-import { AssistantComposerQueue, useAssistantComposerQueueState } from './AssistantComposerQueue'
+import { AssistantComposerQueue, useAssistantComposerQueueState, type AssistantComposerQueueState } from './AssistantComposerQueue'
 import { NewChatGitDrawer } from './NewChatGitDrawer'
 import { ASSISTANT_COMPOSER_FOCUS_CLASS_NAME } from './assistant-composer-focus'
 import { useAssistantComposerFocus } from './useAssistantComposerFocus'
@@ -117,19 +117,34 @@ async function loadPromptResources(projectPath?: string | null): Promise<Assista
     return requestEntry.promise
 }
 
-export function AssistantComposerView({
-    controller,
-    modelInactivity,
-    realtimeVoiceDisabled = true,
-    onPrepareRealtimeVoice,
-    onStartRealtimeVoice
-}: {
+type AssistantComposerViewProps = {
     controller: AssistantComposerController
+    queueState?: AssistantComposerQueueState
     modelInactivity?: AssistantModelInactivityPanelProps
     realtimeVoiceDisabled?: boolean
     onPrepareRealtimeVoice?: () => void
     onStartRealtimeVoice?: (configuration: AssistantVoiceExecutionConfiguration) => void
-}) {
+}
+
+export function AssistantComposerView(props: AssistantComposerViewProps) {
+    return props.queueState
+        ? <ComposerViewWithQueue {...props} queueState={props.queueState} />
+        : <LocalQueueComposerView {...props} />
+}
+
+function LocalQueueComposerView(props: AssistantComposerViewProps) {
+    const queueState = useAssistantComposerQueueState(props.controller.loadedSessionId)
+    return <ComposerViewWithQueue {...props} queueState={queueState} />
+}
+
+function ComposerViewWithQueue({
+    controller,
+    queueState,
+    modelInactivity,
+    realtimeVoiceDisabled = true,
+    onPrepareRealtimeVoice,
+    onStartRealtimeVoice
+}: Omit<AssistantComposerViewProps, 'queueState'> & { queueState: AssistantComposerQueueState }) {
     const navigate = useNavigate()
     const { settings, updateSettings } = useSettings()
     const commandMenuId = useId()
@@ -138,7 +153,6 @@ export function AssistantComposerView({
     const canSend = capabilities.canSend
     const showBusySendActions = capabilities.showBusySendActions
     const [textareaScrollTop, setTextareaScrollTop] = useState(0)
-    const queueState = useAssistantComposerQueueState(controller.loadedSessionId)
     const [promptResources, setPromptResources] = useState<AssistantPromptResourcesPayload | null>(() =>
         readCachedPromptResources(controller.projectPath)
     )
@@ -151,7 +165,8 @@ export function AssistantComposerView({
     const drawerRef = useRef<HTMLDivElement | null>(null)
     const attachmentShelfRef = useRef<HTMLDivElement | null>(null)
     const commandActivationPendingRef = useRef(false)
-    const hasFloatingShelf = controller.queuedMessages.length > 0 || (controller.placement !== 'center' && controller.contextFiles.length > 0)
+    const hasAttachmentShelf = controller.placement !== 'center' && controller.contextFiles.length > 0
+    const hasFloatingShelf = controller.queuedMessages.length > 0 || hasAttachmentShelf
     const hasInlineMentionOverlay = controller.text.length > 0 && controller.inlineMentionTags.length > 0
     const {
         iconTheme,
@@ -281,13 +296,18 @@ export function AssistantComposerView({
     }, [activeMenuItemCount])
 
     useLayoutEffect(() => {
-        const host = attachmentShelfRef.current
+        const host = slashMenuPresent ? drawerRef.current : attachmentShelfRef.current
         if (!host) {
             controller.onAttachmentShelfBoundsChange?.(null)
             return
         }
 
         const measure = () => {
+            if (slashMenuPresent) {
+                const rect = host.getBoundingClientRect()
+                controller.onAttachmentShelfBoundsChange?.(rect.width > 0 && rect.height > 0 ? { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width, height: rect.height } : null)
+                return
+            }
             const itemRects = Array.from(host.querySelectorAll<HTMLElement>('[data-composer-attachment-item="true"]'))
                 .map((element) => element.getBoundingClientRect())
                 .filter((rect) => rect.width > 0 && rect.height > 0)
@@ -508,10 +528,10 @@ export function AssistantComposerView({
                         className={cn(
                             'pointer-events-none absolute inset-x-0',
                             slashMenuPresent && controller.placement === 'center' ? 'top-full z-30 -mt-[17px]' : 'bottom-full',
-                            slashMenuPresent ? 'z-30 -mb-[17px]' : 'z-50 mb-[-2px]'
+                            slashMenuPresent || (controller.queuedMessages.length > 0 && !hasAttachmentShelf) ? 'z-30 -mb-[17px]' : 'z-50 mb-[-2px]'
                         )}
                     >
-                        <div className="flex flex-col gap-1" ref={shelfWheelRef}>
+                        <div className={cn('flex flex-col', hasAttachmentShelf ? 'gap-1' : 'gap-0')} ref={shelfWheelRef}>
                             {slashMenuPresent ? (
                                 <AnimatedHeight
                                     isOpen={slashMenuAnimatedOpen}
@@ -551,7 +571,7 @@ export function AssistantComposerView({
                                 </AnimatedHeight>
                             ) : (
                                 <>
-                            <AnimatedHeight isOpen={controller.queuedMessages.length > 0} duration={220}>
+                            <AnimatedHeight isOpen={controller.queuedMessages.length > 0} duration={220} className={controller.queuedMessages.length > 0 && hasAttachmentShelf ? '-mb-[17px]' : undefined}>
                                 <AssistantComposerQueue controller={controller} state={queueState} />
                             </AnimatedHeight>
                             {controller.placement !== 'center' ? <ComposerAttachmentsShelf

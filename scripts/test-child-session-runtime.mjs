@@ -7,6 +7,7 @@ import { AssistantMessageEventStream } from '../src/runtime/providers/src/utils/
 import { envApiKeyAuth } from '../src/runtime/providers/src/auth/helpers.js';
 import { AgentFleetController } from '../src/agents/runtime/fleet-controller.mjs';
 import { ChildSessionFactory } from '../src/agents/runtime/child-session-factory.mjs';
+import { attenuateAgentCapabilities } from '../src/agents/capability-policy.mjs';
 import { ChildSessionHost } from '../src/agents/runtime/child-session-host.mjs';
 import { createManagedBashState, listManagedBashJobs, stopManagedBashJobs } from '../src/managed-bash-tool.mjs';
 import { ChildThreadWorker } from '../src/agent-server/child-thread-worker.mjs';
@@ -22,6 +23,7 @@ try {
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   let requests = 0;
   let failRequest = false;
+  let conversationRead = false;
   let expectedKey = 'synthetic-parent-only-key';
   const stream = (_model, context, options) => {
     assert.equal(options.apiKey, expectedKey);
@@ -31,9 +33,9 @@ try {
     const message = { role: 'assistant', provider: model.provider, model: model.id, api: model.api, usage, timestamp: Date.now(),
       stopReason: failRequest ? 'error' : needsRead ? 'toolUse' : 'stop',
       ...(failRequest ? { errorMessage: 'Synthetic provider failure' } : {}),
-      content: failRequest ? [] : needsRead ? [{ type: 'toolCall', id: `read-${requests}`, name: 'read', arguments: { path: 'evidence.txt' } }] : [{ type: 'text', text: `Verified child result ${requests}` }],
+      content: failRequest ? [] : needsRead ? [{ type: 'toolCall', id: `read-${requests}`, name: conversationRead ? 'app' : 'read', arguments: conversationRead ? { action: 'read', area: 'chats', target: 'foreign-chat', input: { messageId: 'foreign-message' } } : { path: 'evidence.txt' } }] : [{ type: 'text', text: `Verified child result ${requests}` }],
     };
-    if (!needsRead && !failRequest) assert.match(context.messages.find(entry => entry.role === 'toolResult').content[0].text, /Scoped evidence/);
+    if (!needsRead && !failRequest) assert.match(context.messages.find(entry => entry.role === 'toolResult').content[0].text, conversationRead ? /Sibling Chat evidence/ : /Scoped evidence/);
     queueMicrotask(() => {
       result.push({ type: 'start', partial: message });
       result.push(failRequest ? { type: 'error', reason: 'error', error: message } : { type: 'done', reason: message.stopReason, message });
@@ -59,6 +61,27 @@ try {
   assert.equal(requests, 2);
   host.dispose();
   host = null;
+
+  const readerCapability = attenuateAgentCapabilities({ permissionMode: 'read-only', tools: ['read'], readScope: ['.'] });
+  assert(readerCapability.tools.includes('app'));
+  const conversationCalls = [];
+  host = new ChildSessionHost({ factory, maxTurns: 8 });
+  await host.open({ model, tools: readerCapability.tools, readScope: ['.'], noSession: true, permissionMode: 'read-only',
+    threadClient: { request: async input => { conversationCalls.push(input); return { history: 'Sibling Chat evidence' }; } } });
+  const conversationTool = host.requireSession().getToolDefinition('app');
+  assert(conversationTool, 'the real child session exposes its read-only app bridge');
+  await assert.rejects(conversationTool.execute('not-a-write', { action: 'rename', area: 'chats', target: 'foreign-chat' }), /read-only conversation/);
+  await assert.rejects(host.requireSession().getToolDefinition('read').execute('no-file-grant', { path: '../outside.txt' }), /outside the child scope/);
+  assert.equal(conversationCalls.length, 0, 'read-only chat capability grants neither mutations nor filesystem access');
+  conversationRead = true;
+  const conversationResult = await host.run('Read the sibling conversation and report.');
+  assert.match(conversationResult.text, /Verified child result/);
+  assert.equal(conversationCalls.length, 1);
+  assert.equal(conversationCalls[0].domain, 'app');
+  assert.equal(conversationCalls[0].operation, 'read');
+  assert.equal(conversationCalls[0].params.target, 'foreign-chat');
+  host.dispose(); host = null; conversationRead = false;
+  console.log('PASS real supporting-agent tool loop reads sibling Chats through the app bridge without write or filesystem grants');
 
   // The real child factory overrides native Bash with app-owned managed Bash.
   const processes = createManagedBashState();

@@ -1,6 +1,7 @@
 import type { AssistantChatScopeRoot, AssistantInteractionMode, AssistantModelInfo, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantBusyMessageMode } from '@/lib/settings'
+import type { AssistantComposerQueueState } from './AssistantComposerQueue'
 import type { AssistantProjectChoice } from './assistant-project-choices'
 
 export type AssistantComposerProjectRoot = AssistantChatScopeRoot
@@ -68,6 +69,8 @@ export type AssistantComposerProps = {
     onStop?: () => Promise<void> | void
     isStopping?: boolean
     queueHeld?: boolean
+    /** The attention dock retains unsaved queue edits while its composer is unmounted. */
+    queueState?: AssistantComposerQueueState
     onHoldQueue?: () => unknown
     onResumeQueue?: () => boolean | Promise<boolean> | void
     onReconnect?: () => Promise<void> | void

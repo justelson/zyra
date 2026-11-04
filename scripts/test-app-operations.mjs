@@ -21,14 +21,28 @@ for (const operation of ['read', 'search', 'update', 'create']) assert.throws(()
 assert.throws(() => appOperationPolicy(request('app', 'preview', { area: 'queues', input: { messageId: 'saved' } }), 'read-only'), /Unsupported operation/);
 assert.deepEqual(appOperationPolicy(request('app', 'preview', { area: 'order' }), 'read-only'), { mutation: false, needsApproval: false });
 assert.equal(appOperationPolicy(request('app', 'resume', { area: 'queues' }), 'full-access').needsApproval, true);
-assert.equal(appOperationPolicy(request('app', 'list', { area: 'chats', input: { appScope: 'installation' } }), 'full-access').needsApproval, true, 'expanded reads require real consent, not only mutations');
-assert.throws(() => appOperationPolicy(request('app', 'list', { area: 'chats', input: { appScope: 'installation' } }), 'full-access', true), /cannot expand/);
+for (const mode of ['read-only', 'approval-required', 'full-access']) for (const child of [false, true]) {
+  for (const [area, operation] of [['chats', 'list'], ['chats', 'inspect'], ['chats', 'search'], ['chats', 'read'], ['chats', 'preview'], ['work', 'inspect'], ['work', 'read'], ['resources', 'list'], ['resources', 'read'], ['attention', 'inspect'], ['agents', 'inspect'], ['workflows', 'inspect']]) {
+    for (const input of [{}, { appScope: 'installation' }]) assert.deepEqual(appOperationPolicy(request('app', operation, { area, input }), mode, child), { mutation: false, needsApproval: false }, `${area}/${operation}: authenticated chat reads never ask for consent`);
+  }
+}
+assert.equal(appOperationPolicy(request('app', 'list', { area: 'projects', input: { appScope: 'installation' } }), 'full-access').needsApproval, true, 'administrative Project discovery retains separate consent');
+assert.throws(() => appOperationPolicy(request('app', 'list', { area: 'projects', input: { appScope: 'installation' } }), 'full-access', true), /cannot expand/);
 const calls = [];
 const tools = createAppControlTools({ request: async input => { calls.push(input); return { ok: true }; } });
 assert.deepEqual(tools.map(tool => tool.name), ['settings', 'settings_action', 'app', 'usage']);
 await tools[0].execute('trusted-tool-call', { action: 'get', area: 'appearance' });
 assert.deepEqual(calls[0], { action: 'app', domain: 'settings', operation: 'get', params: { area: 'appearance' }, dedupeKey: 'trusted-tool-call' });
 assert.deepEqual(createAppControlTools(null), []);
+const childCalls = [];
+const childTools = createAppControlTools({ request: async input => { childCalls.push(input); return { history: 'Sibling Chat evidence' }; } }, { chatReadOnly: true });
+assert.deepEqual(childTools.map(tool => tool.name), ['app'], 'supporting agents receive only the conversation reader, not settings/action tools');
+for (const params of [{ action: 'rename', area: 'chats' }, { action: 'open', area: 'navigation' }, { action: 'inspect', area: 'runtime' }, { action: 'list', area: 'projects' }, { action: 'update', area: 'queues' }]) await assert.rejects(childTools[0].execute('denied-child-operation', params), /read-only conversation/);
+assert.equal(childCalls.length, 0, 'unsupported child operations never reach the bridge');
+await childTools[0].execute('child-chat-read', { action: 'read', area: 'chats', target: 'foreign', input: { messageId: 'message-foreign' } });
+assert.deepEqual(childCalls[0], { action: 'app', domain: 'app', operation: 'read', params: { area: 'chats', target: 'foreign', input: { messageId: 'message-foreign' } }, dedupeKey: 'child-chat-read' });
+await childTools[0].execute('child-discover', { action: 'list' });
+assert.equal(childCalls.length, 2);
 const legacyTools = createAppControlTools({ request: async () => { throw new Error('Unknown thread operation.'); } });
 await assert.rejects(legacyTools[0].execute('legacy-settings-read', { action: 'get', area: 'appearance' }), error =>
   error.code === 'APP_RUNTIME_UPDATE_REQUIRED' && error.message.includes('not applied'));
@@ -67,8 +81,17 @@ try {
   assert.match(authorizations[0].detail, /assistantMemoryEnabled/);
   assert.equal(delivered.at(-1).message.request.actor.approved, true);
   await invoke(request('app', 'list', { area: 'chats', input: { appScope: 'installation' } }));
-  assert.equal(authorizations.length, 2);
+  assert.equal(authorizations.length, 1, 'reading other Chats does not create an approval request');
   assert.equal(delivered.at(-1).message.request.actor.appScope, 'installation');
+  assert.equal(delivered.at(-1).message.request.actor.approved, false);
+  sender = { ...sender, senderCanonicalThreadId: 'supporting-agent', agent: { permissionMode: 'read-only' } };
+  await invoke(request('app', 'read', { area: 'chats', target: 'foreign-chat', input: { messageId: 'foreign-message', appScope: 'installation' } }));
+  assert.equal(authorizations.length, 1, 'supporting agents read without asking the parent or user');
+  assert.equal(delivered.at(-1).message.request.actor.child, true);
+  assert.equal(delivered.at(-1).message.request.actor.canonicalChatId, 'supporting-agent');
+  assert.equal(delivered.at(-1).message.request.actor.parentChatId, 'real-parent');
+  assert.ok(!JSON.stringify(delivered.at(-1).message.request).includes('synthetic-private-proof'));
+  sender = { ...sender, senderCanonicalThreadId: 'real-origin', agent: null };
   let approvalResolve;
   source.worker.request = () => new Promise(resolve => { approvalResolve = resolve; });
   const stopped = invoke(request('settings_action', 'run', { area: 'runtime.activate' }));

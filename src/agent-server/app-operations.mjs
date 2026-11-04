@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { forkCanonicalChat, preflightCanonicalChatFork } from './chat-fork.mjs';
-import { isAppAreaOperation } from '../app-area-operations.mjs';
+import { isAppAreaOperation, isAppChatRead } from '../app-area-operations.mjs';
 
 const READS = new Set(['list', 'get', 'inspect', 'search', 'read', 'preview', 'history', 'refresh']);
 const DOMAINS = new Set(['settings', 'settings_action', 'app', 'usage']);
@@ -20,7 +20,8 @@ export function appOperationPolicy(input, mode = 'approval-required', child = fa
   if (/"(?:__proto__|prototype|constructor|apiKey|accessToken|refreshToken|password|secret|authorityProof|userApproved|approved|approval|userConfirmed|confirmed)"\s*:/i.test(encoded)) throw new Error('Secrets and approval claims are not accepted as app arguments. Use the secure owning UI.');
   const scopeIntent = params.input?.appScope;
   if (scopeIntent !== undefined && !['project', 'installation'].includes(scopeIntent)) throw new Error('Choose project or installation app scope. Scope requests are not approval.');
-  if (scopeIntent === 'installation' && child) throw new Error('Supporting agents cannot expand app scope. Ask the parent to make the user-directed request.');
+  const chatRead = isAppChatRead(input);
+  if (scopeIntent === 'installation' && child && !chatRead) throw new Error('Supporting agents cannot expand app scope. Ask the parent to make the user-directed request.');
   if (scopeIntent !== undefined && !(input.domain === 'app' || input.domain === 'usage' || input.domain === 'settings' && params.area === 'chat')) throw new Error('This owner does not support an app-scope request.');
   const mutation = MUTATIONS.has(input.operation);
   if (mutation && mode === 'read-only') throw new Error('This agent cannot change app state in read-only mode.');
@@ -31,7 +32,7 @@ export function appOperationPolicy(input, mode = 'approval-required', child = fa
     || mutation && ['plugins', 'connections', 'devices', 'skills', 'runtime', 'privacy', 'providers', 'memory', 'project_folders', 'projects', 'chat'].includes(String(params.area || ''))
     || ['remove', 'fork', 'stop', 'resume', 'rename', 'refresh_title'].includes(input.operation)
     || input.domain === 'app' && input.operation === 'update';
-  return { mutation, needsApproval: scopeIntent === 'installation' || mutation && (mode !== 'full-access' || protectedChange) };
+  return { mutation, needsApproval: scopeIntent === 'installation' && !chatRead || mutation && (mode !== 'full-access' || protectedChange) };
 }
 
 /** Only the server creates the principal. Neither tool arguments nor Desktop selection establish identity. */

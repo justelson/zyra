@@ -512,6 +512,7 @@ let installVersion: string | null = null
 let installOperationId = ''
 let readyOnQuit: (() => void) | null = null
 let abortUpdateQuit = false
+let installQuitScheduled = false
 const installerFlag = (kind: 'pending' | 'ready', version = installVersion) => join(app.getPath('userData'), 'updates', `installer-${kind}-${version && /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version) ? version : 'invalid'}.flag`)
 async function releaseInstallationResources() {
     if (readyOnQuit) app.removeListener('will-quit', readyOnQuit)
@@ -522,8 +523,10 @@ async function releaseInstallationResources() {
 export function shouldAbortUpdateQuit() { const blocked = abortUpdateQuit; abortUpdateQuit = false; return blocked }
 export async function cancelPendingAppInstallation(message: string, abortScheduledQuit = true) {
     if (!isInstallingUpdate) return
-    isInstallingUpdate = false; abortUpdateQuit = abortScheduledQuit
+    abortUpdateQuit = abortScheduledQuit && installQuitScheduled
+    installQuitScheduled = false
     try { await releaseInstallationResources() } catch (error) { log.error('[updater] handoff release failed', error) }
+    finally { isInstallingUpdate = false }
     if (updateState.externalInstaller) installerRequests?.later()
     setUpdateState({ ...reduceUpdateStateOnInstallFailure(updateState, message), externalInstaller: undefined })
 }
@@ -580,12 +583,14 @@ const installPreflight = createInstallPreflight({
             // before-quit cleanup have finished. No PID is killed here.
             readyOnQuit = () => installerRequests!.ready()
             app.once('will-quit', readyOnQuit)
+            installQuitScheduled = true
             app.quit()
         } else {
             mkdirSync(join(app.getPath('userData'), 'updates'), { recursive: true })
             writeFileSync(installerFlag('pending'), installOperationId, { mode: 0o600 })
             readyOnQuit = () => writeFileSync(installerFlag('ready'), installOperationId, { mode: 0o600 })
             app.once('will-quit', readyOnQuit)
+            installQuitScheduled = true
             autoUpdaterRef!.quitAndInstall()
         }
     }
@@ -622,6 +627,9 @@ export async function installAppUpdate(confirmation?: AgentUpdateConfirmation): 
 
     if (isInstallingUpdate) return rejectAction('Install is already in progress.')
     if (!confirmation?.planId || typeof confirmation.stopBlockers !== 'boolean') return rejectAction('Review the agent update before installing.')
+    // A previous cancelled attempt cannot veto this operation's quit.
+    abortUpdateQuit = false
+    installQuitScheduled = false
     isInstallingUpdate = true
 
     try {

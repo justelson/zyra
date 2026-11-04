@@ -6,6 +6,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Pointer reorder owns the cursor only for the lifetime of its active gesture. */
+html[data-assistant-sidebar-dragging="true"],
+html[data-assistant-sidebar-dragging="true"] * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 .markdown-math:has(.katex-display) {
   display: block;
   max-width: 100%;

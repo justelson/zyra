@@ -315,7 +315,8 @@ async function runQueuePresentationChecks() {
         flushSync(() => textarea.dispatchEvent(new Event('input', { bubbles: true })))
     }
     render()
-    check(container.querySelector('section[aria-label="Queued messages"]')?.classList.contains('rounded-xl'), 'queue has one named rounded-xl panel')
+    check(container.querySelector('section[aria-label="Queued messages"]')?.closest('[data-composer-drawer="true"]'), 'queue uses the shared attached composer drawer')
+    check(!container.querySelector('[aria-label="Close composer menu"]'), 'queue does not inherit the unrelated command-menu close action')
     check(container.textContent?.includes('1 file') && container.textContent.includes('On hold.'), 'attachment count and held status rendered')
     click('Resume queue'); click('Steer', row()); click('Delete queued message', row())
     check(calls.join('|') === 'resume|steer:one|delete:one', 'compact actions target exact message')

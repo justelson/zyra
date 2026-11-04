@@ -8,7 +8,7 @@ import { AppOperationReceipts } from './app-operation-receipts'
 import { desktopNamespaceId } from './agent-server-namespace'
 import { validateAgentAppActionInput } from './agent-app-action-inputs'
 import { resolveModelCompactionPolicy } from '../../shared/assistant/runtime-policy'
-import { APP_AREA_OPERATIONS, isAppAreaOperation } from '../../../../src/app-area-operations.mjs'
+import { APP_AREA_OPERATIONS, isAppAreaOperation, isAppChatRead } from '../../../../src/app-area-operations.mjs'
 
 export type AppActor = { canonicalChatId: string; parentChatId: string; project: string; permissionMode: string; child: boolean; turnId: string | null; namespaceId: string; approved: boolean; appScope?: 'project' | 'installation' }
 export type AppRequest = { domain: string; operation: string; operationId: string; params: Record<string, unknown>; actor: AppActor }
@@ -75,7 +75,7 @@ export class AgentAppService {
         this.settings = new AgentSettings(deps.setup.preferences, deps.setup.secrets)
         this.receipts = new AppOperationReceipts(join(deps.stateDirectory, 'agent-app-receipts.json'))
     }
-    private async context(actor: AppActor) {
+    private async context(actor: AppActor, chatRead = false) {
         if (!actor?.canonicalChatId || !actor.parentChatId || !actor.namespaceId) throw new Error('Authenticated app caller identity is required.')
         if (actor.namespaceId !== desktopNamespaceId(this.deps.stateDirectory)) throw new Error('This app principal belongs to a different installation namespace.')
         const service = this.deps.getAssistant()
@@ -83,12 +83,14 @@ export class AgentAppService {
         const snapshot = await service.getSnapshot()
         const origin = snapshot.sessions.find(chat => chat.threads.some(thread => thread.providerThreadId === actor.parentChatId))
         if (!origin) throw new Error('The originating Chat is not available in this installation.')
-        if (actor.appScope === 'installation' && (!actor.approved || actor.child)) throw new Error('Installation app scope requires actual user consent for this exact operation.')
-        const allowed = snapshot.sessions.filter(chat => (projectKey(chat) === projectKey(origin) || actor.appScope === 'installation') && (!actor.child || chat.id === origin.id) && chat.threads.some(thread => thread.source !== 'subagent'))
+        if (!chatRead && actor.appScope === 'installation' && (!actor.approved || actor.child)) throw new Error('Installation app scope requires actual user consent for this exact operation.')
+        const allowed = snapshot.sessions.filter(chat => (chatRead || projectKey(chat) === projectKey(origin) || actor.appScope === 'installation') && (chatRead || !actor.child || chat.id === origin.id) && chat.threads.some(thread => thread.source !== 'subagent'))
         return { service, snapshot, origin, allowed }
     }
     private target(chats: AssistantSessionShell[], actor: AppActor, selector: unknown) {
-        const id = !selector || selector === 'current' ? actor.canonicalChatId : text(selector)
+        // Supporting transcripts are not independent Desktop Chats. Their
+        // default read context is the authenticated parent, not the selected UI.
+        const id = !selector || selector === 'current' ? (actor.child ? actor.parentChatId : actor.canonicalChatId) : text(selector)
         const chat = chats.find(chat => chat.id === id || chat.threads.some(thread => thread.providerThreadId === id || thread.id === id))
         if (!chat) throw new Error('Chat is unavailable in the caller\'s Project. Discover an authorized exact target first.')
         return { chat, thread: chat.threads.find(thread => thread.providerThreadId === id || thread.id === id) || chat.threads.find(thread => thread.id === chat.activeThreadId) || chat.threads[0]! }
@@ -111,16 +113,17 @@ export class AgentAppService {
         if (!/^[a-f0-9]{64}$/.test(request.operationId || '') || !['settings', 'settings_action', 'app', 'usage'].includes(request.domain)) throw new Error('Invalid authenticated app operation envelope.')
         request.params = asRecord(request.params)
         if (request.domain === 'app' && !['fork_source', 'fork_prepare', 'fork_attach', 'fork_rollback'].includes(request.operation) && !isAppAreaOperation(text(request.params.area, 80), request.operation)) throw new Error('Unsupported operation for this app area. Reads never change ordering or queues.')
-        const admission = await this.context(request.actor)
-        // Recheck scope even when returning a completed receipt. Project movement
-        // must not turn old receipt data into a cross-Project read capability.
+        const chatRead = isAppChatRead(request)
+        const admission = await this.context(request.actor, chatRead)
+        // Global conversation reads do not widen administrative scope. Recheck
+        // mutation targets even when returning a completed receipt.
         this.checkScopeTargets(request, admission)
         const mutation = !readActions.has(request.operation)
         if (mutation && (request.actor.child || request.actor.permissionMode === 'read-only')) throw new Error('This caller cannot mutate app state.')
-        const needsLiveOwner = mutation || request.actor.appScope === 'installation'
-        if (needsLiveOwner && !assertCurrent) throw new Error('Live authenticated app-owner validation is required before mutation or expanded reads.')
+        const needsLiveOwner = mutation || chatRead || request.actor.appScope === 'installation'
+        if (needsLiveOwner && !assertCurrent) throw new Error('Live authenticated app-owner validation is required before mutation or installation-wide reads.')
         const authorize = async () => {
-            const current = await this.context(request.actor)
+            const current = await this.context(request.actor, chatRead)
             this.checkScopeTargets(request, current)
             if (needsLiveOwner) await assertCurrent!()
             return current
@@ -223,7 +226,7 @@ export class AgentAppService {
                 contextObservation: hasContextEstimate ? 'Runtime-reported context estimate, not cumulative token consumption.' : 'No current context-size observation supplied; cumulative consumption is not context size.',
                 usage: { ...usage, usage: { ...usage.usage, turns }, returnedTurns: turns.length, totalTurns: usage.usage.turns.length }, compactionThreshold: compactionPolicy.thresholdTokens, compactionPolicy }
         }
-        if (operation === 'list' && !area) return { currentChatId: actor.canonicalChatId, projectId: origin.projectId || null, namespaceId: actor.namespaceId, appScope: actor.appScope || 'project', availableScopeRequests: ['project', 'installation, with per-operation real user consent; no filesystem grant'], areas: [...AREAS.map(area => ({ ...area, actions: APP_AREA_OPERATIONS[area.id] || [] })), { id: 'order', actions: APP_AREA_OPERATIONS.order, owner: 'visible Desktop-profile sidebar' }, { id: 'navigation', actions: APP_AREA_OPERATIONS.navigation, owner: 'explicit in-app navigation' }] }
+        if (operation === 'list' && !area) return { currentChatId: actor.canonicalChatId, projectId: origin.projectId || null, namespaceId: actor.namespaceId, appScope: actor.appScope || 'project', chatReadScope: 'installation', chatReadRequiresApproval: false, availableScopeRequests: ['project', 'installation, with per-operation consent for administration; conversation reads need no scope request or filesystem grant'], areas: [...AREAS.map(area => ({ ...area, actions: APP_AREA_OPERATIONS[area.id] || [] })), { id: 'order', actions: APP_AREA_OPERATIONS.order, owner: 'visible Desktop-profile sidebar' }, { id: 'navigation', actions: APP_AREA_OPERATIONS.navigation, owner: 'explicit in-app navigation' }] }
         if (area === 'chats') {
             if (['move', 'reorder', 'pin', 'unpin', 'undo'].includes(operation)) {
                 const target = this.target(allowed, actor, params.target)

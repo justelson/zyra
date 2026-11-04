@@ -18,6 +18,7 @@ import { AssistantWorkContextIcon } from './AssistantWorkContextIcon'
 import { resolveSidebarWorkContext } from './assistant-work-context'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
+import { useAssistantSidebarDrag } from './useAssistantSidebarDrag'
 import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
 import { useAssistantSettlementOverrides, migrateCanonicalSettlementOverrides } from './assistant-settlement-store'
 import { availableChatActionMenuItems, createChatSettlementMenuItem } from './assistant-chat-actions-menu'
@@ -168,7 +169,8 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
     return (
         <div className={cn(
             'pointer-events-none z-[1] opacity-0 duration-150 ease-out group-hover/agent-inbox-row:pointer-events-auto group-focus-visible/agent-inbox-row:pointer-events-auto group-has-[:focus-visible]/agent-inbox-row:pointer-events-auto group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:pointer-events-auto group-hover/agent-inbox-row:opacity-100 group-focus-visible/agent-inbox-row:opacity-100 group-has-[:focus-visible]/agent-inbox-row:opacity-100 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 motion-reduce:transition-none',
-            'absolute right-0 top-1/2 -translate-y-1/2 transition-opacity',
+            // Translate inside the stable slot shared with recency; never shift the text.
+            'absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 transition-[opacity,transform] group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 has-[:focus-visible]:translate-x-0',
             showLabel ? 'w-[max(4.75rem,76px)]' : 'w-[max(3.25rem,52px)]'
         )}>
             <div className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
@@ -208,35 +210,38 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     const title = getSessionDisplayTitle(item.session)
     const work = resolveSidebarWorkContext(item.session, item.thread)
     const model = resolveAssistantInboxModelPresentation(item.thread?.model)
+    const hasStatus = item.status !== 'ready'
     const receded = (item.status === 'ready' || item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active
     const activate = () => void props.onSelectSession(item.session.id)
     const menuItems = getAgentInboxMenuItems(item, onSettle, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
             <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
-                <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
-                    <div className="flex h-5 min-w-0 items-center gap-1.5">
+                <div className="relative z-10 grid min-h-20 grid-cols-1 content-start gap-y-1 px-2.5 py-2">
+                    <div className="col-start-1 row-start-1 flex h-5 min-w-0 items-center gap-1.5" data-agent-inbox-heading>
                         {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
-                        <span title={work?.folderPath || undefined} className={cn('min-w-0 flex-1 truncate text-xs text-sparkle-text-secondary/85', receded ? 'font-normal' : 'font-medium')}>{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
-                        <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end gap-1 pl-1 pr-[max(3.25rem,52px)] text-xs">
-                            <span className="shrink-0">
+                        <span data-work-label={work ? true : undefined} title={[work?.folderPath, model.modelName ? `Model: ${item.thread?.model}` : null].filter(Boolean).join('\n') || undefined} className="min-w-0 flex-1 truncate text-xs font-normal text-sparkle-text-muted/85">{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
+                        <div className="relative ml-auto flex h-5 min-w-[max(3.25rem,52px)] shrink-0 items-center justify-end text-xs">
+                            <span data-agent-inbox-status className={cn('shrink-0', !hasStatus && 'group-hover/agent-inbox-row:invisible group-focus-visible/agent-inbox-row:invisible group-has-[:focus-visible]/agent-inbox-row:invisible group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:invisible')}>
                                 <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
                             </span>
-                            <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} />
                         </div>
                     </div>
-                    <div className="mt-1 flex min-w-0">
-                        <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm', receded ? 'font-normal text-sparkle-text-secondary/80' : 'font-medium text-sparkle-text')} />
+                    <div className="col-start-1 row-start-2 flex min-w-0" data-agent-inbox-title>
+                        <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className="min-w-0 flex-1 text-sm font-normal text-sparkle-text" />
                     </div>
-                    <div className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sparkle-text-muted/75">
+                    <div className={cn('col-start-1 row-start-3 flex h-4 min-w-0 items-center gap-1.5 text-[11px] leading-4 text-sparkle-text-muted/75', hasStatus && 'pr-[max(3.25rem,52px)]')} data-agent-inbox-metadata data-agent-inbox-model={model.modelName || undefined}>
                         {model.provider ? <span role="img" aria-label={`${model.provider} model provider`} className="inline-flex shrink-0"><SettingsProviderIcon provider={model.provider === 'anthropic' ? 'claude' : model.provider === 'google' ? 'gemini' : model.provider} size={13} /></span> : null}
-                        <span className="min-w-0 flex-1 truncate whitespace-nowrap">{model.modelName || 'Assistant'}</span>
+                        <span className="min-w-0 flex-1 truncate">{model.modelName || 'No model selected'}</span>
                         {item.pinned ? <span aria-label="Pinned chat" title="Pinned chat" className="inline-flex shrink-0"><Pin size={12} /></span> : null}
-                        {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? <span className="inline-flex shrink-0 items-center" data-assistant-presence-group>
+                        {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? <span className={cn('inline-flex shrink-0 items-center', hasStatus && 'translate-x-[max(3.25rem,52px)] transition-transform duration-150 ease-out group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 motion-reduce:transition-none')} data-assistant-presence-group data-presence-action-slot={hasStatus || undefined}>
                             <AssistantAgentPresenceIndicator thread={item.thread} />
                             {item.tuiOpen ? <AssistantTuiPresenceIndicator focusable={false} /> : null}
                             {item.mobileDevices.length > 0 ? <AssistantTuiPresenceIndicator focusable={false} mobileDevices={item.mobileDevices} /> : null}
                         </span> : null}
+                    </div>
+                    <div className={cn('pointer-events-none relative col-start-1 h-0 w-[max(3.25rem,52px)] justify-self-end self-center', hasStatus ? 'row-start-3' : 'row-start-1')}>
+                        <InboxRowActions item={item} action="settle" onAction={onSettle} props={props} />
                     </div>
                 </div>
             </div>
@@ -281,7 +286,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [projectSearch, setProjectSearch] = useState('')
     const [settledExpanded, setSettledExpanded] = useState(false)
     const [settledMaxHeight, setSettledMaxHeight] = useState(320)
-    const [dragPreview, setDragPreview] = useState<{ id: string; target: string; group: 'pinned' | 'chats'; placement: 'before' | 'after' } | null>(null)
     const [sidebarOrder, setSidebarGroupOrder] = useAssistantInboxOrder()
     const { toast: localToast, showToast: showLocalToast, dismissToast } = useAssistantTransientToast()
     const showToast = props.onShowToast || showLocalToast
@@ -374,6 +378,12 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const desiredSettled = settledExpanded ? visibleSettled : visibleSettled.filter((item) => item.active)
     const stableLayout = useStableSidebarGroups([desiredPriority, desiredRecent, desiredSettled])
     const [stablePriority, stableRecent, renderedSettled] = stableLayout.groups
+    const { preview: dragPreview, getRowProps: getDragRowProps } = useAssistantSidebarDrag({
+        scrollRef,
+        onAutoScroll: top => { scrollPositionRef.current = top },
+        rows: [...stablePriority, ...stableRecent].map(item => ({ id: item.session.id, group: item.pinned ? 'pinned' : 'chats', enabled: !item.settled && !props.commandPending })),
+        onMove: (id, target, group, placement) => moveChat(id, target, group, placement)
+    })
     const previewOrder = (group: SidebarItem[], name: 'pinned' | 'chats') => {
         if (!dragPreview || dragPreview.group !== name || dragPreview.id === dragPreview.target) return group
         const dragged = group.find(item => item.session.id === dragPreview.id)
@@ -397,9 +407,9 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             activeSessionId: props.activeSessionId,
             scope,
             selectSession: props.onSelectSession,
-            onOrderChange: (undo: (() => boolean) | null, label = 'Chat moved') => {
+            onOrderChange: (undo: (() => boolean) | null, label?: string) => {
                 stableLayout.release()
-                if (undo) showUndoToast(label, () => { undo() })
+                if (undo && label) showUndoToast(label, () => { undo() })
             }
         }
         if (navigationRef.current) navigationRef.current.update(value)
@@ -410,7 +420,8 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const moveChat = (sessionId: string, targetId: string, group: 'pinned' | 'chats', placement: 'before' | 'after') => {
         const snapshot = getAssistantChatNavigationSnapshot()
         if (!snapshot.owner) return
-        performAssistantChatOrderOperation({ action: 'move', owner: snapshot.owner, expectedRevision: snapshot.revision, group, sessionId, ...(placement === 'before' ? { beforeSessionId: targetId } : { afterSessionId: targetId }) })
+        const result = performAssistantChatOrderOperation({ action: 'move', owner: snapshot.owner, expectedRevision: snapshot.revision, group, sessionId, ...(placement === 'before' ? { beforeSessionId: targetId } : { afterSessionId: targetId }) })
+        if (!result.success) showToast({ message: result.error || 'Could not save chat order.', tone: 'error' })
     }
     const rowProps: SidebarRowProps = {
         ...props,
@@ -426,45 +437,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 showUndoToast(action.id === 'pin' ? 'Chat pinned' : 'Chat unpinned', () => { writePinnedSessionIds(previousPins) })
             }
         } : action),
-        getSidebarDragProps: item => ({
-            draggable: !item.settled && !props.commandPending,
-            onDragStart: event => {
-                if ((event.target as Element).closest('button,textarea,input')) { event.preventDefault(); return }
-                event.dataTransfer.setData('application/x-zyra-chat-order', item.session.id)
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setDragImage(event.currentTarget, 32, 24)
-                setDragPreview({ id: item.session.id, target: item.session.id, group: item.pinned ? 'pinned' : 'chats', placement: 'before' })
-            },
-            onDragEnd: () => setDragPreview(null),
-            'data-sidebar-dragging': dragPreview?.id === item.session.id || undefined,
-            'data-sidebar-drop': dragPreview?.target === item.session.id && dragPreview.id !== item.session.id ? dragPreview.placement : undefined,
-            onDragOver: event => {
-                if (item.settled || !dragPreview || (item.pinned ? 'pinned' : 'chats') !== dragPreview.group) return
-                if (dragPreview.id === item.session.id && dragPreview.target === item.session.id) return
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
-                // The preview can move the dragged row under a stationary pointer.
-                // Keep that drop zone without replacing its saved destination.
-                if (dragPreview.id === item.session.id) return
-                const rect = event.currentTarget.getBoundingClientRect()
-                const placement = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
-                setDragPreview(current => current?.target === item.session.id && current.placement === placement ? current : { ...dragPreview, target: item.session.id, placement })
-            },
-            onDrop: event => {
-                const draggedId = event.dataTransfer.getData('application/x-zyra-chat-order')
-                const dragged = allItems.find(entry => entry.session.id === draggedId)
-                if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned) return
-                const group = item.pinned ? 'pinned' : 'chats'
-                const preview = dragPreview?.id === draggedId && dragPreview.group === group ? dragPreview : null
-                const targetId = draggedId === item.session.id ? preview?.target : item.session.id
-                const target = allItems.find(entry => entry.session.id === targetId)
-                if (!target || target.session.id === draggedId || target.settled || target.pinned !== dragged.pinned) return
-                event.preventDefault()
-                const rect = event.currentTarget.getBoundingClientRect()
-                moveChat(draggedId, target.session.id, group, preview?.target === target.session.id ? preview.placement : event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
-                setDragPreview(null)
-            }
-        })
+        getSidebarDragProps: item => getDragRowProps({ id: item.session.id, group: item.pinned ? 'pinned' : 'chats', enabled: !item.settled && !props.commandPending })
     }
     const hiddenSettledCount = settledItems.length - visibleSettled.length
     const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
@@ -536,7 +509,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                         opacity: 1
                     }
                 ], {
-                    duration: 240,
+                    duration: 140,
                     easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
                     fill: 'both'
                 })
@@ -563,7 +536,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                     opacity: 1
                 }
             ], {
-                duration: 280,
+                duration: 140,
                 easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
                 fill: 'both'
             })
@@ -587,16 +560,18 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         if (item.pinned || isWorkingItem(item)) return
         stableLayout.release()
         const previousOrder = sidebarOrder.chats
+        const restoredOrder = state === 'active' ? restoreAssistantInboxItem(
+            orderedRecentRef.current.map(entry => entry.session.id), previousOrder, item.session.id) : null
+        if (restoredOrder) setSidebarGroupOrder('chats', restoredOrder)
         void setChatSettlement(item.session, state === 'settled').then(() => {
             showToast(createChatSettlementToast(item.session, state === 'settled', async () => {
                 await setChatSettlement(item.session, item.settled)
                 setSidebarGroupOrder('chats', previousOrder)
             }))
-            if (state === 'active') {
-                setSidebarGroupOrder('chats', current => restoreAssistantInboxItem(
-                    orderedRecentRef.current.map(entry => entry.session.id), current, item.session.id))
-            }
-        }).catch(error => showToast({ message: error instanceof Error ? error.message : 'Could not update chat settlement.', tone: 'error' }))
+        }).catch(error => {
+            if (restoredOrder) setSidebarGroupOrder('chats', current => JSON.stringify(current) === JSON.stringify(restoredOrder) ? previousOrder : current)
+            showToast({ message: error instanceof Error ? error.message : 'Could not update chat settlement.', tone: 'error' })
+        })
     }
 
     return (

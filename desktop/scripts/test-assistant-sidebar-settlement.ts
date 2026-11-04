@@ -34,4 +34,7 @@ assert(!isAssistantChatSettled(changed({ messageCount: 5 }), { chat: override },
 assert(!isAssistantChatSettled(session, { chat: { ...override, state: 'active' } }, presentation), 'Explicitly unsettled chats remain active')
 assert(!isAssistantChatSettled({ ...session, settled: false }, { chat: override }, presentation), 'Canonical active wins over automatic and saved local settlement')
 assert(isAssistantChatSettled({ ...session, settled: true }, { chat: { ...override, state: 'active' } }, { ...presentation, now: Date.parse(completedAt) }), 'Canonical settled wins over a conflicting local choice')
-console.log('Sidebar settlement metadata, legacy choices, new activity, and hydration regressions passed.')
+assert(isAssistantChatSettled({ ...session, settled: false }, { chat: { ...override, optimistic: true } }, presentation), 'Pending UI intent appears before canonical acknowledgement')
+assert(!isAssistantChatSettled({ ...changed({ messageCount: 5 }), settled: false }, { chat: { ...override, optimistic: true } }, presentation), 'New conversation activity invalidates pending settlement')
+assert(!isAssistantChatSettled(session, { chat: { ...override, optimistic: true } }, { ...presentation, priority: true }), 'Pending UI intent cannot hide working or pinned chats')
+console.log('Sidebar settlement metadata, legacy choices, new activity, optimistic intent and hydration regressions passed.')

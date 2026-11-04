@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { SettlementOverrides } from './assistant-sidebar-settlement'
-import { isSidebarSettlementCurrent } from './assistant-sidebar-settlement'
+import { getSidebarSettlementActivityKey, isSidebarSettlementCurrent } from './assistant-sidebar-settlement'
 import type { AssistantSession } from '@shared/assistant/contracts'
 
 const KEY = 'assistant:agent-inbox-settled-overrides:v1'
@@ -15,18 +15,62 @@ function read(): SettlementOverrides {
             const item = entry as Record<string, unknown> | null
             return item && (item.state === 'active' || item.state === 'settled') && typeof item.activityAt === 'string'
                 && (item.activityKey === undefined || typeof item.activityKey === 'string')
+        }).map(([id, entry]) => {
+            const choice = entry as SettlementOverrides[string]
+            // Pending UI intent is memory-only, never trusted from disk.
+            return [id, { state: choice.state, activityAt: choice.activityAt, activityKey: choice.activityKey }]
         })) as SettlementOverrides
     } catch { return {} }
 }
 let snapshot = read()
-const getSnapshot = () => snapshot
-const publish = () => { for (const listener of listeners) listener() }
+type PendingSettlement = { choice: SettlementOverrides[string]; confirmed: boolean; failed: boolean; previous?: PendingSettlement }
+const pending = new Map<string, PendingSettlement>()
+let view = snapshot
+const updateView = () => { view = pending.size ? { ...snapshot, ...Object.fromEntries([...pending].map(([id, operation]) => [id, operation.choice])) } : snapshot }
+const getSnapshot = () => view
+const publish = () => { updateView(); for (const listener of listeners) listener() }
+
+function reconcilePending(sessions: AssistantSession[]) {
+    let changed = false
+    for (const [id, operation] of pending) {
+        const session = sessions.find(value => value.id === id)
+        if (session && (!isSidebarSettlementCurrent(session, operation.choice)
+            || operation.confirmed && session.settled === (operation.choice.state === 'settled'))) {
+            pending.delete(id); changed = true
+        }
+    }
+    if (changed) publish()
+}
+
+/** Share immediate intent across sidebar/header menus, without persisting it. */
+export function beginAssistantSettlement(session: AssistantSession, settled: boolean) {
+    const operation: PendingSettlement = { choice: { state: settled ? 'settled' : 'active', activityAt: session.updatedAt,
+        activityKey: getSidebarSettlementActivityKey(session), optimistic: true }, confirmed: false, failed: false, previous: pending.get(session.id) }
+    pending.set(session.id, operation)
+    publish()
+    return {
+        confirm() {
+            operation.confirmed = true
+            if (pending.get(session.id) === operation) reconcilePending(latestSessions)
+        },
+        rollback() {
+            operation.failed = true
+            if (pending.get(session.id) !== operation) return
+            let previous = operation.previous
+            while (previous?.failed) previous = previous.previous
+            if (previous) pending.set(session.id, previous)
+            else pending.delete(session.id)
+            reconcilePending(latestSessions)
+            publish()
+        }
+    }
+}
 const onStorage = (event: StorageEvent) => { if (event.key === KEY || event.key === null) { snapshot = read(); publish() } }
 function subscribe(listener: () => void) {
     if (!listeners.size) {
         // Storage may change while no chat surface is mounted. A failed write
         // leaves persistedRaw unchanged, retaining the in-memory choice.
-        try { if (localStorage.getItem(KEY) !== persistedRaw) snapshot = read() } catch { /* retain memory */ }
+        try { if (localStorage.getItem(KEY) !== persistedRaw) { snapshot = read(); updateView() } } catch { /* retain memory */ }
         window.addEventListener('storage', onStorage)
     }
     listeners.add(listener)
@@ -48,6 +92,7 @@ let latestSessions: AssistantSession[] = []
 const retryAfter = new Map<string, number>()
 export function migrateCanonicalSettlementOverrides(sessions: AssistantSession[]) {
     latestSessions = sessions
+    reconcilePending(sessions)
     if (migration) return migration
     migration = migrateChoices().finally(() => { migration = null })
     return migration
@@ -58,7 +103,7 @@ async function migrateChoices() {
     for (const candidate of latestSessions) {
         const session = latestSessions.find(entry => entry.id === candidate.id)
         const choice = snapshot[candidate.id]
-        if (!session || !choice || typeof session.settled !== 'boolean') continue
+        if (!session || !choice || pending.has(session.id) || typeof session.settled !== 'boolean') continue
         if (!session.settlementManual && (!isSidebarSettlementCurrent(session, choice) || (retryAfter.get(session.id) || 0) > Date.now())) continue
         try {
             if (!session.settlementManual) {

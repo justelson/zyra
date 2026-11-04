@@ -6,6 +6,8 @@ import { toAssistantShellSnapshot } from '../../src/main/assistant/persistence-s
 import { materializeAssistantShellSnapshot } from '../../src/renderer/src/lib/assistant/assistant-history-state'
 import { applyAssistantDomainEvents, createDefaultAssistantSnapshot } from '../../src/shared/assistant/projector'
 import { areAssistantSessionsRailSelectionsEqual } from '../../src/renderer/src/lib/assistant/assistant-store-selection-helpers'
+import { useAssistantSettlementOverrides } from '../../src/renderer/src/pages/assistant/assistant-settlement-store'
+import { resolveChatMenuSettlement } from '../../src/renderer/src/pages/assistant/assistant-chat-menu-state'
 
 const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
@@ -21,7 +23,15 @@ const hydratedThread = {
 const hydrated = { id: 'settled', title: 'Settled chat', createdAt: now, updatedAt: now, projectPath: null,
     threads: [hydratedThread], activeThreadId: hydratedThread.id, threadIds: [hydratedThread.id], archived: false } as AssistantSession
 let sessions = [hydrated]
+let delayNextMutation = false
+let releaseMutation: ((success: boolean) => void) | null = null
 ;(window as any).devscope = { assistant: { settleSession: async (id: string, settled: boolean) => {
+    if (delayNextMutation) {
+        delayNextMutation = false
+        const success = await new Promise<boolean>(resolve => { releaseMutation = resolve })
+        releaseMutation = null
+        if (!success) return { success: false, error: 'Fixture settlement failed' }
+    }
     for (const session of [hydrated, ...sessions]) if (session.id === id) Object.assign(session, { settled, settlementManual: true })
     // Model the canonical metadata event, not a full store.refresh() callback.
     sessions = [...sessions]
@@ -29,8 +39,13 @@ let sessions = [hydrated]
     return { success: true }
 } } }
 let selected: string | null = 'settled'
+function SettlementProbe() {
+    const [overrides] = useAssistantSettlementOverrides()
+    return <output hidden data-settlement-probe>{resolveChatMenuSettlement(sessions[0], overrides, false, 'settled-thread').settled ? 'settled' : 'active'}</output>
+}
 function render(mounted = true) {
     flushSync(() => root.render(mounted ? <div className="flex h-full w-[300px] flex-col p-2">
+        <SettlementProbe />
         <AssistantAgentInboxSidebar sessions={sessions} activeSessionId={selected} activeThreadId={selected ? 'settled-thread' : null}
             commandPending={false} pendingControlThreadIds={new Set()} projectIconOverrides={{}} headerActions={null}
             onSelectSession={() => undefined} onCreateProjectChat={() => undefined} onRename={() => undefined}
@@ -63,6 +78,36 @@ async function run() {
     check(isSettled() && selected === 'settled', 'Canonical settlement moves the focused selected chat immediately while hovered')
     sessions = sessions.map(session => ({ ...session, settled: false })); render(); await sleep()
     check(!isSettled(), 'Canonical un-settle immediately restores the open hovered chat to Recent')
+    delayNextMutation = true
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click()
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(isSettled() && sessions[0].settled === false, 'Settle moves on the first paint while the server reply is still pending')
+    check(document.querySelector('[data-settlement-probe]')?.textContent === 'settled', 'Shared header/menu state changes on the same paint')
+    check(document.getAnimations().filter(animation => (animation.effect as KeyframeEffect)?.target instanceof Element && ((animation.effect as KeyframeEffect).target as Element).matches('[data-agent-inbox-layout-id]')).every(animation => Number(animation.effect?.getTiming().duration) <= 140), 'Row movement remains short and responsive')
+    check(!localStorage.getItem('assistant:agent-inbox-settled-overrides:v1')?.includes('optimistic'), 'In-flight settlement is never persisted as a legacy choice')
+    releaseMutation!(false); await sleep()
+    check(!isSettled() && document.body.textContent?.includes('Fixture settlement failed'), 'Failed settlement rolls back and keeps an error visible')
+    delayNextMutation = true
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click()
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(isSettled(), 'A retry is also immediate')
+    releaseMutation!(true); await sleep()
+    check(isSettled(), 'Acknowledgement keeps the optimistic position without bouncing')
+    delayNextMutation = true
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click()
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(!isSettled(), 'Restore also moves before the server replies')
+    const releaseRestore = releaseMutation!
+    delayNextMutation = true
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click()
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(isSettled(), 'A rapid second toggle immediately shows the latest intent')
+    releaseRestore(true)
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(isSettled() && sessions[0].settled === false && releaseMutation, 'Earlier acknowledgement cannot overwrite the newer pending toggle')
+    releaseMutation!(true); await sleep()
+    check(isSettled() && sessions[0].settled === true, 'Serialized writes persist the latest toggle')
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click(); await sleep()
     scroller.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))
     row()!.querySelector<HTMLElement>('[role="button"]')!.blur()
     row()!.querySelector<HTMLButtonElement>('[aria-label="Settle chat"]')!.click(); await sleep()
@@ -139,6 +184,13 @@ async function run() {
     await expandSettled()
     check(Math.abs(settledSection.getBoundingClientRect().bottom - collapsedBottom) < 2, 'opening Settled expands upward without moving its bottom edge')
     check(scroll.scrollTop === beforeRestoreScroll && settledScroller.scrollTop === 0, 'opening Settled does not move Chats or inherit its scroll offset')
+    const beforeFailedRestore = renderedIds().join(',')
+    delayNextMutation = true
+    row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click()
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    check(!isSettled() && renderedIds()[0] === 'settled', 'An old restored chat moves to the top before the server replies')
+    releaseMutation!(false); await sleep()
+    check(isSettled() && renderedIds().join(',') === beforeFailedRestore, 'Failed restore returns both settlement and exact prior order')
     row()!.querySelector<HTMLButtonElement>('[aria-label="Un-settle chat"]')!.click(); await sleep()
     check(!isSettled() && renderedIds()[0] === 'settled', 'Explicitly restoring an old chat places it above all newer chats')
     check(scroll.scrollTop === beforeRestoreScroll, 'Restoring to the top preserves the sidebar scroll position')
@@ -162,6 +214,6 @@ async function run() {
     const finalSection = document.querySelector<HTMLElement>('[aria-label="Settled chats"]')!.getBoundingClientRect()
     const finalContainer = document.querySelector<HTMLElement>('[data-sidebar-groups]')!.getBoundingClientRect()
     check(Math.abs(finalSection.bottom - finalContainer.bottom) < 2 && finalSection.top >= chatsViewport.getBoundingClientRect().bottom, 'long Settled remains bottom anchored without covering Chats')
-    return ['canonical settlement selector notification while hovered/focused; collapsed active access; settlement/navigation/restore persistence; bottom-anchored upward expansion; independent long Chats/Settled scrolling and load-more']
+    return ['first-paint optimistic settle/restore with delayed server, shared menu state, short motion, failure rollback and acknowledgement; canonical/navigation persistence and independent scrolling']
 }
 ;(window as any).sidebarContinuityCheck = run()

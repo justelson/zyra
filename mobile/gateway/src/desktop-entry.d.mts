@@ -35,4 +35,5 @@ export function createGateway(options: { tls: ServerOptions; directory: string; 
   voiceFactory?: (device: Device, receive: (event: Record<string, unknown>) => void) => { dispatch(method: string, params: any, chat: any): Promise<any>; close(): Promise<void> };
   clientFactory: (device: Device) => MobileHostClient | Promise<MobileHostClient>; fleet?: { read(session: string, type: string, payload: Record<string, unknown>, live?: any): Promise<any> }; prepareChat?: (id: string) => Promise<boolean>; resolveScope?: (id: string) => Promise<unknown>; terminalFactory?: (device: Device, receive: (event: Record<string, unknown>) => void) => { supportsSplit?: boolean; dispatch(method: string, params: any, chat: any, roots: any[]): Promise<any>; close(): void } }): Gateway;
 export function hostTls(directory: string): Promise<ServerOptions & { fingerprint: string }>;
+export function prepareHostProcessIdentity(): Promise<void>;
 export function pairingDisplay(gateway: Gateway, tls: { fingerprint: string }, url: string, name: string): Promise<{ link: string; image: string; expiresAt: number }>;

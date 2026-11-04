@@ -1,3 +1,4 @@
+import { listenForMobile } from './mobile-listener'
 import { MobileTerminalAccess } from './mobile-terminal-access'
 import { MobileVoiceAccess } from './mobile-voice-access'
 import { MobilePluginAccess } from './mobile-plugin-access'
@@ -135,13 +136,15 @@ export class MobileAccessManager {
         } finally { client.close() }
     }
     private async start(): Promise<void> {
+        if (this.gateway) { this.failure = undefined; return }
         if (!this.addresses().some(entry => entry.address === this.config.address)) throw new Error('The saved network address is unavailable. Select your current network in Device connections.')
         if (!Array.isArray(this.config.projects) || !this.config.projects.length) throw new Error('No folders are shared.')
-        const { createGateway, hostTls } = await import('../../../mobile/gateway/src/desktop-entry.mjs')
+        const { createGateway, hostTls, prepareHostProcessIdentity } = await import('../../../mobile/gateway/src/desktop-entry.mjs')
         const tls = await hostTls(this.directory)
         const clientFactory = await this.clientFactory()
         // Starting Desktop's normal runtime preserves its saved chat scope and plugin authority.
         await this.service().getStatus()
+        await prepareHostProcessIdentity()
         const gateway = createGateway({ tls, directory: this.directory, projects: this.config.projects, allProjects: true, name: hostname(),
             runtimeStatus: readRuntimeActivation,
             prepareChat: id => this.service().prepareMobileChat(id),
@@ -158,9 +161,10 @@ export class MobileAccessManager {
             pluginFactory: (_device, changed) => new MobilePluginAccess(this.service(), changed),
             clientFactory })
         try {
-            const address = await gateway.listen(this.config.address, mobileListenerPort(this.config.port, readRuntimeActivation().installation?.kind === 'development'))
+            const address = await listenForMobile(gateway, this.config.address, mobileListenerPort(this.config.port, readRuntimeActivation().installation?.kind === 'development'))
             this.config.port = address.port
             this.gateway = gateway; this.tls = tls; this.origin = 'https://' + this.config.address + ':' + address.port
+            this.failure = undefined
         } catch (error) { await gateway.close(); throw error }
     }
     pair() {

@@ -1,5 +1,6 @@
 export { createGateway } from './server.mjs';
 export { hostTls } from './tls.mjs';
+export { prepareHostProcessIdentity } from './process-identity.mjs';
 export { DeviceStore } from './device-store.mjs';
 import QRCode from 'qrcode';
 export async function pairingDisplay(gateway, tls, url, name) {

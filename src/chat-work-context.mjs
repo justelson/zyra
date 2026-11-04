@@ -3,7 +3,7 @@ export const WORK_KINDS = Object.freeze(['coding', 'debugging', 'research', 'mus
 
 export function normalizeWorkContextInput(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || Object.keys(value).some(key => !['folderPath', 'kind'].includes(key))
+    || Object.keys(value).some(key => !['folderPath', 'kind', 'shortName'].includes(key))
     || !WORK_KINDS.includes(value.kind)) throw new Error('Choose a supported work category and optional absolute folderPath.');
   let folderPath = value.folderPath ?? null;
   if (folderPath !== null) {
@@ -14,12 +14,22 @@ export function normalizeWorkContextInput(value) {
     folderPath = folderPath.replace(/\/+$/, '') || '/';
     if (/^[a-z]:$/i.test(folderPath)) folderPath += '/';
   }
-  return { folderPath, kind: value.kind };
+  // Missing names are accepted only for saved/older metadata. New tool reports require one.
+  let shortName;
+  if (value.shortName !== undefined) {
+    if (typeof value.shortName !== 'string' || value.shortName.length > 24
+      || /[\u0000-\u001f\u007f]/.test(value.shortName)) throw new Error('Use a shortName of 1–24 readable characters describing the actual work.');
+    shortName = value.shortName.trim().replace(/\s+/g, ' ');
+    if (!shortName || !/\p{L}/u.test(shortName)
+      || !/^[\p{L}\p{M}\p{N} &'’().,+!?-]+$/u.test(shortName)
+      || /^(assistant|work|task|project|general)$/i.test(shortName)) throw new Error('Use a meaningful shortName, not a path, timestamp or generic assistant label.');
+  }
+  return { folderPath, kind: value.kind, ...(shortName !== undefined ? { shortName } : {}) };
 }
 
 export function readChatWorkContext(value) {
   try {
     if (!value || typeof value.updatedAt !== 'string' || !Number.isFinite(Date.parse(value.updatedAt))) return null;
-    return { ...normalizeWorkContextInput({ folderPath: value.folderPath, kind: value.kind }), updatedAt: value.updatedAt };
+    return { ...normalizeWorkContextInput({ folderPath: value.folderPath, kind: value.kind, shortName: value.shortName }), updatedAt: value.updatedAt };
   } catch { return null; }
 }

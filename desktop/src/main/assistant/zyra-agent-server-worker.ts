@@ -257,10 +257,16 @@ export class DesktopAgentServerConnection {
     }
 
     async cancelRuntimeInstallation(): Promise<void> {
+        const client = this.updateClient
         try {
             if (this.repairRollback) restoreStoppedInstallHandoff(this.repairRollback.paths, this.repairRollback.prior, this.repairRollback.nonce)
-            await this.updateClient?.cancelRuntimeInstallation()
-        } finally { this.repairRollback = null; this.updateClient?.close(); this.updateClient = null; this.installationPending = false }
+            await client?.cancelRuntimeInstallation()
+        } finally {
+            this.repairRollback = null
+            this.updateClient = null
+            this.installationPending = false
+            client?.close()
+        }
     }
 
     async prepareRuntime(model: string | null): Promise<void> {

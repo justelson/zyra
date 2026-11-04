@@ -19,7 +19,7 @@ try {
         nodePaths: [join(desktop, 'node_modules')],
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, logLevel: 'silent'
     })
-    const css = await postcss([tailwindcss({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerQueue.tsx')] })])
+    const css = await postcss([tailwindcss({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerQueue.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerMenuSurface.tsx')] })])
         .process(`${await readFile(join(desktop, 'src/renderer/src/styles/theme-tokens.css'), 'utf8')}\n@tailwind base;\n@tailwind components;\n@tailwind utilities;`, { from: undefined })
     await writeFile(join(directory, 'renderer.css'), css.css)
     const screenshot = resolve(process.env.ZYRA_QUEUE_SCREENSHOT || join(desktop, '../docs.local/qa/assistant-composer-queue.png'))

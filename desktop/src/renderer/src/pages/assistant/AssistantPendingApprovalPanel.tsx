@@ -4,6 +4,7 @@ import type { AssistantApprovalDecision, AssistantPendingApproval } from '@share
 import { FileActionsMenu } from '@/components/ui/FileActionsMenu'
 import { compactApprovalGrantLabel, getApprovalPresentation, type ApprovalPathPresentation } from './assistant-approval-presentation'
 import { ApprovalExpandableText } from './ApprovalExpandableText'
+import { AssistantComposerAttentionShelf } from './AssistantComposerAttentionShelf'
 
 export const AssistantPendingApprovalPanel = memo(function AssistantPendingApprovalPanel(props: {
     pendingApprovals: AssistantPendingApproval[]
@@ -21,10 +22,10 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
     }
 
     return (
-        <div className="pointer-events-auto mx-auto w-full max-w-[760px]" data-assistant-composer-hitbox="true">
+        <AssistantComposerAttentionShelf title="Permissions">
             <section key={approval.requestId} aria-label="Action approval" aria-labelledby={headingId} aria-busy={props.responding}
-                className="overflow-hidden rounded-xl border border-[var(--surface-divider)] bg-sparkle-card text-sparkle-text shadow-[0_8px_28px_rgba(0,0,0,0.22)]">
-                <header className="flex items-start gap-2.5 px-4 pb-3 pt-3.5">
+                className="text-sparkle-text" data-permission-tray="true">
+                <header className="flex items-start gap-2.5 px-3 pb-2 pt-2">
                     <ShieldAlert size={17} className="mt-0.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
                     <div className="min-w-0 flex-1">
                         <h3 id={headingId} className="text-[13px] font-semibold leading-5">{presentation.title}</h3>
@@ -35,7 +36,7 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
                     {pending.length > 1 ? <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-sparkle-text-muted" title={`${pending.length} actions need approval`}>1 of {pending.length}</span> : null}
                 </header>
 
-                <div className="max-h-[min(55vh,360px)] space-y-2.5 overflow-auto overscroll-contain px-4 pb-3">
+                <div className="custom-scrollbar max-h-[min(18rem,36vh)] space-y-2.5 overflow-auto overscroll-contain px-3 pb-2">
                     {presentation.command ? (
                         <div className="overflow-hidden rounded-md border border-[var(--surface-divider)] bg-[var(--surface-chrome)]">
                             <div className="flex items-center gap-1.5 px-3 pt-2 text-[10px] text-sparkle-text-muted"><Terminal size={12} aria-hidden="true" />Command</div>
@@ -51,7 +52,7 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
                     ) : <ApprovalPaths paths={presentation.paths} /> : null}
                 </div>
 
-                <footer className="flex items-center justify-between gap-3 border-t border-[var(--surface-divider)] px-4 py-2.5">
+                <footer className="flex items-center justify-between gap-3 border-t border-[var(--surface-divider)] px-3 py-2">
                     <button type="button" disabled={props.responding} onClick={() => respond('decline')}
                         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--surface-divider)] px-3 text-xs font-medium text-sparkle-text-secondary transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-45">
                         <X size={13} aria-hidden="true" />Deny
@@ -77,7 +78,7 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
                     </div>
                 </footer>
             </section>
-        </div>
+        </AssistantComposerAttentionShelf>
     )
 })
 

@@ -18,6 +18,7 @@ import { checkConversationMarkers } from './conversation-markers'
 import { useAssistantThreadView } from '../../src/renderer/src/pages/assistant/useAssistantThreadView'
 import { getAssistantChatNavigationSnapshot, performAssistantChatOrderOperation } from '../../src/renderer/src/pages/assistant/assistant-chat-navigation'
 import { cycleAssistantChat, selectAssistantChatAt } from '../../src/renderer/src/pages/assistant/assistant-chat-cycling'
+import { setAssistantInboxGroupOrder } from '../../src/renderer/src/pages/assistant/assistant-agent-inbox-order'
 
 const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
@@ -29,8 +30,8 @@ async function waitForCheck(condition: () => boolean, label: string) {
     while (!condition() && performance.now() < deadline) await sleep(30)
     check(condition(), label)
 }
-async function movePointer(x: number, y: number, click = false) {
-    const request = { x, y, click, done: false }
+async function movePointer(x: number, y: number, click = false, eventType?: 'mouseDown' | 'mouseUp', keyCode?: string) {
+    const request = { x, y, click, eventType, keyCode, done: false }
     ;(window as any).sidebarPointerRequest = request
     for (let frame = 0; !request.done && frame < 120; frame++) await sleep(16)
     check(request.done, 'Hidden Electron delivered the pointer event')
@@ -118,9 +119,11 @@ async function checkExplicitOrderControls() {
     const agentMove = performAssistantChatOrderOperation({ action: 'move', owner: inspected.owner!, expectedRevision: inspected.revision, group: 'chats', sessionId: original.at(-1)!, beforeSessionId: original[0]! })
     check(agentMove.success, 'agent move applies through the live sidebar owner')
     await waitForCheck(() => rowIds(false) === [original.at(-1)!, ...original.slice(0, -1)].join(','), 'agent operation updates real rendered order')
-    const agentUndo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
-    check(agentUndo?.closest('[data-assistant-toast]'), 'agent move exposes floating toast Undo, not a sidebar bar')
-    agentUndo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'agent Undo restores rendered order')
+    check(!document.querySelector('[data-assistant-toast]'), 'successful agent reorder is quiet')
+    const undoSnapshot = getAssistantChatNavigationSnapshot()
+    const agentUndo = performAssistantChatOrderOperation({ action: 'undo', owner: undoSnapshot.owner!, expectedRevision: undoSnapshot.revision, undoToken: agentMove.undoToken! })
+    check(agentUndo.success, 'explicit agent Undo remains available without a toast')
+    await waitForCheck(() => rowIds(false) === original.join(','), 'agent Undo restores rendered order')
     const dragged = original.at(-1)!
     const target = original[0]!
     const menuTrigger = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
@@ -133,52 +136,156 @@ async function checkExplicitOrderControls() {
     check(menuItem.getBoundingClientRect().height <= 29, 'chat menu rows are compact')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await waitForCheck(() => !document.querySelector('[role="menu"]'), 'chat options dismiss cleanly')
-    const move = async (draggedId = dragged, targetId = target, placement: 'before' | 'after' = 'before') => {
+    let nativeDragStarts = 0
+    const observeNativeDrag = () => { nativeDragStarts++ }
+    document.addEventListener('dragstart', observeNativeDrag)
+    const move = async (draggedId = dragged, targetId = target, placement: 'before' | 'after' = 'before', release = true) => {
         await waitForCheck(() => !document.getAnimations().some(animation => animation.playState === 'running' && (animation.effect as KeyframeEffect)?.target?.matches('[data-agent-inbox-layout-id]')), 'the previous reorder settles before a new drag gesture')
-        const transfer = new DataTransfer()
-        const source = row(draggedId).querySelector<HTMLElement>('[draggable="true"]')!
-        const destination = row(targetId).querySelector<HTMLElement>('[draggable="true"]')!
-        check(source && destination, 'only explicit movable chat rows expose native drag controls')
+        const source = row(draggedId).querySelector<HTMLElement>('[data-sidebar-drag-id]')!
+        const destination = row(targetId).querySelector<HTMLElement>('[data-sidebar-drag-id]')!
+        check(source && destination && !document.querySelector('[draggable="true"]'), 'movable rows expose no native draggable or drag image')
         const preview = rowIds(false).split(',').filter(id => id !== draggedId)
         preview.splice(preview.indexOf(targetId) + (placement === 'after' ? 1 : 0), 0, draggedId)
         const savedOrder = localStorage.getItem(key)
-        const buttonBefore = row(targetId).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.getBoundingClientRect()
-        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }))
-        await sleep(30)
+        const selectedBefore = selected
+        // Trusted pointer movement activates the accepted 4px hover slide.
+        // Compare the fixed action slot, excluding that intentional transform.
+        const menuDockX = (button: HTMLElement) => button.getBoundingClientRect().x - new DOMMatrix(getComputedStyle(button.closest<HTMLElement>('.absolute.right-0')!).transform).m41
+        const buttonBeforeX = menuDockX(row(targetId).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!)
+        const origin = source.getBoundingClientRect()
+        let pointerId = -1
+        source.addEventListener('pointerdown', event => { pointerId = event.pointerId }, { once: true })
+        await movePointer(origin.left + 20, origin.top + 20)
+        await movePointer(origin.left + 20, origin.top + 20, false, 'mouseDown')
+        await movePointer(origin.left + 22, origin.top + 21)
+        check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'below-threshold movement remains a normal click')
         const destinationBounds = destination.getBoundingClientRect()
-        const dropPoint = { clientX: destinationBounds.left + 20, clientY: placement === 'after' ? destinationBounds.bottom - 8 : destinationBounds.top + 8 }
-        destination.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint }))
-        await waitForCheck(() => rowIds(false) === preview.join(','), 'drag has a live reordered preview before drop')
+        const dropPoint = { x: destinationBounds.left + 20, y: placement === 'after' ? destinationBounds.bottom - 8 : destinationBounds.top + 8 }
+        await movePointer(dropPoint.x, dropPoint.y)
+        await waitForCheck(() => rowIds(false) === preview.join(','), 'real pointer drag has a live reordered preview before release')
         check(localStorage.getItem(key) === savedOrder, 'preview does not persist an unfinished drag')
         check(source.dataset.sidebarDragging === 'true' && destination.dataset.sidebarDrop === placement, 'preview marks its dragged row and drop edge')
         check(!row(targetId).getAttribute('title'), 'chat row has no oversized inherited native tooltip')
         const buttonAfter = row(targetId).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
-        check(!buttonAfter.hasAttribute('title') && Math.abs(buttonAfter.getBoundingClientRect().x - buttonBefore.x) < 1, 'chat menu has no tooltip banner and its horizontal target never shifts')
+        check(!buttonAfter.hasAttribute('title') && Math.abs(menuDockX(buttonAfter) - buttonBeforeX) < 1, 'chat menu has no tooltip banner and its fixed action slot never shifts')
         await sleep(350)
-        const actualDropTarget = document.elementFromPoint(dropPoint.clientX, dropPoint.clientY)?.closest<HTMLElement>('[draggable="true"]')
-        check(actualDropTarget === source, `the live preview moves the dragged row beneath the stationary pointer: ${JSON.stringify({ draggedId, targetId, placement, dropPoint, hit: actualDropTarget?.closest<HTMLElement>('[data-agent-inbox-layout-id]')?.dataset.agentInboxLayoutId, source: source.getBoundingClientRect(), destination: destination.getBoundingClientRect() })}`)
-        const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint })
-        actualDropTarget.dispatchEvent(over)
-        check(over.defaultPrevented, 'the previewed row remains an accepted drop zone beneath the pointer')
-        actualDropTarget.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, ...dropPoint }))
+        const actualDropTarget = document.elementFromPoint(dropPoint.x, dropPoint.y)?.closest<HTMLElement>('[data-sidebar-drag-id]')
+        check(actualDropTarget === source, 'the live preview moves the dragged row beneath the stationary pointer')
+        check(document.querySelector('[data-sidebar-scroll="chats"]')!.hasPointerCapture(pointerId), 'the stable viewport captures the real pointer across row DOM reorders')
+        const assertGrabbing = () => {
+            check(getComputedStyle(source).cursor === 'grabbing' && getComputedStyle(buttonAfter).cursor === 'grabbing' && getComputedStyle(document.body).cursor === 'grabbing', 'grabbing cursor overrides row, controls and outside sidebar throughout the gesture')
+        }
+        assertGrabbing()
+        await movePointer(450, dropPoint.y); assertGrabbing()
+        check(!document.querySelector('[draggable="true"]') && nativeDragStarts === 0, 'actual mouse movement never starts OS native dragging or its ghost')
+        await movePointer(dropPoint.x, dropPoint.y); assertGrabbing()
+        if (release) {
+            await movePointer(dropPoint.x, dropPoint.y, false, 'mouseUp')
+            check(selected === selectedBefore, 'only the drag-generated click is suppressed')
+            check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'release restores the normal cursor')
+        }
+        return dropPoint
     }
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
-    await move(); await waitForCheck(() => rowIds(false) === expected, 'native drag persists explicit within-section order')
-    const undo = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!
-    check(undo?.closest('[data-assistant-toast]'), 'explicit movement offers floating toast Undo')
-    undo.click(); await waitForCheck(() => rowIds(false) === original.join(','), 'Undo restores exact previous order')
+    const storageBeforePointerMove = localStorage.getItem(key)
+    await move(); await waitForCheck(() => rowIds(false) === expected, 'pointer drag persists explicit within-section order')
+    check(!document.querySelector('[data-assistant-toast]'), 'successful pointer reorder creates no toast')
+    const resetPointerOrder = () => setAssistantInboxGroupOrder('chats', JSON.parse(storageBeforePointerMove || '{}').chats || [])
+    resetPointerOrder(); await waitForCheck(() => rowIds(false) === original.join(','), 'fixture resets exact saved order for the next gesture')
     await move(original[0], original[1], 'after')
     await waitForCheck(() => rowIds(false) === [original[1], original[0], ...original.slice(2)].join(','), 'dropping adjacent downward beneath the stationary pointer persists its preview')
-    Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Undo')!.click()
-    await waitForCheck(() => rowIds(false) === original.join(','), 'downward drag Undo restores exact order')
-    await move(); await waitForCheck(() => rowIds(false) === expected, 'second native move accepted')
+    check(!document.querySelector('[data-assistant-toast]'), 'downward pointer reorder is also quiet')
+    resetPointerOrder()
+    await waitForCheck(() => rowIds(false) === original.join(','), 'fixture restores exact order after downward move')
+    const cancelledStorage = localStorage.getItem(key)
+    const cancelledSelection = selected
+    const assertCancelled = async (label: string) => {
+        await waitForCheck(() => rowIds(false) === original.join(','), `${label}: exact original order restored`)
+        check(localStorage.getItem(key) === cancelledStorage && selected === cancelledSelection, `${label}: no persistence or selection`)
+        check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging') && !document.querySelector('[data-sidebar-dragging="true"]'), `${label}: cursor and preview cleaned`)
+    }
+    let cancelPoint = await move(dragged, target, 'before', false)
+    await movePointer(0, 0, false, undefined, 'Escape')
+    await movePointer(cancelPoint.x, cancelPoint.y, false, 'mouseUp')
+    await assertCancelled('Escape')
+    await move(dragged, target, 'before', false)
+    await movePointer(450, 400, false, 'mouseUp')
+    await assertCancelled('outside release')
+    cancelPoint = await move(dragged, target, 'before', false)
+    window.dispatchEvent(new Event('blur'))
+    await movePointer(cancelPoint.x, cancelPoint.y, false, 'mouseUp')
+    await assertCancelled('window blur')
+    cancelPoint = await move(dragged, target, 'before', false)
+    const viewport = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
+    let realPointerId = -1
+    viewport.addEventListener('pointermove', event => { realPointerId = event.pointerId }, { once: true })
+    await movePointer(cancelPoint.x + 1, cancelPoint.y)
+    viewport.dispatchEvent(new PointerEvent('pointercancel', { pointerId: realPointerId, bubbles: true }))
+    await movePointer(cancelPoint.x, cancelPoint.y, false, 'mouseUp')
+    await assertCancelled('pointercancel after real mouse gesture')
+    await move(dragged, target, 'before', false)
+    flushSync(() => root.render(<div />))
+    check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'unmount restores global cursor')
+    await movePointer(450, 400, false, 'mouseUp')
+    render(); await assertCancelled('unmount')
+
+    // Ordinary real clicks remain usable after cancelled and completed drags.
+    await movePointer(row(target).getBoundingClientRect().left + 20, row(target).getBoundingClientRect().top + 20, true)
+    check(selected === target, 'next independent row click selects normally')
+    const trigger = row(target).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+    await movePointer(trigger.getBoundingClientRect().x + 8, trigger.getBoundingClientRect().y + 8)
+    await sleep(180)
+    await movePointer(trigger.getBoundingClientRect().x + 8, trigger.getBoundingClientRect().y + 8, true)
+    await waitForCheck(() => Boolean(document.querySelector('[role="menu"]')), 'real options control click opens without starting reorder')
+    check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'menu control never starts a drag')
+    await movePointer(0, 0, false, undefined, 'Escape')
+    await waitForCheck(() => !document.querySelector('[role="menu"]'), 'native Escape dismisses options')
+    selected = cancelledSelection; render()
+
+    // A pinned section is a hard boundary, including release after a valid preview.
+    pinnedIds = new Set([target]); render(); await sleep(350)
+    const beforeBoundary = rowIds()
+    const boundaryStorage = localStorage.getItem(key)
+    const fromBounds = row(dragged).getBoundingClientRect()
+    const pinBounds = row(target).getBoundingClientRect()
+    await movePointer(fromBounds.left + 20, fromBounds.top + 20)
+    await movePointer(fromBounds.left + 20, fromBounds.top + 20, false, 'mouseDown')
+    await movePointer(pinBounds.left + 20, pinBounds.top + 20)
+    await movePointer(pinBounds.left + 20, pinBounds.top + 20, false, 'mouseUp')
+    await sleep(50)
+    check(rowIds() === beforeBoundary && localStorage.getItem(key) === boundaryStorage, 'cross-section pointer release never moves or persists a chat')
+    pinnedIds = new Set(); render(); await sleep(350)
+    await waitForCheck(() => rowIds(false) === original.join(','), 'removing boundary fixture restores original order')
+
+    // Exercise edge scrolling with enough real rows to overflow the existing viewport.
+    const savedSessions = sessions
+    sessions = [...savedSessions, ...Array.from({ length: 12 }, (_, index) => session(`scroll-${index}`))]
+    render(); await sleep(350)
+    const scroller = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
+    const scrollBounds = scroller.getBoundingClientRect()
+    const visibleSource = Array.from(scroller.querySelectorAll<HTMLElement>('[data-sidebar-drag-id]')).find(element => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.top > scrollBounds.top + 30 && bounds.bottom < scrollBounds.bottom - 30
+    })!
+    const scrollSource = visibleSource.getBoundingClientRect()
+    await movePointer(scrollSource.left + 20, scrollSource.top + 20)
+    await movePointer(scrollSource.left + 20, scrollSource.top + 20, false, 'mouseDown')
+    await movePointer(scrollBounds.left + 20, scrollBounds.bottom - 5)
+    await waitForCheck(() => scroller.scrollTop > 30, 'stationary edge pointer auto-scrolls the real chats viewport')
+    await movePointer(0, 0, false, undefined, 'Escape')
+    await movePointer(450, 400, false, 'mouseUp')
+    check(localStorage.getItem(key) === cancelledStorage, 'cancelled auto-scroll preview never persists')
+    scroller.scrollTop = 0; await sleep(30)
+    sessions = savedSessions; render(); await sleep(350)
+    await move(); await waitForCheck(() => rowIds(false) === expected, 'second pointer move accepted')
     check(JSON.parse(localStorage.getItem(key) || '{}').chats[0] === dragged, 'drag order is saved before remount')
     flushSync(() => root.render(<div />)); render()
     await waitForCheck(() => rowIds(false) === expected, 'saved explicit order survives a real sidebar remount')
     if (originalStorage === null) localStorage.removeItem(key); else localStorage.setItem(key, originalStorage)
     flushSync(() => root.render(<div />)); render()
     await waitForCheck(() => rowIds(false) === original.join(','), 'fixture restores original sidebar order')
-    results.push('native within-section drag, exact Undo and saved-order remount pass on the real sidebar')
+    document.removeEventListener('dragstart', observeNativeDrag)
+    results.push('quiet real-pointer reorder: no success toast/native ghost, stable grabbing, explicit agent Undo, cancellation/autoscroll and saved-order remount')
 }
 
 async function checkAgentColors() {
@@ -284,8 +391,119 @@ async function checkUnreadCompletion() {
     return ['working/unread/read Done and Stopped stay full-size in Chats in creation order; duplicate events preserve read state, card geometry and exact positions']
 }
 
+async function checkRowHoverMotion(id: string) {
+    const target = row(id).querySelector<HTMLElement>('[role="button"]')!
+    const settle = target.querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat cannot be settled"]')!
+    const actions = settle.parentElement!.parentElement!
+    await movePointer(900, 750, true); await sleep(200)
+    const hidden = actions.getBoundingClientRect()
+    const style = getComputedStyle(actions)
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('zyra-reduce-motion')
+    // Assert the real stylesheet contract before interacting: opacity-only
+    // reveals used to pass this path despite losing all horizontal motion.
+    if (!reduced) {
+        check(style.transitionProperty.includes('transform') && style.transitionProperty.includes('opacity'), 'Row actions transition both slide and fade, not opacity alone')
+        check(Number.parseFloat(style.transitionDuration) > 0, 'Normal motion has a nonzero reveal duration')
+    } else {
+        check(style.transitionProperty === 'none' || Number.parseFloat(style.transitionDuration) <= .00001, 'Reduced motion disables row-action transitions')
+    }
+    const reducedRules = (rules: CSSRuleList): boolean => Array.from(rules).some(rule => {
+        if (rule instanceof CSSMediaRule && rule.conditionText.includes('prefers-reduced-motion: reduce')) {
+            return rule.cssText.includes('motion-reduce') && /transition-property:\s*none/.test(rule.cssText)
+        }
+        return 'cssRules' in rule && reducedRules((rule as CSSGroupingRule).cssRules)
+    })
+    check(Array.from(document.styleSheets).some(sheet => reducedRules(sheet.cssRules)), 'Compiled application CSS retains its reduced-motion transition override')
+    const status = target.querySelector<HTMLElement>('[data-agent-inbox-status]')!
+    const liveStatus = Boolean(status.querySelector('.assistant-agent-inbox-working-text'))
+    const artwork = target.firstElementChild!.firstElementChild!.firstElementChild as HTMLElement
+    const titleRow = target.querySelector<HTMLElement>('[data-agent-inbox-title]')!
+    const metadataRow = target.querySelector<HTMLElement>('[data-agent-inbox-metadata]')!
+    const reading = [status, artwork, titleRow, metadataRow, ...target.querySelectorAll<HTMLElement>('span[aria-label], [data-assistant-presence-group]')]
+    const movingPresence = target.querySelector<HTMLElement>('[data-presence-action-slot]')
+    const before = reading.map(element => element.getBoundingClientRect())
+    check(Math.abs(target.getBoundingClientRect().right - status.getBoundingClientRect().right - 10) < 1, 'Working status and normal recency share the same right padding')
+    check(getComputedStyle(status).visibility === 'visible', 'Status or recency remains visible before interaction')
+    const verifyGeometry = () => {
+        const slot = actions.getBoundingClientRect()
+        check(Math.abs(slot.width - hidden.width) < .5 && actions.offsetWidth >= 52, `Slide keeps the full reserved action-slot width: ${JSON.stringify({ width: slot.width, hiddenWidth: hidden.width, layoutWidth: actions.offsetWidth, transform: getComputedStyle(actions).transform })}`)
+        if (liveStatus) {
+            check(getComputedStyle(status).visibility === 'visible', 'Working status stays visible during the action reveal')
+            check(status.getBoundingClientRect().bottom <= slot.top || status.getBoundingClientRect().right <= slot.left + .5, 'Metadata-line actions never cover the right-aligned working status')
+        }
+        else check(getComputedStyle(status).visibility === (target.matches(':hover') ? 'hidden' : 'visible'), 'Actions swap with recency instead of reserving blank space after it')
+        reading.forEach((element, index) => {
+            const bounds = element.getBoundingClientRect()
+            const yieldsActionSpace = Boolean(movingPresence?.contains(element))
+            check(Math.abs(bounds.width - before[index].width) < .5 && (yieldsActionSpace || Math.abs(bounds.x - before[index].x) < .5), 'Hover preserves title, status-slot and artwork geometry; only presence yields the action slot')
+            if (yieldsActionSpace) check(bounds.x >= before[index].x - hidden.width - .5 && bounds.x <= before[index].x + .5, 'Presence moves only within the existing action slot')
+        })
+        const button = target.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+        check(button.getBoundingClientRect().right <= target.getBoundingClientRect().right - 2, 'Sliding menu target stays within the reserved right edge')
+    }
+    const rect = target.getBoundingClientRect()
+    const transitions = new Set<CSSTransition>()
+    const captureTransition = (event: TransitionEvent) => {
+        if (event.target !== actions || reduced) return
+        // Capture at transitionrun, before a busy host can consume the entire
+        // 150ms reveal while the input bridge acknowledges the pointer event.
+        for (const animation of actions.getAnimations()) {
+            if (animation instanceof CSSTransition) { animation.pause(); transitions.add(animation) }
+        }
+    }
+    actions.addEventListener('transitionrun', captureTransition)
+    await movePointer(rect.left + 45, rect.top + rect.height / 2)
+    if (!reduced) {
+        await waitForCheck(() => [...transitions].some(animation => animation.transitionProperty === 'transform'), `Hover creates a genuine transform transition: ${JSON.stringify({ hiddenX: hidden.x, currentX: actions.getBoundingClientRect().x, opacity: getComputedStyle(actions).opacity, transform: getComputedStyle(actions).transform, hovered: target.matches(':hover'), transitions: [...transitions].map(animation => animation.transitionProperty) })}`)
+        actions.removeEventListener('transitionrun', captureTransition)
+        for (const animation of transitions) { animation.pause(); animation.currentTime = Number(animation.effect!.getTiming().duration) / 2 }
+        await new Promise(requestAnimationFrame)
+        const intermediate = actions.getBoundingClientRect()
+        check(intermediate.x < hidden.x && intermediate.x > hidden.x - 4, 'Intermediate frame slides within the subtle four-pixel reveal')
+        check(Number(getComputedStyle(actions).opacity) > 0 && Number(getComputedStyle(actions).opacity) < 1, 'Intermediate frame genuinely fades')
+        verifyGeometry()
+        transitions.forEach(animation => animation.play())
+    }
+    actions.removeEventListener('transitionrun', captureTransition)
+    await sleep(200)
+    check(getComputedStyle(actions).opacity === '1', 'Motion ends with fully visible actions')
+    check(Math.abs(hidden.x - actions.getBoundingClientRect().x - 4) < .5, 'Actions slide four pixels into their stable reserved slot')
+    verifyGeometry()
+    await movePointer(900, 750); await sleep(200)
+    check(Math.abs(actions.getBoundingClientRect().x - hidden.x) < .5 && getComputedStyle(actions).opacity === '0', 'Exit restores hidden slide-and-fade state')
+    verifyGeometry()
+}
+
 async function checkRowHoverActions() {
+    sessions.find(item => item.id === 'other')!.threads[0].canonicalPresence!.clients = [{ clientId: 'working-phone', surface: 'mobile', displayName: 'Working phone' }]
     render(); await sleep(250)
+    for (const width of [240, 300, 420]) {
+        document.getElementById('rail')!.style.width = `${width}px`
+        await movePointer(900, 750); await sleep(180)
+        for (const id of ['child', 'other']) {
+            const target = row(id).querySelector<HTMLElement>('[role="button"]')!
+            const phone = target.querySelector<HTMLElement>('[data-mobile-presence]')!
+            const edge = target.querySelector<HTMLElement>('[data-agent-inbox-status]')!.getBoundingClientRect().right
+            check(Math.abs(phone.getBoundingClientRect().right - edge) < 1, `${id}: idle phone reaches the normal right inset, with no blank action reservation`)
+            const titleBefore = target.querySelector<HTMLElement>('[data-agent-inbox-title]')!.getBoundingClientRect()
+            const rect = target.getBoundingClientRect()
+            await movePointer(rect.left + 45, rect.top + rect.height / 2); await sleep(200)
+            if (id === 'other') {
+                const button = target.querySelector<HTMLElement>('[aria-haspopup="menu"]')!
+                const actions = button.closest('li')!.querySelector<HTMLButtonElement>('[aria-label="Working chat cannot be settled"]')!.parentElement!.parentElement!
+                check(phone.getBoundingClientRect().right <= actions.getBoundingClientRect().left + .5, 'Phone makes room for visible actions without overlapping them')
+            }
+            const titleAfter = target.querySelector<HTMLElement>('[data-agent-inbox-title]')!.getBoundingClientRect()
+            check(Math.abs(titleBefore.x - titleAfter.x) < .5 && Math.abs(titleBefore.width - titleAfter.width) < .5, 'Phone alignment change never shifts or squeezes the title')
+            await movePointer(900, 750); await sleep(200)
+            check(Math.abs(phone.getBoundingClientRect().right - edge) < 1, 'Phone returns to the right inset when hover ends')
+            await checkRowHoverMotion(id)
+        }
+    }
+    document.getElementById('rail')!.style.width = '300px'
+    const originallyReduced = document.body.classList.contains('zyra-reduce-motion')
+    document.body.classList.add('zyra-reduce-motion')
+    try { await checkRowHoverMotion('child') } finally { if (!originallyReduced) document.body.classList.remove('zyra-reduce-motion') }
     for (const id of ['child', 'other']) {
         const target = row(id).querySelector<HTMLElement>('[role="button"]')!
         const settle = row(id).querySelector<HTMLButtonElement>('[aria-label="Settle chat"], [aria-label="Working chat cannot be settled"]')!
@@ -324,7 +542,7 @@ async function checkRowHoverActions() {
         await sleep(200)
         await waitForCheck(() => menu.getAttribute('aria-expanded') === 'false' && getComputedStyle(actions).opacity === '0', 'Closing the menu releases pointer hover actions')
     }
-    return ['selected compact and working rows hide pointer-hover actions on exit; highlight and recency remain; keyboard and open-menu access pass']
+    return ['right-aligned recency and shared hover-action slot preserve three-row reading geometry at 240/300/420px; slide/fade, reduced motion, live status, keyboard and open-menu access pass']
 }
 
 async function run() {
@@ -441,7 +659,7 @@ async function run() {
         const menu = row('child').querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
         check(menu.getBoundingClientRect().right <= actions.getBoundingClientRect().right + .5, 'Active card menu fits its reveal slot')
         check(menu.getBoundingClientRect().right <= row('child').querySelector('[role="button"]')!.getBoundingClientRect().right - 2, 'Active card menu stays inside the right edge')
-        check(status.getBoundingClientRect().right <= settle.getBoundingClientRect().left, 'Working state and hover actions never overlap')
+        check(status.getBoundingClientRect().bottom <= settle.getBoundingClientRect().top || status.getBoundingClientRect().right <= settle.getBoundingClientRect().left, 'Right-aligned working state and metadata-line hover actions never overlap')
         check(getComputedStyle(settle.parentElement!.parentElement!).opacity === '1', 'Focus reveals the animated actions')
     }
     results.push('titles, status, and animated actions fit 240/300/420px sidebars without overlap')

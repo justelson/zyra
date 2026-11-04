@@ -1745,9 +1745,11 @@ export class ZyraRuntime extends EventEmitter {
     }
 
     async cancelRuntimeInstallation(): Promise<void> {
-        await this.preparedInstallConnection?.cancelRuntimeInstallation()
-        this.preparedInstallConnection = null
-        this.privateVoiceUpdatePending = null
+        try { await this.preparedInstallConnection?.cancelRuntimeInstallation() }
+        finally {
+            this.preparedInstallConnection = null
+            this.privateVoiceUpdatePending = null
+        }
     }
 
     async listCanonicalChats(): Promise<CanonicalAgentChat[]> {

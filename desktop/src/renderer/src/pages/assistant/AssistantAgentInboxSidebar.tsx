@@ -18,6 +18,7 @@ import { AssistantWorkContextIcon } from './AssistantWorkContextIcon'
 import { resolveSidebarWorkContext } from './assistant-work-context'
 import { AssistantSessionTitleText } from './AssistantSessionTitleText'
 import { useStableSidebarGroups } from './useStableSidebarGroups'
+import { useAssistantSidebarDrag } from './useAssistantSidebarDrag'
 import { getSidebarSettlementActivityKey, isAssistantChatSettled, upgradeSidebarSettlementOverrides, type SettlementOverride, type SettlementOverrides } from './assistant-sidebar-settlement'
 import { useAssistantSettlementOverrides, migrateCanonicalSettlementOverrides } from './assistant-settlement-store'
 import { availableChatActionMenuItems, createChatSettlementMenuItem } from './assistant-chat-actions-menu'
@@ -233,7 +234,7 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
                         {model.provider ? <span role="img" aria-label={`${model.provider} model provider`} className="inline-flex shrink-0"><SettingsProviderIcon provider={model.provider === 'anthropic' ? 'claude' : model.provider === 'google' ? 'gemini' : model.provider} size={13} /></span> : null}
                         <span className="min-w-0 flex-1 truncate">{model.modelName || 'No model selected'}</span>
                         {item.pinned ? <span aria-label="Pinned chat" title="Pinned chat" className="inline-flex shrink-0"><Pin size={12} /></span> : null}
-                        {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? <span className="inline-flex shrink-0 items-center" data-assistant-presence-group>
+                        {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? <span className={cn('inline-flex shrink-0 items-center', hasStatus && 'translate-x-[max(3.25rem,52px)] transition-transform duration-150 ease-out group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 motion-reduce:transition-none')} data-assistant-presence-group data-presence-action-slot={hasStatus || undefined}>
                             <AssistantAgentPresenceIndicator thread={item.thread} />
                             {item.tuiOpen ? <AssistantTuiPresenceIndicator focusable={false} /> : null}
                             {item.mobileDevices.length > 0 ? <AssistantTuiPresenceIndicator focusable={false} mobileDevices={item.mobileDevices} /> : null}
@@ -285,7 +286,6 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const [projectSearch, setProjectSearch] = useState('')
     const [settledExpanded, setSettledExpanded] = useState(false)
     const [settledMaxHeight, setSettledMaxHeight] = useState(320)
-    const [dragPreview, setDragPreview] = useState<{ id: string; target: string; group: 'pinned' | 'chats'; placement: 'before' | 'after' } | null>(null)
     const [sidebarOrder, setSidebarGroupOrder] = useAssistantInboxOrder()
     const { toast: localToast, showToast: showLocalToast, dismissToast } = useAssistantTransientToast()
     const showToast = props.onShowToast || showLocalToast
@@ -378,6 +378,12 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const desiredSettled = settledExpanded ? visibleSettled : visibleSettled.filter((item) => item.active)
     const stableLayout = useStableSidebarGroups([desiredPriority, desiredRecent, desiredSettled])
     const [stablePriority, stableRecent, renderedSettled] = stableLayout.groups
+    const { preview: dragPreview, getRowProps: getDragRowProps } = useAssistantSidebarDrag({
+        scrollRef,
+        onAutoScroll: top => { scrollPositionRef.current = top },
+        rows: [...stablePriority, ...stableRecent].map(item => ({ id: item.session.id, group: item.pinned ? 'pinned' : 'chats', enabled: !item.settled && !props.commandPending })),
+        onMove: (id, target, group, placement) => moveChat(id, target, group, placement)
+    })
     const previewOrder = (group: SidebarItem[], name: 'pinned' | 'chats') => {
         if (!dragPreview || dragPreview.group !== name || dragPreview.id === dragPreview.target) return group
         const dragged = group.find(item => item.session.id === dragPreview.id)
@@ -401,9 +407,9 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
             activeSessionId: props.activeSessionId,
             scope,
             selectSession: props.onSelectSession,
-            onOrderChange: (undo: (() => boolean) | null, label = 'Chat moved') => {
+            onOrderChange: (undo: (() => boolean) | null, label?: string) => {
                 stableLayout.release()
-                if (undo) showUndoToast(label, () => { undo() })
+                if (undo && label) showUndoToast(label, () => { undo() })
             }
         }
         if (navigationRef.current) navigationRef.current.update(value)
@@ -414,7 +420,8 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
     const moveChat = (sessionId: string, targetId: string, group: 'pinned' | 'chats', placement: 'before' | 'after') => {
         const snapshot = getAssistantChatNavigationSnapshot()
         if (!snapshot.owner) return
-        performAssistantChatOrderOperation({ action: 'move', owner: snapshot.owner, expectedRevision: snapshot.revision, group, sessionId, ...(placement === 'before' ? { beforeSessionId: targetId } : { afterSessionId: targetId }) })
+        const result = performAssistantChatOrderOperation({ action: 'move', owner: snapshot.owner, expectedRevision: snapshot.revision, group, sessionId, ...(placement === 'before' ? { beforeSessionId: targetId } : { afterSessionId: targetId }) })
+        if (!result.success) showToast({ message: result.error || 'Could not save chat order.', tone: 'error' })
     }
     const rowProps: SidebarRowProps = {
         ...props,
@@ -430,45 +437,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                 showUndoToast(action.id === 'pin' ? 'Chat pinned' : 'Chat unpinned', () => { writePinnedSessionIds(previousPins) })
             }
         } : action),
-        getSidebarDragProps: item => ({
-            draggable: !item.settled && !props.commandPending,
-            onDragStart: event => {
-                if ((event.target as Element).closest('button,textarea,input')) { event.preventDefault(); return }
-                event.dataTransfer.setData('application/x-zyra-chat-order', item.session.id)
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setDragImage(event.currentTarget, 32, 24)
-                setDragPreview({ id: item.session.id, target: item.session.id, group: item.pinned ? 'pinned' : 'chats', placement: 'before' })
-            },
-            onDragEnd: () => setDragPreview(null),
-            'data-sidebar-dragging': dragPreview?.id === item.session.id || undefined,
-            'data-sidebar-drop': dragPreview?.target === item.session.id && dragPreview.id !== item.session.id ? dragPreview.placement : undefined,
-            onDragOver: event => {
-                if (item.settled || !dragPreview || (item.pinned ? 'pinned' : 'chats') !== dragPreview.group) return
-                if (dragPreview.id === item.session.id && dragPreview.target === item.session.id) return
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
-                // The preview can move the dragged row under a stationary pointer.
-                // Keep that drop zone without replacing its saved destination.
-                if (dragPreview.id === item.session.id) return
-                const rect = event.currentTarget.getBoundingClientRect()
-                const placement = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
-                setDragPreview(current => current?.target === item.session.id && current.placement === placement ? current : { ...dragPreview, target: item.session.id, placement })
-            },
-            onDrop: event => {
-                const draggedId = event.dataTransfer.getData('application/x-zyra-chat-order')
-                const dragged = allItems.find(entry => entry.session.id === draggedId)
-                if (!dragged || dragged.settled || item.settled || dragged.pinned !== item.pinned) return
-                const group = item.pinned ? 'pinned' : 'chats'
-                const preview = dragPreview?.id === draggedId && dragPreview.group === group ? dragPreview : null
-                const targetId = draggedId === item.session.id ? preview?.target : item.session.id
-                const target = allItems.find(entry => entry.session.id === targetId)
-                if (!target || target.session.id === draggedId || target.settled || target.pinned !== dragged.pinned) return
-                event.preventDefault()
-                const rect = event.currentTarget.getBoundingClientRect()
-                moveChat(draggedId, target.session.id, group, preview?.target === target.session.id ? preview.placement : event.clientY > rect.top + rect.height / 2 ? 'after' : 'before')
-                setDragPreview(null)
-            }
-        })
+        getSidebarDragProps: item => getDragRowProps({ id: item.session.id, group: item.pinned ? 'pinned' : 'chats', enabled: !item.settled && !props.commandPending })
     }
     const hiddenSettledCount = settledItems.length - visibleSettled.length
     const scopedProject = scope === ALL_PROJECTS ? null : projectByKey.get(scope) || null
@@ -540,7 +509,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                         opacity: 1
                     }
                 ], {
-                    duration: 240,
+                    duration: 140,
                     easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
                     fill: 'both'
                 })
@@ -567,7 +536,7 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
                     opacity: 1
                 }
             ], {
-                duration: 280,
+                duration: 140,
                 easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
                 fill: 'both'
             })
@@ -591,16 +560,18 @@ export const AssistantAgentInboxSidebar = memo(function AssistantAgentInboxSideb
         if (item.pinned || isWorkingItem(item)) return
         stableLayout.release()
         const previousOrder = sidebarOrder.chats
+        const restoredOrder = state === 'active' ? restoreAssistantInboxItem(
+            orderedRecentRef.current.map(entry => entry.session.id), previousOrder, item.session.id) : null
+        if (restoredOrder) setSidebarGroupOrder('chats', restoredOrder)
         void setChatSettlement(item.session, state === 'settled').then(() => {
             showToast(createChatSettlementToast(item.session, state === 'settled', async () => {
                 await setChatSettlement(item.session, item.settled)
                 setSidebarGroupOrder('chats', previousOrder)
             }))
-            if (state === 'active') {
-                setSidebarGroupOrder('chats', current => restoreAssistantInboxItem(
-                    orderedRecentRef.current.map(entry => entry.session.id), current, item.session.id))
-            }
-        }).catch(error => showToast({ message: error instanceof Error ? error.message : 'Could not update chat settlement.', tone: 'error' }))
+        }).catch(error => {
+            if (restoredOrder) setSidebarGroupOrder('chats', current => JSON.stringify(current) === JSON.stringify(restoredOrder) ? previousOrder : current)
+            showToast({ message: error instanceof Error ? error.message : 'Could not update chat settlement.', tone: 'error' })
+        })
     }
 
     return (

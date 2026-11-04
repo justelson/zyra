@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { isAssistantChatSettled } from '../src/renderer/src/pages/assistant/assistant-sidebar-settlement'
 import { createDefaultAssistantSnapshot } from '../src/shared/assistant/projector'
 import type { AssistantDomainEvent, AssistantSession, AssistantThread } from '../src/shared/assistant/contracts'
 
@@ -40,7 +43,7 @@ const mutations: { id: string; settled: boolean; migrateLegacy: boolean }[] = []
 }
 const { assistantStore } = await import('../src/renderer/src/lib/assistant/assistant-store-core')
 const { setChatSettlement } = await import('../src/renderer/src/pages/assistant/assistant-chat-menu-state')
-const { setAssistantSettlementOverrides, migrateCanonicalSettlementOverrides } = await import('../src/renderer/src/pages/assistant/assistant-settlement-store')
+const { setAssistantSettlementOverrides, migrateCanonicalSettlementOverrides, useAssistantSettlementOverrides } = await import('../src/renderer/src/pages/assistant/assistant-settlement-store')
 ;(assistantStore as any).state = { ...assistantStore.getState(), snapshot: { ...createDefaultAssistantSnapshot(), sessions: [session], selectedSessionId: session.id }, hydrated: true }
 ;(assistantStore as any).ensureEventStream()
 const loading: boolean[] = []
@@ -69,6 +72,36 @@ setAssistantSettlementOverrides({ [session.id]: { state: 'settled', activityAt: 
 await migrateCanonicalSettlementOverrides([{ ...selected(), settlementManual: false }])
 assert.equal(mutations.at(-1)?.migrateLegacy, true)
 assert.equal(selected().settled, true)
+assertContinuity()
+// Canonical acknowledgement can arrive after the RPC. Failed later toggles
+// must restore the last accepted intent, not an older still-visible snapshot.
+const originalMutation = window.devscope.assistant.settleSession
+await originalMutation(session.id, false)
+await migrateCanonicalSettlementOverrides([selected()])
+const queued: Array<{ settled: boolean; resolve: (result: any) => void }> = []
+;(window.devscope.assistant as any).settleSession = (_id: string, settled: boolean) => new Promise(resolve => queued.push({ settled, resolve }))
+function PendingProbe() {
+    const [overrides] = useAssistantSettlementOverrides()
+    return createElement('output', null, String(isAssistantChatSettled(selected(), overrides, { priority: false, ready: true, activityAt: now })))
+}
+const visible = () => renderToStaticMarkup(createElement(PendingProbe))
+const first = setChatSettlement(selected(), true)
+assert.match(visible(), />true</, 'Pending intent renders before the server replies')
+const second = setChatSettlement(selected(), false).catch(error => error)
+const third = setChatSettlement(selected(), true).catch(error => error)
+assert.equal(queued.length, 1, 'Rapid writes wait for the preceding server response')
+assert.match(visible(), />true</, 'Latest intent wins immediately')
+queued[0].resolve({ success: true }); await first
+while (queued.length < 2) await new Promise(resolve => setTimeout(resolve, 0))
+queued[1].resolve({ success: false, error: 'second failed' }); await second
+while (queued.length < 3) await new Promise(resolve => setTimeout(resolve, 0))
+queued[2].resolve({ success: false, error: 'third failed' }); await third
+assert.match(visible(), />true</, 'Consecutive failures restore the last accepted intent before its metadata arrives')
+assert(!JSON.stringify([...storage.values()]).includes('optimistic'), 'Pending intent never enters durable legacy storage')
+;(window.devscope.assistant as any).settleSession = originalMutation
+await originalMutation(session.id, true)
+await migrateCanonicalSettlementOverrides([selected()])
+assert.match(visible(), />true</, 'Canonical acknowledgement settles the pending view without bouncing')
 assertContinuity()
 unsubscribe()
 assistantStore.release()

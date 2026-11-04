@@ -4,6 +4,7 @@ import { isAssistantChatSettled, type SettlementOverrides } from './assistant-si
 import { getPinnedSessionIds, writePinnedSessionIds } from './assistant-pinned-sessions'
 import { copyTextToClipboard } from '@/lib/copy-text'
 import type { AssistantToastInput } from './AssistantPageHelpers'
+import { beginAssistantSettlement } from './assistant-settlement-store'
 
 export function resolveChatMenuSettlement(session: AssistantSession, overrides: SettlementOverrides, pinned: boolean, activeThreadId: string | null, pendingControl = false) {
     const thread = session.threads.find(entry => entry.id === session.activeThreadId) || getPrimarySessionThread(session)
@@ -28,11 +29,23 @@ export function toggleChatPinned(sessionId: string) {
     return !wasPinned
 }
 
+const settlementWrites = new Map<string, Promise<void>>()
 export async function setChatSettlement(session: AssistantSession, settled: boolean, migrateLegacy = false) {
-    const result = await window.devscope.assistant.settleSession(session.id, settled, migrateLegacy)
-    if (!result.success) throw new Error(result.error || 'Could not update chat settlement.')
-    // The canonical session.updated event carries these metadata fields. A full
-    // refresh here re-enters loading and unnecessarily rehydrates the open thread.
+    const intent = beginAssistantSettlement(session, settled)
+    const previous = settlementWrites.get(session.id)
+    const write = (async () => {
+        // Rapid toggles keep their latest UI intent, but reach the server in order.
+        if (previous) await previous.catch(() => undefined)
+        try {
+            const result = await window.devscope.assistant.settleSession(session.id, settled, migrateLegacy)
+            if (!result.success) throw new Error(result.error || 'Could not update chat settlement.')
+            intent.confirm()
+        } catch (error) { intent.rollback(); throw error }
+    })()
+    settlementWrites.set(session.id, write)
+    try { await write }
+    finally { if (settlementWrites.get(session.id) === write) settlementWrites.delete(session.id) }
+    // Canonical metadata acknowledges intent without a bootstrap/history refresh.
 }
 
 export function createChatSettlementToast(session: AssistantSession, settled: boolean, undo?: () => void | Promise<void>): AssistantToastInput {

@@ -43,6 +43,8 @@ const startVoice = async () => {
     check(editor()?.getAttribute('aria-disabled') !== 'true', 'Answer-later does not block message composition')
     check(document.body.textContent?.includes('Agent is continuing') && document.body.textContent?.includes('2 requests'), 'Continuing state and queued request count are visible')
     check(fixture.responses.length === 0 && fixture.decisions.length === 0, 'Mounting never submits an answer or permission decision')
+    const emptyQueue = document.querySelector('[aria-label="Queued messages"]')?.closest<HTMLElement>('[data-state="closed"]')
+    check(!emptyQueue || getComputedStyle(emptyQueue).marginBottom === '0px', 'An empty queue cannot alter attachment-only shelf spacing')
 
     fixture.render({ queuedMessageCount: 1, queuedMessages: [{ id: 'queued-draft', prompt: 'Original queue prompt', contextFiles: [], dispatchMode: 'queue', status: 'queued' }] })
     const queueCard = document.querySelector<HTMLElement>('[aria-label="Queued messages"]')!
@@ -54,6 +56,10 @@ const startVoice = async () => {
             && attentionCard.getBoundingClientRect().bottom <= queueCard.getBoundingClientRect().top + 1
     }, 'Real attention and queue drawer animations finish before measuring stacking')
     check(queueCard && attentionCard.getBoundingClientRect().bottom <= queueCard.getBoundingClientRect().top + 1, `Answer-later tray stays above the queue and attachment shelf without covering controls: ${JSON.stringify({ attention: attentionCard?.getBoundingClientRect().toJSON(), queue: queueCard?.getBoundingClientRect().toJSON(), shelf: document.querySelector('[data-assistant-attention-shelf]')?.getBoundingClientRect().toJSON(), bottom: getComputedStyle(document.querySelector('[data-assistant-attention-shelf]')!).bottom, offset: getComputedStyle(attentionCard).getPropertyValue('--assistant-attention-shelf-offset'), grid: [...document.querySelectorAll('[data-state]')].map(node => ({ state: node.getAttribute('data-state'), rows: getComputedStyle(node).gridTemplateRows, display: getComputedStyle(node).display, height: node.getBoundingClientRect().height, css: node.className })) })}`)
+    check(queueCard.closest('[data-composer-drawer="true"]'), 'Queue shares the attached question/permission surface')
+    const queueAction = queueCard.querySelector<HTMLButtonElement>('[aria-label="Edit queued message"]')!
+    const actionBounds = queueAction.getBoundingClientRect()
+    check(queueAction.contains(document.elementFromPoint(actionBounds.left + actionBounds.width / 2, actionBounds.top + actionBounds.height / 2)), 'Stacked question and drawer seam do not intercept queue actions')
     await click('Edit queued message')
     const queuedEditor = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit queued message"]')!
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(queuedEditor, 'Uncommitted queue edit')
@@ -142,15 +148,24 @@ const startVoice = async () => {
 }
 
 let previewFixture: ReturnType<typeof createPaneFixture> | null = null
-;(window as any).attentionDockPreview = async (scenario: 'permission' | 'answer-later' | 'answer') => {
+;(window as any).attentionDockPreview = async (scenario: 'permission' | 'answer-later' | 'answer' | 'queue' | 'queue-question') => {
     previewFixture?.unmount()
     localStorage.clear()
-    writeAssistantComposerSessionState('attention-chat', { draft: 'Keep this message while I answer the agent.', contextFiles: [], model: 'fixture/model', runtimeMode: 'full-access', effort: 'medium' })
+    writeAssistantComposerSessionState('attention-chat', { draft: 'Keep this message while I answer the agent.', contextFiles: scenario === 'queue-question' ? [{ id: 'preview-file', path: '/fixture/notes.txt', name: 'notes.txt', kind: 'file', source: 'manual' }] : [], model: 'fixture/model', runtimeMode: 'full-access', effort: 'medium' })
     previewFixture = createPaneFixture()
-    previewFixture.render(scenario === 'permission' ? { pendingApprovals: [approval] } : { pendingUserInputs: [request('preview-question')], thinking: true })
+    const queued = { queuedMessageCount: 1, queuedMessages: [{ id: 'preview-queue', prompt: 'Use the attached drawer for queued messages.', contextFiles: [], dispatchMode: 'queue' as const, status: 'queued' as const }] }
+    previewFixture.render(scenario === 'permission' ? { pendingApprovals: [approval] } : scenario === 'queue' ? queued : { ...(scenario === 'queue-question' ? queued : {}), pendingUserInputs: [request('preview-question')], thinking: true })
     await sleep(); await sleep()
     if (scenario === 'answer') { await click('Answer'); await wait(() => Boolean(answer()), 'Preview opens the single answer composer') }
     await new Promise(resolve => setTimeout(resolve, 300))
+    if (scenario === 'queue') {
+        const drawer = document.querySelector<HTMLElement>('[aria-label="Queued message drawer"]')!
+        const frame = document.querySelector<HTMLElement>('[data-assistant-composer-frame]')!
+        const queue = document.querySelector<HTMLElement>('[aria-label="Queued messages"]')!
+        const gap = frame.getBoundingClientRect().top - queue.getBoundingClientRect().bottom
+        check(Math.abs(gap) <= 2, `Queue content joins the composer seam without a floating-card gap: ${gap}`)
+        check(getComputedStyle(drawer, '::before').maskImage !== 'none', 'Actual drawer seam mask is rendered')
+    }
     check(frameCount() === 1, 'Visual evidence retains exactly one composer')
     check(document.documentElement.scrollWidth <= innerWidth + 1, 'Dock fits the viewport without horizontal overflow')
 }

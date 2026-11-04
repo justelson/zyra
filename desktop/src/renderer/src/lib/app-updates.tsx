@@ -300,7 +300,10 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
         if (result?.accepted && result.completed) {
             installConfirmationRef.current = null; setInstallConfirmationVersion(null)
         } else {
-            installPlanRef.current = null; setInstallPlan(null); setIsModalOpen(false)
+            installPlanRef.current = null; setInstallPlan(null)
+            // A live confirmation can show its own error and Refresh action.
+            // An expired native request needs the status/error modal instead.
+            if (installConfirmationRef.current) setIsModalOpen(false)
         }
         return result
     }

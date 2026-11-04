@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { GripVertical, Pencil, Trash2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AssistantComposerMenuSurface, ComposerMenuContext } from './AssistantComposerMenuSurface'
 import type { AssistantComposerController } from './useAssistantComposerController'
 
 export type AssistantComposerQueueProps = Pick<AssistantComposerController,
@@ -26,8 +27,9 @@ export type AssistantComposerQueueState = ReturnType<typeof useAssistantComposer
 export function AssistantComposerQueue({ controller, state }: { controller: AssistantComposerQueueProps; state: ReturnType<typeof useAssistantComposerQueueState> }) {
     const { draggedId, setDraggedId, dropTargetId, setDropTargetId, edit, setEdit, error, setError } = state
     const reorderHelpId = useId()
-    return <section data-composer-attachment-item="true" aria-label="Queued messages"
-        className="pointer-events-auto mx-auto w-[calc(100%-1rem)] overflow-hidden rounded-xl border border-[var(--surface-divider)] bg-sparkle-card text-sparkle-text shadow-[0_8px_28px_rgba(0,0,0,0.22)] sm:w-[calc(100%-2.25rem)]">
+    return <ComposerMenuContext.Provider value={{ below: false }}>
+        <AssistantComposerMenuSurface title="Queued message drawer">
+        <section data-composer-attachment-item="true" aria-label="Queued messages" className="pointer-events-auto text-sparkle-text">
         <p id={reorderHelpId} className="sr-only">Drag a message to reorder it, or focus its handle and press Alt+ArrowUp or Alt+ArrowDown.</p>
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--surface-divider)] px-4 py-3">
             <div>
@@ -122,4 +124,6 @@ export function AssistantComposerQueue({ controller, state }: { controller: Assi
             })}
         </div>
     </section>
+    </AssistantComposerMenuSurface>
+    </ComposerMenuContext.Provider>
 }

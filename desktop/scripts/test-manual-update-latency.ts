@@ -25,7 +25,7 @@ function harness(manual = true, activity = 0) {
     const request = { id: 'native-nonce', version: '0.7.2', agentServerUpdate: true }
     const network = new Promise<void>(resolve => { releaseNetwork = resolve })
     const context: Record<string, any> = {
-        exports: {}, isInstallingUpdate: false, updaterConfigured: false, autoUpdaterRef: null,
+        exports: {}, isInstallingUpdate: false, abortUpdateQuit: false, installQuitScheduled: false, updaterConfigured: false, autoUpdaterRef: null,
         updateState: { externalInstaller: manual ? request : undefined, status: 'downloaded', downloadedVersion: '0.7.2' },
         installerRequests: { assertCurrent() { if (!valid) throw new Error('expired native request'); return request } },
         async initializeUpdater() { initializeCalls++; await network; context.updaterConfigured = true; context.autoUpdaterRef = {} },

@@ -165,7 +165,8 @@ function ComposerViewWithQueue({
     const drawerRef = useRef<HTMLDivElement | null>(null)
     const attachmentShelfRef = useRef<HTMLDivElement | null>(null)
     const commandActivationPendingRef = useRef(false)
-    const hasFloatingShelf = controller.queuedMessages.length > 0 || (controller.placement !== 'center' && controller.contextFiles.length > 0)
+    const hasAttachmentShelf = controller.placement !== 'center' && controller.contextFiles.length > 0
+    const hasFloatingShelf = controller.queuedMessages.length > 0 || hasAttachmentShelf
     const hasInlineMentionOverlay = controller.text.length > 0 && controller.inlineMentionTags.length > 0
     const {
         iconTheme,
@@ -527,10 +528,10 @@ function ComposerViewWithQueue({
                         className={cn(
                             'pointer-events-none absolute inset-x-0',
                             slashMenuPresent && controller.placement === 'center' ? 'top-full z-30 -mt-[17px]' : 'bottom-full',
-                            slashMenuPresent ? 'z-30 -mb-[17px]' : 'z-50 mb-[-2px]'
+                            slashMenuPresent || (controller.queuedMessages.length > 0 && !hasAttachmentShelf) ? 'z-30 -mb-[17px]' : 'z-50 mb-[-2px]'
                         )}
                     >
-                        <div className="flex flex-col gap-1" ref={shelfWheelRef}>
+                        <div className={cn('flex flex-col', hasAttachmentShelf ? 'gap-1' : 'gap-0')} ref={shelfWheelRef}>
                             {slashMenuPresent ? (
                                 <AnimatedHeight
                                     isOpen={slashMenuAnimatedOpen}
@@ -570,7 +571,7 @@ function ComposerViewWithQueue({
                                 </AnimatedHeight>
                             ) : (
                                 <>
-                            <AnimatedHeight isOpen={controller.queuedMessages.length > 0} duration={220}>
+                            <AnimatedHeight isOpen={controller.queuedMessages.length > 0} duration={220} className={controller.queuedMessages.length > 0 && hasAttachmentShelf ? '-mb-[17px]' : undefined}>
                                 <AssistantComposerQueue controller={controller} state={queueState} />
                             </AnimatedHeight>
                             {controller.placement !== 'center' ? <ComposerAttachmentsShelf

@@ -79,7 +79,7 @@ export function useAssistantSidebarDrag(options: Options) {
                 if (!hit || hit.dataset.sidebarDragId === row.id) return
                 const bounds = hit.getBoundingClientRect()
                 const placement = point.y > bounds.top + bounds.height / 2 ? 'after' : 'before'
-                if (destination?.target === hit.dataset.sidebarDragId && destination.placement === placement) return
+                if (destination && destination.target === hit.dataset.sidebarDragId && destination.placement === placement) return
                 destination = { id: row.id, target: hit.dataset.sidebarDragId!, group: row.group, placement }
                 setPreview(destination)
             }

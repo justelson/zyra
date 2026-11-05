@@ -21,8 +21,9 @@ export type ResponseTimingRequest = {
     startedMs: number
     firstEventMs: number | null
     firstTextMs: number | null
+    lastEventMs: number | null
     durationMs: number | null
-    maxGapMs: number
+    maxGapMs: number | null
 }
 export type ResponseTimingRecord = {
     turnId: string
@@ -42,7 +43,7 @@ export type ResponseTimingRecord = {
     retryCount: number
     compactionCount: number
     compactionMs: number
-    maxStreamingGapMs: number
+    maxStreamingGapMs: number | null
     stallCount: number
     mainStallMs: number
     rendererStallMs: number

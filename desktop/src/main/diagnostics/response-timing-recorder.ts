@@ -10,7 +10,7 @@ const MAX_RECORDS = 200
 const MAX_REQUESTS = 32
 const MAX_ACTIVE = 64
 const MAX_DURATION = 24 * 60 * 60_000
-type Active = { row: ResponseTimingRecord; threadId?: string; requestId?: string; lastActivityAt?: number; compactionAt?: number; retries: Set<string> }
+type Active = { row: ResponseTimingRecord; threadId?: string; requestId?: string; compactionAt?: number; retries: Set<string> }
 type TimingStart = { turnId: string; threadId?: string; model: string; effort?: string; submittedAt?: number; receivedAt: number }
 const identifier = (value: unknown): value is string => typeof value === 'string' && /^(?:assistant-turn-[a-z0-9-]+|[a-z0-9_-]{1,80})$/i.test(value) && value.length <= 120
 const duration = (value: number) => Math.round(Math.max(0, Math.min(MAX_DURATION, value)))
@@ -40,7 +40,7 @@ export class ResponseTimingRecorder {
             model: responseTimingModel(input.model), effort: responseTimingEffort(input.effort), outcome: 'running',
             mainReceivedMs: duration(input.receivedAt - submitted), dispatchMs: null, acceptedMs: null,
             firstEventMs: null, firstTextMs: null, firstTextReceivedMs: null, firstDisplayMs: null, completedMs: null,
-            requestCount: 0, retryCount: 0, compactionCount: 0, compactionMs: 0, maxStreamingGapMs: 0,
+            requestCount: 0, retryCount: 0, compactionCount: 0, compactionMs: 0, maxStreamingGapMs: null,
             stallCount: 0, mainStallMs: 0, rendererStallMs: 0, maxStallMs: 0, requests: [] }
         this.records.set(row.turnId, row)
         this.active.set(row.turnId, { row, threadId: input.threadId, retries: new Set() })
@@ -67,6 +67,10 @@ export class ResponseTimingRecorder {
         const { row } = state
         const at = this.now()
         const elapsed = duration(at - row.startedAt)
+        if (event.type === 'turn.started') {
+            if (event.payload.model) row.model = responseTimingModel(event.payload.model)
+            if (event.payload.effort) row.effort = responseTimingEffort(event.payload.effort)
+        }
         if (event.type === 'turn.accepted') row.acceptedMs ??= elapsed
         if (event.type === 'model.progress') {
             const p = event.payload.progress
@@ -74,18 +78,19 @@ export class ResponseTimingRecorder {
                 const request = row.requests.at(-1)
                 if (request && state.requestId) request.durationMs = duration(at - row.startedAt - request.startedMs)
                 state.requestId = undefined
-                state.lastActivityAt = undefined
             } else {
                 if (state.requestId !== p.requestId) {
                     state.requestId = p.requestId
-                    state.lastActivityAt = undefined
                     row.requestCount++
-                    row.requests.push({ startedMs: duration(p.startedAt - row.startedAt), firstEventMs: null, firstTextMs: null, durationMs: null, maxGapMs: 0 })
+                    row.requests.push({ startedMs: duration(p.startedAt - row.startedAt), firstEventMs: null, firstTextMs: null, lastEventMs: null, durationMs: null, maxGapMs: null })
                     if (row.requests.length > MAX_REQUESTS) row.requests.shift()
                 }
                 const request = row.requests.at(-1)!
-                request.maxGapMs = Math.max(request.maxGapMs, p.maxActivityGapMs || 0)
-                row.maxStreamingGapMs = Math.max(row.maxStreamingGapMs, request.maxGapMs)
+                if (p.phase === 'streaming') request.lastEventMs = duration(p.lastActivityAt - p.startedAt)
+                if (p.maxActivityGapMs !== undefined) {
+                    request.maxGapMs = Math.max(request.maxGapMs ?? 0, p.maxActivityGapMs)
+                    row.maxStreamingGapMs = Math.max(row.maxStreamingGapMs ?? 0, request.maxGapMs)
+                }
                 if (p.firstEventAt !== undefined) {
                     request.firstEventMs ??= duration(p.firstEventAt - p.startedAt)
                     row.firstEventMs ??= duration(p.firstEventAt - row.startedAt)
@@ -94,12 +99,6 @@ export class ResponseTimingRecorder {
                     request.firstTextMs ??= duration(p.firstTextAt - p.startedAt)
                     row.firstTextMs ??= duration(p.firstTextAt - row.startedAt)
                 }
-                if (p.phase === 'streaming' && state.lastActivityAt !== undefined) {
-                    const gap = duration(p.lastActivityAt - state.lastActivityAt)
-                    request.maxGapMs = Math.max(request.maxGapMs, gap, p.maxActivityGapMs || 0)
-                    row.maxStreamingGapMs = Math.max(row.maxStreamingGapMs, request.maxGapMs)
-                }
-                if (p.phase === 'streaming') state.lastActivityAt = p.lastActivityAt
             }
             this.scheduleWrite()
         }
@@ -194,11 +193,11 @@ export class ResponseTimingRecorder {
     private captureSummary(row: ResponseTimingRecord): void {
         const properties = { model_name: row.model, effort: row.effort,
             outcome: row.outcome as Exclude<ResponseTimingOutcome, 'running'>, request_count: row.requestCount, retry_count: row.retryCount,
-            compaction_count: row.compactionCount, compaction_ms: row.compactionMs, max_streaming_gap_ms: row.maxStreamingGapMs,
+            compaction_count: row.compactionCount, compaction_ms: row.compactionMs,
             stall_count: row.stallCount, main_stall_ms: row.mainStallMs, renderer_stall_ms: row.rendererStallMs, max_stall_ms: row.maxStallMs,
             ...Object.fromEntries(Object.entries({ main_received_ms: row.mainReceivedMs, dispatch_ms: row.dispatchMs, accepted_ms: row.acceptedMs,
                 first_event_ms: row.firstEventMs, first_text_ms: row.firstTextMs, first_text_received_ms: row.firstTextReceivedMs,
-                first_display_ms: row.firstDisplayMs, duration_ms: row.completedMs }).filter(([, value]) => value !== null)) }
+                first_display_ms: row.firstDisplayMs, duration_ms: row.completedMs, max_streaming_gap_ms: row.maxStreamingGapMs }).filter(([, value]) => value !== null)) }
         try { this.capture({ event: 'zyra_v1_response_timing', properties }) } catch { /* Diagnostics cannot affect a turn. */ }
     }
 
@@ -248,12 +247,13 @@ function sanitizeStoredRecord(input: ResponseTimingRecord): ResponseTimingRecord
         firstEventMs: number(input.firstEventMs), firstTextMs: number(input.firstTextMs), firstTextReceivedMs: number(input.firstTextReceivedMs),
         firstDisplayMs: number(input.firstDisplayMs), completedMs: number(input.completedMs), requestCount: number(input.requestCount) ?? 0,
         retryCount: number(input.retryCount) ?? 0, compactionCount: number(input.compactionCount) ?? 0,
-        compactionMs: number(input.compactionMs) ?? 0, maxStreamingGapMs: number(input.maxStreamingGapMs) ?? 0,
+        compactionMs: number(input.compactionMs) ?? 0, maxStreamingGapMs: number(input.maxStreamingGapMs),
         stallCount: number(input.stallCount) ?? 0, mainStallMs: number(input.mainStallMs) ?? 0,
         rendererStallMs: number(input.rendererStallMs) ?? 0, maxStallMs: number(input.maxStallMs) ?? 0,
         requests: input.requests.slice(-MAX_REQUESTS).filter(value => value && typeof value === 'object').map(value => ({
             startedMs: number(value.startedMs) ?? 0, firstEventMs: number(value.firstEventMs), firstTextMs: number(value.firstTextMs),
-            durationMs: number(value.durationMs), maxGapMs: number(value.maxGapMs) ?? 0
+            lastEventMs: number(value.lastEventMs),
+            durationMs: number(value.durationMs), maxGapMs: number(value.maxGapMs)
         }))
     }
 }

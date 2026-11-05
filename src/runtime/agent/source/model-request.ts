@@ -43,7 +43,7 @@ export class ModelRequestControl {
 		const now = Date.now();
 		const progress: ModelRequestProgress = {
 			requestId: uuidv7(), startedAt: now, lastActivityAt: now,
-			phase: "waiting", canPing: !root?.aborted,
+			phase: "waiting", canPing: !root?.aborted, maxActivityGapMs: 0,
 		};
 		const onAbort = () => {
 			progress.canPing = false;

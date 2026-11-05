@@ -29,10 +29,10 @@ text is not acknowledged until it becomes visible. Streaming updates do not
 create per-token disk or analytics events. First-display times can therefore
 include time spent away from the chat.
 
-Provider activity gaps reset between provider calls and exclude tool execution.
+Provider activity gaps come from unthrottled runtime aggregates, never intervals between coalesced progress updates. Older runtimes leave this field unobserved. Gaps reset between provider calls and exclude tool execution.
 Runtime recovery/ping attempts and compaction durations are recorded separately.
 Existing proven stall incidents annotate active turns; high-CPU alerts alone do
-not count as a stall. Main and renderer stall reports may overlap and must not
+not count as a stall. Incognito exclusions run before both direct analytics and analytics-bound turn correlation. Unrelated Browser renderers are never attributed to the selected chat; their existing local incident evidence is retained. Main and renderer stall reports may overlap and must not
 be added together as elapsed wall time. An unfinished turn from a previous
 Desktop process is labelled `unfinished`, without claiming its background work
 was interrupted.

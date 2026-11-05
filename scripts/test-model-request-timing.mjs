@@ -26,7 +26,7 @@ try {
   await control.begin();
   clock += 10;
   await control.activity(false);
-  assert.equal(control.progress.maxActivityGapMs, undefined, 'tool time between requests is excluded');
+  assert.equal(control.progress.maxActivityGapMs, 0, 'tool time between requests is excluded');
   await control.end();
   assert(!JSON.stringify(events).includes('content'));
   console.log('Provider request timing: first event/text, throttle bypass, final gaps and request isolation: ok');

@@ -63,6 +63,7 @@ import { configurePreviewDataEnvironment } from './zyra/zyra-data-root'
 import { registerInstalledDesktop } from './desktop-install-registration'
 import { dispatchDesktopTui, isDesktopTuiDispatch } from './desktop-tui-dispatcher'
 import { createRendererHangRecorder } from './diagnostics/renderer-hang-recorder'
+import { reportHangIncident } from './diagnostics/hang-analytics'
 import { BROWSER_POPUP_PRELOAD_ARGUMENT } from '../shared/preload-surfaces'
 import { configureBrowserDownloadAnalytics } from './browser-download-service'
 import { inspectProjectAnalyticsCapabilities } from './analytics/project-capabilities'
@@ -222,21 +223,14 @@ let hasIncognitoBrowserContents = (): boolean => false
 const rendererHangRecorder = createRendererHangRecorder({
     userDataPath: app.getPath('userData'),
     getAssistantContext: () => getAssistantService().getHangDiagnosticContext(),
-    onIncident: (incident) => {
-        setupServices.responseTiming.recordStall(incident, getAssistantService().getHangDiagnosticContext().activeThreadId)
-        if (incident.reason.includes('process-gone')) return
-        if (incident.webContentsId !== null && isIncognitoBrowserWebContents(incident.webContentsId)) return
-        if (hasIncognitoBrowserContents()) return
-        setupServices.analytics.capture({
-            event: 'zyra_v1_app_lifecycle',
-            properties: {
-                action: 'hang',
-                outcome: 'completed',
-                process_kind: incident.processKind,
-                ...(incident.durationMs === undefined ? {} : { duration_ms: incident.durationMs })
-            }
-        })
-    }
+    onIncident: incident => reportHangIncident(incident, {
+        isIncognitoWebContents: id => isIncognitoBrowserWebContents(id),
+        hasIncognitoContents: () => hasIncognitoBrowserContents(),
+        getMainWebContentsId: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : null,
+        getSelectedThreadId: () => getAssistantService().getHangDiagnosticContext().activeThreadId,
+        correlate: (data, threadId) => setupServices.responseTiming.recordStall(data, threadId),
+        capture: input => setupServices.analytics.capture(input)
+    })
 })
 
 let quickPreviewWindow: BrowserWindow | null = null

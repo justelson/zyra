@@ -32,7 +32,8 @@ class ModelRequestControl {
       startedAt: now,
       lastActivityAt: now,
       phase: "waiting",
-      canPing: !root?.aborted
+      canPing: !root?.aborted,
+      maxActivityGapMs: 0
     };
     const onAbort = () => {
       progress.canPing = false;

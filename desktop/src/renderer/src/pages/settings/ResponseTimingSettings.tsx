@@ -59,6 +59,7 @@ export function ResponseTimingSettings() {
                     <dt>Provider calls / runtime retries</dt><dd>{selected.requestCount} / {selected.retryCount}</dd>
                     <dt>Compactions</dt><dd>{selected.compactionCount} · {timing(selected.compactionMs)}</dd>
                     <dt>Longest provider activity gap</dt><dd>{timing(selected.maxStreamingGapMs)}</dd>
+                    {selected.requests.length ? <><dt>Latest provider activity after request start</dt><dd>{timing(selected.requests.at(-1)!.lastEventMs)}</dd></> : null}
                     <dt>Desktop stall reports</dt><dd>{selected.stallCount} · longest {timing(selected.maxStallMs)}</dd>
                     <dt>Main / renderer stall time</dt><dd>{timing(selected.mainStallMs)} / {timing(selected.rendererStallMs)}</dd>
                 </dl>

@@ -71,6 +71,8 @@ try {
     assert(!stored.includes('PRIVATE_FIXTURE_TEXT'))
     const reopened = new ResponseTimingRecorder(directory, undefined, () => clock)
     assert.deepEqual((await reopened.read()).records, [row], 'local timings survive restart independently of analytics')
+    reopened.start({ turnId: 'assistant-turn-long-running', model: '', receivedAt: clock })
+    reopened.observe({ eventId: 'actual-model', type: 'turn.started', threadId: 'thread', turnId: 'assistant-turn-long-running', createdAt: new Date(clock).toISOString(), payload: { model: 'openai-codex/gpt-6-luna', effort: 'low', interactionMode: 'default' } })
     for (let index = 0; index < 240; index++) {
         clock += 100
         reopened.start({ turnId: `assistant-turn-${index}`, model: 'secret-custom-model-value', receivedAt: clock })
@@ -79,8 +81,13 @@ try {
     await reopened.dispose(); await reopened.flush()
     const retained = (await reopened.read()).records
     assert.equal(retained.length, 200)
+    assert.equal(retained.find(row => row.turnId === 'assistant-turn-long-running')?.model, 'gpt-6-luna', 'actual runtime model replaces the initial unknown/requested model')
+    assert.equal(retained.find(row => row.turnId === 'assistant-turn-long-running')?.outcome, 'running', 'an older active turn survives newer completed turns')
     assert.equal(retained[0].model, 'other')
     assert((await readFile(join(directory, 'response-timings.json'))).byteLength < RESPONSE_TIMING_STORAGE_LIMIT)
+    const recoveredActive = new ResponseTimingRecorder(directory)
+    assert.equal((await recoveredActive.read()).records.find(row => row.turnId === 'assistant-turn-long-running')?.outcome, 'unfinished', 'restart does not claim background work was interrupted')
+    await recoveredActive.dispose()
     await writeFile(join(directory, 'response-timings.json'), '[{"unexpected":"PRIVATE_FIXTURE_TEXT"}]')
     const corrupt = new ResponseTimingRecorder(directory)
     assert.deepEqual((await corrupt.read()).records, [])

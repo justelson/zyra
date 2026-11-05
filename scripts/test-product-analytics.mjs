@@ -730,6 +730,7 @@ async function testInstrumentationReachability() {
     "desktop/src/main/update/manager.ts",
     "desktop/src/main/diagnostics/renderer-hang-recorder.ts",
     "desktop/src/main/diagnostics/response-timing-recorder.ts",
+    "desktop/src/main/diagnostics/hang-analytics.ts",
     "desktop/src/renderer/src/components/ui/file-preview/useFilePreview.ts",
     "desktop/src/renderer/src/components/ui/file-preview/useFilePreviewEditSession.ts",
     "desktop/src/renderer/src/components/ui/file-preview/usePreviewFileSearch.ts",

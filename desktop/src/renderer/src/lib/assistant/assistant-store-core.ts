@@ -27,6 +27,7 @@ import { applyAssistantDomainEvents, createDefaultAssistantSnapshot } from '@sha
 import { isAssistantToolLifecycleStartEvent } from '@shared/assistant/tool-lifecycle'
 import { collapseAssistantDeltaEvents, isAssistantStreamingPresentationEvent } from './event-batching'
 import { assistantStreamPresentation } from './assistant-stream-presentation'
+import { AssistantHistoryReadJournal, canReplayAssistantHistoryRead, replayAssistantHistoryRead } from './assistant-history-live-read'
 import { rendererVisibility } from '../renderer-visibility'
 import {
     cacheHydratedThreads,
@@ -124,6 +125,7 @@ export class AssistantStore {
     private readonly pendingCanonicalHistoryRehydrations = new Map<string, Promise<void>>()
     private readonly pendingHistoryLoads = new Map<string, Promise<boolean>>()
     private readonly pendingHistoryAnchors = new Map<string, Promise<boolean>>()
+    private readonly historyReads = new AssistantHistoryReadJournal()
 
     subscribe = (listener: () => void) => {
         this.listeners.add(listener)
@@ -164,6 +166,7 @@ export class AssistantStore {
 
     async hydrate() {
         if (this.hydratePromise) return this.hydratePromise
+        this.historyReads.invalidate()
         this.flushPendingAssistantEvents()
         this.setState({ hydrating: true, error: null })
         this.hydratePromise = (async () => {
@@ -579,6 +582,7 @@ export class AssistantStore {
     }
 
     private async loadHistoryPage(direction: 'older' | 'newer', threadId?: string, turnLimit = 1): Promise<boolean> {
+        this.flushPendingAssistantEvents()
         const selectedThreadId = this.state.snapshot.sessions
             .find((session) => session.id === this.state.snapshot.selectedSessionId)?.activeThreadId || null
         const targetThreadId = threadId || selectedThreadId
@@ -608,6 +612,7 @@ export class AssistantStore {
             : currentHistory.pageInfo.hasNewer
         if (!canLoad || !requestedCursor) return false
 
+        const historyRead = this.historyReads.begin(targetThreadId)
         const requestedRevision = currentHistory.shellRevision
         const requestedTurnLimit = Math.max(1, Math.min(3, Math.floor(turnLimit || 1)))
         this.setState((current) => ({
@@ -631,6 +636,7 @@ export class AssistantStore {
                     turnLimit: requestedTurnLimit
                 })
                 if (!result.success) throw new Error(result.error)
+                this.flushPendingAssistantEvents()
                 this.setState((current) => {
                     const latest = current.historyByThreadId[targetThreadId]
                     const latestCursor = direction === 'older'
@@ -640,10 +646,10 @@ export class AssistantStore {
                     const latestThread = current.snapshot.sessions
                         .flatMap((session) => session.threads)
                         .find((thread) => thread.id === targetThreadId) || null
-                    if (
+                    if (historyRead.overflow || !canReplayAssistantHistoryRead(historyRead, result.page) && (
                         latest.shellRevision !== requestedRevision
                         || (latestThread && getAssistantThreadHydrationRevision(latestThread) !== requestedRevision)
-                    ) {
+                    )) {
                         revisionChanged = true
                         return {
                             historyByThreadId: {
@@ -658,7 +664,8 @@ export class AssistantStore {
                             }
                         }
                     }
-                    const applied = applyAssistantHistoryPage(current.snapshot, latest, result.page, direction)
+                    const page = replayAssistantHistoryRead(current.snapshot, result.page, historyRead)
+                    const applied = applyAssistantHistoryPage(current.snapshot, latest, page, direction)
                     return {
                         snapshot: applied.snapshot,
                         historyByThreadId: { ...current.historyByThreadId, [targetThreadId]: applied.history }
@@ -683,6 +690,7 @@ export class AssistantStore {
                     }
                 })
             } finally {
+                this.historyReads.finish(historyRead)
                 this.pendingHistoryLoads.delete(targetThreadId)
             }
             if (revisionChanged) {
@@ -1135,6 +1143,7 @@ export class AssistantStore {
     }
 
     private queueAssistantEvent(event: AssistantDomainEvent) {
+        this.historyReads.record(event)
         const streamRecordProjected = this.isStreamRecordProjected(event)
         this.pendingAssistantEvents.push(event)
         if (isAssistantToolLifecycleStartEvent(event) || event.type === 'thread.latest-turn.updated') {
@@ -1365,6 +1374,8 @@ export class AssistantStore {
             this.state.snapshot, sessionId, threadId, this.hydratedThreadCache
         ) ? currentThread : null
         const requestedRevision = currentThread ? getAssistantThreadHydrationRevision(currentThread) : null
+        this.flushPendingAssistantEvents()
+        const historyRead = this.historyReads.begin(threadId)
         let request!: Promise<void>
         request = (async () => {
             let revisionChanged = false
@@ -1389,21 +1400,24 @@ export class AssistantStore {
                     return
                 }
 
+                this.flushPendingAssistantEvents()
                 this.setState((current) => {
                     const latestThread = current.snapshot.sessions
                         .flatMap((session) => session.threads)
                         .find((thread) => thread.id === threadId) || null
-                    if (
+                    if (!latestThread) return {}
+                    if (historyRead.overflow || !canReplayAssistantHistoryRead(historyRead, result.detail.history) && (
                         requestedRevision
-                        && latestThread
                         && getAssistantThreadHydrationRevision(latestThread) !== requestedRevision
-                    ) {
+                    )) {
                         revisionChanged = true
                         return {}
                     }
+                    const detail = { ...result.detail }
+                    detail.history = replayAssistantHistoryRead(current.snapshot, detail.history, historyRead, detail)
                     const applied = applyAssistantThreadDetail(
                         current.snapshot,
-                        result.detail,
+                        detail,
                         resetLoadedRange ? undefined : current.historyByThreadId[threadId],
                         validatedPreview
                     )
@@ -1440,6 +1454,7 @@ export class AssistantStore {
                     }
                 }
             } finally {
+                this.historyReads.finish(historyRead)
                 if (this.pendingSelectionHydrations.get(hydrationKey) === request) {
                     this.pendingSelectionHydrations.delete(hydrationKey)
                 }

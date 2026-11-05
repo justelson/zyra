@@ -371,6 +371,8 @@ export interface AssistantTurnDetail {
 
 export interface AssistantHistoryPage {
     threadId: string
+    /** Persisted event watermark captured atomically with these rows. */
+    snapshotSequence?: number
     messages: AssistantMessage[]
     activities: AssistantActivity[]
     proposedPlans: AssistantProposedPlan[]

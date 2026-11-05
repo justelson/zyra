@@ -12,6 +12,7 @@ import { buildUsageSummary, mergeUsageSummaries, usageWindow, type UsageSummaryI
 import { isAssistantSessionProjectLocked } from '../../shared/assistant/session-project'
 import { validateAssistantSessionConfiguration } from '../../shared/assistant/session-configuration'
 import { isAssistantModelCatalogRefreshDue } from './model-catalog-refresh-policy'
+import { withCanonicalAssistantHistoryAvailability } from './canonical-history-availability'
 import { MobileVoicePresence, clearRestoredMobileVoice } from './mobile-voice-presence'
 import { settleActivityAtTurnEnd } from '../../shared/assistant/activity-settlement'
 import { canonicalVoicePresentationEvent } from './voice/canonical-voice-presentation'
@@ -1481,6 +1482,9 @@ export class AssistantService {
         await this.ensureCanonicalHistoryLoaded(record.session, record.thread)
         const refreshedRecord = findThreadRecord(this.state.snapshot, threadId) || record
         const detail = await this.persistence.readThreadDetail(refreshedRecord.thread.id)
+        detail.history = withCanonicalAssistantHistoryAvailability(detail.history,
+            Boolean(refreshedRecord.thread.providerThreadId && this.canonicalHistoryState.get(refreshedRecord.thread.providerThreadId)?.hasOlder))
+        detail.history.fullyLoaded = !detail.history.pageInfo.hasOlder && !detail.history.pageInfo.hasNewer
         detail.history.messages = preserveAssistantMessagePhases(refreshedRecord.thread.messages, detail.history.messages)
         if (refreshedRecord.thread.providerThreadId) {
             detail.history.messages = await this.canonicalMessagePhaseRecovery.recover(refreshedRecord.thread, detail.history.messages, async () => {
@@ -1524,7 +1528,11 @@ export class AssistantService {
         }
         return {
             success: true as const,
-            page: await this.persistence.readHistoryPage({ ...input, threadId: record.thread.id })
+            page: withCanonicalAssistantHistoryAvailability(
+                await this.persistence.readHistoryPage({ ...input, threadId: record.thread.id }),
+                Boolean(record.thread.providerThreadId && this.canonicalHistoryState.get(record.thread.providerThreadId)?.hasOlder),
+                input.before
+            )
         }
     }
 
@@ -3462,19 +3470,32 @@ export class AssistantService {
         const canonicalChatId = thread.providerThreadId
         if (!canonicalChatId) return
         const refreshGeneration = this.canonicalHistoryRefresh.current(canonicalChatId)
-        if (refreshGeneration === 0) return
         const existing = this.canonicalHistoryLoadPromises.get(canonicalChatId)
         if (existing) return existing
         const key = createHash('sha256').update(canonicalChatId).digest('hex').slice(0, 24)
-        const pending = this.loadCanonicalHistoryPage({
-            canonicalChatId,
-            project: this.getSessionRuntimeCwd(session, thread),
-            key,
-            sessionId: session.id,
-            threadId: thread.id,
-            before: null,
-            fallbackCreatedAt: thread.createdAt
-        }).then((loaded) => {
+        if (refreshGeneration === 0 && this.canonicalHistoryState.has(canonicalChatId)) return
+        const pending = (async () => {
+            if (refreshGeneration === 0) {
+                const persisted = await this.persistence.readCanonicalHistoryWindow(thread.id)
+                if (persisted && persisted.modifiedAt === thread.canonicalHistoryModifiedAt
+                    && persisted.entryCount === thread.canonicalHistoryEntryCount) {
+                    this.canonicalHistoryState.set(canonicalChatId, {
+                        before: persisted.before, hasOlder: persisted.hasOlder,
+                        project: this.getSessionRuntimeCwd(session, thread), key, sessionId: session.id, threadId: thread.id
+                    })
+                    return true
+                }
+            }
+            return this.loadCanonicalHistoryPage({
+                canonicalChatId,
+                project: this.getSessionRuntimeCwd(session, thread),
+                key,
+                sessionId: session.id,
+                threadId: thread.id,
+                before: null,
+                fallbackCreatedAt: thread.createdAt
+            })
+        })().then((loaded) => {
             if (loaded) this.canonicalHistoryRefresh.clearIfCurrent(canonicalChatId, refreshGeneration)
         }).finally(() => {
             if (this.canonicalHistoryLoadPromises.get(canonicalChatId) === pending) {
@@ -3493,7 +3514,7 @@ export class AssistantService {
         if (!state?.hasOlder || !state.before) return
         const record = findThreadRecord(this.state.snapshot, state.threadId)
         if (!record) return
-        await this.loadCanonicalHistoryPage({
+        const loaded = await this.loadCanonicalHistoryPage({
             canonicalChatId,
             project: state.project,
             key: state.key,
@@ -3502,6 +3523,7 @@ export class AssistantService {
             before: state.before,
             fallbackCreatedAt: record.thread.createdAt
         })
+        if (!loaded) throw new Error('Earlier chat history could not load. Please retry.')
     }
 
     private async loadCanonicalHistoryPage(input: {
@@ -3637,6 +3659,10 @@ export class AssistantService {
                 key: input.key,
                 sessionId: input.sessionId,
                 threadId: input.threadId
+            })
+            await this.persistence.writeCanonicalHistoryWindow(input.threadId, {
+                before: canonicalOldestCursor, hasOlder: canonicalHasOlder,
+                modifiedAt: canonicalHistoryModifiedAt, entryCount: canonicalHistoryEntryCount
             })
             return true
         } catch (error) {

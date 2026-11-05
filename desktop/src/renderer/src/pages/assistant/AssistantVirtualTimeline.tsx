@@ -144,7 +144,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     if (coldWindowRef.current.key !== props.windowKey) {
         coldWindowRef.current = { key: props.windowKey, cold: props.coldStart === true }
     }
-    if (props.isWorking || props.focusMessageId) coldWindowRef.current.cold = false
+    if (props.focusMessageId) coldWindowRef.current.cold = false
     const coldHistoryPending = coldWindowRef.current.cold
         && coldHistoryReadyKey !== props.windowKey && !userNavigationAwayRef.current
     if (initialHistoryBackfillWindowKeyRef.current !== props.windowKey) {
@@ -300,7 +300,6 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         const initialHistory = {
             initialLayoutReady: initialHistoryBackfillReadyRef.current,
             selectionSettled: !props.selectionHydrating,
-            isWorking: props.isWorking,
             hasOlder: props.hasOlder,
             loadingOlder: props.loadingOlder,
             hasLoadError: Boolean(props.loadOlderError),
@@ -344,7 +343,6 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         })
     }, [
         props.hasOlder,
-        props.isWorking,
         props.listRef,
         props.loadOlderError,
         props.loadingOlder,
@@ -564,14 +562,12 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             !initialHistoryBackfillReadyRef.current
             || !initialHistoryBackfillActiveRef.current
             || props.loadingOlder
-            || props.isWorking
         ) return
         scheduleInitialHistoryBackfillCheck()
         return cancelInitialHistoryBackfillCheck
     }, [
         cancelInitialHistoryBackfillCheck,
         historyFillRevision,
-        props.isWorking,
         props.loadingOlder,
         props.rows.length,
         props.windowKey,

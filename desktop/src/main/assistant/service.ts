@@ -1523,13 +1523,26 @@ export class AssistantService {
         const record = findThreadRecord(this.state.snapshot, input.threadId)
         if (!record) throw new Error(`Assistant thread not found: ${input.threadId}`)
         await this.ensureCanonicalHistoryLoaded(record.session, record.thread)
-        if (input.before && record.thread.providerThreadId) {
-            await this.loadOlderCanonicalHistory(record.thread.providerThreadId)
+        let page = await this.persistence.readHistoryPage({ ...input, threadId: record.thread.id })
+        // Saved history is immediately usable, including while the provider is
+        // offline. A prefix starting mid-turn still needs its prompt boundary.
+        const hasSavedRows = Boolean(page.messages.length || page.activities.length || page.proposedPlans.length)
+        const hasTurnBoundary = page.messages.some(message => message.role === 'user')
+            || page.activities.some(activity => activity.payload?.origin === 'delegation')
+        if (input.before && record.thread.providerThreadId
+            && this.canonicalHistoryState.get(record.thread.providerThreadId)?.hasOlder
+            && (!hasSavedRows || !hasTurnBoundary)) {
+            try {
+                await this.loadOlderCanonicalHistory(record.thread.providerThreadId)
+                page = await this.persistence.readHistoryPage({ ...input, threadId: record.thread.id })
+            } catch (error) {
+                if (!hasSavedRows) throw error
+            }
         }
         return {
             success: true as const,
             page: withCanonicalAssistantHistoryAvailability(
-                await this.persistence.readHistoryPage({ ...input, threadId: record.thread.id }),
+                page,
                 Boolean(record.thread.providerThreadId && this.canonicalHistoryState.get(record.thread.providerThreadId)?.hasOlder),
                 input.before
             )

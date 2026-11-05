@@ -7,6 +7,10 @@ import { withCanonicalAssistantHistoryAvailability } from '../src/main/assistant
 import { parseAssistantCanonicalHistoryWindow } from '../src/main/assistant/canonical-history-window'
 import { createAssistantDevelopmentChatFixtures } from '../src/main/assistant/development-chat-fixtures'
 import { createDefaultAssistantSnapshot } from '../src/shared/assistant/projector'
+import initSqlJs from 'sql.js/dist/sql-asm.js'
+import { initializeAssistantPersistenceSchema } from '../src/main/assistant/persistence-utils'
+import { replaceAssistantSnapshot, upsertAssistantCanonicalTimelineProjection } from '../src/main/assistant/persistence-write'
+import { readAssistantHistoryPage, readAssistantThreadDetail } from '../src/main/assistant/persistence-history'
 
 const userDataPath = mkdtempSync(join(tmpdir(), 'zyra-history-window-'))
 const noop = () => undefined
@@ -64,12 +68,59 @@ try {
     assert.equal(result.detail.history.pageInfo.hasOlder, true, 'local exhaustion cannot hide canonical history')
     assert.equal(result.detail.history.fullyLoaded, false)
     assert.equal(service.canonicalHistoryState.get(thread.providerThreadId).before, '160')
+    let olderImports = 0
+    service.persistence.readHistoryPage = async () => history
+    service.loadOlderCanonicalHistory = async () => { olderImports++; throw new Error('Provider offline') }
+    const savedPage = await service.getHistoryPage({ threadId: thread.id, before: 'requested-cursor' })
+    assert.deepEqual(savedPage.page.messages, history.messages, 'locally saved history remains readable while the provider is offline')
+    assert.equal(olderImports, 0, 'local paging does not fetch an unnecessary canonical page')
+    const partialHistory = { ...history, messages: history.messages.filter(message => message.role !== 'user') }
+    assert.ok(partialHistory.messages.length > 0)
+    service.persistence.readHistoryPage = async () => partialHistory
+    const partialOffline = await service.getHistoryPage({ threadId: thread.id, before: 'requested-cursor' })
+    assert.deepEqual(partialOffline.page.messages, partialHistory.messages, 'a provider failure preserves the available partial local prefix')
+    assert.equal(olderImports, 1, 'a mid-turn prefix requests its missing prompt boundary')
+    service.loadOlderCanonicalHistory = async () => { olderImports++; service.persistence.readHistoryPage = async () => history }
+    const completedPrefix = await service.getHistoryPage({ threadId: thread.id, before: 'requested-cursor' })
+    assert.ok(completedPrefix.page.messages.some((message: { role: string }) => message.role === 'user'), 'an available canonical prefix restores the missing prompt before returning the page')
+    assert.equal(olderImports, 2)
+
+    // Reproduce the real SQL shape when the latest canonical import begins in
+    // the middle of an earlier turn: older assistant/tool rows, missing prompt.
+    const SQL = await initSqlJs()
+    const partialDb = new SQL.Database()
+    try {
+        initializeAssistantPersistenceSchema(partialDb)
+        const latestPrompt = thread.messages.findLast(message => message.role === 'user')!
+        const partialThread = { ...thread, messages: thread.messages.filter(message => message.role !== 'user' || message.id === latestPrompt.id) }
+        replaceAssistantSnapshot(partialDb, { ...snapshot, sessions: [{ ...session, threads: [partialThread] }] })
+        const before = readAssistantThreadDetail(partialDb, thread.id).history.pageInfo.oldestCursor!
+        const fragment = readAssistantHistoryPage(partialDb, { threadId: thread.id, before })
+        assert.ok(fragment.messages.length > 0)
+        assert.equal(fragment.messages.some(message => message.role === 'user'), false, 'SQL fallback can return a nonempty mid-turn prefix')
+        service.persistence.readHistoryPage = async (input: { threadId: string; before?: string }) => readAssistantHistoryPage(partialDb, input)
+        service.loadOlderCanonicalHistory = async () => {
+            olderImports++
+            upsertAssistantCanonicalTimelineProjection(partialDb, { threadId: thread.id, messages: thread.messages, activities: thread.activities })
+        }
+        const recovered = await service.getHistoryPage({ threadId: thread.id, before })
+        assert.ok(recovered.page.messages.some((message: { role: string }) => message.role === 'user'), 'service completes a real partial SQL turn from canonical history before returning it')
+        assert.equal(olderImports, 3)
+    } finally { partialDb.close() }
+    service.loadOlderCanonicalHistory = async () => { olderImports++; throw new Error('Provider offline') }
+    service.persistence.readHistoryPage = async () => ({ ...history, messages: [] })
+    await assert.rejects(() => service.getHistoryPage({ threadId: thread.id, before: 'requested-cursor' }), /Provider offline/, 'an unavailable uncached prefix still exposes a retryable error')
+    assert.equal(olderImports, 4)
     assert.equal(withCanonicalAssistantHistoryAvailability(history, false), history, 'a complete canonical transcript keeps the ordinary fast path')
     assert.equal(withCanonicalAssistantHistoryAvailability({ ...history, pageInfo: { ...history.pageInfo, oldestCursor: null } }, true, 'requested-cursor').pageInfo.oldestCursor, 'requested-cursor', 'an empty filtered canonical page retains its continuation cursor')
     thread.canonicalHistoryEntryCount++
     service.canonicalHistoryState.clear()
     await service.ensureCanonicalHistoryLoaded(session, thread)
     assert.equal(imports, 1, 'a stale cursor revision is rebuilt from the canonical source')
+    service.canonicalHistoryState.clear()
+    service.persistence.readCanonicalHistoryWindow = async () => null
+    await service.ensureCanonicalHistoryLoaded(session, thread)
+    assert.equal(imports, 2, 'legacy databases without a saved cursor recover their prefix from the canonical source')
     await reopened.close()
     console.log('Canonical history: durable cold cursor, source availability, no redundant import, stale revision recovery: ok')
 } finally {

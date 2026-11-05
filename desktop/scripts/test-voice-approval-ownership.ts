@@ -18,6 +18,7 @@ const service: any = new Fixture()
 const noop = () => undefined
 const voice = (id: string) => ({ conversationId: `canonical-${id}`, adapterSessionId: `adapter-${id}`, localThreadId: `local-${id}`, sessionId: `session-${id}` })
 Object.assign(service, {
+    options: {},
     state: { snapshot: {} },
     runtime: { resolvePrivateVoiceTargetThread: (id: string) => id === 'private-A' ? 'local-A' : null },
     activeVoiceStrongTasks: new Map([['canonical-A', { taskId: 'task-A', conversationId: 'canonical-A', localThreadId: 'local-A' }]]),

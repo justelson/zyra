@@ -47,15 +47,20 @@ class ModelRequestControl {
     return controller.signal;
   }
   /** Called before forwarding every provider event, including hidden reasoning. */
-  async activity(unsafe) {
+  async activity(unsafe, hasText = false) {
     const current = this.current;
     if (!current || current.recovery || current.root?.aborted) return;
     const previousPhase = current.progress.phase;
     const previousCanPing = current.progress.canPing;
-    current.progress.lastActivityAt = Date.now();
+    const firstText = hasText && current.progress.firstTextAt === void 0;
+    const at = Date.now();
+    if (current.progress.firstEventAt !== void 0) current.progress.maxActivityGapMs = Math.max(current.progress.maxActivityGapMs || 0, at - current.progress.lastActivityAt);
+    current.progress.firstEventAt ??= at;
+    if (hasText) current.progress.firstTextAt ??= at;
+    current.progress.lastActivityAt = at;
     current.progress.phase = "streaming";
     if (unsafe) current.progress.canPing = false;
-    if (previousPhase !== current.progress.phase || previousCanPing !== current.progress.canPing || current.progress.lastActivityAt - current.lastEmittedAt >= 1e3) {
+    if (firstText || previousPhase !== current.progress.phase || previousCanPing !== current.progress.canPing || current.progress.lastActivityAt - current.lastEmittedAt >= 1e3) {
       current.lastEmittedAt = current.progress.lastActivityAt;
       this.publish({ type: "model_request_progress", progress: { ...current.progress } });
     }
@@ -80,6 +85,7 @@ class ModelRequestControl {
     if (!current) return;
     current.root?.removeEventListener("abort", current.onAbort);
     this.current = void 0;
+    this.publish({ type: "model_request_progress", progress: { ...current.progress } });
     this.publish({ type: "model_request_progress", progress: null });
     await this.flush();
   }

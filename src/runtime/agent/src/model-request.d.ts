@@ -12,7 +12,7 @@ export declare class ModelRequestControl {
     flush(): Promise<void>;
     begin(root?: AbortSignal): Promise<AbortSignal>;
     /** Called before forwarding every provider event, including hidden reasoning. */
-    activity(unsafe: boolean): Promise<void>;
+    activity(unsafe: boolean, hasText?: boolean): Promise<void>;
     ping(requestId: string, message: AgentMessage): void;
     /** No request remains advertised once execution leaves the provider stage. */
     end(): Promise<void>;

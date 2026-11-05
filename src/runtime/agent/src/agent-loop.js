@@ -194,7 +194,7 @@ async function streamAssistantResponse(context, newMessages, config, signal, emi
           if (requestSignal?.aborted) continue;
           const content = "partial" in event ? event.partial.content : event.type === "done" ? event.message.content : event.type === "error" ? event.error.content : [];
           const unsafe = event.type.startsWith("text_") || event.type.startsWith("toolcall_") || event.type === "done" || event.type === "error" || content.some((part) => part.type === "toolCall" || part.type === "text" && part.text.length > 0);
-          await control?.activity(unsafe);
+          await control?.activity(unsafe, event.type === "text_delta" && Boolean(event.delta) || event.type === "done" && event.message.content.some((part) => part.type === "text" && Boolean(part.text)));
           if (requestSignal?.aborted) continue;
           switch (event.type) {
             case "start":

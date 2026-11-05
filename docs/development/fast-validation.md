@@ -16,6 +16,8 @@ For a Chat that stays on Working after visiting model settings, run `npm --prefi
 
 Preserve the release gates. A focused unit test proves its own behavior; add the relevant integration check when a change crosses a real boundary, and report any unverified path.
 
+For a conversation opening with only its latest exchange after refresh, run Desktop `npm run test:assistant-history-recovery`, then `npm run test:assistant-history` and `npm run test:assistant-switching`. The recovery target covers persisted read watermarks, in-flight stream and deletion replay, older-page races, durable canonical cursors across process restart, and actual hidden Electron viewport fill for working/settled and cold/warm chats. Synthetic transports and disposable profiles keep personal chats and providers untouched. The requested Dev preview gate includes this target.
+
 [Shipping](shipping.md) separates quick checks, explicitly requested personal previews and stable publication. Private release evidence stays under ignored `docs.local/`.
 
 For repeated compaction after reopening, start with `npm --prefix desktop run test:compaction-replay`. It covers canonical-first hydration, distinct sequence identities, abandoned saved starts, real-service cold shells and native SQLite reopen, authoritative maintenance beyond the replay cursor and completed replay without a transient spinner. Then use `test:assistant-switching` and `test:timeline-presentation` for navigation and queued sends. Installed-app/provider acceptance remains separate.

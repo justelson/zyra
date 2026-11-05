@@ -1,4 +1,6 @@
 import { app } from 'electron'
+import { parseAssistantCanonicalHistoryWindow, type AssistantCanonicalHistoryWindow } from './canonical-history-window'
+import { parseJson, readAssistantMetaValue } from './persistence-utils'
 import { readVisualizationCandidatesFromDb } from './visualization-candidates'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { rename as renameFile, writeFile } from 'node:fs/promises'
@@ -356,6 +358,23 @@ export class AssistantPersistence {
         this.clearPendingEventTimer()
         await this.processPendingEvents()
         return this.enqueue(() => readAssistantThreadDetail(this.requireDb(), threadId))
+    }
+
+    async readCanonicalHistoryWindow(threadId: string): Promise<AssistantCanonicalHistoryWindow | null> {
+        await this.ensureInitialized()
+        return this.enqueue(() => parseAssistantCanonicalHistoryWindow(parseJson(
+            readAssistantMetaValue(this.requireDb(), `canonicalHistoryWindow:${threadId}`), null
+        )))
+    }
+
+    async writeCanonicalHistoryWindow(threadId: string, window: AssistantCanonicalHistoryWindow): Promise<void> {
+        await this.ensureInitialized()
+        this.clearPendingEventTimer()
+        await this.processPendingEvents()
+        await this.enqueue(() => {
+            upsertAssistantMeta(this.requireDb(), `canonicalHistoryWindow:${threadId}`, JSON.stringify(window))
+            this.scheduleFlush()
+        })
     }
 
     async readThreadRequests(threadId: string) {

@@ -101,7 +101,7 @@ assert.equal(thread.messages.at(-1)?.phase, 'final_answer', 'history reconciliat
 assert.equal(detail.history.messages.at(-1)?.phase, undefined, 'phase-less persisted input remains immutable')
 
 // A new service and renderer, not a clone of the live in-memory projection.
-// The canonical catalog is already current, so its normal importer must not
+// The canonical catalog and saved paging cursor are current, so its importer must not
 // backfill history merely to recover message metadata.
 const coldSource = structuredClone(snapshot)
 const coldSourceThread = coldSource.sessions[0]!.threads[0]!
@@ -126,6 +126,7 @@ const coldService = Object.assign(Object.create(AssistantService.prototype), {
     agentForkImports: new Map(),
     ensureReady: async () => {}, state: { snapshot: coldSnapshot }, options: {},
     canonicalHistoryRefresh: new CanonicalHistoryRefreshTracker(), canonicalHistoryLoadPromises: new Map(),
+    canonicalHistoryState: new Map(),
     canonicalMessagePhaseRecovery: new CanonicalMessagePhaseRecovery(),
     runtime: { listCanonicalChats: async () => [canonicalChat], releaseNavigationBackgroundedThread: noop,
         readCanonicalChatHistory: async (_id: string, _cwd: string, options: Record<string, unknown>) => {
@@ -135,7 +136,10 @@ const coldService = Object.assign(Object.create(AssistantService.prototype), {
                 content: [{ type: 'text', text: 'The final answer', textSignature: signature }] } }],
                 pageInfo: { startCursor: '9999', oldestCursor: '9999', hasOlder: true, totalEntries: 10_000 } }
         } },
-    persistence: { readThreadDetail: async () => readAssistantThreadDetail(coldDb, thread.id), getGlobalWorkspaceRoot: () => '/fixture' },
+    persistence: {
+        readThreadDetail: async () => readAssistantThreadDetail(coldDb, thread.id), getGlobalWorkspaceRoot: () => '/fixture',
+        readCanonicalHistoryWindow: async () => ({ before: '9999', hasOlder: true, modifiedAt: at, entryCount: 10_000 })
+    },
     resolveCanonicalProjectPath: (value: string) => value || null, getSessionRuntimeCwd: () => '/fixture', ensureLegacyProjectScopes: async () => {},
     loadCanonicalHistoryPage: async () => { throw new Error('Cold phase recovery must not import or backfill history') },
     appendEvent(type: string, occurredAt: string, payload: Record<string, unknown>, sessionId: string, threadId: string) {
@@ -171,6 +175,7 @@ const activeDetail = readAssistantThreadDetail(activeDb, thread.id)
 const activeService = Object.assign(Object.create(AssistantService.prototype), coldService, {
     state: { snapshot: hydrateFocusedSessionSnapshot(readAssistantSnapshot(activeDb), session.id, { ...activeDetail, ...activeDetail.history }) },
     canonicalHistoryRefresh: new CanonicalHistoryRefreshTracker(), canonicalHistoryLoadPromises: new Map(),
+    canonicalHistoryState: new Map(),
     canonicalMessagePhaseRecovery: new CanonicalMessagePhaseRecovery(),
     persistence: { ...coldService.persistence, readThreadDetail: async () => readAssistantThreadDetail(activeDb, thread.id) }
 })

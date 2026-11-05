@@ -34,7 +34,7 @@ assert.equal(focus.focusMessageId, null, 'canonical updates cannot resurrect the
 focus = resolveAssistantTimelineFocusAfterFollow(focus.state, { windowKey: 'chat-a', followLatestRequestKey: 'send:one', focusMessageId: 'new-search-target' })
 assert.equal(focus.focusMessageId, 'new-search-target', 'a fresh deliberate search still takes ownership')
 focus = resolveAssistantTimelineFocusAfterFollow(focus.state, { windowKey: 'chat-b', followLatestRequestKey: null, focusMessageId: 'older-prompt' })
-assert.equal(focus.focusMessageId, 'older-prompt', 'a send in another chat cannot suppress this chat’s reveal')
+assert.equal(focus.focusMessageId, 'older-prompt', 'a send in another chat cannot suppress this chatâ€™s reveal')
 
 assert.equal(getAssistantTimelineDistanceFromEnd({ scrollHeight: 2_000, scrollTop: 1_100, clientHeight: 700 }), 200)
 assert.equal(isAssistantTimelineNearEnd({ scrollHeight: 2_000, scrollTop: 1_220, clientHeight: 700 }), true, 'the 96px floor keeps a near-end reader attached')
@@ -73,7 +73,6 @@ assert.equal(idleStreamPlan.shouldRequest, false, 'opening at the latest turn ca
 assert.deepEqual(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
-    isWorking: false,
     hasOlder: true,
     loadingOlder: false,
     hasLoadError: false,
@@ -85,7 +84,6 @@ assert.deepEqual(resolveAssistantInitialHistoryBackfill({
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
-    isWorking: false,
     hasOlder: true,
     loadingOlder: false,
     hasLoadError: false,
@@ -96,7 +94,6 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
 }).shouldRequest, false, 'a viewport with one row of readable context does not fetch another page')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
-    isWorking: false,
     hasOlder: true,
     loadingOlder: false,
     hasLoadError: false,
@@ -109,7 +106,6 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
-    isWorking: true,
     hasOlder: true,
     loadingOlder: false,
     hasLoadError: false,
@@ -117,11 +113,10 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     contentLength: 200,
     viewportSize: 829,
     pagesRequested: 0
-}).shouldRequest, false, 'an actively streaming chat prioritizes the live edge instead of backfilling history')
+}).shouldRequest, true, 'an actively streaming chat still fills its missing historical viewport context')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
-    isWorking: false,
     hasOlder: true,
     loadingOlder: false,
     hasLoadError: false,
@@ -320,7 +315,7 @@ assert.equal(timelineSource.includes('ASSISTANT_MARKDOWN_PREWARM_MAX_LENGTH = 32
 assert.equal(timelineSource.includes('prewarmCodeBlocks: false'), true, 'chat-entry prewarming never starts syntax highlighting in the first scroll window')
 assert.equal(virtualTimelineSource.includes('INITIAL_END_FOLLOW_DELAYS_MS'), false, 'bootstrap positioning has no retry-timer ladder')
 assert.equal(virtualTimelineSource.includes('COMPLETION_END_FOLLOW_DELAYS_MS'), false, 'completion positioning has no retry-timer ladder')
-assert.match(virtualTimelineSource, /addEventListener\('wheel', handleWheel, \{ passive: true \}\)/, 'chat leaves physical wheel movement on Chromium’s compositor instead of blocking input')
+assert.match(virtualTimelineSource, /addEventListener\('wheel', handleWheel, \{ passive: true \}\)/, 'chat leaves physical wheel movement on Chromiumâ€™s compositor instead of blocking input')
 assert.equal(virtualTimelineSource.includes('wheelTargetRef'), false, 'chat cannot accumulate a delayed synthetic target ahead of the viewport')
 assert.equal(virtualTimelineSource.includes('event.preventDefault()'), false, 'chat wheel input cannot be swallowed while pagination intent is observed')
 assert.equal(virtualTimelineSource.includes('wheelAnimationFrameRef'), false, 'chat cannot retain a JavaScript animation-frame scroll loop')

@@ -47,7 +47,7 @@ import {
     parseAssistantActivityPayload,
     parseAssistantActivityTerminalOutcome
 } from './persistence-activity-payload'
-import { parseJson, toAssistantMessagePhase, toNullableString, toNumber } from './persistence-utils'
+import { parseJson, readAssistantMetaValue, toAssistantMessagePhase, toNullableString, toNumber } from './persistence-utils'
 
 export const INITIAL_ASSISTANT_HISTORY_TURN_LIMIT = 3
 export const OLDER_ASSISTANT_HISTORY_TURN_LIMIT = 1
@@ -326,6 +326,15 @@ function readForwardAssistantHistoryPage(
 }
 
 export function readAssistantHistoryPage(db: SqlDatabase, input: AssistantGetHistoryPageInput): AssistantHistoryPage {
+    // SQL.js executes synchronously within the persistence queue. Read rows and
+    // their event watermark together so the renderer can replay only later work.
+    return {
+        ...readAssistantHistoryPageRows(db, input),
+        snapshotSequence: Number(readAssistantMetaValue(db, 'snapshotSequence') || 0)
+    }
+}
+
+function readAssistantHistoryPageRows(db: SqlDatabase, input: AssistantGetHistoryPageInput): AssistantHistoryPage {
     const threadId = String(input.threadId || '').trim()
     if (!threadId) throw new Error('Assistant thread id is required.')
     if (!db.exec('SELECT 1 FROM assistant_threads WHERE id = ? LIMIT 1', [threadId])[0]?.values?.[0]) {

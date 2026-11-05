@@ -103,6 +103,7 @@ import {
 } from '../../shared/assistant/runtime-policy'
 import { isAssistantReasoningEffort } from '../../shared/assistant/reasoning-efforts'
 import type { AnalyticsEventInput, AnalyticsEventName } from '../../shared/analytics/contracts'
+import { responseTimingNow } from '../../shared/response-timing'
 import { inspectProjectAnalyticsCapabilities } from '../analytics/project-capabilities'
 import { classifyAnalyticsErrorCode as classifyAnalyticsError } from '../../shared/analytics/error-code'
 import { findAssistantMessageReplayDuplicateIds, preserveCanonicalUserReplayBoundaries } from '../../shared/assistant/message-reconciliation'
@@ -313,6 +314,7 @@ export type AssistantServiceOptions = {
     handleDetachedControl?: (input: { canonicalChatId: string; turnId: string | null; operation: unknown; principal?: unknown; signal: AbortSignal }) => Promise<Record<string, unknown>>
     handleDesktopWorkspaceTurnEnded?: (canonicalChatId: string, turnId: string) => void
     captureAnalytics?: <Name extends AnalyticsEventName>(input: AnalyticsEventInput<Name>) => void
+    responseTiming?: import('../diagnostics/response-timing-recorder').ResponseTimingRecorder
 }
 
 export function reconcileCanonicalFileChangeActivity(
@@ -509,6 +511,7 @@ export class AssistantService {
         this.runtime.setDesktopWorkspaceHandler(options.openDesktopWorkspace || null, options.cancelDesktopWorkspace || null, options.handleDesktopWorkspaceTurn || null, options.handleDetachedControl || null, options.handleDesktopWorkspaceTurnEnded || null)
         this.readyPromise = this.initialize()
         this.actionDeps = {
+            responseTiming: this.options.responseTiming,
             runtime: this.runtime,
             queuedPromptDeliveries: this.queuedPromptDeliveries,
             ensureReady: () => this.ensureReady(),
@@ -1898,6 +1901,7 @@ export class AssistantService {
     }
 
     async sendPrompt(prompt: string, options?: AssistantSendPromptOptions) {
+        const receivedAt = responseTimingNow()
         await this.ensureReady()
         const session = options?.sessionId
             ? requireSession(this.state.snapshot, options.sessionId)
@@ -1932,7 +1936,7 @@ export class AssistantService {
             }
         })
         try {
-            return await sendAssistantPromptAction(this.actionDeps, prompt, options)
+            return await sendAssistantPromptAction(this.actionDeps, prompt, options, undefined, { receivedAt })
         } catch (error) {
             this.captureAnalytics({ event: 'zyra_v1_chat', properties: { action: 'fail', outcome: 'failed', error_code: classifyAnalyticsError(error) } })
             throw error
@@ -4092,6 +4096,8 @@ export class AssistantService {
     }
 
     private handleRuntimeEvent(event: Parameters<typeof handleAssistantRuntimeEvent>[0]) {
+        this.options.responseTiming?.observe(event)
+        if (event.type === 'turn.accepted') return
         // A worker attached through a repaired imported alias can still emit its
         // old local ID. Route that evidence to the surviving canonical chat.
         if (!findThreadRecord(this.state.snapshot, event.threadId) && event.providerThreadId) {

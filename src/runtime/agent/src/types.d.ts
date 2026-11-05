@@ -5,6 +5,9 @@ export interface ModelRequestProgress {
     requestId: string;
     startedAt: number;
     lastActivityAt: number;
+    firstEventAt?: number;
+    firstTextAt?: number;
+    maxActivityGapMs?: number;
     phase: "waiting" | "streaming" | "recovering";
     canPing: boolean;
 }

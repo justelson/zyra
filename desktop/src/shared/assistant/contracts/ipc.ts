@@ -309,6 +309,8 @@ export interface AssistantUpdateSessionConfigurationInput {
 }
 
 export interface AssistantSendPromptOptions {
+    /** Local performance-clock timestamp; never sent to the model provider. */
+    responseTimingStartedAt?: number
     /** Device-local queue identity; the service joins/replays one delivery. */
     queueEntryId?: string
     /** Steer the exact active turn without cancelling it or changing its configuration. */
@@ -418,6 +420,8 @@ export interface AssistantApprovalResponseInput {
 }
 
 export interface AssistantUserInputResponseInput {
+    /** Local submission timing for a foreground answer continuation. */
+    responseTimingStartedAt?: number
     cancelled?: boolean
     /** The client durably queued an async answer before resolving its question. */
     deferContinuation?: boolean

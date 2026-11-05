@@ -720,6 +720,7 @@ export const TimelineMessage = memo(({
                 {inlineWorkNarration ? (
                     presentationActive ? (
                         <StreamingAssistantMarkdown
+                            turnId={message.turnId}
                             content={renderedAssistantText || ' '}
                             cacheKey={`${message.id}:inline-work-stream`}
                             fadeStreamingText={assistantTextStreamingMode === 'stream'}
@@ -731,6 +732,7 @@ export const TimelineMessage = memo(({
                         />
                     ) : (
                         <CompletedAssistantMarkdown
+                            turnId={message.turnId}
                             content={renderedAssistantText}
                             cacheKey={`${message.id}:${message.updatedAt}:inline-work:${renderedAssistantText.length}`}
                             deferInitialRender={streamedMessageRef.current}
@@ -746,6 +748,7 @@ export const TimelineMessage = memo(({
                         <div className="block w-full rounded-sm text-left">
                             <div className="line-clamp-3 [overflow-wrap:anywhere]">
                                 <StreamingAssistantMarkdown
+                            turnId={message.turnId}
                                     content={compactLiveNarrationText(renderedAssistantText) || ' '}
                                     cacheKey={`${message.id}:compact-stream`}
                                     fadeStreamingText={assistantTextStreamingMode === 'stream'}
@@ -764,6 +767,7 @@ export const TimelineMessage = memo(({
                                         className="assistant-live-narration-out col-start-1 row-start-1 line-clamp-3 [overflow-wrap:anywhere]"
                                     >
                                         <StreamingAssistantMarkdown
+                            turnId={message.turnId}
                                             content={outgoingCompactNarration.text}
                                             cacheKey={`${outgoingCompactNarration.key}:compact-settled`}
                                             className={ASSISTANT_MARKDOWN_CLASS_NAME}
@@ -776,6 +780,7 @@ export const TimelineMessage = memo(({
                                     className="assistant-live-narration-in col-start-1 row-start-1 line-clamp-3 [overflow-wrap:anywhere]"
                                 >
                                     <StreamingAssistantMarkdown
+                            turnId={message.turnId}
                                         content={compactNarration.text}
                                         cacheKey={`${compactNarration.key}:compact-settled`}
                                         className={ASSISTANT_MARKDOWN_CLASS_NAME}
@@ -787,6 +792,7 @@ export const TimelineMessage = memo(({
                     ) : null
                 ) : (
                     <AssistantMessageMarkdown
+                            turnId={message.turnId}
                         content={renderedAssistantText || ' '}
                         cacheKey={message.id}
                         streaming={presentationActive}

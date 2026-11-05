@@ -112,6 +112,7 @@ export interface AssistantRuntimeEventBase {
 }
 
 export type AssistantRuntimeEvent =
+    | (AssistantRuntimeEventBase & { type: 'turn.accepted'; payload: Record<string, never> })
     | (AssistantRuntimeEventBase & {
         type: 'model.progress'
         payload: { progress: import('../model-progress').AssistantModelRequestProgress | null }

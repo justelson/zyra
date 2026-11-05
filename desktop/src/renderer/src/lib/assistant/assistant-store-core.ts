@@ -1,4 +1,5 @@
 import { recordStreamQueue } from '@shared/performance-samples'
+import { responseTimingNow } from '@shared/response-timing'
 import { readRememberedChoices } from '@/pages/assistant/assistant-remembered-choices'
 import type {
     AssistantApprovalResponseInput,
@@ -956,6 +957,7 @@ export class AssistantStore {
     }
 
     async sendPrompt(prompt: string, options?: AssistantSendPromptOptions, canSubmit: () => boolean = () => true) {
+        options = { ...options, responseTimingStartedAt: responseTimingNow() }
         const selectedSession = this.state.snapshot.sessions
             .find((session) => session.id === this.state.snapshot.selectedSessionId) || null
         const threadId = selectedSession?.activeThreadId || null
@@ -996,6 +998,7 @@ export class AssistantStore {
     }
 
     async respondUserInput(input: AssistantUserInputResponseInput) {
+        input = { ...input, responseTimingStartedAt: responseTimingNow() }
         return this.runAction(() => window.devscope.assistant.respondUserInput(input), true)
     }
 

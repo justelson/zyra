@@ -1,4 +1,5 @@
 import log from 'electron-log'
+import { responseTimingNow } from '../../shared/response-timing'
 import type { AssistantUserInputResponseInput } from '../../shared/assistant/contracts'
 import type {
     AssistantClearLogsInput,
@@ -530,17 +531,18 @@ export async function sendAssistantPromptAction(
     deps: AssistantServiceActionDeps,
     prompt: string,
     options?: AssistantSendPromptOptions,
-    preparedImages?: PreparedAssistantPromptImage[]
+    preparedImages?: PreparedAssistantPromptImage[],
+    timing?: { receivedAt: number }
 ) {
-    if (options?.queueEntryId === undefined) return sendAssistantPromptOnce(deps, prompt, options, preparedImages)
+    if (options?.queueEntryId === undefined) return sendAssistantPromptOnce(deps, prompt, options, preparedImages, undefined, timing)
     if (!deps.queuedPromptDeliveries) throw new Error('Queued prompt delivery is unavailable. The message is preserved.')
     // Routing may change after a rejected Steer, but it cannot create a second
     // delivery of an already accepted entry. Content/configuration stays bound.
-    const { queueEntryId, dispatchMode: _mode, targetTurnId: _turn, ...configuration } = options
+    const { queueEntryId, dispatchMode: _mode, targetTurnId: _turn, responseTimingStartedAt: _timing, ...configuration } = options
     return deps.queuedPromptDeliveries.run({
         sessionId: options.sessionId || '', entryId: queueEntryId,
         payload: { prompt, configuration, preparedImages }
-    }, markSubmitted => sendAssistantPromptOnce(deps, prompt, options, preparedImages, markSubmitted))
+    }, markSubmitted => sendAssistantPromptOnce(deps, prompt, options, preparedImages, markSubmitted, timing))
 }
 
 async function sendAssistantPromptOnce(
@@ -548,7 +550,35 @@ async function sendAssistantPromptOnce(
     prompt: string,
     options?: AssistantSendPromptOptions,
     preparedImages?: PreparedAssistantPromptImage[],
-    markSubmitted?: () => void
+    markSubmitted?: () => void,
+    timing?: { receivedAt: number }
+) {
+    if (!deps.responseTiming || options?.dispatchMode === 'steer') return executeAssistantPrompt(deps, prompt, options, preparedImages, markSubmitted)
+    // Own the trace before availability, image preparation or cold attachment
+    // can wait. Queue deduplication already chose this delivery's one owner.
+    const turnId = createAssistantId('assistant-turn')
+    const snapshot = deps.getSnapshot()
+    const session = options?.sessionId ? snapshot.sessions.find(entry => entry.id === options.sessionId) : getSelectedSession(snapshot)
+    const thread = getActiveThread(session || null)
+    deps.responseTiming.start({ turnId, threadId: thread?.id, model: options?.model || thread?.model || '', effort: options?.effort || thread?.thinking || undefined,
+        submittedAt: options?.responseTimingStartedAt, receivedAt: timing?.receivedAt || responseTimingNow() })
+    try {
+        const result = await executeAssistantPrompt(deps, prompt, options, preparedImages, markSubmitted, turnId)
+        if (!result.turnId) deps.responseTiming.finish(turnId, 'completed')
+        return result
+    } catch (error) {
+        deps.responseTiming.finish(turnId, 'failed')
+        throw error
+    }
+}
+
+async function executeAssistantPrompt(
+    deps: AssistantServiceActionDeps,
+    prompt: string,
+    options?: AssistantSendPromptOptions,
+    preparedImages?: PreparedAssistantPromptImage[],
+    markSubmitted?: () => void,
+    reservedTurnId?: string
 ) {
     await deps.ensureReady()
     const input = String(prompt || '').trim()
@@ -638,7 +668,8 @@ async function sendAssistantPromptOnce(
 
     // Submission owns the turn identity and model before attachment can wait.
     // The same ID follows the request through the runtime and canonical server.
-    const submittedTurnId = createAssistantId('assistant-turn')
+    const submittedTurnId = reservedTurnId || createAssistantId('assistant-turn')
+    deps.responseTiming?.configure(submittedTurnId, thread.id, model, options?.effort || thread.thinking)
     const submittedTurn = createRunningLatestTurn(submittedTurnId, occurredAt, options)
     const pendingSubmissions = pendingPromptSubmissions.get(deps) || new Map()
     const submission = { turnId: submittedTurnId, cancelled: false }
@@ -655,6 +686,7 @@ async function sendAssistantPromptOnce(
             await connectAssistantSessionRuntime(deps, session, { ...thread, ...updatedThreadPatch })
         }
         if (submission.cancelled) {
+            deps.responseTiming?.finish(submittedTurnId, 'cancelled')
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
         // Navigation or a concurrent canonical attach may replace the context
@@ -664,12 +696,14 @@ async function sendAssistantPromptOnce(
             await connectAssistantSessionRuntime(deps, session, { ...thread, ...updatedThreadPatch })
         }
         if (submission.cancelled) {
+            deps.responseTiming?.finish(submittedTurnId, 'cancelled')
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
         // A rename may arrive while cold attachment is waiting. Read its
         // durable local flag and latest name at the dispatch boundary.
         const currentSession = requireSession(deps.getSnapshot(), session.id)
         const initialManualTitle = currentSession.titleManuallySet || hadNamedDraft ? currentSession.title : undefined
+        deps.responseTiming?.dispatch(submittedTurnId)
         const result = await deps.runtime.sendPrompt(runtimeThreadId, input, {
             turnId: submittedTurnId,
             beforeSubmit: markSubmitted,
@@ -695,6 +729,7 @@ async function sendAssistantPromptOnce(
         return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: result.turnId }
     } catch (error) {
         if (submission.cancelled) {
+            deps.responseTiming?.finish(submittedTurnId, 'cancelled')
             return { success: true as const, sessionId: session.id, threadId: thread.id, turnId: submittedTurnId }
         }
         const message = error instanceof Error ? error.message : 'Failed to send prompt.'
@@ -805,6 +840,7 @@ export async function respondAssistantUserInputAction(
     deps: AssistantServiceActionDeps,
     input: AssistantUserInputResponseInput
 ) {
+    const receivedAt = responseTimingNow()
     const activeRequests = activeUserInputResponses.get(deps) || new Set<string>()
     activeUserInputResponses.set(deps, activeRequests)
     if (activeRequests.has(input.requestId)) throw new Error(`User-input request ${input.requestId} is already being submitted.`)
@@ -854,12 +890,13 @@ export async function respondAssistantUserInputAction(
         }, target.session.id, target.thread.id)
         if (input.deferContinuation) return { success: true as const }
         return sendAssistantPromptAction(deps, contextText.trim() ? `${continuationPrompt}\n\n${contextText.trim()}` : continuationPrompt, {
+            responseTimingStartedAt: input.responseTimingStartedAt,
             sessionId: target.session.id,
             dispatchMode: pendingInput.mode === 'async' && target.thread.latestTurn?.state === 'running' ? 'steer' : 'immediate',
             targetTurnId: pendingInput.mode === 'async' ? target.thread.latestTurn?.id : undefined,
             images: input.images,
             userMessageId: responseMessageId
-        }, questionImages)
+        }, questionImages, { receivedAt })
     } finally {
         activeRequests.delete(input.requestId)
         if (activeRequests.size === 0) activeUserInputResponses.delete(deps)

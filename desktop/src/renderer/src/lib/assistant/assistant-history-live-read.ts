@@ -44,8 +44,8 @@ export function replayAssistantHistoryRead<T extends AssistantHistoryPage>(
     detail?: AssistantThreadDetail
 ): T {
     if (!canReplayAssistantHistoryRead(read, page)) return page
-    const events = collapseAssistantDeltaEvents(read.events.filter(event => event.sequence > page.snapshotSequence!))
-    if (!events.length) return page
+    const pendingEvents = read.events.filter(event => event.sequence > page.snapshotSequence!)
+    if (!pendingEvents.length) return page
     const session = snapshot.sessions.find(session => session.threads.some(thread => thread.id === page.threadId))
     const thread = session?.threads.find(thread => thread.id === page.threadId)
     if (!session || !thread) return page
@@ -57,7 +57,7 @@ export function replayAssistantHistoryRead<T extends AssistantHistoryPage>(
             ...(detail ? { activePlan: detail.activePlan, pendingApprovals: detail.pendingApprovals, pendingUserInputs: detail.pendingUserInputs } : {})
         }] }]
     }
-    const replayed = applyAssistantDomainEvents(replaySnapshot, events).sessions[0]?.threads[0]
+    const replayed = applyAssistantDomainEvents(replaySnapshot, collapseAssistantDeltaEvents(pendingEvents, replaySnapshot)).sessions[0]?.threads[0]
     if (!replayed) return page
     if (detail) {
         detail.activePlan = replayed.activePlan

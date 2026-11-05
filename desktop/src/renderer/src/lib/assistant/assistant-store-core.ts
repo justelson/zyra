@@ -1195,7 +1195,7 @@ export class AssistantStore {
         if (this.pendingAssistantEvents.length === 0) return
 
         recordStreamQueue(this.pendingAssistantEvents)
-        const queuedEvents = collapseAssistantDeltaEvents(this.pendingAssistantEvents)
+        const queuedEvents = this.pendingAssistantEvents
         this.pendingAssistantEvents = []
         const previousSelectedSessionId = this.state.snapshot.selectedSessionId
         let nextSelectedSessionId = previousSelectedSessionId
@@ -1211,7 +1211,7 @@ export class AssistantStore {
                     eventSnapshot = replaceAssistantVisibleHistory(eventSnapshot, threadId, history)
                 }
             }
-            const projectedSnapshot = applyAssistantDomainEvents(eventSnapshot, queuedEvents)
+            const projectedSnapshot = applyAssistantDomainEvents(eventSnapshot, collapseAssistantDeltaEvents(queuedEvents, eventSnapshot))
             let snapshot = preserveAssistantClientRoute(
                 current.snapshot,
                 projectedSnapshot,

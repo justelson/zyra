@@ -155,7 +155,7 @@
         "test:assistant-live-context": "bun scripts/test-assistant-live-context-and-rendering.ts",
         "test:assistant-continuity": "bun scripts/test-assistant-canonical-continuity.ts",
         "test:assistant-message-phase-persistence": "bun scripts/test-assistant-persistence-message-phase.ts",
-        "test:assistant-history-recovery": "bun scripts/test-assistant-history-live-read.ts && bun scripts/test-assistant-history-canonical-window.ts && bun scripts/test-assistant-history-streaming.ts && node scripts/test-assistant-history-startup.mjs",
+        "test:assistant-history-recovery": "bun scripts/test-assistant-event-batching-order.ts && bun scripts/test-assistant-history-live-read.ts && bun scripts/test-assistant-history-canonical-window.ts && bun scripts/test-assistant-history-streaming.ts && node scripts/test-assistant-history-startup.mjs",
         "test:assistant-history": "bun run test:assistant-history-recovery && bun scripts/test-assistant-persistence-message-phase.ts && bun scripts/test-assistant-history-persistence.ts && bun scripts/test-assistant-paged-history.ts && bun scripts/test-assistant-terminal-outcome.ts && bun scripts/test-assistant-chat-search.ts",
         "test:assistant-terminal-outcome": "bun scripts/test-assistant-terminal-outcome.ts && bun scripts/test-legacy-terminal-recovery.ts",
         "test:assistant-terminal-input": "node scripts/test-assistant-terminal-input.mjs",

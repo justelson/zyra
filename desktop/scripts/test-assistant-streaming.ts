@@ -77,10 +77,8 @@ const textDeltaB = event(3, 'thread.message.assistant.delta', {
     delta: 'world'
 })
 const collapsed = collapseAssistantDeltaEvents([textDeltaA, unrelatedUpdate, textDeltaB])
-assert.equal(collapsed.length, 2, 'interleaved deltas should project as one authoritative update')
-assert.equal(collapsed[0]?.sequence, 2, 'unrelated events must retain sequence order')
-assert.equal(collapsed[1]?.sequence, 3)
-assert.equal(collapsed[1]?.payload['delta'], 'Hello world')
+assert.deepEqual(collapsed.map(event => event.sequence), [1, 2, 3], 'the creating delta and intervening authoritative metadata retain their original order')
+assert.equal(collapsed.map(event => event.payload['delta'] || '').join(''), 'Hello world')
 assert.equal(isAssistantStreamingPresentationEvent(textDeltaA), true)
 
 const streamingActivity: AssistantActivity = {

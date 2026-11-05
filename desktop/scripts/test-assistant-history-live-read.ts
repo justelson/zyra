@@ -45,11 +45,28 @@ journal.record(delta(10, ' already persisted'))
 journal.record(delta(11, ' appended'))
 const replayed = replayAssistantHistoryRead(store.getState().snapshot, basePage, read)
 assert.equal(replayed.messages[0]!.text, 'Before appended', 'the watermark excludes events already present in the database read')
-journal.record({ sequence: 12, eventId: 'delete', type: 'thread.updated', occurredAt: live.updatedAt, threadId: shell.id, payload: { threadId: shell.id, removedMessageIds: [live.id], patch: {} } })
-assert.equal(replayAssistantHistoryRead(store.getState().snapshot, basePage, read).messages.length, 0, 'a deletion arriving during a read cannot resurrect a row')
+const replacingRead = journal.begin(shell.id)
+journal.record(delta(11, ' A'))
+journal.record({ sequence: 12, eventId: 'replacement', type: 'thread.updated', occurredAt: live.updatedAt, threadId: shell.id,
+    payload: { threadId: shell.id, patch: { messages: [{ ...live, text: 'Before A' }] } } })
+journal.record(delta(13, ' B'))
+assert.equal(replayAssistantHistoryRead(store.getState().snapshot, basePage, replacingRead).messages[0]!.text, 'Before A B', 'a canonical row replacement is a batching boundary between live deltas')
+journal.finish(replacingRead)
 journal.finish(read)
+const deletingRead = journal.begin(shell.id)
+journal.record(delta(11, ' obsolete'))
+journal.record({ sequence: 12, eventId: 'delete-before-next-delta', type: 'thread.updated', occurredAt: live.updatedAt, threadId: shell.id,
+    payload: { threadId: shell.id, removedMessageIds: [live.id], patch: {} } })
+journal.record(delta(13, ' New'))
+assert.equal(replayAssistantHistoryRead(store.getState().snapshot, basePage, deletingRead).messages[0]!.text, ' New', 'a deletion cannot move an obsolete delta into the recreated row')
+journal.finish(deletingRead)
+const removalRead = journal.begin(shell.id)
+journal.record(delta(11, ' appended'))
+journal.record({ sequence: 12, eventId: 'delete', type: 'thread.updated', occurredAt: live.updatedAt, threadId: shell.id, payload: { threadId: shell.id, removedMessageIds: [live.id], patch: {} } })
+assert.equal(replayAssistantHistoryRead(store.getState().snapshot, basePage, removalRead).messages.length, 0, 'a deletion arriving during a read cannot resurrect a row')
+journal.finish(removalRead)
 journal.record(delta(13, ' after release'))
-assert.equal(read.events.length, 3, 'completed reads release their event journal')
+assert.equal(removalRead.events.length, 2, 'completed reads release their event journal')
 
 // Older paging must survive a simultaneous newer stream update without applying
 // the newest delta twice or abandoning the requested older cursor.
@@ -80,4 +97,24 @@ let invalidatedCalls = 0
 await (store as any).requestSessionHydration(session.id, shell.id, 0, true)
 assert.equal(invalidatedCalls, 2, 'an invalidated journal retries even when the canonical shell revision did not change')
 assert.equal(store.getState().snapshot.sessions[0]!.threads[0]!.messages.find(message => message.id === live.id)?.text, 'Before after paging', 'invalidated reads cannot overwrite newer live text')
+
+const legacyId = 'legacy-cache-thread'
+const legacy = { ...live, id: 'assistant-message-legacy-cache', text: 'AB', streaming: false }
+const legacyThread = { ...fullThread, id: legacyId, state: 'ready', latestTurn: null, messages: [], activities: [], proposedPlans: [], messageCount: 1, activityCount: 0, proposedPlanCount: 0,
+    hasActivePlan: false, hasPendingApprovals: false, hasPendingUserInputs: false, activePlan: null, pendingApprovals: [], pendingUserInputs: [] }
+;(store as any).state = { ...store.getState(),
+    snapshot: { ...store.getState().snapshot, sessions: [...store.getState().snapshot.sessions, { ...session, id: 'legacy-cache-session', activeThreadId: legacyId, threadIds: [legacyId], threads: [legacyThread] }] },
+    historyByThreadId: { ...store.getState().historyByThreadId, [legacyId]: { ...retained, threadId: legacyId, messages: [legacy], activities: [], proposedPlans: [] } }
+}
+for (const text of ['A', 'B', 'C']) {
+    const event = delta(++sequence, text)
+    event.threadId = legacyId
+    event.payload.threadId = legacyId
+    event.payload.messageId = 'canonical-legacy-current'
+    ;(store as any).queueAssistantEvent(event)
+}
+;(store as any).flushPendingAssistantEvents()
+const legacyHistory = store.getState().historyByThreadId[legacyId]!
+assert.deepEqual(legacyHistory.messages.map(message => [message.id, message.text]), [['canonical-legacy-current', 'ABC']], 'inactive retained legacy rows are materialized before deciding whether live replay can coalesce')
+assert.equal(store.getState().snapshot.sessions.find(session => session.id === 'legacy-cache-session')!.threads[0]!.messages.length, 0, 'inactive legacy recovery preserves timeline dematerialization')
 console.log('Live history read: authoritative history plus in-flight stream delta without retry or lost text: ok')

@@ -9,7 +9,7 @@ import {
 const USER_REPLAY_WINDOW_MS = 5 * 60_000
 const ASSISTANT_REPLAY_WINDOW_MS = 10 * 60_000
 
-function isCanonicalProjectedMessage(message: AssistantMessage): boolean {
+export function isCanonicalProjectedMessage(message: Pick<AssistantMessage, 'id'>): boolean {
     return !message.id.startsWith('assistant-message-')
         || message.id.includes('pi-message:')
         || message.id.includes('zyra-message:')

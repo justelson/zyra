@@ -1,5 +1,8 @@
 # Zyra roadmap
 
+Desktop response timing diagnostics are implemented locally for the next requested Preview. Local timing records remain always on; PostHog summaries use existing optional analytics consent. Settings Diagnostics separates provider response, Desktop receipt and visible text, with runtime retry, compaction and proven stall counters. See [measurement semantics and focused checks](development/response-timing.md). Installed runtime activation and live-model measurements remain separate acceptance steps.
+
+
 **Status: v0.6.2 release preparation. Last reviewed: 2026-09-18.**
 
 This is the public, maintained backlog for upcoming Zyra releases. Add newly reported issues here as they arrive, and update their status as work progresses. Detailed execution notes and private diagnostics stay outside the public repository.

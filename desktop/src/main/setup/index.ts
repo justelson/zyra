@@ -6,6 +6,7 @@ import { OnboardingService } from './onboarding-service'
 import { getSharedProviderWorkerClient } from './provider-worker-client'
 import { OpenAIConnectionService } from './openai-connection-service'
 import { DesktopAnalyticsService } from '../analytics/service'
+import { ResponseTimingRecorder } from '../diagnostics/response-timing-recorder'
 import { peekAssistantService } from '../assistant'
 
 export type DesktopSetupServices = {
@@ -14,6 +15,7 @@ export type DesktopSetupServices = {
     auth: OpenAIConnectionService
     onboarding: OnboardingService
     analytics: DesktopAnalyticsService
+    responseTiming: ResponseTimingRecorder
 }
 
 export function createDesktopSetupServices(userDataPath: string): DesktopSetupServices {
@@ -52,5 +54,6 @@ export function createDesktopSetupServices(userDataPath: string): DesktopSetupSe
         () => authWorker.providers.list()
     )
     const analytics = new DesktopAnalyticsService(userDataPath)
-    return { preferences, secrets, auth, onboarding, analytics }
+    const responseTiming = new ResponseTimingRecorder(join(userDataPath, 'diagnostics'), input => analytics.capture(input))
+    return { preferences, secrets, auth, onboarding, analytics, responseTiming }
 }

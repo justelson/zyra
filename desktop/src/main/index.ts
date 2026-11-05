@@ -223,6 +223,7 @@ const rendererHangRecorder = createRendererHangRecorder({
     userDataPath: app.getPath('userData'),
     getAssistantContext: () => getAssistantService().getHangDiagnosticContext(),
     onIncident: (incident) => {
+        setupServices.responseTiming.recordStall(incident, getAssistantService().getHangDiagnosticContext().activeThreadId)
         if (incident.reason.includes('process-gone')) return
         if (incident.webContentsId !== null && isIncognitoBrowserWebContents(incident.webContentsId)) return
         if (hasIncognitoBrowserContents()) return
@@ -1287,7 +1288,8 @@ app.whenReady().then(async () => {
         getTitleAutomation: () => setupServices.preferences.getAssistantTitleAutomation(),
         getRuntimePolicy: () => setupServices.preferences.getAssistantRuntimePolicy(),
         getAssistantMemoryEnabled: () => setupServices.preferences.getAssistantMemoryEnabled(),
-        captureAnalytics: (input) => setupServices.analytics.capture(input)
+        captureAnalytics: (input) => setupServices.analytics.capture(input),
+        responseTiming: setupServices.responseTiming
     })
     configureApplicationMenu(setupServices.onboarding.isAccessAllowed())
     setupServices.onboarding.subscribe((snapshot) => {
@@ -1442,6 +1444,7 @@ app.on('before-quit', (event) => {
             setupServices.analytics.flush(1_500)
         ])
         await disposeAssistantService()
+        await setupServices.responseTiming.dispose()
     }).then(async () => {
         await setupServices.analytics.shutdown(250)
         rendererHangRecorder.dispose()

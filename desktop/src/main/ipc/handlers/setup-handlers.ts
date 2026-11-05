@@ -26,6 +26,7 @@ import {
 } from '../../../shared/preferences/secrets-contracts'
 import type { DesktopSetupServices } from '../../setup'
 import { ANALYTICS_IPC, normalizeAnalyticsOnboardingStep } from '../../../shared/analytics/contracts'
+import { RESPONSE_TIMING_IPC } from '../../../shared/response-timing'
 import { classifyAnalyticsErrorCode as analyticsErrorCode } from '../../../shared/analytics/error-code'
 import { createOnboardingGatedIpcMain } from '../onboarding-ipc-gate'
 import { ipcMain as trustedIpcMain } from '../trusted-ipc'
@@ -95,6 +96,8 @@ export function registerSetupIpcHandlers(services: DesktopSetupServices): void {
         allowedBeforeOnboarding: PRE_ONBOARDING_SETUP_CHANNELS,
         blockedResult: onboardingRequiredError
     })
+    ipcMain.handle(RESPONSE_TIMING_IPC.read, () => result(async () => services.responseTiming.read()))
+    ipcMain.handle(RESPONSE_TIMING_IPC.displayed, (_event, input: unknown) => services.responseTiming.displayed(input))
 
     ipcMain.handle(DEVICE_PREFERENCES_IPC.get, (_event, input: GetDevicePreferencesInput) => result(async () => ({
         snapshot: await services.preferences.get(input)

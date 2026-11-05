@@ -3,6 +3,7 @@ import MarkdownRenderer, { prepareMarkdownRender, type MarkdownMediaMode } from 
 import { useObservedElementWidth } from '@/lib/text-layout/useObservedElementWidth'
 import { VisualizationMessage } from '@/components/ui/visualization/VisualizationMessage'
 import { useStreamingMarkdownContent } from './useStreamingMarkdownContent'
+import { useResponseTextDisplay } from '@/lib/assistant/use-response-text-display'
 import {
     getUserMessageBodyWidth,
     measureTimelinePlainTextHeight,
@@ -16,6 +17,7 @@ type StreamingAssistantTextProps = {
 }
 
 type AssistantMarkdownInteractionProps = {
+    turnId?: string | null
     timestamp?: ReactNode
     renderFooter?: (showTimestamp: boolean) => ReactNode
     onInternalLinkClick?: (href: string) => Promise<boolean | void> | boolean | void
@@ -70,16 +72,18 @@ const StreamingAssistantMarkdownText = memo(function StreamingAssistantMarkdownT
     filePath,
     className,
     cacheKey,
+    turnId,
     onInternalLinkClick,
     onLinkNotice,
     mediaMode,
     fadeStreamingText = false
 }: StreamingAssistantMarkdownProps) {
     const renderedContent = useStreamingMarkdownContent(content, cacheKey)
+    const displayRef = useResponseTextDisplay(turnId, Boolean(renderedContent.trim()))
     if (!renderedContent.trim()) return <StreamingAssistantText content=" " className={className} />
 
     return (
-        <div data-assistant-streaming-markdown="true">
+        <div ref={displayRef} data-assistant-streaming-markdown="true">
             <MarkdownRenderer
                 content={renderedContent}
                 filePath={filePath}
@@ -105,12 +109,14 @@ const CompletedAssistantMarkdownText = memo(function CompletedAssistantMarkdownT
     filePath,
     className,
     cacheKey,
+    turnId,
     deferInitialRender = false,
     onInternalLinkClick,
     onLinkNotice,
     mediaMode
 }: CompletedAssistantMarkdownProps) {
     const [renderReady, setRenderReady] = useState(!deferInitialRender)
+    const displayRef = useResponseTextDisplay(turnId, renderReady && Boolean(content.trim()))
 
     useEffect(() => {
         if (!deferInitialRender) {
@@ -145,6 +151,7 @@ const CompletedAssistantMarkdownText = memo(function CompletedAssistantMarkdownT
                 filePath={filePath}
                 className={className}
                 cacheKey={`${cacheKey}:handoff`}
+                turnId={turnId}
                 onInternalLinkClick={onInternalLinkClick}
                 onLinkNotice={onLinkNotice}
                 mediaMode={mediaMode}
@@ -153,7 +160,7 @@ const CompletedAssistantMarkdownText = memo(function CompletedAssistantMarkdownT
     }
 
     return (
-        <MarkdownRenderer
+        <div ref={displayRef}><MarkdownRenderer
             content={content}
             filePath={filePath}
             cacheKey={cacheKey}
@@ -162,7 +169,7 @@ const CompletedAssistantMarkdownText = memo(function CompletedAssistantMarkdownT
             onLinkNotice={onLinkNotice}
             className={className}
             mediaMode={mediaMode}
-        />
+        /></div>
     )
 })
 

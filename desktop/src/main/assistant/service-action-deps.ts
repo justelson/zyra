@@ -91,6 +91,7 @@ export interface AssistantRuntimeBridge {
 }
 
 export interface AssistantServiceActionDeps {
+    responseTiming?: import('../diagnostics/response-timing-recorder').ResponseTimingRecorder
     readonly runtime: AssistantRuntimeBridge
     readonly queuedPromptDeliveries?: import('./queued-prompt-delivery').QueuedPromptDeliveryOwner
     ensureReady(): Promise<void>

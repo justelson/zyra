@@ -309,6 +309,8 @@ export interface AssistantUpdateSessionConfigurationInput {
 }
 
 export interface AssistantSendPromptOptions {
+    /** Local performance-clock timestamp; never sent to the model provider. */
+    responseTimingStartedAt?: number
     /** Device-local queue identity; the service joins/replays one delivery. */
     queueEntryId?: string
     /** Steer the exact active turn without cancelling it or changing its configuration. */

@@ -63,6 +63,34 @@
         "error_code": { "type": "error_code" }
       }
     },
+    "zyra_v1_response_timing": {
+      "owner": "desktop_main",
+      "trigger": "One bounded timing summary after a locally submitted Desktop turn settles. Local diagnostics remain active independently of analytics consent.",
+      "privacy": "operational",
+      "retention": "30 days",
+      "properties": {
+        "model_name": {"type": "enum", "values": ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.5", "other"]},
+        "effort": {"type": "enum", "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max", "unknown"]},
+        "outcome": {"type": "enum", "values": ["completed", "failed", "cancelled", "unfinished"]},
+        "main_received_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "dispatch_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "accepted_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "first_event_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "first_text_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "first_text_received_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "first_display_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "duration_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "compaction_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "max_streaming_gap_ms": {"type": "integer", "min": 0, "max": 86400000},
+        "stall_count": { "type": "integer", "min": 0, "max": 86400000 },
+        "main_stall_ms": { "type": "integer", "min": 0, "max": 86400000 },
+        "renderer_stall_ms": { "type": "integer", "min": 0, "max": 86400000 },
+        "max_stall_ms": { "type": "integer", "min": 0, "max": 86400000 },
+        "request_count": {"type": "integer", "min": 0, "max": 10000},
+        "retry_count": {"type": "integer", "min": 0, "max": 10000},
+        "compaction_count": {"type": "integer", "min": 0, "max": 10000}
+      }
+    },
     "zyra_v1_voice": {
       "owner": "desktop_main",
       "trigger": "Voice starts, connects, produces its first response, is interrupted/stopped, fails, or rejects a duplicate transition.",

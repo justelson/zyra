@@ -3494,6 +3494,11 @@ export class ZyraRuntime extends EventEmitter {
         }
         const turnId = observedTurnId || context.activeTurnId
 
+        if (type === 'zyra_server_prompt_accepted' && turnId && metadata?.replay !== true) {
+            this.emitRuntime({ eventId: randomUUID(), type: 'turn.accepted', createdAt: metadata?.occurredAt || nowIso(),
+                threadId: context.localThreadId, providerThreadId: context.providerThreadId, turnId, payload: {} })
+        }
+
         if (type === 'model_request_progress') {
             if (!turnId || metadata?.replay === true || context.completedTurnIds.has(turnId)) return
             const progress = readModelRequestProgress(event['progress'], turnId)

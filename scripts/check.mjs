@@ -391,6 +391,7 @@ const desktopTasks = [
   { label: "desktop:test:performance-contracts", bunArgs: ["run", "--cwd", "desktop", "test:performance-contracts"] },
   { label: "desktop:test:main-esm-startup", bunArgs: ["run", "--cwd", "desktop", "test:main-esm-startup"] },
   { label: "desktop:test:renderer-bootstrap", bunArgs: ["run", "--cwd", "desktop", "test:renderer-bootstrap"] },
+  { label: "desktop:test:response-timing", bunArgs: ["run", "--cwd", "desktop", "test:response-timing"] },
   { label: "desktop:test:assistant-history-recovery", bunArgs: ["run", "--cwd", "desktop", "test:assistant-history-recovery"] },
   { label: "desktop:test:browser-extension-startup", bunArgs: ["run", "--cwd", "desktop", "test:browser-extension-startup"] },
   { label: "desktop:test:visualizations", bunArgs: ["run", "--cwd", "desktop", "test:visualizations"] },

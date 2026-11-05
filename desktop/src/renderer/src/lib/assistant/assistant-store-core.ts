@@ -998,6 +998,7 @@ export class AssistantStore {
     }
 
     async respondUserInput(input: AssistantUserInputResponseInput) {
+        input = { ...input, responseTimingStartedAt: responseTimingNow() }
         return this.runAction(() => window.devscope.assistant.respondUserInput(input), true)
     }
 

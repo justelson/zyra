@@ -10,7 +10,7 @@ mock.module('electron-log', () => ({ default: { info: noop, warn: noop, error: n
 mock.module('electron', () => ({ app: { getPath: () => tmpdir(), isReady: () => true, on: noop, once: noop },
     BrowserWindow: class { static getAllWindows() { return [] } }, screen: { getAllDisplays: () => [] },
     nativeImage: { createFromBuffer: () => ({ isEmpty: () => true }) }, webContents: { fromId: () => null }, safeStorage: { isEncryptionAvailable: () => false } }))
-const { sendAssistantPromptAction } = await import('../src/main/assistant/service-session-actions')
+const { sendAssistantPromptAction, respondAssistantUserInputAction } = await import('../src/main/assistant/service-session-actions')
 const { createAssistantThread } = await import('../src/main/assistant/service-state')
 const { createAssistantSessionRecord } = await import('../src/main/assistant/service-records')
 const { createDefaultAssistantSnapshot, applyAssistantDomainEvent } = await import('../src/shared/assistant/projector')
@@ -64,5 +64,18 @@ try {
     const rows = (await recorder.read()).records
     assert.equal(rows.filter(row => row.outcome === 'failed').length, 1)
     assert(!JSON.stringify(rows).includes('PRIVATE_SYNTHETIC_PREPARATION_ERROR'))
+    deps.runtime.ensurePromptAvailable = async () => {}
+    const liveThread = snapshot.sessions[0].threads[0]
+    liveThread.pendingUserInputs = [{ requestId: 'timing-question', status: 'pending', createdAt: new Date().toISOString(), questions: [] } as any]
+    deps.runtime.respondUserInput = async () => {
+        await new Promise(resolve => setTimeout(resolve, 80))
+        return { continuationPrompt: 'Continue synthetic task' }
+    }
+    const answeredAt = performance.timeOrigin + performance.now()
+    const answer = await respondAssistantUserInputAction(deps, { requestId: 'timing-question', answers: {}, responseTimingStartedAt: answeredAt } as any)
+    const answerTiming = (await recorder.read()).records.find(row => row.turnId === (answer as any).turnId)!
+    assert.equal(answerTiming.startedAt, answeredAt, 'question continuation timing begins at answer submission, before runtime/attachment preparation')
+    assert.ok(answerTiming.dispatchMs! >= 75, 'runtime answer preparation is included')
+    recorder.finish(answerTiming.turnId, 'completed')
     console.log('Response timing submission: early preparation, canonical acceptance, exact turn identity, queue deduplication and failure: ok')
 } finally { await recorder.dispose(); await rm(directory, { recursive: true, force: true }) }

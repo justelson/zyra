@@ -840,6 +840,7 @@ export async function respondAssistantUserInputAction(
     deps: AssistantServiceActionDeps,
     input: AssistantUserInputResponseInput
 ) {
+    const receivedAt = responseTimingNow()
     const activeRequests = activeUserInputResponses.get(deps) || new Set<string>()
     activeUserInputResponses.set(deps, activeRequests)
     if (activeRequests.has(input.requestId)) throw new Error(`User-input request ${input.requestId} is already being submitted.`)
@@ -889,12 +890,13 @@ export async function respondAssistantUserInputAction(
         }, target.session.id, target.thread.id)
         if (input.deferContinuation) return { success: true as const }
         return sendAssistantPromptAction(deps, contextText.trim() ? `${continuationPrompt}\n\n${contextText.trim()}` : continuationPrompt, {
+            responseTimingStartedAt: input.responseTimingStartedAt,
             sessionId: target.session.id,
             dispatchMode: pendingInput.mode === 'async' && target.thread.latestTurn?.state === 'running' ? 'steer' : 'immediate',
             targetTurnId: pendingInput.mode === 'async' ? target.thread.latestTurn?.id : undefined,
             images: input.images,
             userMessageId: responseMessageId
-        }, questionImages)
+        }, questionImages, { receivedAt })
     } finally {
         activeRequests.delete(input.requestId)
         if (activeRequests.size === 0) activeUserInputResponses.delete(deps)

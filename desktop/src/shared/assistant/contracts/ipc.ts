@@ -420,6 +420,8 @@ export interface AssistantApprovalResponseInput {
 }
 
 export interface AssistantUserInputResponseInput {
+    /** Local submission timing for a foreground answer continuation. */
+    responseTimingStartedAt?: number
     cancelled?: boolean
     /** The client durably queued an async answer before resolving its question. */
     deferContinuation?: boolean

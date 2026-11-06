@@ -219,9 +219,16 @@ async function run() {
     const focusDeadline = performance.now() + 1000
     while (document.activeElement !== button('New thread') && performance.now() < focusDeadline) await sleep(10)
     const focusArrived = document.activeElement === button('New thread')
+    // Chromium can deliver this after menu animation/layout even though the
+    // pointer has not moved. Reproduce the hosted focus-loss event ordering.
+    button('Thread').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: button('Project') }))
+    button('Project').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     await sleep(250)
     for (const type of ['focusin', 'mouseover', 'scroll']) document.removeEventListener(type, traceNavigation, true)
-    check(focusArrived && document.activeElement === button('New thread'), `Keyboard enters an existing or newly mounted submenu and retains focus; arrived=${focusArrived}; active=${document.activeElement?.textContent}; menus=${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}; events=${navigationEvents.join(',')}`)
+    check(focusArrived && document.activeElement === button('New thread'), `Keyboard enters an existing or newly mounted submenu and retains focus; arrived=${focusArrived}; active=${document.activeElement?.textContent?.slice(0, 80)}; menus=${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}; events=${navigationEvents.join(',')}`)
+    await hover('Project')
+    check(button('Attach project') && !button('New thread'), 'actual native pointer movement resumes submenu hover after keyboard navigation')
+    await hover('Thread')
     button('New thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); await sleep()
     check(document.activeElement === button('Thread') && !button('New thread'), 'Keyboard returns to submenu parent')
     button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(); check(!document.querySelector('[role="menu"]'), 'Escape dismisses context menu')

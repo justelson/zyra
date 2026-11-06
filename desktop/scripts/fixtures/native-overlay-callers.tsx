@@ -244,14 +244,26 @@ Object.assign(window, { nativeOverlayCallerCheck: (async () => {
     await act(async () => root.render(<FileActionsMenu key="chat-context" title="Chat context" density="compact" containEscape
         contextAnchor={{ x: 150, y: 100 }} onDismiss={() => { contextDismissals++ }}
         items={[{ id: 'thread', label: 'Thread', submenuOnly: true, onSelect: () => {}, choicesLabel: 'Thread actions',
-            choices: [{ id: 'new-thread', label: 'New thread', onSelect: () => { selected++ } }] }]} />))
+            choices: [{ id: 'new-thread', label: 'New thread', onSelect: () => { selected++ } }] },
+            { id: 'project', label: 'Project', submenuOnly: true, onSelect: () => {}, choicesLabel: 'Project actions',
+                choices: [{ id: 'attach', label: 'Attach project', onSelect: () => {} }] }]} />))
     await settle(() => Boolean(childDocument.querySelector('[aria-label="Chat context"]')), 'chat context opens in native child document')
     const threadParent = childDocument.querySelector<HTMLButtonElement>('[data-submenu-id="thread"]')!
     await key(threadParent, 'ArrowRight')
     await settle(() => Boolean(childDocument.querySelector('[aria-label="Thread actions"]')), 'chat submenu mounts in native child document')
     const threadAction = [...childDocument.querySelectorAll<HTMLButtonElement>('[aria-label="Thread actions"] button')][0]
     await settle(() => childDocument.activeElement === threadAction, 'keyboard focuses native submenu after mount')
-    await key(threadAction, 'ArrowLeft')
+    const projectParent = childDocument.querySelector<HTMLButtonElement>('[data-submenu-id="project"]')!
+    await act(async () => {
+        projectParent.dispatchEvent(new child.MouseEvent('mouseover', { bubbles: true, screenX: 40, screenY: 50 }))
+        await delay(250)
+    })
+    check(childDocument.activeElement === threadAction && !childDocument.querySelector('[aria-label="Project actions"]'), 'native child stale hover preserves keyboard submenu focus')
+    await act(async () => projectParent.dispatchEvent(new child.MouseEvent('mousemove', { bubbles: true, screenX: 41, screenY: 50 })))
+    await settle(() => Boolean(childDocument.querySelector('[aria-label="Project actions"]')), 'actual screen-coordinate movement in child document restores hover navigation')
+    await key(threadParent, 'ArrowRight')
+    await settle(() => childDocument.activeElement?.textContent === 'New thread', 'keyboard can retake the reused native submenu after pointer movement')
+    await key(childDocument.querySelector('[aria-label="Thread actions"] button')!, 'ArrowLeft')
     await settle(() => childDocument.activeElement === threadParent && !childDocument.querySelector('[aria-label="Thread actions"]'), 'keyboard returns to native submenu parent')
     await key(threadParent, 'ArrowRight')
     await settle(() => Boolean(childDocument.querySelector('[aria-label="Thread actions"]')), 'native submenu reopens')

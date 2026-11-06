@@ -27,6 +27,7 @@ import {setComposerSelection,composerSelection} from ${source('pages/assistant/c
 import {reconcileInlineMentionTags} from ${source('pages/assistant/assistant-composer-inline-mentions.tsx')}
 globalThis.IS_REACT_ACT_ENVIRONMENT=true
 const check=(value,message)=>{if(!value)throw Error(message)}
+check(!matchMedia('(prefers-reduced-motion: reduce)').matches,'motion fixture must explicitly use no-preference media independently of host settings')
 const noop=()=>{}, removed=[], opened=[]
 const data='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="160"><rect width="300" height="160" fill="#243747"/><circle cx="150" cy="70" r="35" fill="#77b7db"/><text x="150" y="130" text-anchor="middle" fill="white" font-family="sans-serif" font-size="15">Image attachment</text></svg>')
 const image={id:'image',path:'clipboard://test.png',name:'Screenshot.png',kind:'image',mimeType:'image/png',previewDataUrl:data,source:'paste',sizeBytes:200}
@@ -290,11 +291,16 @@ try {
     await writeFile(join(directory, 'main.cjs'), `
 const {app,BrowserWindow}=require('electron');
 app.setPath('userData',${JSON.stringify(join(directory,'profile'))});
+${process.argv.includes('--host-reduced-motion') ? "app.commandLine.appendSwitch('force-prefers-reduced-motion');" : ''}
 app.whenReady().then(async()=>{
  const window=new BrowserWindow({show:false,width:1100,height:900,webPreferences:{backgroundThrottling:false,offscreen:true}});
  window.webContents.setFrameRate(60);
  window.webContents.on('paint',()=>{});
  window.webContents.on('console-message',event=>{console.log(event.message);if(event.message.includes('COMPOSER_PRESENTATION_PASS'))app.exit(0);if(event.message.includes('COMPOSER_PRESENTATION_FAIL'))app.exit(1)});
+ // Start Chromium before CDP, then set real media before mounting the fixture.
+ await window.loadURL('about:blank');
+ window.webContents.debugger.attach('1.3');
+ await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
  await window.loadFile(${JSON.stringify(join(directory,'test.html'))});
  ${screenshots ? `let previous;setInterval(async()=>{
   if(window.isDestroyed())return;

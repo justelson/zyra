@@ -537,6 +537,7 @@ async function createZyraResourceLoader(project, options = {}) {
     filesystemScope: options.filesystemScope,
     codexServiceTierState: options.codexServiceTierState,
     thinkingState: options.thinkingState,
+    reasoningSummaryState: options.reasoningSummaryState,
     permissionRequest: options.permissionRequest,
     permissionReview: options.permissionReview,
     permissionGate: options.permissionGate,

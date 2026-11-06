@@ -13,6 +13,7 @@ import { createVisualizationTool } from '../src/visualizations/tool.mjs';
 import { createAppControlTools } from '../src/app-control-tool.mjs';
 import { createChatTitleController } from '../src/chat-title-tool.mjs';
 import { createContextManagementTool } from '../src/context-management.mjs';
+import { applyAssistantReasoningSummary } from '../src/assistant-runtime-policy.mjs';
 
 const sdkSource = await readFile(new URL('../src/zyra-sdk.mjs', import.meta.url), 'utf8');
 
@@ -76,6 +77,7 @@ function createStartupProbe(fixture) {
     createAppControlTools,
     createChatTitleController,
     createContextManagementTool,
+    applyAssistantReasoningSummary,
     existsSync,
     mkdirSync,
     realpathSync,
@@ -222,6 +224,17 @@ try {
     const branch = enabled ? 'enabled-extensions' : 'default-fast';
     // Leave enablePiExtensions absent for the real default branch.
     const branchOptions = enabled ? { enablePiExtensions: true } : {};
+    for (const summary of ['auto', 'concise', 'detailed']) {
+      await check(`${branch}/reasoning summary ${summary} reaches provider`, async () => {
+        const loader = await probe.start({ ...branchOptions, project: writable, reasoningSummary: summary });
+        const extension = loader.getExtensions().extensions.find(entry => entry.path === '<zyra:reasoning-summary>');
+        assert.ok(extension, 'The actual resource-loader branch installs the requested summary policy');
+        const payload = { reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'] };
+        const result = await extension.handlers.get('before_provider_request')[0]({ payload });
+        assert.equal(result.reasoning.summary, summary);
+        assert.equal(result.reasoning.effort, 'high');
+      });
+    }
     for (const project of [writable, readOnly]) {
       const filesystemScope = {
         projectId: 'fixture-project', projectRevision: 3, workingRoot: project, roots,

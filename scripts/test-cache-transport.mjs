@@ -1,15 +1,16 @@
 // Source-only synthetic regression: bun scripts/test-cache-transport.mjs
 import assert from 'node:assert/strict';
-import { stream, closeOpenAICodexWebSocketSessions, resetOpenAICodexWebSocketDebugStats, getOpenAICodexRequestDiagnostics } from '../src/runtime/providers/source/api/openai-codex-responses.ts';
+import { stream, streamSimple, closeOpenAICodexWebSocketSessions, resetOpenAICodexWebSocketDebugStats, getOpenAICodexRequestDiagnostics } from '../src/runtime/providers/source/api/openai-codex-responses.ts';
 import { acquireCodexWebSocketProbe, finishCodexWebSocketProbe, beginCodexRequestDiagnostic, finishCodexRequestDiagnostic } from '../src/runtime/providers/source/api/codex-request-diagnostics.ts';
 const model = { id: 'fixture-model', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://fixture.test', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
 const jwt = id => `fixture.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: id } })).toString('base64url')}.fixture`;
 const completed = { type: 'response.completed', response: { id: 'private-response-id', status: 'completed', output: [], usage: { input_tokens: 100, output_tokens: 2, input_tokens_details: { cached_tokens: 80 } } } };
 let clock = Date.now(), connects = 0, fetches = 0, mode = 'fail';
+const handshakes = [];
 const realNow = Date.now, original = globalThis.WebSocket;
 class FakeSocket {
   readyState = 1; listeners = new Map();
-  constructor() { connects++; queueMicrotask(() => this.emit(mode === 'fail' ? 'error' : 'open', { message: 'private-token-must-not-leak' })); }
+  constructor(url, options) { connects++; handshakes.push({ url, headers: options.headers }); queueMicrotask(() => this.emit(mode === 'fail' ? 'error' : 'open', { message: 'private-token-must-not-leak' })); }
   addEventListener(type, callback) { const list = this.listeners.get(type) || new Set(); list.add(callback); this.listeners.set(type, list); }
   removeEventListener(type, callback) { this.listeners.get(type)?.delete(callback); }
   emit(type, event) { for (const listener of this.listeners.get(type) || []) listener(event); }
@@ -62,6 +63,29 @@ try {
   const delta = getOpenAICodexRequestDiagnostics('delta-session').at(-1);
   assert.equal(delta.context, 'delta', 'stable history continues over the same connection');
   assert.ok(delta.deltaBytes > 0);
+  for (const [name, transport] of [['default', undefined], ['explicit-auto', 'auto'], ['cached', 'websocket-cached'], ['full', 'websocket']]) {
+    const sessionId = `transport-${name}`;
+    const config = { ...options(sessionId, privateAccountB), transport };
+    await streamSimple(model, context, config).result();
+    await streamSimple(model, { ...context, messages: [...context.messages,
+      { role: 'user', content: 'Only the appended follow-up should be sent.', timestamp: clock }] }, config).result();
+    const request = getOpenAICodexRequestDiagnostics(sessionId).at(-1);
+    assert.equal(request.context, name === 'full' ? 'full' : 'delta', `${name} transport honors continuation through the normal streamSimple caller`);
+  }
+  const routedOptions = options('routing-session', privateAccountB);
+  await stream(model, context, routedOptions).result();
+  assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=fixture-model', 'the handshake announces the actual request model before frames are sent');
+  const routedConnects = connects;
+  await stream(model, context, routedOptions).result();
+  assert.equal(connects, routedConnects, 'unchanged routing keeps its connection');
+  await stream(model, context, { ...routedOptions, serviceTier: 'priority' }).result();
+  assert.equal(connects, routedConnects + 1, 'a tier change cannot reuse an old handshake route');
+  assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=fixture-model;tier=priority');
+  await stream({ ...model, id: 'other-fixture-model' }, context, { ...routedOptions, serviceTier: 'priority' }).result();
+  assert.equal(connects, routedConnects + 2, 'a model change establishes a matching handshake route');
+  assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=other-fixture-model;tier=priority');
+  await stream(model, context, { ...options('hook-routing-session', privateAccountB), onPayload: body => ({ ...body, model: 'hook-selected-model', service_tier: 'default' }) }).result();
+  assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=hook-selected-model;tier=default', 'routing follows the post-hook payload');
   const key = 'synthetic-probe';
   finishCodexWebSocketProbe(key, 'failure');
   assert.equal(acquireCodexWebSocketProbe(key), false);

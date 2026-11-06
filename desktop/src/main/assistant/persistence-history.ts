@@ -294,7 +294,17 @@ function readForwardAssistantHistoryPage(
     maxCharacters: number
 ): AssistantHistoryPage {
     const boundaryRows = db.exec(`SELECT id, timeline_sequence, created_at FROM assistant_messages WHERE thread_id = ? AND role = 'user' AND ${USER_TURN_BOUNDARY_SQL} AND (created_at, COALESCE(timeline_sequence, -1), 0, id) >= (?, ?, ?, ?) ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC LIMIT ?`, [threadId, ...tupleValues(lower), turnLimit + 1])[0]?.values || []
-    if (boundaryRows.length === 0) {
+    const boundaries = boundaryRows.map(historyBoundaryKey)
+    // The renderer may evict a task suffix at a steering bubble. Preserve that
+    // inclusive cursor instead of jumping to the following task's root.
+    if (!boundaries[0] || compareAssistantTimelineOrderKeys(lower, boundaries[0]) < 0) {
+        const hasSuffix = ([['assistant_messages', 'message'], ['assistant_activities', 'activity'], ['assistant_proposed_plans', 'plan']] as const).some(([table, kind]) => {
+            const range = keyRangeSql(kind, lower, boundaries[0] ?? null)
+            return Boolean(db.exec(`SELECT 1 FROM ${table} WHERE thread_id = ?${range.sql} LIMIT 1`, [threadId, ...range.params])[0]?.values?.[0])
+        })
+        if (hasSuffix) boundaries.unshift(lower)
+    }
+    if (boundaries.length === 0) {
         return {
             threadId,
             messages: [],
@@ -310,16 +320,15 @@ function readForwardAssistantHistoryPage(
         }
     }
 
-    const pageLower = historyBoundaryKey(boundaryRows[0]!)
+    const pageLower = boundaries[0]!
     let selectedTurnCount = 1
-    const availableTurns = Math.min(turnLimit, boundaryRows.length)
+    const availableTurns = Math.min(turnLimit, boundaries.length)
     for (let count = 2; count <= availableTurns; count += 1) {
-        const candidateUpper = boundaryRows[count] ? historyBoundaryKey(boundaryRows[count]!) : null
+        const candidateUpper = boundaries[count] ?? null
         if (historyRangeExceedsBudget(db, threadId, pageLower, candidateUpper, maxRecords, maxCharacters)) break
         selectedTurnCount = count
     }
-    const upperRow = boundaryRows[selectedTurnCount]
-    const pageUpper = upperRow ? historyBoundaryKey(upperRow) : null
+    const pageUpper = boundaries[selectedTurnCount] ?? null
     return {
         threadId,
         messages: readMessages(db, threadId, pageLower, pageUpper),

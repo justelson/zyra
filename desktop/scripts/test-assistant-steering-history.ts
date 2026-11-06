@@ -10,6 +10,9 @@ import { replaceAssistantSnapshot } from '../src/main/assistant/persistence-writ
 import { readAssistantThreadDetail, readAssistantHistoryPage, readAssistantHistoryAroundMessage } from '../src/main/assistant/persistence-history'
 import { buildTimelineRows, getTimelineEntries } from '../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 import { groupTimelineRowsIntoWorkSummaries } from '../src/renderer/src/pages/assistant/assistant-turn-work'
+import { boundAssistantActiveHistoryWindow } from '../src/renderer/src/lib/assistant/assistant-history-state'
+import { encodeAssistantHistoryCursor } from '../src/shared/assistant/history-cursor'
+import { getAssistantTimelineOrderKey } from '../src/shared/assistant/timeline-order'
 const noop = () => undefined
 mock.module('electron-log', () => ({ default: { info: noop, warn: noop, error: noop, debug: noop } }))
 mock.module('electron', () => ({ app: { getPath: () => process.env.TEMP || process.cwd(), isReady: () => true, on: noop, once: noop }, BrowserWindow: class { static getAllWindows() { return [] } }, screen: { getAllDisplays: () => [] }, globalShortcut: { register: () => true, unregister: noop, unregisterAll: noop }, shell: { openExternal: noop }, nativeImage: { createFromBuffer: () => ({ isEmpty: () => true }) }, webContents: { fromId: () => null }, safeStorage: { isEncryptionAvailable: () => false } }))
@@ -56,11 +59,29 @@ try {
     assert.equal(older.messages.length, 6, 'paging backward includes the original prompt and every correction as one task')
     const forward = readAssistantHistoryPage(reopened, { threadId: thread.id, after: older.pageInfo.newestCursor!, turnLimit: 1 })
     assert.deepEqual(forward.messages.map(message => message.id), latest.messages.map(message => message.id), 'forward paging preserves real task boundaries')
+    const steeringCursor = encodeAssistantHistoryCursor(thread.id, getAssistantTimelineOrderKey('message', projected.messages[2]!))
+    const suffix = readAssistantHistoryPage(reopened, { threadId: thread.id, after: steeringCursor, turnLimit: 1 })
+    assert.deepEqual(suffix.messages.map(message => message.id), projected.messages.slice(2, 6).map(message => message.id), 'forward cursor inside a task preserves the correction and its following answer')
+    assert.equal(suffix.pageInfo.turnCount, 1)
+    assert.equal(suffix.pageInfo.hasNewer, true)
+    const afterSuffix = readAssistantHistoryPage(reopened, { threadId: thread.id, after: suffix.pageInfo.newestCursor!, turnLimit: 1 })
+    assert.deepEqual(afterSuffix.messages.map(message => message.id), latest.messages.map(message => message.id), 'paging after the partial task returns the following whole task without overlap')
     const anchored = readAssistantHistoryAroundMessage(reopened, { threadId: thread.id, messageId: projected.messages[2]!.id, turnLimit: 1 })
     assert.equal(anchored.page.messages.length, 6, 'searching a correction opens its original task rather than treating the correction as a separate turn')
     const rows = groupTimelineRowsIntoWorkSummaries({ rows: buildTimelineRows(getTimelineEntries(history.messages, history.activities), true, at), messages: history.messages, latestAssistantMessageId: history.messages.at(-1)!.id, latestTurnStartedAt: new Date(base + 6000).toISOString(), isWorking: true })
     assert.equal(rows.filter(row => row.kind === 'turn-work-summary').length, 2, 'canonical projection through SQLite to the timeline shows the two actual tasks')
     const firstWork = rows.find(row => row.kind === 'turn-work-summary')!
     assert.equal(firstWork.kind === 'turn-work-summary' ? firstWork.rows.filter(row => row.kind === 'message' && row.message.role === 'user').length : -1, 2, 'both steering bubbles remain chronological members of the original historical task')
+    // Real renderer eviction can trim at a correction rather than the task root.
+    const oversized = { ...history, messages: history.messages.map((message, index) => index === 5 ? { ...message, text: 'x'.repeat(6_500_000) } : message) }
+    const bounded = boundAssistantActiveHistoryWindow({ ...oversized, initialLoading: false, loadingOlder: false, loadingNewer: false, loadOlderError: null, loadNewerError: null, fullyLoaded: true, lastUsedAt: 0, shellRevision: 'fixture' }, 'older')
+    assert.equal(bounded.pageInfo.hasNewer, true)
+    assert.equal(bounded.messages.length, 4, 'a large answer forces eviction through the steering boundary')
+    const recovered = readAssistantHistoryPage(reopened, { threadId: thread.id, after: bounded.pageInfo.newestCursor!, turnLimit: 1 })
+    assert.deepEqual(recovered.messages.map(message => message.id), projected.messages.slice(4, 6).map(message => message.id), 'scrolling forward restores evicted steering bubbles and responses')
+    reopened.run('DELETE FROM assistant_messages WHERE thread_id = ? AND turn_id = ?', [thread.id, projected.messages[6]!.turnId!])
+    const lastSuffix = readAssistantHistoryPage(reopened, { threadId: thread.id, after: steeringCursor, turnLimit: 1 })
+    assert.deepEqual(lastSuffix.messages.map(message => message.id), projected.messages.slice(2, 6).map(message => message.id), 'a partial final task remains recoverable without a later root')
+    assert.equal(lastSuffix.pageInfo.hasNewer, false)
 } finally { reopened.close() }
 console.log('Steering history: bridge metadata to canonical projection, partial pages, SQLite reopen and actual turn grouping: ok')

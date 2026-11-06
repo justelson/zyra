@@ -210,8 +210,18 @@ async function run() {
     await sidebar(); await hover('Thread'); button('New thread').click(); await sleep(); check(calls.includes('thread:other'), 'New thread targets clicked chat')
     await sidebar(); await hover('Project'); button('Attach project').click(); await sleep(); check(calls.includes('project:other'), 'Project picker targets clicked chat')
     await sidebar()
-    button('Thread').focus(); button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await sleep()
-    check(document.activeElement === button('New thread'), 'Keyboard enters an existing or newly mounted submenu')
+    const navigationEvents: string[] = []
+    const traceNavigation = (event: Event) => navigationEvents.push(`${event.type}:${(event.target as HTMLElement)?.textContent?.slice(0, 80)}`)
+    for (const type of ['focusin', 'mouseover', 'scroll']) document.addEventListener(type, traceNavigation, true)
+    button('Thread').focus(); button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    // React may commit the keyboard-opened portal after a busy runner's next
+    // frame. Wait for the actual focus receipt, then verify it stays put.
+    const focusDeadline = performance.now() + 1000
+    while (document.activeElement !== button('New thread') && performance.now() < focusDeadline) await sleep(10)
+    const focusArrived = document.activeElement === button('New thread')
+    await sleep(250)
+    for (const type of ['focusin', 'mouseover', 'scroll']) document.removeEventListener(type, traceNavigation, true)
+    check(focusArrived && document.activeElement === button('New thread'), `Keyboard enters an existing or newly mounted submenu and retains focus; arrived=${focusArrived}; active=${document.activeElement?.textContent}; menus=${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}; events=${navigationEvents.join(',')}`)
     button('New thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); await sleep()
     check(document.activeElement === button('Thread') && !button('New thread'), 'Keyboard returns to submenu parent')
     button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(); check(!document.querySelector('[role="menu"]'), 'Escape dismisses context menu')

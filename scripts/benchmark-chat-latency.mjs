@@ -43,7 +43,9 @@ const settings = {
 const plan = { settings, scenario, samples: count, timeoutMs, idleMs, mode: flags.has('--direct-provider')
   ? 'bare provider comparison; no Chat system prompt, tools, server or bridge'
   : 'production server, bridge, SDK and provider; isolated test project and server state; no Electron',
-  credentials: 'existing Preview credential owner, no credential copies', creditsEnabled: flags.has('--live') };
+  credentials: 'existing Preview credential owner, no credential copies',
+  resources: 'built-in skills and commands; fresh synthetic home excludes personal resources',
+  creditsEnabled: flags.has('--live') };
 console.log(JSON.stringify({ stage: 'plan', ...plan }));
 if (!flags.has('--live')) process.exit(0);
 if (settings.memoryEnabled !== false) throw new Error('This isolated runner currently requires Preview memory off to avoid reading personal memory.');
@@ -58,10 +60,16 @@ if (existsSync(project) && readdirSync(project).length) throw new Error('Synthet
 mkdirSync(output, { recursive: true });
 const stateDirectory = path.join(output, 'server-state');
 mkdirSync(project, { recursive: true });
+// SDK skill/command discovery uses os.homedir(), independently of data/agent
+// directories. Give this process and its workers a fresh home while retaining
+// the explicitly selected credential owner below. Never reuse an existing home.
+const syntheticHome = path.join(output, 'home');
+mkdirSync(syntheticHome);
 const observationPath = path.join(output, 'provider-observations.jsonl');
 // Workers use the existing credential/config owner. Server-owned catalogs/journals
 // use the explicit isolated stateDirectory below. User chats are never attached.
 Object.assign(process.env, {
+  HOME: syntheticHome, USERPROFILE: syntheticHome,
   ZYRA_ROOT: root, ZYRA_DATA_ROOT: path.join(output, 'data'),
   ZYRA_STATE_DIR: path.join(profile, 'assistant/agent-server'),
   ZYRA_CODING_AGENT_DIR: path.join(output, 'coding-agent'), ZYRA_AGENT_DIR: path.join(output, 'coding-agent'),

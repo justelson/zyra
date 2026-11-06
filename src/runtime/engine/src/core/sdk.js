@@ -11,7 +11,6 @@ import { convertToLlm } from "./messages.js";
 import { findInitialModel } from "./model-resolver.js";
 import { ModelRuntime } from "./model-runtime.js";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.js";
-import { DefaultResourceLoader } from "./resource-loader.js";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.js";
 import { SettingsManager } from "./settings-manager.js";
 import { time } from "./timings.js";
@@ -43,6 +42,7 @@ async function createAgentSession(options = {}) {
   const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
   const sessionManager = options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
   if (!resourceLoader) {
+    const { DefaultResourceLoader } = await import("./resource-loader.js");
     resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
     await resourceLoader.reload();
     time("resourceLoader.reload");

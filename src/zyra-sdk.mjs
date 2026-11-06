@@ -330,11 +330,6 @@ function toProviderModelDefinition(model) {
   };
 }
 
-async function loadRuntimeResources() {
-  const { DefaultResourceLoader, SettingsManager, getAgentDir } = await loadRuntimeEngine();
-  return { DefaultResourceLoader, SettingsManager, getAgentDir };
-}
-
 function createEmptyExtensionRuntime() {
   const notInitialized = () => {
     throw new Error("Extension runtime is disabled for Zyra fast startup.");
@@ -493,10 +488,7 @@ function createFastResourceLoader(project, options = {}) {
 }
 
 async function createZyraResourceLoader(project, options = {}) {
-  const [{ DefaultResourceLoader, SettingsManager, getAgentDir }, { createExtensionRuntime }] = await Promise.all([
-    loadRuntimeResources(),
-    loadRuntimeEngine(),
-  ]);
+  const { SettingsManager, getAgentDir, createExtensionRuntime } = await loadRuntimeEngine();
   const agentDir = getAgentDir();
   const projectTrusted = options.projectTrusted === true;
   const settingsManager = SettingsManager.create(project, agentDir, { projectTrusted });
@@ -517,6 +509,7 @@ async function createZyraResourceLoader(project, options = {}) {
     }),
   });
   if (options.enableExtensions || options.enablePiExtensions) {
+    const { DefaultResourceLoader } = await import('./runtime/engine/src/core/resource-loader.js');
     let zyraSkills = await loadSkills(skillSources);
     const loader = new DefaultResourceLoader({
       cwd: project,

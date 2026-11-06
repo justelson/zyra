@@ -6,11 +6,10 @@ import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { ModelRuntime } from "./model-runtime.ts";
-import {
-	DefaultResourceLoader,
-	type DefaultResourceLoaderOptions,
-	type ResourceLoader,
-	type ResourceLoaderReloadOptions,
+import type {
+	DefaultResourceLoaderOptions,
+	ResourceLoader,
+	ResourceLoaderReloadOptions,
 } from "./resource-loader.ts";
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult, createAgentSession } from "./sdk.ts";
 import type { SessionManager } from "./session-manager.ts";
@@ -146,6 +145,7 @@ export async function createAgentSessionServices(
 			signal: options.modelRuntimeSignal,
 		}));
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
+	const { DefaultResourceLoader } = await import("./resource-loader.ts");
 	const resourceLoader = new DefaultResourceLoader({
 		...(options.resourceLoaderOptions ?? {}),
 		cwd,

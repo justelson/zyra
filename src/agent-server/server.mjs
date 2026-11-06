@@ -123,32 +123,39 @@ export class ZyraAgentServer extends EventEmitter {
     mkdirSync(this.paths.stateDirectory, { recursive: true });
     this.assertNoIncompatibleServer();
     await assertRuntimeStartAllowed(this.paths, this.root);
-    this.runtimeRevision = await readRuntimeRevision(this.root);
-    this.instanceId = randomUUID();
-    if (!this.desktopAuthorityHash) {
-      try {
-        this.desktopAuthorityHash = readFileSync(this.paths.desktopAuthorityFile, "utf8").trim() || null;
-      } catch {}
-    }
-    if (process.platform !== "win32" && typeof this.endpoint === "string" && existsSync(this.endpoint)) rmSync(this.endpoint, { force: true });
-    this.server = net.createServer((socket) => this.accept(socket));
-    await new Promise((resolve, reject) => {
-      this.server.once("error", reject);
-      this.server.listen(this.endpoint, resolve);
-    });
-    if (this.endpoint === 0) {
-      const address = this.server.address();
-      if (!address || typeof address === "string") throw new Error("Agent-server test endpoint did not bind to TCP.");
-      this.endpoint = address.port;
-    }
-    this.startedAt = new Date().toISOString();
-    if (this.desktopAuthorityHash) {
-      writeFileSync(this.paths.desktopAuthorityFile, this.desktopAuthorityHash, { encoding: "utf8", mode: 0o600 });
-    }
-    this.writeDescriptor();
-    this.memoryQueue.notify();
+    // Preparation loads execution modules only, without credentials or model
+    // calls. Overlap that IO with fingerprinting after install admission passes.
     this.sessionWorkerPool?.prepare();
-    return this.descriptor();
+    try {
+      this.runtimeRevision = await readRuntimeRevision(this.root);
+      this.instanceId = randomUUID();
+      if (!this.desktopAuthorityHash) {
+        try {
+          this.desktopAuthorityHash = readFileSync(this.paths.desktopAuthorityFile, "utf8").trim() || null;
+        } catch {}
+      }
+      if (process.platform !== "win32" && typeof this.endpoint === "string" && existsSync(this.endpoint)) rmSync(this.endpoint, { force: true });
+      this.server = net.createServer((socket) => this.accept(socket));
+      await new Promise((resolve, reject) => {
+        this.server.once("error", reject);
+        this.server.listen(this.endpoint, resolve);
+      });
+      if (this.endpoint === 0) {
+        const address = this.server.address();
+        if (!address || typeof address === "string") throw new Error("Agent-server test endpoint did not bind to TCP.");
+        this.endpoint = address.port;
+      }
+      this.startedAt = new Date().toISOString();
+      if (this.desktopAuthorityHash) {
+        writeFileSync(this.paths.desktopAuthorityFile, this.desktopAuthorityHash, { encoding: "utf8", mode: 0o600 });
+      }
+      this.writeDescriptor();
+      this.memoryQueue.notify();
+      return this.descriptor();
+    } catch (error) {
+      this.sessionWorkerPool?.cancelPreparation('Server startup failed.');
+      throw error;
+    }
   }
 
   async stop(reason = "Agent server stopped.") {

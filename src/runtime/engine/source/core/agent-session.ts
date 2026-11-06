@@ -47,7 +47,6 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "../../../providers/source/compat.js";
-import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { sleep } from "../utils/sleep.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
@@ -67,8 +66,7 @@ import {
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
-import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
-import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
+import type { ToolHtmlRenderer } from "./export-html/index.ts";
 import {
 	type ContextUsage,
 	type ExtensionCommandContextActions,
@@ -3586,6 +3584,11 @@ export class AgentSession {
 	 * @returns Path to exported file
 	 */
 	async exportToHtml(outputPath?: string, options: { themeName?: string } = {}): Promise<string> {
+		const [{ getThemeByName, theme }, { exportSessionToHtml }, { createToolHtmlRenderer }] = await Promise.all([
+			import("../modes/interactive/theme/theme.ts"),
+			import("./export-html/index.ts"),
+			import("./export-html/tool-renderer.ts"),
+		]);
 		const themeName = [options.themeName, this.settingsManager.getTheme()].find(
 			(candidate) => candidate !== undefined && getThemeByName(candidate) !== undefined,
 		);

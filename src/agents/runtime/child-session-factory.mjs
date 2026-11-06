@@ -48,9 +48,12 @@ export class ChildSessionFactory {
     // come from the parent's live runtime. The SDK ignores old auth/registry
     // options and would silently create an unrelated default credential store.
     if (!this.modelRuntime) throw new Error("Child sessions require the parent model runtime.");
+    const [engine, { DefaultResourceLoader }] = await Promise.all([
+      loadRuntimeEngine(),
+      import('../../runtime/engine/src/core/resource-loader.js'),
+    ]);
     const {
       createAgentSession,
-      DefaultResourceLoader,
       getAgentDir,
       SettingsManager,
       createEditTool,
@@ -59,7 +62,7 @@ export class ChildSessionFactory {
       createLsTool,
       createReadTool,
       createWriteTool,
-    } = await loadRuntimeEngine();
+    } = engine;
     const cwd = path.resolve(options.cwd ?? this.project);
     if (!options.noSession) await mkdir(this.transcriptDirectory, { recursive: true });
     const agentDir = this.agentDir ?? getAgentDir();

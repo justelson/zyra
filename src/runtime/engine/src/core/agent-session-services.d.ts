@@ -2,7 +2,7 @@ import type { ThinkingLevel } from "../../../agent/src/index.js";
 import type { Model } from "../../../providers/src/index.js";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.js";
 import { ModelRuntime } from "./model-runtime.js";
-import { type DefaultResourceLoaderOptions, type ResourceLoader, type ResourceLoaderReloadOptions } from "./resource-loader.js";
+import type { DefaultResourceLoaderOptions, ResourceLoader, ResourceLoaderReloadOptions } from "./resource-loader.js";
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult } from "./sdk.js";
 import type { SessionManager } from "./session-manager.js";
 import { SettingsManager } from "./settings-manager.js";

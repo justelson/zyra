@@ -31,9 +31,14 @@ export class SessionWorkerPool {
     return acquired;
   }
 
+  cancelPreparation(reason) {
+    const spare = this.spare;
+    this.spare = null;
+    spare?.dispose(reason);
+  }
+
   dispose(reason) {
     this.disposed = true;
-    this.spare?.dispose(reason);
-    this.spare = null;
+    this.cancelPreparation(reason);
   }
 }

@@ -3,7 +3,6 @@
 export { getAgentDir } from './runtime/engine/src/config.js';
 export { createAgentSession } from './runtime/engine/src/core/sdk.js';
 export { createExtensionRuntime } from './runtime/engine/src/core/extensions/loader.js';
-export { DefaultResourceLoader } from './runtime/engine/src/core/resource-loader.js';
 export { SettingsManager } from './runtime/engine/src/core/settings-manager.js';
 export { loadSkillsFromDir } from './runtime/engine/src/core/skills.js';
 export { estimateTokens } from './runtime/engine/src/core/compaction/compaction.js';

@@ -266,6 +266,13 @@ const PREVIOUS_SETTINGS_SEARCH_TARGETS: Readonly<Record<string, readonly Setting
         'Provider filter': 'groq gemini codex records',
         'Clear logs': 'remove debug records'
     }),
+    'response-timings': rows('Summary', ['Local diagnostics', 'Typical first text', 'Typical visible text', 'Recorded turns', 'Turn history'], {
+        'Local diagnostics': 'local always on privacy analytics',
+        'Typical first text': 'response speed received median latency',
+        'Typical visible text': 'display paint median latency',
+        'Recorded turns': 'retained completed running count',
+        'Turn history': 'details sort newest oldest slowest copy records'
+    }),
     about: [
         ...rows('About Zyra', ['Version', 'Package version', 'Release channel', 'Platform', 'Application stack', 'License'], {
             Version: 'desktop build installed',

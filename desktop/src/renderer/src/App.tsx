@@ -39,6 +39,7 @@ import {
     loadConnectionsSettings,
     loadDataPrivacySettings,
     loadDiagnosticsSettings,
+    loadResponseTimingSettings,
     loadFilesEditorSettings,
     loadGeneralSettings,
     loadKeyboardShortcutsSettings,
@@ -80,6 +81,7 @@ const ProjectsSettings = lazy(loadProjectsSettings)
 const MemorySettings = lazy(loadMemorySettings)
 const ArchivedChatsSettings = lazy(loadArchivedChatsSettings)
 const LogsSettings = lazy(loadDiagnosticsSettings)
+const ResponseTimingSettings = lazy(loadResponseTimingSettings)
 const DataPrivacySettings = lazy(loadDataPrivacySettings)
 const AboutSettings = lazy(loadAboutSettings)
 const AssistantBrowserPopupWindow = lazy(() => import('./pages/assistant/AssistantBrowserPopupWindow').then((module) => ({ default: module.AssistantBrowserPopupWindow })))
@@ -219,6 +221,7 @@ function MainContent() {
                         <Route path="data/memory" element={<SettingsRedirect to="/settings/assistant/memory" />} />
                         <Route path="data/archived" element={<SettingsRedirect to="/settings/assistant/archived" />} />
                         <Route path="data/diagnostics" element={<LogsSettings />} />
+                        <Route path="data/diagnostics/response-timings" element={<ResponseTimingSettings />} />
                         <Route path="about" element={<AboutSettings />} />
                         <Route path="general" element={<SettingsRedirect to="/settings/app/general" />} />
                         <Route path="appearance" element={<SettingsRedirect to="/settings/app/appearance" />} />

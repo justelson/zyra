@@ -130,7 +130,7 @@ export function SettingsRow({ title, description, icon, info, status, statusTone
                         {status ? <SettingsStatusPill label={status} tone={statusTone} title={statusTitle ?? (typeof status === 'string' ? status : undefined)} /> : null}
                         {resetAction ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{resetAction}</span> : null}
                     </div>
-                    <p className={cn('max-w-[34rem] text-[12px] leading-[1.5] text-[var(--settings-text-secondary)]', connection && 'truncate')}>{description}</p>
+                    {description != null ? <p className={cn('max-w-[34rem] text-[12px] leading-[1.5] text-[var(--settings-text-secondary)]', connection && 'truncate')}>{description}</p> : null}
                 </div>
                 {control ? <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">{control}</div> : null}
             </div>

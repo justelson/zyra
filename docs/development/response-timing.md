@@ -1,6 +1,11 @@
 # Desktop response timing diagnostics
 
-Settings → Privacy & support → Diagnostics shows locally submitted chat turns.
+Settings → Privacy & support → Diagnostics has one Response timings entry.
+It opens a summary of the 20 most recent completed turns, with separate medians
+for received and visible text. Missing observations do not count as zero.
+Turn history opens on request, defaults to newest first and optionally sorts by
+oldest or slowest received/visible text. Details and raw copy retain all records.
+Explanations live in info tips rather than paragraphs in Settings rows.
 Local recording is always active, including when product analytics is off.
 There is no collection toggle for the local recorder. Existing hang incident
 files and bounded CPU profiles remain available in the profile's diagnostics

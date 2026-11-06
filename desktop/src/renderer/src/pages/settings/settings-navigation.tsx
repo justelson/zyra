@@ -56,6 +56,7 @@ const inner: SettingsDestination[] = Object.entries(SETTINGS_PAGE_VIEWS).flatMap
 })
 export const SETTINGS_DESTINATIONS: SettingsDestination[] = [
     ...primary, ...inner,
+    { id: 'response-timings', parentId: 'diagnostics', categoryId: 'data', label: 'Response timings', description: 'Chat response summary and optional turn history', keywords: 'latency speed first text display diagnostics timings', to: '/settings/data/diagnostics/response-timings', icon: TerminalSquare, contextual: true },
     { id: 'git-writing-connections', parentId: 'source-control', categoryId: 'workspace', label: 'Writing services', description: 'Credentials for Git writing', keywords: 'groq gemini keys', to: '/settings/workspace/source-control/writing/connections', icon: KeyRound, contextual: true },
     { id: 'git-writing-logs', parentId: 'source-control', categoryId: 'workspace', label: 'Writing logs', description: 'Git writing records', keywords: 'git logs', to: '/settings/workspace/source-control/writing/logs', icon: TerminalSquare, contextual: true },
     { id: 'appearance-colors', parentId: 'appearance', categoryId: 'app', label: 'Customize colors', description: 'Edit, copy and restore a custom theme', keywords: 'theme tokens accent background foreground border hex palette custom', to: '/settings/app/appearance/colors', icon: Palette },

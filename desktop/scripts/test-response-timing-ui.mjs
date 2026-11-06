@@ -12,11 +12,18 @@ import tailwindConfig from '../tailwind.config.js';
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const directory = await mkdtemp(join(tmpdir(), 'zyra-response-timing-ui-'));
 const capturePath = process.argv.find(arg => arg.startsWith('--capture='))?.slice(10);
+const openHistoryScript = "(async()=>{[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='View turns').click();for(let i=0;i<100&&!document.querySelector('table');i++)await new Promise(resolve=>setTimeout(resolve,20));if(!document.querySelector('table'))throw new Error('History did not open');if(document.documentElement.scrollWidth>innerWidth)throw new Error('History viewport overflow')})()";
 try {
     await build({ entryPoints: [join(desktop, 'scripts/fixtures/response-timing.tsx')], bundle: true,
         outfile: join(directory, 'renderer.js'), format: 'iife', jsx: 'automatic', platform: 'browser',
         define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env.DEV': 'false', 'import.meta.hot': 'undefined' },
-        alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.woff2': 'dataurl' }, logLevel: 'silent' });
+        alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, loader: { '.woff2': 'dataurl' },
+        plugins: [{ name: 'unused-route-prefetch', setup(builder) {
+            // The fixture mounts its real routes explicitly. Hover prefetch is
+            // unrelated and would pull every lazy Settings page into this check.
+            builder.onResolve({ filter: /settings-route-loaders$/ }, () => ({ path: 'prefetch', namespace: 'timing-prefetch' }));
+            builder.onLoad({ filter: /.*/, namespace: 'timing-prefetch' }, () => ({ contents: 'export function preloadSettingsRoute() {}', loader: 'js' }));
+        } }], logLevel: 'silent' });
     const css = postcss.parse(await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8'));
     css.walkAtRules('import', rule => rule.remove());
     const result = await postcss([tailwind({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/settings/*.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantTimelineText.tsx')] })]).process(css.toString(), { from: undefined });
@@ -32,6 +39,7 @@ app.whenReady().then(async()=>{
  await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
  const results=await window.webContents.executeJavaScript('window.responseTimingCheck');
  for(const result of results)console.log('PASS: '+result);
+ ${process.argv.includes('--history') ? 'await window.webContents.executeJavaScript(' + JSON.stringify(openHistoryScript) + ');' : ''}
  ${capturePath ? `fs.writeFileSync(${JSON.stringify(resolve(capturePath))},(await window.webContents.capturePage()).toPNG());` : ''}
  clearTimeout(timer);window.destroy();app.quit();
 }).catch(error=>{console.error(error);clearTimeout(timer);app.exit(1)});

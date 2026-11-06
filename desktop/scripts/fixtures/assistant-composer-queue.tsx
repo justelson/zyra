@@ -309,6 +309,15 @@ async function runQueuePresentationChecks() {
     const row = (id = 'one') => container!.querySelector<HTMLElement>(`[data-queued-message-id="${id}"]`)!
     const button = (label: string, host: ParentNode = container!) => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(node => node.getAttribute('aria-label') === label || node.textContent === label)!
     const click = (label: string, host: ParentNode = container!) => flushSync(() => button(label, host).click())
+    const settleAnimations = async () => {
+        await sleep()
+        await Promise.all(container!.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})))
+    }
+    const checkHeightTransition = (host: ParentNode, label: string) => {
+        const transition = host.querySelector<HTMLElement>('[data-question-transition]')!
+        const animating = transition.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'height')
+        check(animating !== matchMedia('(prefers-reduced-motion: reduce)').matches, label)
+    }
     const type = (text: string) => {
         const textarea = container!.querySelector('textarea')!
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, text)
@@ -317,9 +326,40 @@ async function runQueuePresentationChecks() {
     render()
     check(container.querySelector('section[aria-label="Queued messages"]')?.closest('[data-composer-drawer="true"]'), 'queue uses the shared attached composer drawer')
     check(!container.querySelector('[aria-label="Close composer menu"]'), 'queue does not inherit the unrelated command-menu close action')
-    check(container.textContent?.includes('1 file') && container.textContent.includes('On hold.'), 'attachment count and held status rendered')
-    click('Resume queue'); click('Steer', row()); click('Delete queued message', row())
+    for (const send of [button('Send all queued messages'), button('Steer queued message', row())]) {
+        const bounds = send.getBoundingClientRect(), style = getComputedStyle(send)
+        check(Math.abs(bounds.width - bounds.height) < 1 && parseFloat(style.borderRadius) >= bounds.width / 2, 'steering buttons render circular despite shared action styles')
+    }
+    const headerStyle = getComputedStyle(button('Send all queued messages'))
+    const accentProbe = document.createElement('span')
+    accentProbe.style.cssText = 'background:var(--accent-primary);color:var(--accent-on-primary)'; container.append(accentProbe)
+    check(headerStyle.backgroundColor === getComputedStyle(accentProbe).backgroundColor && headerStyle.color === getComputedStyle(accentProbe).color, 'header send-all uses the theme accent fill and contrast color')
+    accentProbe.remove()
+    check(container.textContent?.includes('1 file') && container.textContent.includes('Held'), 'attachment count and held status rendered')
+    check(!container.textContent?.includes('Waiting for delivery'), 'the queue has no redundant waiting subtitle')
+    const preview = row().querySelector<HTMLButtonElement>('[data-queued-message-preview]')!
+    const beforePreview = calls.length
+    flushSync(() => preview.click())
+    check(preview.getAttribute('aria-expanded') === 'true' && !container.querySelector('textarea') && calls.length === beforePreview, 'clicking text reveals it without editing or holding delivery')
+    flushSync(() => preview.click())
+    check(getComputedStyle(preview).whiteSpace === 'nowrap' && getComputedStyle(preview).textOverflow === 'ellipsis', 'closed preview truncates to one line')
+    click('Resume queue'); click('Steer queued message', row()); click('Delete queued message', row())
     check(calls.join('|') === 'resume|steer:one|delete:one', 'compact actions target exact message')
+    const beforeAll = calls.length
+    click('Send all queued messages'); await sleep()
+    check(calls.slice(beforeAll).join('|') === 'steer:one|steer:two|resume', 'header sends each eligible row once in queue order and resumes a held queue')
+    const forceMessage = props.onForceQueuedMessage
+    let releaseSend!: () => void
+    render({ onForceQueuedMessage: async id => { calls.push(`steer:${id}`); await new Promise<void>(resolve => { releaseSend = resolve }) } })
+    click('Send all queued messages')
+    check(button('Send all queued messages').disabled && button('Edit queued message', row()).disabled && button('Steer queued message', row()).disabled, 'in-flight send-all disables duplicate delivery and editing')
+    releaseSend(); await sleep(); releaseSend(); await sleep()
+    render({ onForceQueuedMessage: async () => { throw new Error('Synthetic delivery failure') } })
+    click('Send all queued messages'); await sleep()
+    check(container.querySelector('[role="alert"]')?.textContent === 'Could not send every queued message.' && !button('Send all queued messages').disabled, 'send-all failure is visible and retry remains available')
+    render({ onForceQueuedMessage: forceMessage })
+    click('Send all queued messages'); await sleep()
+    check(!container.querySelector('[role="alert"]'), 'successful retry clears the send-all error')
     click('Edit queued message', row()); type('edited buffer')
     check(calls.includes('hold'), 'editing holds queue before changing local buffer')
     click('Save'); await sleep()
@@ -327,8 +367,11 @@ async function runQueuePresentationChecks() {
     click('Cancel')
     check(!container.querySelector('textarea') && !container.querySelector('[role="alert"]') && row().textContent?.includes('Keep the permission'), 'Cancel clears error without changing queued prompt')
     click('Edit queued message', row()); type('successful edit'); saveWorks = true
+    await settleAnimations()
     click('Save'); await sleep()
     check(calls.includes('save:one:successful edit') && !container.querySelector('textarea'), 'Save forwards exact text and closes editor after success')
+    checkHeightTransition(row(), 'successful Save animates back to preview unless reduced motion is requested')
+    await settleAnimations()
     const reorderKey = (index: number, key: string, altKey = true) => flushSync(() => button(`Reorder queued message ${index}`).dispatchEvent(new KeyboardEvent('keydown', { key, altKey, bubbles: true, cancelable: true })))
     check(!container.querySelector('[title="Move up"], [title="Move down"]'), 'visible up/down actions removed')
     const handle = button('Reorder queued message 1')
@@ -368,22 +411,52 @@ async function runQueuePresentationChecks() {
     render({ loadedSessionId: 'other-chat' }); await sleep()
     check(!container.querySelector('textarea'), 'Chat change resets local editor')
     const originalMessages = props.queuedMessages
+    render({ queueHeld: false, queuedMessages: originalMessages.map(message => ({ ...message, status: 'queued', dispatchMode: 'steer' })) })
+    check(button('Send all queued messages').disabled, 'already pending steer deliveries are not sent again')
+    render({ queueHeld: true })
     render({ queuedMessages: originalMessages.map((message, index) => ({ ...message, status: index === 0 ? 'sending' : 'compacting' })) })
-    check(button('Edit queued message', row()).disabled && button('Steer', row()).disabled && button('Steer', row('two')).disabled, 'sending edit and sending/compaction steer remain unavailable')
-    check(container.textContent?.includes('Sending…') && container.textContent.includes('Letting compaction finish'), 'sending and compaction announce status')
-    render({ isConnected: false }); check(button('Resume queue').disabled, 'disconnected Resume disabled')
+    check(button('Edit queued message', row()).disabled && button('Steer queued message', row()).disabled && button('Steer queued message', row('two')).disabled && button('Send all queued messages').disabled, 'sending edit and sending/compaction steer remain unavailable')
+    check(container.textContent?.includes('Sending…') && container.textContent.includes('Compacting'), 'sending and compaction announce status')
+    render({ isConnected: false }); check(button('Resume queue').disabled && button('Send all queued messages').disabled, 'disconnected delivery controls disabled')
     render({ isConnected: true, isStopping: true }); check(button('Resume queue').disabled, 'stopping Resume disabled')
     render({ isStopping: false, queuedMessages: originalMessages })
     for (const width of [760, 360]) {
         container.style.width = `${width}px`
-        await sleep()
+        await settleAnimations()
         const panel = container.querySelector('section')!
         check(panel.scrollWidth <= panel.clientWidth + 1, `queue panel fits ${width}px without horizontal overflow`)
         for (const node of container.querySelectorAll('button, textarea')) {
             const bounds = node.getBoundingClientRect(), outer = panel.getBoundingClientRect()
             check(bounds.left >= outer.left && bounds.right <= outer.right + 1, `queue action stays inside ${width}px panel`)
         }
+        check(row().getBoundingClientRect().height <= 38, `normal queue row stays compact at ${width}px`)
+        const content = row().querySelector('[data-queued-message-preview]')!.getBoundingClientRect()
+        const send = button('Steer queued message', row()).getBoundingClientRect()
+        check(Math.abs(content.top - send.top) < 2, `row actions align beside their own content at ${width}px`)
+        const dragHandle = button('Reorder queued message 1')
+        click('Edit queued message', row())
+        await sleep()
+        checkHeightTransition(row(), 'entering edit animates intrinsic height unless reduced motion is requested')
+        await settleAnimations()
+        const editor = row().querySelector('textarea')!
+        check(document.activeElement === editor && editor.getBoundingClientRect().width >= panel.clientWidth - 60, `editing fills the row beside its drag handle at ${width}px`)
+        check(button('Reorder queued message 1') === dragHandle && dragHandle.draggable, 'editing keeps the same functional drag handle')
+        check(!row().querySelector('[aria-label="Delete queued message"], button[aria-label="Edit queued message"], [aria-label="Steer queued message"]'), 'editing removes duplicate row controls')
+        const editorStyle = getComputedStyle(editor)
+        check(editorStyle.borderTopWidth === '0px' && editorStyle.borderLeftWidth === '0px' && editorStyle.borderRightWidth === '0px' && editorStyle.borderBottomWidth === '1px' && editorStyle.backgroundColor === 'rgba(0, 0, 0, 0)', 'editor is transparent with only an accent underline')
+        check(getComputedStyle(editor).resize === 'none' && editor.scrollHeight <= editor.clientHeight + 1, `short edit text fits without resizing or scrolling at ${width}px`)
+        check(button('Save', row()).getBoundingClientRect().right <= panel.getBoundingClientRect().right && button('Save', row()).getBoundingClientRect().left > button('Cancel', row()).getBoundingClientRect().left, 'edit actions align at the right with Save last')
+        type('A long queued message.\n'.repeat(20))
+        check(editor.getBoundingClientRect().height <= 160 && editor.scrollHeight > editor.clientHeight, 'long edits scroll within a bounded field')
+        await settleAnimations()
+        reorderKey(1, 'ArrowDown')
+        check(editor.value.startsWith('A long queued message.') && calls.at(-1) === 'move:one:two', 'keyboard reordering works without losing an active edit')
+        click('Cancel')
+        await sleep()
+        checkHeightTransition(row(), 'Cancel animates back to preview unless reduced motion is requested')
+        await settleAnimations()
     }
-    container.style.width = '760px'
-    return ['actual queue UI: Save/error/Cancel, held/resume, exact steer/delete, status guards, full-row drag ghost/drop-edge preview and accessible handle Alt+Arrow ordering, Chat/suggestion edit continuity, 360px layout']
+    container.style.width = '560px'
+    render({ queueHeld: false, queuedMessages: originalMessages.map((message, index) => ({ ...message, prompt: index ? 'Check the existing steering behavior and preserve the original turn while the tools keep streaming in the conversation.' : 'continue', contextFiles: [], status: 'queued', dispatchMode: 'queue' })) })
+    return ['actual queue UI: one-line preview/expand, adjacent row icons, header send-all, full-width auto-sized editor with Save/error/Cancel, held/resume, exact steer/delete, status guards, full-row drag and keyboard ordering, Chat/suggestion edit continuity, compact 360px layout']
 }

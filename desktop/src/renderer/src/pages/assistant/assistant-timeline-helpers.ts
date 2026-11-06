@@ -563,7 +563,9 @@ function groupAdjacentTimelineActivities(entries: TimelineEntry[]): TimelineEntr
 
     const flush = () => {
         if (pendingActivities.length === 0) return
-        if (pendingActivities.length === 1) {
+        // A tool run keeps its row identity/type from the first action onward.
+        // Otherwise the second action remounts the entire open tool list.
+        if (pendingActivities.length === 1 && (pendingKind !== 'tool' || isCommandCheckpointActivity(pendingActivities[0]))) {
             const activity = pendingActivities[0]
             groupedEntries.push({
                 id: activity.id,

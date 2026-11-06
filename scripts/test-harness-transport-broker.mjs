@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-const descriptor = { baseUrl: 'http://127.0.0.1:9', password: 'private-fixture' };
+const descriptor = { baseUrl: 'http://127.0.0.1:9', password: 'private-fixture', apiVersion: 2 };
 const sent = [];
 const broker = new HarnessTransportBrokerClient(message => sent.push(message));
 const first = broker.get(), second = broker.get();
@@ -21,6 +21,7 @@ const lease = await leasePromise;
 assert.equal(lease.client.cwd, '/selected');
 assert.equal(lease.client.baseUrl, descriptor.baseUrl);
 assert.equal(lease.client.password, descriptor.password);
+assert.equal(lease.client.apiVersion, 2, 'native API version survives the private parent/worker boundary');
 lease.release(); // A borrowed lease cannot stop its server-owned transport.
 await assert.rejects(borrowedHarnessHooks(async () => ({ deferred: true })).ensureServe(), /still starting/);
 const failed = broker.get();

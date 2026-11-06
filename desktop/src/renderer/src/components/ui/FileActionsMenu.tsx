@@ -6,6 +6,7 @@ import { dismissTransientMenus, TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/trans
 import { cn } from '@/lib/utils'
 import { FileActionsMenuSecondaryAction } from './FileActionsMenuSecondaryAction'
 import { resolveFileActionsMenuWidth, resolveFileActionsSubmenuPosition } from './file-actions-menu-layout'
+import { getOverlayOwnerRect } from './native-overlay-events'
 
 export interface FileActionsMenuChoice {
     id: string
@@ -149,6 +150,13 @@ export function FileActionsMenu({
             first?.focus()
         }
     }, [])
+    // Switching between open submenus reuses the portal node, so its ref does
+    // not mount again. Apply a keyboard focus request after its choices update.
+    useLayoutEffect(() => {
+        if (!open || !expandedItemId || !focusAfterSubmenuMount.current) return
+        const first = submenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+        if (first) { focusAfterSubmenuMount.current = false; first.focus() }
+    }, [open, expandedItemId, submenuPosition])
     const accentedMenuStyle = accentColor ? ({
         '--file-actions-menu-accent': accentColor,
         borderColor: `color-mix(in srgb, ${accentColor} 30%, var(--surface-divider))`,
@@ -204,14 +212,17 @@ export function FileActionsMenu({
         if (!open) return
 
         updatePosition()
+        // Measuring after a render is not a user dismissal. Live sidebar items
+        // receive fresh callbacks/metadata while a submenu is being used.
+        const remeasure = () => updatePosition(menuRef.current?.offsetWidth ?? resolvedMenuWidth)
         const handleResize = () => {
             setExpandedItemId(null)
             setSubmenuPosition(null)
             updatePosition(menuRef.current?.offsetWidth ?? resolvedMenuWidth)
         }
-        const rafId = window.requestAnimationFrame(handleResize)
+        const rafId = window.requestAnimationFrame(remeasure)
         window.addEventListener('resize', handleResize)
-        const observer = matchTriggerWidth && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(handleResize) : null
+        const observer = matchTriggerWidth && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(remeasure) : null
         const anchor = anchorRef?.current || buttonRef.current
         if (anchor) observer?.observe(anchor)
         return () => {
@@ -221,8 +232,23 @@ export function FileActionsMenu({
         }
     }, [compact, rowHeight, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef, contextAnchor])
 
+    useLayoutEffect(() => {
+        if (!open || !expandedItemId) return
+        const item = items.find(item => item.id === expandedItemId)
+        if (!item || item.disabled || !item.choices?.length) {
+            setExpandedItemId(null); setSubmenuPosition(null)
+            return
+        }
+        const row = menuRef.current?.querySelector<HTMLElement>('[data-expanded="true"]')
+        const anchor = item.submenuOnly ? row : row?.querySelector<HTMLElement>('button[aria-haspopup="menu"]')
+        if (!anchor) return
+        const next = resolveFileActionsSubmenuPosition(getOverlayOwnerRect(anchor), item.submenuOnly ? 196 : 168, item.choices.length, item.submenuOnly ? (chatCompact ? 28 : 32) : rowHeight, window.innerWidth, window.innerHeight)
+        setSubmenuPosition(previous => previous?.top === next.top && previous.left === next.left && previous.side === next.side ? previous : next)
+    }, [open, expandedItemId, items, menuPosition, chatCompact, rowHeight])
+
     useEffect(() => {
         if (!open) {
+            focusAfterSubmenuMount.current = false
             setExpandedItemId(null)
             setSubmenuPosition(null)
         }
@@ -294,7 +320,7 @@ export function FileActionsMenu({
         cancelSubmenuClose()
         focusAfterSubmenuMount.current = focus
         setExpandedItemId(item.id)
-        setSubmenuPosition(resolveFileActionsSubmenuPosition(element.getBoundingClientRect(), 196, item.choices.length, chatCompact ? 28 : 32, window.innerWidth, window.innerHeight))
+        setSubmenuPosition(resolveFileActionsSubmenuPosition(getOverlayOwnerRect(element), 196, item.choices.length, chatCompact ? 28 : 32, window.innerWidth, window.innerHeight))
         if (focus && expandedItemId === item.id && submenuRef.current) {
             focusAfterSubmenuMount.current = false
             submenuRef.current.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
@@ -427,7 +453,7 @@ export function FileActionsMenu({
                                         return
                                     }
                                     setExpandedItemId(item.id)
-                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(event.currentTarget.getBoundingClientRect(), 168, item.choices?.length || 0, rowHeight, window.innerWidth, window.innerHeight))
+                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(getOverlayOwnerRect(event.currentTarget), 168, item.choices?.length || 0, rowHeight, window.innerWidth, window.innerHeight))
                                 }}
                                 className={cn(
                                     'inline-flex w-7 shrink-0 items-center justify-center rounded-r-[4px] text-sparkle-text-muted transition-colors hover:text-sparkle-text',

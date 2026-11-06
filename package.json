@@ -15,6 +15,7 @@
     "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs && node scripts/test-direct-api-model-catalog.mjs",
     "test:assistant-startup-latency": "node scripts/test-session-worker-pool.mjs && node scripts/test-harness-transport.mjs && node scripts/test-session-worker-preparation.mjs && node scripts/test-bridge-startup-catalog.mjs",
     "test:harness-performance": "node scripts/test-harness-performance.mjs",
+    "test:opencode-harness": "node scripts/test-opencode-harness.mjs && node scripts/test-harness-v2.mjs && node scripts/test-harness-config-plugin.mjs && node scripts/test-harness-events.mjs && node scripts/test-harness-transport.mjs && node scripts/test-harness-transport-broker.mjs && node scripts/test-harness-broker-bridge.mjs",
     "test:openai-model-runtime": "node scripts/test-openai-model-runtime.mjs",
     "test:message-attachments": "node scripts/test-message-attachments.mjs",
     "test:session-preferences": "node --test scripts/test-session-preferences.mjs",

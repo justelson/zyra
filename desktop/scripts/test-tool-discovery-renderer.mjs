@@ -30,6 +30,8 @@ try {
   });
   const css = await postcss([tailwindcss({ ...tailwindConfig, content: [
     join(desktop, 'src/renderer/src/pages/assistant/AssistantTimelineActionShell.tsx'),
+    join(desktop, 'src/renderer/src/pages/assistant/AssistantTimelineActionBatch.tsx'),
+    join(desktop, 'src/renderer/src/pages/assistant/AssistantActionBatchScroll.tsx'),
     join(desktop, 'src/renderer/src/pages/assistant/AssistantTimelineToolDiscovery.tsx'),
     join(desktop, 'src/renderer/src/pages/assistant/assistant-action-row-layout.ts'),
     join(desktop, 'src/renderer/src/components/ui/AnimatedHeight.tsx')

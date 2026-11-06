@@ -3,6 +3,7 @@ import { pingActiveModel } from './model-ping.mjs';
 import { abortManagedBashForegroundJobs, assertManagedBashCleanup, listManagedBashJobs, stopManagedBashJobs } from './managed-bash-tool.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
 import { normalizeCanonicalMessageSourceId } from './message-identity.mjs';
+import { createUserTurnContinuity } from './user-turn-continuity.mjs';
 import { ensureSessionDurable } from './agent-server/session-durability.mjs';
 import { sessionPreferences } from './session-preferences.mjs';
 import { refreshSavedProviderModels, registerSavedProviders } from "./provider-connections.mjs";
@@ -337,7 +338,10 @@ async function handleConnect(payload) {
     });
     idleMemoryScheduler.idle();
   }
+  const userTurnContinuity = createUserTurnContinuity();
+  runtime.userTurnContinuity = userTurnContinuity;
   unsubscribe = runtime.session.subscribe((event) => {
+    userTurnContinuity.observe(event);
     if (event.type === "agent_start") { idleMemoryScheduler?.busy(); memoryJobController?.abort(); }
     if (event.type === "agent_end" && event.willRetry !== true) idleMemoryScheduler?.idle();
     const normalized = normalizeEvent(event, getRuntimeContextWindow(runtime));
@@ -969,7 +973,9 @@ async function handleSessionOperation(type, payload = {}) {
   if (!runtime?.session) throw new Error("Zyra bridge is not connected.");
   if (type === 'model_ping') return pingActiveModel(runtime, payload.requestId);
   if (type === "steer") {
-    await runtime.session.steer(String(payload.prompt || ""), normalizePromptImages(payload.images));
+    const cancel = runtime.userTurnContinuity?.expectSteeringMessage();
+    try { await runtime.session.steer(String(payload.prompt || ""), normalizePromptImages(payload.images)); }
+    catch (error) { cancel?.(); throw error; }
     return {};
   }
   if (type === "follow_up") {

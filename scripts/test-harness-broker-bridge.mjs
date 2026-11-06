@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { isolateBridgeEnvironment } from './fixtures/agent-server-bridge-env.mjs';
 
+for (const apiVersion of [1, 2]) {
 const temporary = mkdtempSync(path.join(os.tmpdir(), 'zyra-broker-bridge-'));
 const root = fileURLToPath(new URL('../', import.meta.url));
 let isolation, worker;
 try {
   isolation = isolateBridgeEnvironment(temporary);
   process.env.ZYRA_BROKER_FIXTURE_LOG = path.join(temporary, 'discovery.log');
+  process.env.ZYRA_BROKER_FIXTURE_VERSION = String(apiVersion);
   process.env.NODE_OPTIONS += ` --import ${new URL('./fixtures/harness-broker-discovery.mjs', import.meta.url).href}`;
   const providerPath = path.join(process.env.ZYRA_DATA_ROOT, '.zyra', 'providers.json');
   mkdirSync(path.dirname(providerPath), { recursive: true });
@@ -25,24 +27,25 @@ try {
   const { AgentBridgeWorker } = await import('../src/agent-server/bridge-worker.mjs');
   const server = new ZyraAgentServer({ root, stateDirectory: path.join(temporary, 'state'), catalog: {}, createWorker: options => new AgentBridgeWorker(options) });
   let leases = 0;
-  server.harnessTransport = { get: async () => { leases++; return { baseUrl: 'http://127.0.0.1:9', password: 'private-broker-fixture' }; } };
+  server.harnessTransport = { get: async () => { leases++; return { baseUrl: 'http://127.0.0.1:9', password: 'private-broker-fixture', ...(apiVersion === 2 ? { apiVersion } : {}) }; } };
   worker = server.getUtilityWorker();
   const publicEvents = [];
   worker.on('event', value => publicEvents.push(value));
   const result = await worker.request('warmup', { forceRefresh: true, skipAvailability: true, serverOwnedHarness: true }, { timeoutMs: 30_000 });
   assert.ok(result.models.some(model => model.id === 'opencode-harness/broker-fixture/discovered'), 'real bridge/SDK discovery replaces a stale native catalog');
   assert.equal(leases, 1, 'catalog uses one server-owned lease rather than starting another backend');
-  assert.equal(readFileSync(process.env.ZYRA_BROKER_FIXTURE_LOG, 'utf8'), 'provider\n');
+  assert.equal(readFileSync(process.env.ZYRA_BROKER_FIXTURE_LOG, 'utf8'), apiVersion === 2 ? 'model\n' : 'provider\n');
   const persisted = readFileSync(providerPath, 'utf8');
   assert.ok(persisted.includes('broker-fixture/discovered'));
   assert.equal(JSON.stringify([result, publicEvents]).includes('private-broker-fixture'), false);
   assert.equal(persisted.includes('private-broker-fixture'), false, 'descriptor is not stored with models');
   isolation.assertOffline();
-  console.log('Actual bridge → private parent RPC → SDK discovery → saved catalog passed; no backend spawn or model request.');
+  console.log(`Actual V${apiVersion} bridge → private parent RPC → SDK discovery → saved catalog passed; no backend spawn or model request.`);
 } finally {
   if (worker?.child) { const closed = once(worker.child, 'close'); worker.dispose(); await closed; }
   isolation?.restore();
   const resolved = path.resolve(temporary);
   if (path.dirname(resolved) !== path.resolve(os.tmpdir()) || !path.basename(resolved).startsWith('zyra-broker-bridge-')) throw Error('Unexpected fixture cleanup path');
   rmSync(resolved, { recursive: true, force: true });
+}
 }

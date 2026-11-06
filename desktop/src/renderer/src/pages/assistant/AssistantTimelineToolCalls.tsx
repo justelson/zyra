@@ -1,6 +1,6 @@
 import { AssistantTimelineNetworkRecovery } from './AssistantTimelineNetworkRecovery'
 import { TimelineIssueList } from './AssistantTimelineIssueList'
-import { memo, useMemo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import type { AssistantChatDisplayMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import type { AssistantDiffTarget } from './assistant-diff-types'
@@ -31,6 +31,12 @@ import type { AssistantActivityRevealRequest } from './assistant-timeline-scroll
 
 function normalizeTimelineFilePath(value: string): string {
     return value.trim().replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase()
+}
+
+function isStandaloneActivity(activity: AssistantActivity): boolean {
+    return activity.kind === 'thread-message'
+        || activity.kind === 'thread-collaboration'
+        || isAssistantToolDiscoveryActivity(activity)
 }
 
 function buildDisplayActivityList(activities: AssistantActivity[]): AssistantActivity[] {
@@ -153,21 +159,33 @@ export const TimelineToolCallList = memo(({
             </div>
         )
     }
-    const actionRuns = groupAssistantControlActionRuns(displayActivities)
-    const renderActionRows = () => actionRuns.map((run) => run.length > 1 ? (
-        <AssistantTimelineActionBatch key={run[0]!.id} activities={run} projectRootPath={projectRootPath} controlRun revealActivityRequest={revealActivityRequest}>
-            {() => run.map(renderActivity)}
-        </AssistantTimelineActionBatch>
-    ) : renderActivity(run[0]!))
+    // Discovery and message rows stay visible, but only split their neighboring
+    // runs. A later loader must not unwrap all the actions that preceded it.
+    const activityGroups: AssistantActivity[][] = []
+    for (const activity of displayActivities) {
+        const previous = activityGroups.at(-1)
+        if (previous && !isStandaloneActivity(activity) && !isStandaloneActivity(previous[0]!)) previous.push(activity)
+        else activityGroups.push([activity])
+    }
+    const renderActionGroup = (group: AssistantActivity[]) => {
+        if (isStandaloneActivity(group[0]!)) return <Fragment key={group[0]!.id}>{renderActivity(group[0]!)}</Fragment>
+        const actionRuns = groupAssistantControlActionRuns(group)
+        const renderActionRows = () => actionRuns.map((run) => ['browser', 'computer'].includes(getAssistantActionFamily(run[0]!)) ? (
+            <AssistantTimelineActionBatch key={run[0]!.id} grouped={run.length > 1} activities={run} projectRootPath={projectRootPath} controlRun revealActivityRequest={revealActivityRequest}>
+                {() => run.map(renderActivity)}
+            </AssistantTimelineActionBatch>
+        ) : renderActivity(run[0]!))
+        return (
+            <AssistantTimelineActionBatch key={group[0]!.id} grouped={actionRuns.length > 1} activities={group} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
+                {renderActionRows}
+            </AssistantTimelineActionBatch>
+        )
+    }
 
     return (
         <AssistantReadPreviewScope>
         <div className="max-w-4xl space-y-0.5 py-0.5" data-assistant-tool-call-list={displayMode}>
-            {actionRuns.length > 1 && !displayActivities.some(activity => activity.kind === 'thread-message' || activity.kind === 'thread-collaboration' || isAssistantToolDiscoveryActivity(activity)) ? (
-                <AssistantTimelineActionBatch activities={displayActivities} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
-                    {renderActionRows}
-                </AssistantTimelineActionBatch>
-            ) : renderActionRows()}
+            {activityGroups.map(renderActionGroup)}
         </div>
         </AssistantReadPreviewScope>
     )

@@ -5,6 +5,9 @@ import net from "node:net";
 import path from "node:path";
 import { pathToFileURL } from 'node:url';
 import { subscribeHarnessEvents, createHarnessEventAccumulator } from './harness-events.mjs';
+import { requestV2, v2CatalogPayload, prepareV2, listV2Models } from './harness-v2-client.mjs';
+import { managedV2Config } from './harness-v2-config.mjs';
+import { runHarnessV2Turn } from './harness-v2-turn.mjs';
 
 /**
  * Local OpenCode harness provider.
@@ -41,6 +44,7 @@ const FINAL_MESSAGE_TIMEOUT_MS = 300_000;
 const KILL_GRACE_MS = 5_000;
 const IDLE_STOP_MS = 10 * 60_000;
 const MANAGED_AGENT = "zyra-managed";
+const harnessVersions = new Map();
 const MANAGED_TOOLS = ["read", "glob", "grep", "list", "bash", "edit", "write", "patch", "webfetch", "websearch"];
 const MANAGED_PERMISSION = Object.freeze({
   "*": "ask", read: "ask", glob: "ask", grep: "ask", list: "ask",
@@ -144,7 +148,7 @@ function nativeInstallCandidates({ env, platform, home, join }) {
     const exe = (directory) => directory ? join(directory, "opencode.exe") : null;
     if (installDir) candidates.push(exe(installDir));
     const appData = String(env?.APPDATA ?? "");
-    if (appData) candidates.push(join(appData, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe"));
+    if (appData) candidates.push(join(appData, "npm", "node_modules", "@opencode", "cli", "bin", "opencode.exe"), join(appData, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe"));
     if (home) candidates.push(exe(join(home, ".opencode", "bin")));
   } else {
     const binary = (directory) => directory ? join(directory, "opencode") : null;
@@ -201,6 +205,7 @@ export async function detectHarness(options = {}) {
   if (!executable) return null;
   const version = await readHarnessVersion({ executable, execFile: options.execFile });
   if (!version) return null;
+  harnessVersions.set(executable, version);
   return { executable, version };
 }
 
@@ -258,8 +263,10 @@ function waitForHealth(client, { fetchImpl = client?.fetch ?? fetch, timeoutMs =
   return (async () => {
     for (;;) {
       try {
-        const health = await fetchJson(client, "/global/health", { timeoutMs: HEALTH_TIMEOUT_MS, fetchImpl });
-        if (health?.healthy) return;
+        const health = client.apiVersion === 2
+          ? await requestV2(client, '/info', { timeoutMs: HEALTH_TIMEOUT_MS, fetchImpl })
+          : await fetchJson(client, "/global/health", { timeoutMs: HEALTH_TIMEOUT_MS, fetchImpl });
+        if (client.apiVersion === 2 ? /^2\./.test(health?.version) && Number.isSafeInteger(health?.pid) : health?.healthy) return;
       } catch { /* Still booting; retry until the deadline. */ }
       if (Date.now() - started > timeoutMs) throw fail("The OpenCode harness did not become healthy in time.");
       await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_MS));
@@ -332,6 +339,7 @@ export async function prepareHarnessServe({ cwd = process.cwd(), executable = fi
 
 /** Initialize provider plugins/catalog without making a generation request. */
 export async function prepareHarnessClient(client, options = {}) {
+    if (client.apiVersion === 2) return prepareV2(client, options);
     // Health can answer before OpenCode has initialized the project/provider
     // instance. Create and remove an empty session to move that wait off Send.
     await Promise.all([
@@ -352,11 +360,13 @@ async function startOwnedServe({ cwd, executable, spawnImpl, fetchImpl, randomPa
   if (!port) throw fail("Could not reserve a loopback port for the OpenCode harness.");
   const password = randomPassword();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const version = harnessVersions.get(executable) ?? (spawnImpl === spawnHarnessProcess ? await readHarnessVersion({ executable }) : null);
+  const apiVersion = /^2\./.test(version) ? 2 : 1;
   let child;
   try {
     child = spawnImpl(executable, ["serve", "--port", String(port), "--hostname", "127.0.0.1"], {
       cwd,
-      env: { ...process.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify(managedHarnessConfig()) },
+      env: { ...process.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify(apiVersion === 2 ? managedV2Config() : managedHarnessConfig()) },
       stdio: "ignore",
       windowsHide: true,
     });
@@ -368,12 +378,12 @@ async function startOwnedServe({ cwd, executable, spawnImpl, fetchImpl, randomPa
     throw fail("Could not start the OpenCode harness process.");
   }
   const record = {
-    child, baseUrl, password, cwd, fetchImpl, idleMs, active: 0, ready: false,
+    child, baseUrl, password, cwd, fetchImpl, idleMs, apiVersion, active: 0, ready: false,
     lastUsed: Date.now(), idleTimer: null, exited: false,
   };
   child.once("exit", () => { record.exited = true; });
   child.once("error", () => { record.exited = true; });
-  const client = { baseUrl, password, fetch: fetchImpl, cwd };
+  const client = { baseUrl, password, fetch: fetchImpl, cwd, apiVersion };
   try {
     await waitForHealth(client, { fetchImpl, timeoutMs: startTimeoutMs });
   } catch (error) {
@@ -390,7 +400,7 @@ function leaseHandle(cwd, record, fetchImpl) {
   const fetch = fetchImpl ?? record.fetchImpl ?? fetch;
   return {
     baseUrl: record.baseUrl,
-    client: { baseUrl: record.baseUrl, password: record.password, fetch, cwd: record.cwd },
+    client: { baseUrl: record.baseUrl, password: record.password, fetch, cwd: record.cwd, apiVersion: record.apiVersion },
     release() {
       if (released) return;
       released = true;
@@ -404,6 +414,12 @@ function leaseHandle(cwd, record, fetchImpl) {
 }
 
 async function killChild(child) {
+  // Windows launchers own a server descendant. Terminate the owned tree while
+  // its root is still alive, rather than orphaning that server with kill().
+  if (process.platform === 'win32' && typeof child.spawnfile === 'string' && child.exitCode === null && Number.isSafeInteger(child.pid)) {
+    const killed = await new Promise(resolve => defaultExecFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: KILL_GRACE_MS }, error => resolve(!error)));
+    if (killed) return;
+  }
   try { child.kill(); } catch { return; }
   await new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -503,6 +519,7 @@ function hasExplicitZeroPrice(value) {
 }
 
 export async function listHarnessModels(client, { fetchImpl, signal } = {}) {
+  if (client.apiVersion === 2) return mapProviderCatalog(v2CatalogPayload(await listV2Models(client, { signal, fetchImpl: fetchImpl ?? client.fetch })));
   const payload = await fetchJson(client, "/provider", { signal, timeoutMs: HISTORY_MESSAGE_TIMEOUT_MS, fetchImpl: fetchImpl ?? client?.fetch });
   return mapProviderCatalog(payload);
 }
@@ -638,6 +655,7 @@ function harnessMessageId() {
  */
 export async function runHarnessTextTurn({ client, modelId, context, signal, variant, fetchImpl, sessionIdRef, onProgress, onPermission, conversation, onMetric, historyTimeoutMs = HISTORY_MESSAGE_TIMEOUT_MS, finalTimeoutMs = FINAL_MESSAGE_TIMEOUT_MS } = {}) {
   if (!client?.baseUrl || !client?.password) throw fail("The OpenCode harness client is not connected.");
+  if (client.apiVersion === 2) return runHarnessV2Turn({ client, modelId, mapped: mapPiContextToHarness(context), signal, variant: normalizeHarnessVariant(variant), fetchImpl, sessionIdRef, onProgress, onPermission, conversation, onMetric, historyTimeoutMs, finalTimeoutMs, extract: extractHarnessReply, managedTools: MANAGED_TOOLS });
   const { providerID, modelID } = splitInnerModel(modelId);
   const mapped = mapPiContextToHarness(context);
   const modelVariant = normalizeHarnessVariant(variant);
@@ -892,6 +910,7 @@ export function createHarnessMessageStream() {
 
 function abortHarnessSession(client, sessionId, fetchImpl) {
   if (!sessionId) return Promise.resolve();
+  if (client?.apiVersion === 2) return requestV2(client, `/session/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST', fetchImpl: fetchImpl ?? client.fetch }).catch(() => {});
   return fetchJson(client, `/session/${sessionId}/abort`, { method: "POST", body: {}, timeoutMs: HISTORY_MESSAGE_TIMEOUT_MS, fetchImpl: fetchImpl ?? client?.fetch }).catch(() => {});
 }
 
@@ -919,7 +938,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
       const cwd = typeof resolveCwd === "function" ? resolveCwd() : (resolveCwd ?? process.cwd());
       const sessionIdRef = { current: null };
       const leaseRef = { current: null };
-      const onAbort = () => { void abortHarnessSession({ baseUrl: leaseRef.current?.baseUrl, password: leaseRef.current?.client.password, fetch: fetchImpl }, sessionIdRef.current, fetchImpl); };
+      const onAbort = () => { void abortHarnessSession(leaseRef.current?.client, sessionIdRef.current, fetchImpl); };
       try {
         if (signal?.aborted) throw fail("The OpenCode harness turn was aborted.");
         const lease = await ensureServe({ cwd,
@@ -927,7 +946,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
         leaseRef.current = lease;
         signal?.addEventListener?.("abort", onAbort, { once: true });
         stream.push({ type: "start", partial: partial([]) });
-        const liveClient = { baseUrl: lease.baseUrl, password: lease.client.password, fetch: fetchImpl, cwd };
+        const liveClient = { ...lease.client, fetch: fetchImpl, cwd };
         const content = [];
         const contentIndexByType = new Map();
         const toolStates = new Map();
@@ -1042,7 +1061,7 @@ export function createHarnessRefreshModels({ storedModels = [], executable, spaw
     try {
       const lease = await ensureServe({ cwd, executable, spawnImpl, fetchImpl });
       try {
-        return await listHarnessModels({ baseUrl: lease.baseUrl, password: lease.client.password, fetch: fetchImpl, cwd });
+        return await listHarnessModels({ ...lease.client, fetch: fetchImpl, cwd });
       } finally {
         try { lease.release(); } catch { /* Ignore release failures during refresh. */ }
       }

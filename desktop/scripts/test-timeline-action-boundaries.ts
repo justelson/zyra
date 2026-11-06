@@ -9,6 +9,12 @@ const user = message('user', 'user', 0, 'Do the requested work')
 const narration = message('narration', 'assistant', 1, 'I will inspect the relevant behavior.')
 const next = message('next-user', 'user', 9, 'Here is the next request', 'next-turn')
 const tools = [action('live-a', 2, 'local-turn'), action('live-b', 3, 'local-turn'), action('canonical-a', 4, 'canonical-turn'), action('canonical-b', 5, 'canonical-turn'), action('unreconciled', 6, null)]
+const singleToolEntry = getTimelineEntries([], [tools[0]!])[0]!
+const growingToolEntry = getTimelineEntries([], [tools[1]!, tools[0]!])[0]!
+assert.equal(singleToolEntry.type, 'activity-group', 'a tool run uses its stable grouping container from its first action')
+assert.equal(singleToolEntry.id, growingToolEntry.id, 'the second action cannot change the owning timeline row identity')
+const checkpoint: AssistantActivity = { ...tools[0]!, kind: 'command.checkpoint', payload: { category: 'command-checkpoint', commandAction: 'status', jobId: 'fixture' } }
+assert.equal(getTimelineEntries([], [checkpoint])[0]?.type, 'activity', 'single command checkpoints retain their work-trace path')
 const pipeline = (messages: AssistantMessage[], activities: AssistantActivity[]) => {
     const entries = getTimelineEntries(messages, [...activities].reverse())
     return groupTimelineRowsIntoWorkSummaries({ rows: buildTimelineRows(entries, false, null), messages, latestAssistantMessageId: null, latestTurnStartedAt: null, isWorking: false })

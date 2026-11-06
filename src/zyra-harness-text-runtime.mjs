@@ -27,7 +27,7 @@ export async function runZyraHarnessTextPrompt({
   const lease = await ensureServe({ cwd, executable: detected.executable, spawnImpl, fetchImpl });
   try {
     const reply = await runTextTurn({
-      client: { baseUrl: lease.baseUrl, password: lease.client?.password, fetch: fetchImpl, cwd },
+      client: { ...lease.client, fetch: fetchImpl, cwd },
       modelId: selectedModelId,
       context: {
         ...(systemPrompt ? { systemPrompt } : {}),

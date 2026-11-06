@@ -1,5 +1,6 @@
 import type { AssistantActivity, AssistantMessage } from '@shared/assistant/contracts'
 import type { TimelineRenderRow } from './assistant-timeline-helpers'
+import { getAssistantUserTurnBoundaryIds } from './assistant-user-turn-boundaries'
 
 export type AssistantPeerReply = {
     activityId: string
@@ -52,16 +53,17 @@ function activities(row: TimelineRenderRow): AssistantActivity[] {
 /** A received peer message starts a task boundary in the display only. A sent
  * result can supply a missing ending without adding fabricated canonical chat. */
 export function prepareAssistantPeerReplyEndings(source: TimelineRenderRow[], messages: AssistantMessage[], isWorking: boolean) {
+    const boundaries = getAssistantUserTurnBoundaryIds(source)
     const rows: TimelineRenderRow[] = []
     const endings: AssistantMessage[] = []
     for (let start = 0; start < source.length; start++) {
         const boundary = source[start]
         rows.push(boundary)
-        if (boundary.kind !== 'message' || boundary.message.role !== 'user') continue
+        if (boundary.kind !== 'message' || !boundaries.has(boundary.id)) continue
         let end = start + 1
         while (end < source.length) {
             const next = source[end]
-            if (next.kind === 'message' && next.message.role === 'user') break
+            if (boundaries.has(next.id)) break
             end++
         }
         const segment = source.slice(start + 1, end)

@@ -31,6 +31,48 @@ const activity = (name: string, status = 'completed'): AssistantActivity => ({
                 check(row.getBoundingClientRect().height < 42, 'Discovery occupies one compact row')
             }
         }
+        const ordinary = (id: string): AssistantActivity => ({
+            id: `${mode}-${id}`, kind: 'command', tone: 'tool', turnId: 'fixture-turn', createdAt: '2026-10-27T12:00:00Z',
+            summary: 'Fixture command', payload: { toolName: 'exec_command', command: 'echo fixture', status: 'completed', actionBatchIntent: 'Checking fixture actions' }
+        })
+        const before = [ordinary('before-one'), ordinary('before-two')]
+        const after = [ordinary('after-one'), ordinary('after-two')]
+        root.render(<TimelineToolCallList activities={before} displayMode={mode} />)
+        await settled()
+        const firstBatch = host.querySelector<HTMLButtonElement>('[data-assistant-action-batch-trigger]')!
+        check(firstBatch?.getAttribute('aria-expanded') === 'false', 'Ordinary actions start collapsed')
+        const loader = { ...activity('tool_search'), id: `${mode}-loader` }
+        root.render(<TimelineToolCallList activities={[...before, loader]} displayMode={mode} />)
+        await settled()
+        check(host.querySelector('[data-assistant-action-batch-trigger]') === firstBatch, 'Appending a loader preserves the existing batch DOM identity')
+        check(firstBatch.getAttribute('aria-expanded') === 'false', 'Appending a loader preserves its collapsed state')
+        const loaderRow = host.querySelector<HTMLButtonElement>('button:disabled')!
+        check(loaderRow && !loaderRow.closest('[data-assistant-action-batch]'), 'Discovery is visible outside collapsed batches')
+        firstBatch.click()
+        await settled()
+        root.render(<TimelineToolCallList activities={[...before, loader, ...after]} displayMode={mode} />)
+        await settled()
+        const batches = host.querySelectorAll<HTMLButtonElement>('[data-assistant-action-batch-trigger]')
+        check(batches.length === 2 && batches[0] === firstBatch, 'Actions after the loader form their own stable batch')
+        check(firstBatch.getAttribute('aria-expanded') === 'true' && batches[1]!.getAttribute('aria-expanded') === 'false', 'An existing expanded choice is preserved while the next batch starts collapsed')
+        for (const kind of ['thread-message', 'thread-collaboration'] as const) {
+            root.render(<TimelineToolCallList activities={[...before, { id: kind, kind, tone: 'tool', summary: 'Fixture message boundary', createdAt: before[0]!.createdAt }, ...after]} displayMode={mode} />)
+            await settled()
+            check(host.querySelectorAll('[data-assistant-action-batch-trigger]').length === 2, 'Message boundaries preserve neighboring action batches')
+        }
+        const controls = ['one', 'two'].map(id => ({ ...ordinary(`control-${id}`), kind: 'browser-control' as const, payload: {
+            toolName: 'browser_act', status: 'completed', args: { action: { type: 'click' } }
+        } }))
+        root.render(<TimelineToolCallList activities={controls} displayMode={mode} />)
+        await settled()
+        const controlBatch = host.querySelector<HTMLButtonElement>('[data-assistant-action-batch-trigger]')!
+        check(controlBatch, 'Consecutive browser controls keep their own batch')
+        controlBatch.click()
+        await settled()
+        root.render(<TimelineToolCallList activities={[loader, ...controls]} displayMode={mode} />)
+        await settled()
+        check(host.querySelector('[data-assistant-action-batch-trigger]') === controlBatch && controlBatch.getAttribute('aria-expanded') === 'true', 'Inserting a loader preserves the control batch identity and expanded state')
+        results.push(`${mode}: streamed loaders preserve neighboring batches, disclosure state and message boundaries`)
         results.push(`${mode}: current/legacy browser and computer discovery stays plain through running, completion and failure`)
     }
     const control: AssistantActivity = { ...activity('browser_act'), kind: 'browser-control', payload: {

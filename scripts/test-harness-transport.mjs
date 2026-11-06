@@ -8,8 +8,8 @@ const api = {
   harnessServeStatus: () => ({ running: true }),
   findHarnessExecutable: () => '/fixture/opencode',
   prepareHarnessServe: async () => { starts++; await gate; },
-  prepareHarnessClient: async (client) => { assert.equal(client.cwd, '/other-project'); projectPreparations++; },
-  ensureHarnessServe: async () => ({ baseUrl: 'http://127.0.0.1:1', client: { password: 'synthetic-local-transport' }, release: () => { releases++; } }),
+  prepareHarnessClient: async (client) => { assert.equal(client.cwd, '/other-project'); assert.equal(client.apiVersion, 2); projectPreparations++; },
+  ensureHarnessServe: async () => ({ baseUrl: 'http://127.0.0.1:1', client: { password: 'synthetic-local-transport', apiVersion: 2 }, release: () => { releases++; } }),
   stopHarnessServe: async () => { stops++; }
 };
 let projectPreparations = 0;
@@ -27,7 +27,7 @@ finish(); await preparation;
 await Promise.all([transport.prepareProject('/other-project'), transport.prepareProject('/other-project')]);
 assert.equal(projectPreparations, 1, 'project provider setup is shared between concurrent authorized attachments');
 assert.equal(starts, 1, 'concurrent chats initialize one local server');
-assert.deepEqual(Object.keys(await first).sort(), ['baseUrl', 'password']);
+assert.deepEqual(Object.keys(await first).sort(), ['apiVersion', 'baseUrl', 'password']);
 await transport.dispose();
 assert.equal(releases, 1); assert.equal(stops, 1);
 await assert.rejects(transport.get(), /closed/);

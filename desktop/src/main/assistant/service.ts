@@ -1,4 +1,5 @@
 import { findSupersededRuntimeCompactionIds } from './compaction-reconciliation'
+import { readUserTurnRootMessageId } from '../../../../src/user-turn-continuity.mjs'
 import { findCanonicalChatRecords, isImportedChat } from '../../shared/assistant/chat-identity'
 import { remapAssistantFleetRoot } from '../../shared/assistant/fleet-projection'
 import { VisualizationLibrary, resolveVisualizationLibraryContext } from './visualization-library'
@@ -4450,7 +4451,7 @@ export function projectCanonicalTimeline(
         if (role === 'user') {
             suppressInternalTitleTurn = isAssistantTitleGenerationPrompt(text)
             activeActionBatchIntent = null
-            activeTurnId = suppressInternalTitleTurn ? null : `shared-turn:${key}:${sourceMessageId}`
+            activeTurnId = suppressInternalTitleTurn ? null : `shared-turn:${key}:${readUserTurnRootMessageId(message) || sourceMessageId}`
         } else if (role === 'assistant' && !activeTurnId && !suppressInternalTitleTurn) {
             activeTurnId = `shared-turn:${key}:${sourceMessageId}`
         }

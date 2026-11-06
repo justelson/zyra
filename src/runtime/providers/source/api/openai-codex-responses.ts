@@ -621,13 +621,16 @@ function buildRequestBody(
 			body.reasoning = {
 				effort,
 				summary: options.reasoningSummary ?? "auto",
-				// Legacy Chat replays the full transcript. Sol's all-turns default
-				// also renders old opaque reasoning, which can dominate a follow-up.
-				// Keep the selected effort and every history item; scope reasoning
-				// reuse to this user turn, including its tool-call continuations.
-				...(model.id === "gpt-6.1-sol" ? { context: "current_turn" as const } : {}),
 			};
 		}
+	}
+	// Legacy Chat replays the full transcript. Sol's all-turns default
+	// also renders old opaque reasoning, which can dominate a follow-up.
+	// Keep the selected effort and every history item; scope reasoning
+	// reuse to this user turn, including its tool-call continuations.
+	// Apply this even when the caller leaves effort at the provider default.
+	if (model.id === "gpt-6.1-sol") {
+		body.reasoning = { ...body.reasoning, context: "current_turn" };
 	}
 
 	return body;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { zstdDecompressSync } from 'node:zlib';
-import { streamSimple } from '../src/runtime/providers/src/api/openai-codex-responses.js';
+import { streamSimple, stream as streamCodex } from '../src/runtime/providers/src/api/openai-codex-responses.js';
 
 const model = { id: 'future-model', name: 'Future model', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://chatgpt.com/backend-api', reasoning: true, input: ['text', 'image'], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
 const token = ['fixture', Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'fixture-account' } })).toString('base64'), 'fixture'].join('.');
@@ -74,6 +74,16 @@ for (const [id, contextOverride] of [['gpt-6.1-sol'], ['future-model'], ['gpt-6.
   const scopedResult = await scoped.result();
   assert.equal(scopedResult.stopReason, 'stop', scopedResult.errorMessage);
 }
+const defaultEffort = await streamCodex({ ...model, id: 'gpt-6.1-sol', reasoning: true }, { messages: longHistory }, {
+  apiKey: token, transport: 'sse', maxRetries: 0,
+  fetch: async (_url, options) => {
+    const raw = options.headers.get('content-encoding') === 'zstd' ? zstdDecompressSync(options.body).toString() : String(options.body);
+    const payload = JSON.parse(raw);
+    assert.deepEqual(payload.reasoning, { context: 'current_turn' }, 'direct callers get the same context scope without overriding the provider effort default');
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  },
+}).result();
+assert.equal(defaultEffort.stopReason, 'stop', defaultEffort.errorMessage);
 for (const returnedTier of ['default', 'priority']) {
   const pricedModel = { ...model, id: 'gpt-6.1-sol' };
   const responseEvents = events.map(event => event.type === 'response.completed' ? { ...event, response: { ...event.response, service_tier: returnedTier } } : event);

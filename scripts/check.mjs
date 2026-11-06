@@ -23,6 +23,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const syntaxTargets = [
   'scripts/benchmark-chat-latency.mjs',
   'scripts/response-latency/metrics.mjs',
+  'scripts/response-latency/project.mjs',
   'scripts/response-latency/observe-provider.mjs',
   'scripts/response-latency/provider-baseline.mjs',
   'scripts/test-chat-latency-metrics.mjs',

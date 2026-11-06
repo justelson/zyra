@@ -17,6 +17,7 @@ Without `--live`, this only prints a plan. Add `--live` after model-credit use i
 The model is explicitly `openai-codex/gpt-6.1-sol`. Reasoning effort, summary mode, product profile, permission mode, web tools, memory and fast mode come from Preview's device preferences. This isolated runner requires memory off. It uses the existing Preview credential owner, including normal account routing and token refresh, without exporting or duplicating credentials.
 
 - `--samples 3` sends a fresh-chat turn and two follow-ups. Maximum 10 calls per run.
+- The synthetic project defaults to a fresh system-temp directory outside the checkout and user home on Windows. `--project PATH` selects a new or empty scratch directory. Instruction-bearing lexical or resolved ancestors are rejected before runtime loading or any model call, without reading their contents.
 - `--scenario echo` requests exactly `OK`.
 - `--scenario code-review` asks for a short review of a synthetic concurrency bug.
 - `--idle-ms 90000` waits between full-chat turns to test idle connection reuse. Maximum 10 minutes.
@@ -27,7 +28,7 @@ The model is explicitly `openai-codex/gpt-6.1-sol`. Reasoning effort, summary mo
 
 `report.json` separates runtime imports, server startup, client connection, Chat attachment, canonical acceptance, provider request start, first provider event, first provider answer text, first answer text received by the client, and completion. First reasoning-summary delivery is a separate optional observation. The adapter's existing request diagnostics supply transport, attempts, request bytes, token/cache counters and provider timing. The observer reads those diagnostics without changing requests or provider streams.
 
-The JSON summary includes no prompts, replies, credentials, account identifiers, raw errors or user-chat identifiers. Provider observations retain only allowed measurements and known enums. The production server separately persists the synthetic test conversation in the isolated output directory. Treat the entire directory as private and keep it ignored. The runner closes its own server/workers at the end. It never attaches, changes selection in, or restarts the user's existing chats or services.
+The JSON summary includes no prompts, replies, credentials, account identifiers, raw errors or user-chat identifiers. Provider observations retain only allowed measurements and known enums. The production server keeps its synthetic event journal in the isolated output directory; the fixture's canonical transcript stays in its separate scratch project. Keep output private and ignored. The runner closes its own server/workers at the end. It never attaches, changes selection in, or restarts the user's existing chats or services.
 
 An isolated test project has no personal project instructions, attached Plugin scopes or historical user conversation. The production harness code and built-in prompt/tool construction are reused. These samples cannot establish the performance of a particular long-running conversation. Client receipt also does not prove Desktop or physical phone paint time. Use the app's local Response timings recorder to correlate a real slow user turn through display.
 

@@ -1,23 +1,24 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { observeTurnEvent, summarizeSample, distribution } from './response-latency/metrics.mjs';
+import { assertInstructionFreeProject, assertOutsideProfile } from './response-latency/project.mjs';
 
 const flags = new Map();
-const valueFlags = new Set(['--runtime-root', '--profile', '--output', '--samples', '--timeout-ms', '--idle-ms', '--scenario']);
+const valueFlags = new Set(['--runtime-root', '--profile', '--output', '--samples', '--timeout-ms', '--idle-ms', '--scenario', '--project']);
 for (let i = 2; i < process.argv.length; i++) {
   const flag = process.argv[i];
   if (flag === '--live' || flag === '--direct-provider') flags.set(flag, true);
   else if (valueFlags.has(flag) && process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) flags.set(flag, process.argv[++i]);
-  else throw new Error('Use --runtime-root PATH --profile PATH --output PATH [--samples 3] [--scenario echo|code-review] [--idle-ms 0] [--timeout-ms 180000] [--direct-provider] [--live].');
+  else throw new Error('Use --runtime-root PATH --profile PATH --output PATH [--project PATH] [--samples 3] [--scenario echo|code-review] [--idle-ms 0] [--timeout-ms 180000] [--direct-provider] [--live].');
 }
 for (const name of ['--runtime-root', '--profile', '--output']) if (!flags.has(name)) throw new Error(`${name} is required.`);
 const root = path.resolve(flags.get('--runtime-root'));
 const profile = path.resolve(flags.get('--profile'));
 const output = path.resolve(flags.get('--output'));
-const relative = path.relative(profile, output);
-if (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) throw new Error('Benchmark output must be outside the Preview profile.');
+assertOutsideProfile(output, profile);
 const count = Number(flags.get('--samples') || 3);
 const timeoutMs = Number(flags.get('--timeout-ms') || 180_000);
 const idleMs = Number(flags.get('--idle-ms') || 0);
@@ -46,8 +47,15 @@ const plan = { settings, scenario, samples: count, timeoutMs, idleMs, mode: flag
 console.log(JSON.stringify({ stage: 'plan', ...plan }));
 if (!flags.has('--live')) process.exit(0);
 if (settings.memoryEnabled !== false) throw new Error('This isolated runner currently requires Preview memory off to avoid reading personal memory.');
+// User temp directories often inherit home-level instructions on Windows.
+// A fresh system-temp fixture avoids both the checkout and the user's home.
+const scratch = process.platform === 'win32' ? path.join(process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows', 'Temp') : tmpdir();
+const project = flags.has('--project') ? path.resolve(flags.get('--project'))
+  : path.join(scratch, `zyra-chat-latency-${randomUUID()}`);
+assertOutsideProfile(project, profile);
+assertInstructionFreeProject(project);
+if (existsSync(project) && readdirSync(project).length) throw new Error('Synthetic project must be a new or empty scratch directory.');
 mkdirSync(output, { recursive: true });
-const project = path.join(output, 'project');
 const stateDirectory = path.join(output, 'server-state');
 mkdirSync(project, { recursive: true });
 const observationPath = path.join(output, 'provider-observations.jsonl');

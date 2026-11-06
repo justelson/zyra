@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { assertOutsideProfile } from './response-latency/project.mjs';
 
 const directory = mkdtempSync(path.join(os.tmpdir(), 'zyra-latency-gate-'));
 try {
@@ -25,6 +26,18 @@ try {
   const excessive = spawnSync(process.execPath, [...args, '--samples', '11', '--live'], { encoding: 'utf8', timeout: 10_000 });
   assert.notEqual(excessive.status, 0);
   assert.equal(existsSync(output), false);
+  const instructions = path.join(directory, 'instruction-parent');
+  mkdirSync(instructions);
+  writeFileSync(path.join(instructions, 'AGENTS.md'), 'PRIVATE_INSTRUCTION_FIXTURE');
+  const inherited = spawnSync(process.execPath, [...args, '--project', path.join(instructions, 'project'), '--live'], { encoding: 'utf8', timeout: 10_000 });
+  assert.notEqual(inherited.status, 0);
+  assert.match(inherited.stderr, /inherited instructions/);
+  assert.equal((inherited.stdout + inherited.stderr).includes('PRIVATE_INSTRUCTION_FIXTURE'), false);
+  assert.equal(existsSync(output), false, 'instruction ancestry is rejected before creating output or importing a runtime');
+  const profileAlias = path.join(directory, 'profile-alias');
+  symlinkSync(profile, profileAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.throws(() => assertOutsideProfile(path.join(profileAlias, 'output'), profile), /outside the Preview profile/,
+    'resolved aliases cannot place benchmark state inside the real profile');
   console.log('Chat latency CLI defaults to no calls and rejects profile-owned output or excessive sample counts before runtime loading.');
 } finally {
   assert.equal(path.dirname(path.resolve(directory)), path.resolve(os.tmpdir()));

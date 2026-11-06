@@ -11,6 +11,8 @@ Status words used below:
 
 ## Current guidance
 
+- [Chat latency runner](development/chat-latency-runner.md) — **Current.** Lightweight production-harness measurements, explicitly authorized live calls and a separate bare-provider comparison.
+
 - [Zyra privacy policy](privacy/zyra.md) — **Current.** Desktop and terminal data handling, external services, optional analytics, installation changes and deletion controls.
 - [Code signing policy](security/code-signing.md) — **Proposed integration.** Current unsigned status, maintainer roles, intended signing scope and gates before SignPath-backed releases.
 

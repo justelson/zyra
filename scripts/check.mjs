@@ -21,6 +21,14 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const syntaxTargets = [
+  'scripts/benchmark-chat-latency.mjs',
+  'scripts/response-latency/metrics.mjs',
+  'scripts/response-latency/observe-provider.mjs',
+  'scripts/response-latency/provider-baseline.mjs',
+  'scripts/test-chat-latency-metrics.mjs',
+  'scripts/test-chat-latency-observer.mjs',
+  'scripts/test-chat-latency-gate.mjs',
+  'scripts/test-chat-latency-provider.mjs',
   'src/app-control-tool.mjs',
   'src/app-area-operations.mjs',
   'src/agent-server/app-operations.mjs',
@@ -215,6 +223,10 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  'scripts/test-chat-latency-metrics.mjs',
+  'scripts/test-chat-latency-observer.mjs',
+  'scripts/test-chat-latency-gate.mjs',
+  'scripts/test-chat-latency-provider.mjs',
   "scripts/test-runtime-schema-paths.mjs",
   "scripts/test-chat-settlement.mjs",
   "scripts/test-chatgpt-account-aliases.mjs",

@@ -5,6 +5,8 @@
   "description": "Local Zyra coding assistant CLI.",
   "type": "module",
   "scripts": {
+    "benchmark:chat-latency": "node scripts/benchmark-chat-latency.mjs",
+    "test:chat-latency": "node scripts/test-chat-latency-metrics.mjs && node scripts/test-chat-latency-observer.mjs && node scripts/test-chat-latency-gate.mjs && node scripts/test-chat-latency-provider.mjs",
     "test:runtime-schema-paths": "node scripts/test-runtime-schema-paths.mjs",
     "test:chatgpt-network-isolation": "node scripts/test-chatgpt-network-isolation.mjs",
     "test:chatgpt-accounts": "node scripts/test-chatgpt-account-aliases.mjs && node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs && npm run test:chatgpt-network-isolation",

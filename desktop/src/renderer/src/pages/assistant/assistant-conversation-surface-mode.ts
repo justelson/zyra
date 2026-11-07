@@ -1,3 +1,5 @@
+import type { AssistantThread } from '@shared/assistant/contracts'
+
 export type AssistantConversationSurfaceModeInput = {
     newChatHandoffActive: boolean
     selectedSessionUsesNewChatSurface: boolean
@@ -68,4 +70,12 @@ export function deriveAssistantConversationSurfaceMode(
         && input.pendingApprovalCount === 0
         && input.pendingInputCount === 0
     return input.newChatHandoffActive || centerComposer ? 'centered-composer' : 'conversation'
+}
+
+export function resolveAssistantTurnPresentationStartedAt(requestedAt: string | null, canonicalStartedAt: string | null): string | null {
+    return requestedAt || canonicalStartedAt
+}
+export function resolveAssistantWorkingStartedAt(thread: Pick<AssistantThread, 'latestTurn' | 'updatedAt'> | null): string | null {
+    const turn = thread?.latestTurn?.state === 'running' ? thread.latestTurn : null
+    return turn?.startedAt || turn?.requestedAt || thread?.updatedAt || null
 }

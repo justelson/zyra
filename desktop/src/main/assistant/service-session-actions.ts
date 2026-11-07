@@ -538,7 +538,8 @@ export async function sendAssistantPromptAction(
     if (!deps.queuedPromptDeliveries) throw new Error('Queued prompt delivery is unavailable. The message is preserved.')
     // Routing may change after a rejected Steer, but it cannot create a second
     // delivery of an already accepted entry. Content/configuration stays bound.
-    const { queueEntryId, dispatchMode: _mode, targetTurnId: _turn, responseTimingStartedAt: _timing, ...configuration } = options
+    const { queueEntryId, dispatchMode: _mode, targetTurnId: _turn, responseTimingStartedAt: _timing,
+        userMessageId: _message, expectedThreadId: _thread, ...configuration } = options
     return deps.queuedPromptDeliveries.run({
         sessionId: options.sessionId || '', entryId: queueEntryId,
         payload: { prompt, configuration, preparedImages }
@@ -590,6 +591,9 @@ async function executeAssistantPrompt(
         : getSelectedSession(snapshot)
     if (!session) throw new Error('Assistant session not found.')
     const thread = requireActiveThread(session)
+    if (options?.expectedThreadId && options.expectedThreadId !== thread.id) {
+        throw new Error('The active thread changed. Your message is preserved; return to its thread to send it.')
+    }
     if (options?.dispatchMode === 'steer') {
         const targetTurnId = options.targetTurnId || thread.latestTurn?.id
         if (!targetTurnId || thread.latestTurn?.state !== 'running') throw new Error('The turn has ended. Send this message as a new turn instead.')

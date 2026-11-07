@@ -43,20 +43,19 @@ for (const name of ['tool_search', 'zyra_tool_search', 'browser_use', 'mcp__zyra
         for (const [label, activities, expected] of [
             ['trailing', [...before, activity(name)], 1],
             ['leading', [activity(name), ...after], 1],
-            ['middle', [...before, activity(name), ...after], 2],
-            ['consecutive', [...before, activity(name), { ...activity(name), id: 'second-loader' }, ...after], 2]
+            ['middle', [...before, activity(name), ...after], 1],
+            ['consecutive', [...before, activity(name), { ...activity(name), id: 'second-loader' }, ...after], 1]
         ] as const) {
             const html = render([...activities], mode)
             assert.equal(batchCount(html), expected, `${name}/${mode}/${label}: ordinary actions keep their own collapsed groups`)
-            assert.match(html, /Getting available tools/, 'The loader stays visible outside collapsed actions')
             assert.doesNotMatch(html, /CLOSED ACTION EVIDENCE|PRIVATE TOOL SCHEMAS/, 'Neither ordinary outputs nor loader schemas mount by default')
         }
     }
 }
-assert.equal(batchCount(render([before[0]!, activity('tool_search'), after[0]!])), 0, 'A boundary does not manufacture single-action batches')
+assert.equal(batchCount(render([before[0]!, activity('tool_search'), after[0]!])), 1, 'Discovery joins consecutive individual actions')
 assert.equal(batchCount(render([...before, ...after])), 1, 'No-boundary grouping is unchanged')
 assert.equal(batchCount(render([
     { ...browserAction, id: 'browser-one' }, { ...browserAction, id: 'browser-two' }, activity('tool_search'),
     { ...browserAction, id: 'browser-three' }, { ...browserAction, id: 'browser-four' }
-])), 2, 'Existing nested browser/control runs are preserved on either side')
-console.log('Tool discovery rows: standalone loaders, mixed-run boundaries, display modes and preserved control groups: ok')
+])), 1, 'Browser/control runs share one outer work block')
+console.log('Tool discovery rows: quiet loaders, unified mixed runs, display modes and preserved control groups: ok')

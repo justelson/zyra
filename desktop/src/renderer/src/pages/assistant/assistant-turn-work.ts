@@ -328,7 +328,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
     const finalAnswerStarted = activeFinalMessage?.phase === 'final_answer'
     let terminalResponseVisible = finalAnswerStarted
     let postResponseCompactionRunning = false
-    if (settledFinalIndex >= 0) {
+    if (settledFinalIndex >= 0 && (finalAnswerStarted || (activeTurnId && turnUsageById?.get(activeTurnId)?.state === 'completed'))) {
         for (let index = settledFinalIndex + 1; index < rows.length; index += 1) {
             const row = rows[index]
             if (
@@ -489,11 +489,12 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         const endIndex = nextUserIndexByRow[userIndex] ?? rows.length
 
         const turnRows = rows.slice(userIndex + 1, endIndex)
-        if (turnRows.length === 0) continue
         const turnId = inferLegacyUserTurnId(userRow.message, turnRows, turnUsageById)
         if (!turnId) continue
+        const usage = turnUsageById?.get(turnId)
+        if (turnRows.length === 0 && usage?.state !== 'interrupted') continue
         const nextBoundary = rows[endIndex]
-        if (nextBoundary?.kind === 'message' && nextBoundary.threadMessage) {
+        if (turnRows.length && nextBoundary?.kind === 'message' && nextBoundary.threadMessage) {
             const outcome = getProjectedTerminalOutcomeFromRows(turnRows)
             const workRows = (outcome === 'interrupted' ? stripProjectedInterruptions(turnRows) : turnRows).filter(row => row.kind !== 'working' && !rowMustStayVisible(row))
             if (workRows.length) ranges.set(userIndex + 1, { endIndex, summary: {
@@ -504,7 +505,6 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
             continue
         }
 
-        const usage = turnUsageById?.get(turnId)
         const handoffRows = turnRows.filter((row) => row.kind === 'user-input')
         if (handoffRows.length > 0) {
             const firstHandoffIndex = turnRows.findIndex((row) => row.kind === 'user-input')
@@ -610,6 +610,13 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
             continue
         }
         displayRows.push(rows[index])
+        // Stopping before the first action has no rows to consume. Insert its
+        // canonical timed summary after the prompt without swallowing a boundary.
+        const emptyRange = ranges.get(index + 1)
+        if (emptyRange?.endIndex === index + 1) {
+            displayRows.push(emptyRange.summary)
+            ranges.delete(index + 1)
+        }
     }
     return displayRows.filter(row => !(row.kind === 'message' && row.workBoundaryOnly)
         && !(row.kind === 'working' && finalAnswerStarted && !postResponseCompactionRunning)).map(row => {

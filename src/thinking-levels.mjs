@@ -1,3 +1,4 @@
+import { normalizeReasoningChoice, reasoningChoiceForNativeId } from './reasoning-choices.mjs';
 export const GPT_56_THINKING_LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 const PI_THINKING_LEVELS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh"]);
@@ -21,15 +22,21 @@ export function isChatGptReasoningModel(model) {
 }
 
 export function normalizeZyraThinkingLevel(value) {
-  const level = String(value ?? "").trim().toLowerCase();
-  return KNOWN_THINKING_LEVELS.has(level) ? level : undefined;
+  return normalizeReasoningChoice(value);
+}
+
+/** Session model copies can predate discovery/registry composition. Resolve the
+ * selected model's capabilities from the already loaded account catalog. */
+export function resolveSessionThinkingModel(session, model = session?.model) {
+  const metadata = session?.modelRegistry?.zyraOpenAIModelCatalog?.get(model?.provider)?.find(entry => entry.id === model?.id);
+  if (!Array.isArray(metadata?.supportedEfforts)) return model;
+  return { ...model, reasoning: metadata.supportedEfforts.length > 0, zyraSupportedEfforts: metadata.supportedEfforts };
 }
 
 export function getModelThinkingLevels(model, piLevels = PI_THINKING_LEVELS) {
   if (Array.isArray(model?.zyraSupportedEfforts)) return [...model.zyraSupportedEfforts];
   if (model?.provider === "opencode-harness") {
-    if (model.reasoning !== true) return [];
-    return (model.harness?.variants ?? []).filter((variant) => KNOWN_THINKING_LEVELS.has(variant));
+    return [...new Set((model.harness?.variants ?? []).map(reasoningChoiceForNativeId).filter(Boolean))];
   }
   if (typeof model === "object" && model?.reasoning === false) return [];
   if (isGpt56Model(model)) return [...GPT_56_THINKING_LEVELS];
@@ -44,8 +51,9 @@ export function getModelThinkingLevels(model, piLevels = PI_THINKING_LEVELS) {
 export function coerceThinkingLevelForModel(value, model, piLevels = PI_THINKING_LEVELS) {
   const requested = normalizeZyraThinkingLevel(value) ?? "medium";
   const levels = getModelThinkingLevels(model, piLevels);
-  if (Array.isArray(model?.zyraSupportedEfforts)) return levels.includes(requested) ? requested : levels.includes('medium') ? 'medium' : levels[0] ?? 'off';
-  if (model?.provider === "opencode-harness" && levels.includes(requested)) return requested;
+  if (requested === 'default') return requested;
+  if (Array.isArray(model?.zyraSupportedEfforts) || model?.provider === 'opencode-harness') return levels.includes(requested) ? requested : 'default';
+  if (!levels.length) return 'default';
 
   if (isGpt56Model(model)) {
     if (["off", "none", "minimal"].includes(requested)) return "low";
@@ -65,6 +73,7 @@ export function coerceThinkingLevelForModel(value, model, piLevels = PI_THINKING
 
 export function toRuntimeThinkingLevel(value) {
   const level = normalizeZyraThinkingLevel(value) ?? "medium";
+  if (level === 'default' || level.startsWith('variant:')) return 'off';
   if (level === "none") return "off";
   if (level === "max") return "xhigh";
   return level;

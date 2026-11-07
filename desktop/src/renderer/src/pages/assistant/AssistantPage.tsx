@@ -1,3 +1,4 @@
+import { installChatBrowserLinkHandler } from '@/lib/zyra-browser-links'
 import { openDesktopLink } from '@/lib/desktop-links'
 import { desktopWebLink } from '@shared/desktop-link-policy'
 import { AssistantInspectorFrame, AssistantInspectorLoading } from './AssistantInspectorFrame'
@@ -21,7 +22,7 @@ import { useSettings } from '@/lib/settings'
 import { buildAssistantDiffTurns } from './assistant-diff-turns'
 import { resolveAssistantDiffTarget, type AssistantDiffTarget } from './assistant-diff-types'
 import { openAssistantFileTarget } from './assistant-file-navigation'
-import { acknowledgeAssistantInspectorNavigation, subscribeAssistantInspectorNavigation } from './assistant-inspector-navigation'
+import { isAssistantInspectorNavigationForChat, acknowledgeAssistantInspectorNavigation, subscribeAssistantInspectorNavigation } from './assistant-inspector-navigation'
 import { subscribeAssistantConversationFind, cancelAssistantConversationFind } from './assistant-conversation-find'
 import { matchAssistantConversationMessages } from './assistant-conversation-find-matches'
 import { AssistantConversationFindBar } from './AssistantConversationFindBar'
@@ -182,13 +183,23 @@ export default function AssistantPage() {
     const inspectorOpen = rightPanelMode === 'review'
     const [inspectorMounted, setInspectorMounted] = useState(inspectorOpen)
     useEffect(() => { if (inspectorOpen) setInspectorMounted(true) }, [inspectorOpen])
+    const browserLinkSessionId = shell.selectedSessionId
+    const browserLinkThreadId = diffSource.threadId
+    useEffect(() => {
+        if (!browserLinkSessionId || !browserLinkThreadId) return
+        return installChatBrowserLinkHandler({ sessionId: browserLinkSessionId, threadId: browserLinkThreadId })
+    }, [browserLinkSessionId, browserLinkThreadId])
     useEffect(() => subscribeAssistantInspectorNavigation(request => {
+        if (!isAssistantInspectorNavigationForChat(request, browserLinkSessionId, browserLinkThreadId)) {
+            acknowledgeAssistantInspectorNavigation(request)
+            return
+        }
         if (request.workspace === 'tabs' && request.action === 'close') {
             if (!inspectorOpen) acknowledgeAssistantInspectorNavigation(request)
             return
         }
         setRightPanelMode('review')
-    }), [inspectorOpen, setRightPanelMode])
+    }), [inspectorOpen, setRightPanelMode, browserLinkSessionId, browserLinkThreadId])
     const [conversationFindOpen, setConversationFindOpen] = useState(false)
     const [conversationFindQuery, setConversationFindQuery] = useState('')
     const [conversationFindIndex, setConversationFindIndex] = useState(0)

@@ -57,8 +57,8 @@ export function AssistantComposerQueue({ controller, state }: { controller: Assi
             {controller.queueHeld ? <button type="button" onClick={() => void controller.onResumeQueue?.()}
                 disabled={!controller.onResumeQueue || controller.isStopping || !controller.isConnected || sendingAll}
                 className={action}>Resume queue</button> : null}
-            <button type="button" aria-label="Send all queued messages" title="Send all queued messages now" disabled={!canSendAll} aria-busy={sendingAll}
-                onClick={() => void sendAll()} className={cn(steeringAction, 'border-transparent bg-[var(--accent-primary)] text-[var(--accent-on-primary)] hover:brightness-110')}><ArrowUp size={14} aria-hidden="true" /></button>
+            {controller.queuedMessages.length > 1 ? <button type="button" aria-label="Send all queued messages" title="Send all queued messages now" disabled={!canSendAll} aria-busy={sendingAll}
+                onClick={() => void sendAll()} className={cn(steeringAction, 'border-transparent bg-[var(--accent-primary)] text-[var(--accent-on-primary)] hover:brightness-110')}><ArrowUp size={14} aria-hidden="true" /></button> : null}
             </div>
         </header>
         <div className="custom-scrollbar max-h-[min(40vh,320px)] overflow-y-auto overscroll-contain">

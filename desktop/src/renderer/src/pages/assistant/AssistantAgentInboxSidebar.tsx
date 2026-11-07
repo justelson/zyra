@@ -27,6 +27,7 @@ import { AssistantAgentPresenceIndicator } from './AssistantAgentPresenceIndicat
 import { assistantSessionMobileDevices, isAssistantSessionOpenInTui } from './assistant-tui-presence'
 import { resolveAssistantInboxModelPresentation } from './assistant-model-labels'
 import { resolveAssistantAgentInboxSettledInitialCount } from './assistant-agent-inbox-settled-window'
+import { resolveAssistantWorkingStartedAt } from './assistant-conversation-surface-mode'
 import {
     formatAssistantSidebarRelativeTime,
     getPrimarySessionThread,
@@ -108,7 +109,7 @@ function formatWorkingDuration(startedAt: string | null): string {
 }
 
 function WorkingDuration({ thread }: { thread: AssistantThread | null }) {
-    const startedAt = thread?.latestTurn?.startedAt || thread?.latestTurn?.requestedAt || thread?.updatedAt || null
+    const startedAt = resolveAssistantWorkingStartedAt(thread)
     const [, setTick] = useState(0)
     useEffect(() => {
         if (!startedAt) return

@@ -35,7 +35,7 @@ function Harness({ busy, missing = false }: { busy: boolean; missing?: boolean }
     const [state, setState] = useState<AssistantQueuedComposerSessionState>({ sessionId: 'chat', threadState: busy ? 'running' : 'ready', latestTurnState: busy ? 'running' : 'completed', pendingApprovalCount: 0, pendingUserInputCount: 0 })
     updateState = patch => setState(current => ({ ...current, ...patch }))
     const working = state.threadState === 'running'
-    actions = useAssistantQueuedComposer({ selectedSessionId: 'chat', sessionStates: missing ? [] : [state], isAssistantBusy: working,
+    actions = useAssistantQueuedComposer({ selectedSessionId: 'chat', activeThreadId:'queue-thread', sessionStates: missing ? [] : [state], isAssistantBusy: working,
         isThreadWorking: working, commandPending: false, activeTurnId: working ? 'active' : null, busyMessageMode: 'queue', dispatchProfile, queueStorage: storage,
         dispatchPrompt: async (_sessionId, prompt, files, opts, canSubmit) => {
             await prepare()
@@ -64,6 +64,7 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     check(saved().entries.chat[0].contextFiles[0].previewDataUrl === file.previewDataUrl, 'attachment must be durable before send returns acceptance')
     check(await accepted, 'queue accepted')
     check(saved().entries.chat[0].options.profile === 'fixture-original-profile', 'queue captures the accepting Chat profile')
+    check(saved().entries.chat[0].options.expectedThreadId === 'queue-thread', 'queue binds delivery to the accepting thread')
     inputFile.content = 'mutated draft'
     check(saved().entries.chat[0].contextFiles[0].content === 'inline body', 'saved attachments are detached from draft')
     const rapid = [actions.handleSendPrompt('second', [], options), actions.handleSendPrompt('third', [], options)]
@@ -169,9 +170,25 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     results.push('Stop invalidates asynchronous browser preparation before actual submission')
 
     reset(); mount(true)
+    await actions.handleSendPrompt('held previous instruction', [], options)
     actions.handleHoldQueue()
-    await actions.handleSendPrompt('saved steer', [], { ...options, dispatchMode: 'steer' })
+    updateState({threadState:'ready',latestTurnState:'interrupted'}); await sleep()
+    await actions.handleSendPrompt('Continue', [], {...options,dispatchMode:'immediate'})
+    await until(() => sent.length === 1, 'explicit Continue after Stop dispatches independently of the held queue')
+    check(sent[0]!.prompt === 'Continue' && actions.queueHeld && saved().entries.chat[0].prompt === 'held previous instruction', 'Continue keeps earlier queued instructions held and ordered')
+    results.push('Explicit continuation starts new work while the previous queue stays held')
+
+    reset(); mount(true); actions.handleHoldQueue()
+    await actions.handleSendPrompt('structured answer stays durable', [], {...options,dispatchMode:'steer',answerRequestId:'held-answer'})
+    await until(() => actions.queuedComposerMessageCount === 1, 'held structured answer is saved')
+    check(sent.length === 0 && saved().entries.chat[0].id === 'answer-held-answer', 'structured answers retain durable request identity and cannot bypass a Stop hold')
+
+    reset(); mount(true)
+    await actions.handleSendPrompt('saved steer', [], options)
     await until(() => actions.queuedComposerMessageCount === 1, 'held steer saved')
+    actions.handleHoldQueue()
+    await actions.handleForceQueuedMessage(actions.queuedComposerMessageItems[0]!.id)
+    await sleep()
     check(saved().entries.chat[0].options.targetTurnId === 'active', 'saved steer records original turn identity')
     ready(); await sleep()
     check(actions.queuedComposerMessageItems[0]?.dispatchMode === 'queue', 'ended-turn Steer displays Send next')
@@ -181,8 +198,10 @@ Object.assign(window, { runComposerQueueChecks: async () => {
     results.push('held Steer becomes Send next after its original turn ends')
 
     reset(); mount(true)
+    await actions.handleSendPrompt('do not steer unrelated replacement', [], options)
+    await until(() => actions.queuedComposerMessageCount === 1, 'saved correction queued')
     actions.handleHoldQueue()
-    await actions.handleSendPrompt('do not steer unrelated replacement', [], { ...options, dispatchMode: 'steer' })
+    await actions.handleForceQueuedMessage(actions.queuedComposerMessageItems[0]!.id)
     updateState({ latestTurnId: 'replacement-turn' }); await sleep()
     actions.handleResumeQueue(); await sleep()
     check(sent.length === 0, 'old turn target cannot steer a different active turn')
@@ -345,6 +364,10 @@ async function runQueuePresentationChecks() {
     check(getComputedStyle(preview).whiteSpace === 'nowrap' && getComputedStyle(preview).textOverflow === 'ellipsis', 'closed preview truncates to one line')
     click('Resume queue'); click('Steer queued message', row()); click('Delete queued message', row())
     check(calls.join('|') === 'resume|steer:one|delete:one', 'compact actions target exact message')
+    const allMessages = props.queuedMessages
+    render({ queuedMessages: [allMessages[0]!] })
+    check(!container.querySelector('[aria-label="Send all queued messages"]') && button('Steer queued message', row()), 'one queued message has its row action without a duplicate header action')
+    render({ queuedMessages: allMessages })
     const beforeAll = calls.length
     click('Send all queued messages'); await sleep()
     check(calls.slice(beforeAll).join('|') === 'steer:one|steer:two|resume', 'header sends each eligible row once in queue order and resumes a held queue')

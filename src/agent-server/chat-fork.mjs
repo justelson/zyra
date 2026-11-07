@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { normalizeReasoningChoice } from '../reasoning-choices.mjs';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getProjectSessionsDir } from '../project-paths.mjs';
@@ -41,7 +42,7 @@ export async function forkCanonicalChat(server, sourceChat, input = {}, ownerCon
     if (typeof input.model !== 'string' || !overrides.model || !overrides.model.includes('/')) fail('Choose a provider/model for the fork.');
   }
   if (own(input, 'effort')) {
-    if (!['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(input.effort)) fail('Invalid fork effort.');
+    if (normalizeReasoningChoice(input.effort) !== input.effort) fail('Invalid fork effort.');
     overrides.effort = input.effort;
   }
   if (own(input, 'profile')) {

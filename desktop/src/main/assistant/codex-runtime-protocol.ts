@@ -1,3 +1,4 @@
+import { nativeReasoningValue } from '../../../../src/reasoning-choices.mjs'
 import type readline from 'node:readline'
 import type {
     AssistantApprovalRequestType,
@@ -140,7 +141,7 @@ function buildCollaborationMode(model: string | undefined, effort?: AssistantRea
         mode: 'default',
         settings: {
             ...(model ? { model } : {}),
-            reasoning_effort: effort || 'medium',
+            reasoning_effort: effort === 'default' ? null : nativeReasoningValue(effort) || 'medium',
             developer_instructions: buildDeveloperInstructions()
         }
     }
@@ -164,7 +165,7 @@ export function buildTurnParams(
         collaborationMode: buildCollaborationMode(effectiveModel, effort)
     }
     if (effectiveModel) params['model'] = effectiveModel
-    if (effort) params['effort'] = effort
+    if (effort && effort !== 'default') params['effort'] = nativeReasoningValue(effort)
     if (serviceTier) params['serviceTier'] = serviceTier
     return params
 }

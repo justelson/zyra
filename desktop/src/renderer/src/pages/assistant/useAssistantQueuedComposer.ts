@@ -48,6 +48,7 @@ export function resolveAssistantForceInterruptAttempt(_input: {
 
 export function useAssistantQueuedComposer(args: {
     selectedSessionId: string | null
+    activeThreadId?: string | null
     sessionStates: AssistantQueuedComposerSessionState[]
     isAssistantBusy: boolean
     commandPending: boolean
@@ -61,7 +62,7 @@ export function useAssistantQueuedComposer(args: {
     interruptTurn: (turnId?: string, sessionId?: string) => Promise<void>
     queueStorage?: AssistantComposerQueueStorage
 }) {
-    const { selectedSessionId, sessionStates, isAssistantBusy, commandPending, isThreadWorking, activeTurnId,
+    const { selectedSessionId, activeThreadId, sessionStates, isAssistantBusy, commandPending, isThreadWorking, activeTurnId,
         busyMessageMode, dispatchProfile, onSendingChange, canDispatchPrompt, dispatchPrompt } = args
     const storage = useMemo(() => args.queueStorage || createAssistantComposerQueueStorage(), [args.queueStorage])
     const startupErrorRef = useRef<string | null>(null)
@@ -156,10 +157,10 @@ export function useAssistantQueuedComposer(args: {
         return saved
     }, [commit, selectedSessionId])
 
-    const handleDispatchPrompt = useCallback(async (sessionId: string, prompt: string, files: ComposerContextFile[], options: AssistantComposerSendOptions) => {
+    const handleDispatchPrompt = useCallback(async (sessionId: string, prompt: string, files: ComposerContextFile[], options: AssistantComposerSendOptions, allowHeld = false) => {
         if (canDispatchPrompt && !canDispatchPrompt(sessionId)) return false
         const epoch = dispatchEpochRef.current.get(sessionId) || 0
-        const canSubmit = () => (dispatchEpochRef.current.get(sessionId) || 0) === epoch && !snapshotRef.current.held[sessionId]
+        const canSubmit = () => (dispatchEpochRef.current.get(sessionId) || 0) === epoch && (allowHeld || !snapshotRef.current.held[sessionId])
         if (!canSubmit()) return false
         setSendingCount(count => count + 1)
         onSendingChange?.(true)
@@ -200,6 +201,7 @@ export function useAssistantQueuedComposer(args: {
         if (!selectedSessionId) return false
         const profile = options.profile || dispatchProfile
         if (profile) options = { ...options, profile }
+        if (activeThreadId && !options.expectedThreadId) options = { ...options, expectedThreadId: activeThreadId }
         if (parseDevContextCompactionTestCommand(prompt, { enabled: import.meta.env.DEV })) {
             return handleDispatchPrompt(selectedSessionId, prompt, files, options)
         }
@@ -210,16 +212,27 @@ export function useAssistantQueuedComposer(args: {
         const answerId = options.answerRequestId ? `answer-${options.answerRequestId}` : null
         const existingAnswer = answerId ? current.entries[selectedSessionId]?.find(entry => entry.id === answerId) : null
         if (existingAnswer) return existingAnswer.prompt === prompt && JSON.stringify(existingAnswer.contextFiles) === JSON.stringify(files)
+        const requested = options.dispatchMode === 'immediate' || !options.dispatchMode ? busyMessageMode : options.dispatchMode
+        const mode = requested === 'force' ? 'steer' : requested
+        // A new deliberate instruction can continue stopped work independently
+        // of previously queued instructions. Stop still invalidates preparation
+        // through the dispatch epoch; it never implicitly resumes the queue.
+        if (current.held[selectedSessionId] && !options.answerRequestId && !compacting && !activeDispatchRef.current.has(selectedSessionId)
+            && (!isAssistantBusy && options.dispatchMode !== 'queue' || isAssistantBusy && mode === 'steer')) {
+            return handleDispatchPrompt(selectedSessionId, prompt, files, { ...options,
+                dispatchMode: isAssistantBusy ? 'steer' : 'immediate',
+                targetTurnId: isAssistantBusy ? options.targetTurnId || activeTurnId || undefined : undefined
+            }, true)
+        }
         if (isAssistantBusy || compacting || current.held[selectedSessionId] || current.entries[selectedSessionId]?.length) {
-            const requested = options.dispatchMode === 'immediate' || !options.dispatchMode ? busyMessageMode : options.dispatchMode
-            const mode = compacting ? 'queue' : requested === 'force' ? 'steer' : requested
+            const dispatchMode = compacting ? 'queue' : mode
             return enqueue([{
                 id: answerId || `queued-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                sessionId: selectedSessionId, prompt, contextFiles: files, options: { ...options, targetTurnId: mode === 'steer' ? options.targetTurnId || activeTurnId || undefined : undefined, dispatchMode: mode }
-            }], mode === 'steer')
+                sessionId: selectedSessionId, prompt, contextFiles: files, options: { ...options, targetTurnId: dispatchMode === 'steer' ? options.targetTurnId || activeTurnId || undefined : undefined, dispatchMode }
+            }], dispatchMode === 'steer')
         }
         return handleDispatchPrompt(selectedSessionId, prompt, files, options)
-    }, [selectedSessionId, sessionStates, isAssistantBusy, busyMessageMode, dispatchProfile, activeTurnId, enqueue, enqueuePreviewPrompt, handleDispatchPrompt])
+    }, [selectedSessionId, activeThreadId, sessionStates, isAssistantBusy, busyMessageMode, dispatchProfile, activeTurnId, enqueue, enqueuePreviewPrompt, handleDispatchPrompt])
 
     const updateEntries = useCallback((update: (entries: PendingComposerDispatch[]) => PendingComposerDispatch[]): boolean => {
         if (!selectedSessionId || activeDispatchRef.current.has(selectedSessionId)) return false
@@ -242,9 +255,9 @@ export function useAssistantQueuedComposer(args: {
     const handleSteerQueuedMessage = useCallback(async (messageId: string) => {
         // Only the chosen message is promoted; preceding queued messages retain their order/mode.
         updateEntries(entries => entries.some(entry => entry.id === messageId)
-            ? entries.map(entry => entry.id === messageId ? { ...entry, options: { ...entry.options, dispatchMode: 'steer' as const } } : entry)
+            ? entries.map(entry => entry.id === messageId ? { ...entry, options: { ...entry.options, dispatchMode: 'steer' as const, targetTurnId: entry.options.targetTurnId || activeTurnId || undefined } } : entry)
             : entries)
-    }, [updateEntries])
+    }, [updateEntries, activeTurnId])
 
     useEffect(() => {
         const states = new Map(sessionStates.map(state => [state.sessionId, state]))

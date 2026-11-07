@@ -22,7 +22,10 @@ export function v2CatalogPayload(payload) {
     const tiers = Array.isArray(model.cost) ? model.cost : [];
     const price = key => tiers.length && tiers.every(tier => typeof tier[key] === 'number') ? Math.max(...tiers.map(tier => tier[key])) : undefined;
     providers.get(model.providerID).models[model.id] = { ...model,
-      capabilities: { toolcall: model.capabilities?.tools === true, reasoning: model.capabilities?.output?.includes('reasoning') === true },
+      capabilities: { toolcall: model.capabilities?.tools === true, reasoning: model.capabilities?.reasoning === true
+        || model.capabilities?.reasoning?.supported === true || Boolean(model.compatibility?.reasoningField)
+        || model.variants?.some(variant => variant.settings?.reasoningEffort !== undefined || variant.settings?.thinkingBudget !== undefined)
+        || model.capabilities?.output?.includes('reasoning') === true },
       cost: { input: price('input'), output: price('output'), cache: tiers[0]?.cache },
     };
   }

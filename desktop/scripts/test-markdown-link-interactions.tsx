@@ -9,18 +9,23 @@ const markdown = resolve(import.meta.dir, '../src/renderer/src/components/ui/mar
 const harness = `
 import React, {act,useRef} from 'react'
 import {createRoot} from 'react-dom/client'
+import {DesktopLinkHost} from ${JSON.stringify(join(markdown, '../DesktopLinkHost.tsx'))}
+import {installChatBrowserLinkHandler} from ${JSON.stringify(join(markdown, '../../../lib/zyra-browser-links.ts'))}
+import {setDesktopLinkPreference} from ${JSON.stringify(join(markdown, '../../../lib/desktop-links.ts'))}
+import {subscribeAssistantInspectorNavigation,acknowledgeAssistantInspectorNavigation} from ${JSON.stringify(join(markdown, '../../../pages/assistant/assistant-inspector-navigation.ts'))}
+
 import MarkdownRenderer from ${JSON.stringify(join(markdown, '../MarkdownRenderer.tsx'))}
 import {MarkdownInteractionLayer} from ${JSON.stringify(join(markdown, 'MarkdownInteractionLayer.tsx'))}
 import {createMarkdownComponents} from ${JSON.stringify(join(markdown, 'components.tsx'))}
 import {inspectMarkdownLinkAvailability,resetMarkdownLinkAvailabilityCache} from ${JSON.stringify(join(markdown, 'linkAvailability.ts'))}
 globalThis.IS_REACT_ACT_ENVIRONMENT=true
 const check=(value,message)=>{if(!value)throw Error(message)}
-const calls={open:[],notice:[],reveal:[],browser:[],accessory:[],copy:[],stat:[]}
+const calls={open:[],notice:[],reveal:[],browser:[],accessory:[],inspector:[],copy:[],stat:[]}
 let exists=true,failed=false,deferred=null
 Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value)=>calls.copy.push(value)},configurable:true})
 window.devscope={getPathInfo:async(path)=>{calls.stat.push(path);if(deferred)return await new Promise(resolve=>deferred.push(()=>resolve({success:true,exists:true,path,type:'file'})));return failed?{success:false,error:'offline'}:{success:true,exists,path,type:exists?'file':null}},searchIndexedPaths:async()=>({success:true,entries:[],ancestors:[],totalMatched:0}),openInExplorer:async(path)=>{calls.reveal.push(path);return{success:true}},openBrowserPreviewExternal:async(url)=>{calls.browser.push(url);return{success:true}},accessories:{open:async(input)=>{calls.accessory.push(input);return{success:true}}}}
 const onOpen=async(href)=>{calls.open.push(href);return true},onNotice=(message,tone)=>calls.notice.push({message,tone})
-function Harness({filePath='/project/__assistant__.md',contentKey='one'}){const ref=useRef(null),components=createMarkdownComponents(filePath),A=components.a,Code=components.code;return <><div ref={ref}><A href="./note.md#L42">Note</A><A href="./missing.pdf">Missing PDF</A><A href="https://example.com">Website</A><A href="./src/"><Code>src/</Code></A><A href="./docs/current/"><strong><Code>docs/current/</Code></strong></A><Code>ordinary code</Code></div><MarkdownInteractionLayer rootRef={ref} filePath={filePath} searchRootPath="/project" contentKey={contentKey} onInternalLinkClick={onOpen} onLinkNotice={onNotice}/></>}
+function Harness({filePath='/project/__assistant__.md',contentKey='one',host=false}){const ref=useRef(null),components=createMarkdownComponents(filePath),A=components.a,Code=components.code;return <>{host?<DesktopLinkHost/>:null}<div ref={ref}><A href="./note.md#L42">Note</A><A href="./missing.pdf">Missing PDF</A><A href="https://example.com">Website</A><A href="./src/"><Code>src/</Code></A><A href="./docs/current/"><strong><Code>docs/current/</Code></strong></A><Code>ordinary code</Code></div><MarkdownInteractionLayer rootRef={ref} filePath={filePath} searchRootPath="/project" contentKey={contentKey} onInternalLinkClick={onOpen} onLinkNotice={onNotice}/></>}
 const root=createRoot(document.getElementById('root'))
 const render=async(props={})=>act(async()=>root.render(<Harness {...props}/>))
 const tick=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,40))})
@@ -46,7 +51,7 @@ try{
  await act(async()=>item('Show in file manager').click());check(calls.reveal.at(-1)==='/project/note.md','reveal checks and uses actual path without line fragment')
  await menu('https://example.com');check(item('Open in Zyra Browser')&&item('Open in default browser')&&!item('Copy path'),'web menu has browser actions')
  await act(async()=>item('Open in default browser').click());check(calls.browser.at(-1)==='https://example.com','default browser receives website URL')
- await menu('https://example.com');await act(async()=>item('Open in Zyra Browser').click());check(calls.accessory.at(-1)?.url==='https://example.com','Zyra Browser action opens existing browser accessory')
+ await menu('https://example.com');await act(async()=>item('Open in Zyra Browser').click());check(calls.accessory.at(-1)?.url==='https://example.com/','Zyra Browser action opens existing browser accessory')
  await menu('./note.md#L42');await act(async()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));check(!document.querySelector('[role=menu]'),'Escape dismisses link menu')
  await menu('./note.md#L42');await render({contentKey:'two'});check(!document.querySelector('[role=menu]'),'navigation dismisses stale link menus')
  await render({filePath:''});check(anchor('./note.md#L42').querySelector('.markdown-inline-target-file-icon'),'relative file retains its icon before working folder is ready')
@@ -59,6 +64,32 @@ try{
  check(anchor('C:/workspace/graded-frame.png')?.dataset.markdownFileLink!==undefined,'actual markdown sanitizer preserves the screenshot-style Windows image link')
  await click('C:/workspace/graded-frame.png');check(calls.open.length===beforeWindows+1&&calls.open.at(-1)==='C:/workspace/graded-frame.png','actual rendered Windows image link opens its local file, not browser routing')
  await click('C:/workspace/sound.wav');check(calls.open.length===beforeWindows+2&&calls.open.at(-1)==='C:/workspace/sound.wav','actual rendered Windows sound link opens its local file outside embedding mode')
+ let releaseChat=installChatBrowserLinkHandler({sessionId:'chat-one',threadId:'thread-one'})
+ const releaseInspector=subscribeAssistantInspectorNavigation(request=>{calls.inspector.push(request);acknowledgeAssistantInspectorNavigation(request)})
+ const standaloneCount=calls.accessory.length
+ await render();await tick()
+ await menu('https://example.com');await act(async()=>item('Open in Zyra Browser').click());await tick()
+ check(calls.inspector.at(-1)?.sessionId==='chat-one'&&calls.inspector.at(-1)?.url==='https://example.com/','chat context menu requests a browser tab owned by this chat')
+ check(calls.accessory.length===standaloneCount,'chat context menu never requests a standalone window')
+ await menu('https://example.com')
+ const releaseMenuOther=installChatBrowserLinkHandler({sessionId:'chat-menu-other',threadId:'thread-menu-other'})
+ await render();await tick()
+ await act(async()=>item('Open in Zyra Browser').click());await tick()
+ check(calls.inspector.length===1&&calls.accessory.length===standaloneCount&&calls.notice.at(-1)?.message.includes('chat changed'),'an open menu retains its original chat through a parent rerender')
+ releaseMenuOther();releaseChat();releaseChat=installChatBrowserLinkHandler({sessionId:'chat-one',threadId:'thread-one'})
+
+ setDesktopLinkPreference('ask');await render({host:true});await tick()
+ await click('https://example.com')
+ const chooseZyra=()=>[...document.querySelectorAll('dialog button')].find(button=>button.textContent.includes('Zyra Browser'))
+ check(chooseZyra(),'ordinary web click presents the actual destination chooser')
+ await act(async()=>chooseZyra().click());await tick()
+ check(calls.inspector.length===2&&calls.inspector.at(-1).threadId==='thread-one'&&calls.accessory.length===standaloneCount,'chooser opens a tab in its originating chat')
+ await click('https://example.com');check(calls.inspector.length===3&&!chooseZyra(),'remembered Zyra preference also opens another chat tab')
+ setDesktopLinkPreference('ask');await click('https://example.com')
+ const releaseOther=installChatBrowserLinkHandler({sessionId:'chat-two',threadId:'thread-two'});releaseChat()
+ await act(async()=>chooseZyra().click());await tick()
+ check(calls.inspector.length===3&&calls.accessory.length===standaloneCount&&document.querySelector('[role=alert]')?.textContent.includes('chat changed'),'switching chat while chooser is pending cannot open in another chat or window')
+ releaseOther();releaseInspector()
  await act(async()=>root.unmount());console.log('LINK_INTERACTIONS_PASS')
 }catch(error){console.error('LINK_INTERACTIONS_FAIL '+error.stack)}
 `
@@ -67,7 +98,7 @@ try {
         builder.onResolve({filter:/^link-interactions-harness$/},()=>({path:'harness',namespace:'fixture'}))
         builder.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:harness,loader:'tsx',resolveDir:resolve(import.meta.dir,'..')}))
         builder.onResolve({filter:/native-overlay-portal$/},()=>({path:'native-overlay',namespace:'mock'}))
-        builder.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:`import {createPortal} from 'react-dom';export const createOverlayPortal=createPortal;export const getOverlayActiveElement=()=>document.activeElement;export const isOverlayEventInside=(event,element)=>element?.contains(event.target);export const addOverlayEventListener=(name,handler)=>{window.addEventListener(name,handler);return()=>window.removeEventListener(name,handler)};export const addOverlayWindowBlurListener=(handler)=>()=>{};`,loader:'js'}))
+        builder.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:`import {useLayoutEffect} from 'react';import {createPortal} from 'react-dom';export function NativeOverlayPortal({children,onReady}){useLayoutEffect(()=>{onReady?.()},[]);return children};export const createOverlayPortal=createPortal;export const getOverlayActiveElement=()=>document.activeElement;export const isOverlayEventInside=(event,element)=>element?.contains(event.target);export const addOverlayEventListener=(name,handler)=>{window.addEventListener(name,handler);return()=>window.removeEventListener(name,handler)};export const addOverlayWindowBlurListener=(handler)=>()=>{};`,loader:'js'}))
     }}]})
     if(!build.success) throw Error(build.logs.join('\n'))
     await writeFile(join(directory,'harness.js'),await build.outputs[0].text())

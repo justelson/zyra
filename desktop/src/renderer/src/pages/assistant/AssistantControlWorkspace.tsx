@@ -12,6 +12,7 @@ import {
     type AssistantComposerSessionState
 } from './assistant-composer-session-state'
 import { SIDEBAR_EFFORT_LABELS } from './useAssistantPageSidebarState'
+import { reasoningChoiceLabel } from '@shared/assistant/reasoning-efforts'
 import { getProfileLabel } from './assistant-composer-controller-constants'
 import { useAssistantSessionTurnUsage } from './useAssistantSessionTurnUsage'
 import { resolveAssistantThreadDetailsNowState, selectAssistantThreadControl, summarizeAssistantThreadUsage } from './assistant-thread-details'
@@ -252,7 +253,8 @@ export function AssistantThreadDetailsWorkspace({
         activeAgents
     })
     const model = formatAssistantModelLabel(composerState.model || selection.threadModel || 'No model')
-    const effort = SIDEBAR_EFFORT_LABELS[(composerState.effort || selection.latestTurnEffort || selection.threadEffort || 'high') as keyof typeof SIDEBAR_EFFORT_LABELS] || 'High'
+    const effortChoice = composerState.effort || selection.latestTurnEffort || selection.threadEffort || 'default'
+    const effort = SIDEBAR_EFFORT_LABELS[effortChoice as keyof typeof SIDEBAR_EFFORT_LABELS] || reasoningChoiceLabel(effortChoice)
     const speed = composerState.fastModeEnabled || selection.latestTurnServiceTier === 'fast' ? 'Fast' : selection.latestTurnServiceTier === 'flex' ? 'Flex' : 'Standard'
     const titleActionDisabled = selection.commandPending || selection.titleGenerating
     return (

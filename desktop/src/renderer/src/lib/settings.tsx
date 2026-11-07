@@ -712,7 +712,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 ),
                 assistantDefaultWebSearch: candidate.assistantDefaultWebSearch !== false,
                 assistantDefaultWebFetch: candidate.assistantDefaultWebFetch !== false,
-                assistantBusyMessageMode: candidate.assistantBusyMessageMode === 'steer' ? 'steer' : 'queue',
+                assistantBusyMessageMode: candidate.assistantBusyMessageMode === 'queue' || candidate.assistantBusyMessageMode === 'force' ? 'queue' : 'steer',
                 assistantAutoReconnect: candidate.assistantAutoReconnect !== false,
                 assistantHistoryPrefetch: Number(parsed.settingsSchemaVersion) >= 3
                     && candidate.assistantHistoryPrefetch === true,

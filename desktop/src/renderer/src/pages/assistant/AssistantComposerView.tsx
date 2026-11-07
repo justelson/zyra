@@ -27,7 +27,6 @@ import AssistantAttachmentPreviewModal from './AssistantAttachmentPreviewModal'
 import { AssistantVoiceRecorderBar } from './AssistantVoiceRecorderBar'
 import { AssistantNewChatProjectChip } from './AssistantNewChatProjectChip'
 import { AssistantComposerContextIndicator } from './AssistantComposerContextIndicator'
-import { AssistantBusySendSplitButton } from './AssistantBusySendSplitButton'
 import { AssistantComposerCommandMenu } from './AssistantComposerCommandMenu'
 import { AssistantComposerFileMenu } from './AssistantComposerFileMenu'
 import { ComposerAttachmentsShelf, ComposerFooterControls, ComposerMentionMenu, ComposerRealtimeVoiceButton, ComposerSendButton, ComposerVoiceButton } from './AssistantComposerSections'
@@ -177,11 +176,14 @@ function ComposerViewWithQueue({
         settings
     })
     const composerPlaceholder = capabilities.placeholder
-    const sendActionDisabled = capabilities.sendDisabled || Boolean(controller.selectionUnavailableReason) || (voiceBusy && !capabilities.canStop)
+    const primaryActionStops = controller.isStopping || (capabilities.canStop && !canSend)
+    const canContinue = controller.canContinue && !controller.isThinking && !controller.isSending && !controller.isStopping
+        && !voiceBusy && !controller.text.trim() && controller.contextFiles.length === 0 && !controller.isDirty
+    const sendActionDisabled = capabilities.sendDisabled || Boolean(controller.selectionUnavailableReason) || (voiceBusy && !primaryActionStops)
     const currentSubmitLabel = controller.isDirty && controller.dirtySubmitLabel
         ? controller.dirtySubmitLabel
         : controller.submitLabel
-    const showRealtimeVoicePrimaryAction = shouldShowComposerRealtimeVoicePrimaryAction({
+    const showRealtimeVoicePrimaryAction = !canContinue && shouldShowComposerRealtimeVoicePrimaryAction({
         currentSubmitLabel,
         text: controller.text,
         contextFilesLength: controller.contextFiles.length,
@@ -824,7 +826,7 @@ function ComposerViewWithQueue({
                                 onReconnect={controller.onReconnect}
                             />
 
-                            <div className={cn('assistant-composer-footer-actions flex shrink-0 items-center', showBusySendActions ? 'gap-1.5 [--assistant-footer-action-gap:0.375rem]' : 'gap-2 [--assistant-footer-action-gap:0.5rem]')}>
+                            <div className="assistant-composer-footer-actions flex shrink-0 items-center gap-2 [--assistant-footer-action-gap:0.5rem]">
                                 <AssistantComposerContextIndicator
                                     usage={controller.latestTurnUsage}
                                     modelContextWindow={controller.selectedModelContextWindow}
@@ -846,29 +848,7 @@ function ComposerViewWithQueue({
                                     disabled={capabilities.voiceDisabled || controller.voiceInput.isStarting || controller.voiceInput.isTranscribing}
                                     onToggle={controller.voiceInput.toggleRecording}
                                 />
-                                {showBusySendActions ? (
-                                    <>
-                                        <AssistantBusySendSplitButton
-                                            defaultMode={controller.busyMessageMode}
-                                            disabled={sendActionDisabled}
-                                            queuedCount={controller.queuedMessageCount}
-                                            onQueue={controller.handleQueueSend}
-                                            onForce={controller.handleForceSend}
-                                        />
-                                        <ComposerSendButton
-                                            disabled={sendActionDisabled}
-                                            isConnected={controller.isConnected}
-                                            isThinking={true}
-                                            isStopping={controller.isStopping}
-                                            canSend={false}
-                                            label={currentSubmitLabel}
-                                            reconnectPending={controller.reconnectPending}
-                                            onStop={controller.onStop}
-                                            onReconnect={controller.onReconnect}
-                                            onSend={() => void controller.handleSend()}
-                                        />
-                                    </>
-                                ) : showRealtimeVoicePrimaryAction ? (
+                                {showRealtimeVoicePrimaryAction ? (
                                     <ComposerRealtimeVoiceButton onPrepare={onPrepareRealtimeVoice} onStart={() => onStartRealtimeVoice?.(
                                         buildAssistantVoiceExecutionConfiguration({
                                             model: controller.selectedModel,
@@ -881,11 +861,13 @@ function ComposerViewWithQueue({
                                     )} />
                                 ) : (
                                     <ComposerSendButton
-                                        disabled={sendActionDisabled}
+                                        disabled={canContinue ? capabilities.inputDisabled || Boolean(controller.selectionUnavailableReason) : sendActionDisabled}
                                         isConnected={controller.isConnected}
                                         isThinking={controller.isThinking}
                                         isStopping={controller.isStopping}
                                         canSend={canSend}
+                                        canContinue={canContinue}
+                                        onContinue={() => void controller.handleContinue()}
                                         label={currentSubmitLabel}
                                         reconnectPending={controller.reconnectPending}
                                         onStop={controller.onStop}

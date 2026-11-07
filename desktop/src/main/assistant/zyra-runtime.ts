@@ -1234,7 +1234,8 @@ function normalizeModelInfo(value: unknown): AssistantModelInfo | null {
     const pricing = record?.['pricing'] as AssistantModelInfo['pricing']
     const pricingFetchedAt = asString(record?.['pricingFetchedAt']) || undefined
     const pricingSource = asString(record?.['pricingSource']) || undefined
-    const model = { id, label, description, supportedEfforts, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
+    const reasoningStatus = record?.['reasoningStatus'] === 'unknown' || !Array.isArray(record?.['supportedEfforts']) ? 'unknown' as const : 'known' as const
+    const model = { id, label, description, supportedEfforts, reasoningStatus, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
     installModelCatalogPricing([model])
     return model
 }

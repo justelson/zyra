@@ -1,3 +1,4 @@
+import { installSessionReasoningOptions, reasoningStateReader, applySessionReasoningPayload } from './session-reasoning-options.mjs';
 import { runtimeModelCost } from './model-pricing/index.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
 import { aggregateSessionUsage } from './usage-aggregation.mjs';
@@ -104,6 +105,7 @@ import {
   coerceThinkingLevelForModel,
   getModelThinkingLevels,
   normalizeZyraThinkingLevel,
+  resolveSessionThinkingModel,
   toRuntimeThinkingLevel,
 } from "./thinking-levels.mjs";
 import {
@@ -412,9 +414,8 @@ function createGpt56ThinkingExtension(state) {
     handlers: new Map([
       ["before_provider_request", [
         (event) => {
-          if (Array.isArray(state?.model?.zyraSupportedEfforts) && event.payload?.model === state.model.id && state.model.reasoning) {
-            return { ...event.payload, reasoning: { ...event.payload.reasoning, effort: coerceThinkingLevelForModel(state.value, state.model) } };
-          }
+          if (state?.value === 'default') return undefined;
+          if (Array.isArray(state?.model?.zyraSupportedEfforts) && event.payload?.model === state.model.id) return applySessionReasoningPayload(event.payload, state.model, state.value);
           return applyGpt56ThinkingEffort(event.payload, state?.value);
         },
       ]],
@@ -1205,6 +1206,7 @@ export async function createZyraSession(options = {}) {
     try { await result.session.dispose?.(); } catch {}
     throw new Error(`Memory processing model '${startupPreferences.model}' is unavailable or unsupported by this Zyra runtime.`);
   }
+  installSessionReasoningOptions(result.session, reasoningStateReader(thinkingState));
   const effectiveThinking = syncZyraThinkingLevel({ session: result.session, thinkingState }, thinking);
   if (options.persistStartupPreferences !== false) {
     persistExplicitStartupPreferences(project, options, {
@@ -2867,7 +2869,7 @@ function extractReasoningTokens(usage) {
 export function getZyraAvailableThinkingLevels(runtime) {
   const session = runtime?.session;
   const piLevels = session?.getAvailableThinkingLevels?.();
-  return getModelThinkingLevels(session?.model, piLevels);
+  return getModelThinkingLevels(resolveSessionThinkingModel(session), piLevels);
 }
 
 function parseModelSelector(selector) {
@@ -2891,13 +2893,13 @@ export function getZyraThinkingLevel(runtime) {
   const session = runtime?.session;
   const piLevels = session?.getAvailableThinkingLevels?.();
   const stored = runtime?.thinkingState?.value ?? runtime?.thinking ?? session?.thinkingLevel ?? "off";
-  return coerceThinkingLevelForModel(stored, session?.model, piLevels);
+  return coerceThinkingLevelForModel(stored, resolveSessionThinkingModel(session), piLevels);
 }
 
 export function syncZyraThinkingLevel(runtime, value = getZyraThinkingLevel(runtime)) {
   const session = runtime?.session;
   const piLevels = session?.getAvailableThinkingLevels?.();
-  const effective = coerceThinkingLevelForModel(value, session?.model, piLevels);
+  const effective = coerceThinkingLevelForModel(value, resolveSessionThinkingModel(session), piLevels);
   const sessionLevel = session?.acceptsZyraThinkingLevels ? effective : toRuntimeThinkingLevel(effective);
   session?.setThinkingLevel?.(sessionLevel);
   if (!runtime.thinkingState) runtime.thinkingState = { value: effective };
@@ -2908,8 +2910,8 @@ export function syncZyraThinkingLevel(runtime, value = getZyraThinkingLevel(runt
 }
 
 export function setThinking(runtime, level) {
-  const levels = getZyraAvailableThinkingLevels(runtime);
-  const requested = String(level ?? "").trim().toLowerCase();
+  const levels = ['default', ...getZyraAvailableThinkingLevels(runtime).filter(level => level !== 'default')];
+  const requested = String(level ?? "").trim();
   let next;
 
   if (!requested || requested === "next") {
@@ -2918,8 +2920,8 @@ export function setThinking(runtime, level) {
   } else {
     const normalized = normalizeZyraThinkingLevel(requested);
     if (!normalized) throw new Error(`Thinking must be one of: ${levels.join(", ")}`);
-    next = coerceThinkingLevelForModel(normalized, runtime.session?.model, levels);
-    if (!levels.includes(next)) throw new Error(`Thinking must be one of: ${levels.join(", ")}`);
+    if (!levels.includes(normalized)) throw new Error(`Thinking must be one of: ${levels.join(", ")}`);
+    next = normalized;
   }
 
   const effective = syncZyraThinkingLevel(runtime, next);

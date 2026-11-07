@@ -1,4 +1,5 @@
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
+import { reasoningChoiceLabel } from '@shared/assistant/reasoning-efforts'
 import { AssistantQuestionTransition as ComposerControlsTransition } from './AssistantQuestionTransition'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
 import { getOverlayOwnerRect } from '@/components/ui/native-overlay-events'
@@ -464,8 +465,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         : modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || modelGroups[0]?.id || null
     const visibleModelGroups = modelQuery.trim() || !visibleModelGroup ? modelGroups : modelGroups.filter(group => group.id === visibleModelGroup)
     const canChooseSpeed = supportsAssistantFastMode(selectedModel)
-    const canChooseEffort = EFFORT_OPTIONS.length > 1
-    const selectedEffortText = EFFORT_LABELS[selectedEffort] || selectedEffort
+    const effortUnavailable = !EFFORT_OPTIONS.includes(selectedEffort)
+    const canChooseEffort = EFFORT_OPTIONS.length > 1 || effortUnavailable
+    const selectedEffortText = EFFORT_LABELS[selectedEffort] || reasoningChoiceLabel(selectedEffort)
     const selectedEffortTone = getEffortTone(selectedEffort)
     const selectedEffortIndex = Math.max(0, EFFORT_OPTIONS.indexOf(selectedEffort))
     const effortSliderMax = Math.max(0, EFFORT_OPTIONS.length - 1)
@@ -613,7 +615,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                         </div>
                                         {onRefreshModels ? <button type="button" onClick={onRefreshModels} disabled={modelsLoading} aria-label="Refresh models" title="Refresh models" className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sparkle-text-muted transition-colors hover:bg-[var(--surface-hover)] hover:text-sparkle-text disabled:opacity-45 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]"><RotateCw size={14} className={modelsLoading ? 'animate-spin' : ''} /></button> : <span className="w-6 shrink-0" />}
                                     </div>
-                                    {canChooseEffort ? <div className="relative mt-1.5 py-1">
+                                    {effortUnavailable ? <button type="button" onClick={() => setSelectedEffort('default')} className="mt-1.5 w-full rounded px-2 py-1 text-xs text-[var(--accent-primary)] hover:bg-[var(--surface-hover)]">Use provider default</button> : canChooseEffort ? <div className="relative mt-1.5 py-1">
                                         <input
                                             type="range"
                                             min={0}

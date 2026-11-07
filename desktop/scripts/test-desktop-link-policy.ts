@@ -54,3 +54,52 @@ const beforeRestore = visibility.length; restoreReleased(); assert.equal(visibil
 host.setVisible = originalSetVisible
 globalThis.cancelAnimationFrame = originalCancel
 console.log('Native presentation suspension preserves new overlays and released origins')
+
+// A delayed destination choice belongs to its originating chat, even if navigation changes.
+const { captureZyraBrowserLinkOpener, installChatBrowserLinkHandler } = await import('../src/renderer/src/lib/zyra-browser-links')
+const { subscribeAssistantInspectorNavigation, acknowledgeAssistantInspectorNavigation, isAssistantInspectorNavigationForChat } = await import('../src/renderer/src/pages/assistant/assistant-inspector-navigation')
+const originalWindow = globalThis.window
+const accessories: unknown[] = []
+;(globalThis as any).window = { devscope: { accessories: { open: async (input: unknown) => { accessories.push(input); return { success: true } } } } }
+const browserRequests: any[] = []
+const releaseRequests = subscribeAssistantInspectorNavigation(request => { browserRequests.push(request); acknowledgeAssistantInspectorNavigation(request) })
+const outside = captureZyraBrowserLinkOpener()
+await outside('https://example.com/outside')
+assert.equal(accessories.length, 1, 'non-chat links retain the standalone browser')
+const releaseFirstChat = installChatBrowserLinkHandler({ sessionId: 'chat-one', threadId: 'thread-one' })
+const scopedDispatch = createDesktopLinkDispatcher({ preference: () => 'ask', remember: () => {}, choose: () => {}, captureContext: captureZyraBrowserLinkOpener,
+    open: (url, _destination, captured) => captured!(url) })
+const scopedPending = scopedDispatch.request('https://example.com/chat')
+await scopedDispatch.select('zyra', false)
+assert.equal((await scopedPending).success, true)
+assert.deepEqual(browserRequests.at(-1), { workspace: 'browser', sessionId: 'chat-one', threadId: 'thread-one', url: 'https://example.com/chat' })
+assert.equal(accessories.length, 1, 'chat opening never creates an accessory window')
+const stalePending = scopedDispatch.request('https://example.com/stale')
+const releaseSecondChat = installChatBrowserLinkHandler({ sessionId: 'chat-two', threadId: 'thread-two' })
+releaseFirstChat()
+await scopedDispatch.select('zyra', false)
+assert.equal((await stalePending).success, false, 'a delayed choice cannot move to another chat')
+assert.equal(browserRequests.length, 1)
+const currentChat = captureZyraBrowserLinkOpener()
+assert.equal((await currentChat('https://example.com/current')).success, true, 'old cleanup cannot unregister a newer chat')
+assert.equal(browserRequests.at(-1).sessionId, 'chat-two')
+assert.equal(isAssistantInspectorNavigationForChat(browserRequests.at(-1), 'chat-one', 'thread-one'), false)
+assert.equal(isAssistantInspectorNavigationForChat(browserRequests.at(-1), 'chat-two', 'thread-two'), true)
+assert.equal((await currentChat('javascript:bad')).success, false)
+releaseSecondChat()
+assert.equal((await currentChat('https://example.com/released')).success, false, 'unmounted chat cannot fall back into a new window')
+releaseRequests()
+const releaseMounting = installChatBrowserLinkHandler({ sessionId: 'chat-mounting', threadId: 'thread-mounting' })
+await captureZyraBrowserLinkOpener()('https://example.com/deferred')
+const deferred: unknown[] = []
+const notReady = subscribeAssistantInspectorNavigation(request => deferred.push(request), false)
+assert.equal(deferred.length, 0, 'link remains pending while the inspector is mounting')
+notReady()
+const ready = subscribeAssistantInspectorNavigation(request => { deferred.push(request); acknowledgeAssistantInspectorNavigation(request) })
+assert.deepEqual(deferred, [{ workspace: 'browser', sessionId: 'chat-mounting', threadId: 'thread-mounting', url: 'https://example.com/deferred' }])
+ready()
+const again = subscribeAssistantInspectorNavigation(request => deferred.push(request))
+assert.equal(deferred.length, 1, 'acknowledged link cannot reopen on remount')
+again(); releaseMounting()
+;(globalThis as any).window = originalWindow
+console.log('Chat browser routing: exact owner, delayed chooser isolation, stale cleanup, safe URLs and standalone fallback passed')

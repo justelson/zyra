@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Copy, ExternalLink, File, FolderOpen, Globe2, RefreshCw } from 'lucide-react'
 import type { FileActionsMenuItem } from '../FileActionsMenu'
 import { PreviewTreeContextMenu } from '../file-preview/PreviewTreeContextMenu'
-import { openAccessory } from '@/lib/accessories'
+import { captureZyraBrowserLinkOpener } from '@/lib/zyra-browser-links'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { inspectMarkdownLinkAvailability, type MarkdownLinkAvailabilityResult } from './linkAvailability'
 import { normalizeMarkdownHref, resolveMarkdownLinkTarget } from './linkNavigation'
@@ -25,6 +25,7 @@ export function MarkdownLinkContextMenu({ target, filePath, searchRootPath, onCl
 }) {
     const [availability, setAvailability] = useState<MarkdownLinkAvailabilityResult | null>(null)
     const [checking, setChecking] = useState(target.fileLink)
+    const openBrowser = useMemo(captureZyraBrowserLinkOpener, [target])
     const inspect = () => inspectMarkdownLinkAvailability(target.href, filePath, searchRootPath, {
         force: true,
         allowProjectSearch: !target.element.dataset.devscopeFileReference
@@ -88,7 +89,7 @@ export function MarkdownLinkContextMenu({ target, filePath, searchRootPath, onCl
         {
             id: 'open-zyra-browser', label: 'Open in Zyra Browser', icon: <Globe2 size={14} />,
             disabled: !isElectronRendererRuntime(),
-            onSelect: () => run(() => openAccessory({ kind: 'browser', sessionMode: 'normal', url: normalizeMarkdownHref(target.href) }))
+            onSelect: () => run(() => openBrowser(normalizeMarkdownHref(target.href)))
         },
         {
             id: 'open-default-browser', label: 'Open in default browser', icon: <ExternalLink size={14} />,

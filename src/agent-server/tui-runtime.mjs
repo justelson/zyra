@@ -1,3 +1,4 @@
+import { normalizeReasoningChoice } from '../reasoning-choices.mjs';
 import { normalizeCanonicalMessageSourceId } from '../message-identity.mjs';
 import { assistantMessageCost } from '../model-pricing/message-cost.mjs';
 import { randomUUID } from "node:crypto";
@@ -946,7 +947,7 @@ function normalizeRemoteChatConfig(value) {
   const thinking = asString(source.thinking);
   return {
     model: asString(source.model),
-    thinking: ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinking) ? thinking : null,
+    thinking: normalizeReasoningChoice(thinking) ?? null,
     profile: asString(source.profile),
     runtimeMode: normalizeZyraPermissionMode(source.runtimeMode),
     webSearch: typeof source.webSearch === "boolean" ? source.webSearch : undefined,

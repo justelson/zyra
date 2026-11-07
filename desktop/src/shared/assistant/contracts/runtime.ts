@@ -9,7 +9,7 @@ export function isAssistantRuntimeMode(value: unknown): value is AssistantRuntim
         || value === 'full-access'
 }
 export type AssistantInteractionMode = 'default' | 'plan'
-export type AssistantReasoningEffort = 'off' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type AssistantReasoningEffort = import('../../../../../src/reasoning-choices.mjs').ReasoningChoice
 export type AssistantThreadState =
     | 'idle'
     | 'starting'

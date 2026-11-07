@@ -33,6 +33,7 @@ try {
   worker.on('event', value => publicEvents.push(value));
   const result = await worker.request('warmup', { forceRefresh: true, skipAvailability: true, serverOwnedHarness: true }, { timeoutMs: 30_000 });
   assert.ok(result.models.some(model => model.id === 'opencode-harness/broker-fixture/discovered'), 'real bridge/SDK discovery replaces a stale native catalog');
+  assert.deepEqual(result.models.find(model => model.id === 'opencode-harness/broker-fixture/discovered').supportedEfforts, ['high', 'variant:Deep%20mode'], 'native variants survive actual catalog registration, bridge mapping and private worker IPC');
   assert.equal(leases, 1, 'catalog uses one server-owned lease rather than starting another backend');
   assert.equal(readFileSync(process.env.ZYRA_BROKER_FIXTURE_LOG, 'utf8'), apiVersion === 2 ? 'model\n' : 'provider\n');
   const persisted = readFileSync(providerPath, 'utf8');

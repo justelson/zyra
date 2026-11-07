@@ -8,6 +8,7 @@ import { subscribeHarnessEvents, createHarnessEventAccumulator } from './harness
 import { requestV2, v2CatalogPayload, prepareV2, listV2Models } from './harness-v2-client.mjs';
 import { managedV2Config } from './harness-v2-config.mjs';
 import { runHarnessV2Turn } from './harness-v2-turn.mjs';
+import { nativeReasoningValue, isNativeReasoningId, reasoningChoiceForNativeId } from './reasoning-choices.mjs';
 
 /**
  * Local OpenCode harness provider.
@@ -506,10 +507,10 @@ export function mapProviderCatalog(payload) {
 
 function modelVariantNames(variants) {
   if (Array.isArray(variants)) {
-    return variants.map((variant) => typeof variant === "string" ? variant : variant?.id)
-      .filter((variant) => typeof variant === "string" && variant);
+    return variants.filter(variant => variant?.disabled !== true).map((variant) => typeof variant === "string" ? variant : variant?.id)
+      .filter(isNativeReasoningId);
   }
-  return variants && typeof variants === "object" ? Object.keys(variants) : [];
+  return variants && typeof variants === "object" ? Object.keys(variants).filter(id => variants[id]?.disabled !== true && isNativeReasoningId(id)) : [];
 }
 
 function hasExplicitZeroPrice(value) {
@@ -931,7 +932,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
   return (model, context, options = {}) => {
     const stream = createHarnessMessageStream();
     const modelId = String(model?.id ?? model ?? "");
-    const variant = resolveHarnessVariant(model, options.reasoning);
+    const reasoning = options.zyraReasoningChoice ?? options.reasoning;
     const signal = options.signal;
     const partial = (content, stopReason = "pending", usage) => baseAssistantMessage({ modelId, content, stopReason, usage });
     void (async () => {
@@ -940,6 +941,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
       const leaseRef = { current: null };
       const onAbort = () => { void abortHarnessSession(leaseRef.current?.client, sessionIdRef.current, fetchImpl); };
       try {
+        const variant = resolveHarnessVariant(model, reasoning);
         if (signal?.aborted) throw fail("The OpenCode harness turn was aborted.");
         const lease = await ensureServe({ cwd,
           executable: harnessServeStatus(cwd).running ? cachedExecutable : await resolveExecutable(), spawnImpl, fetchImpl });
@@ -1011,17 +1013,21 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
 }
 
 function normalizeHarnessVariant(value) {
-  const variant = String(value ?? "").trim().toLowerCase();
+  if (typeof value === 'string' && value.startsWith('variant:')) return nativeReasoningValue(value);
+  const variant = String(value ?? "");
   if (variant === "off") return "none";
-  return ["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(variant) ? variant : undefined;
+  return isNativeReasoningId(variant) ? variant : undefined;
 }
 
 function resolveHarnessVariant(model, reasoning) {
-  const requested = normalizeHarnessVariant(reasoning);
+  const value = nativeReasoningValue(reasoning);
+  const requested = reasoning === 'off' ? 'none' : value;
   if (!requested) return undefined;
   const variants = model?.harness?.variants;
   if (Array.isArray(variants) && variants.length > 0) {
-    return variants.find((variant) => String(variant).toLowerCase() === requested);
+    const match = variants.find((variant) => variant === requested);
+    if (match) return reasoningChoiceForNativeId(match);
+    throw fail('The selected model option is unavailable. Refresh models or choose Provider default.');
   }
   const identity = `${model?.harness?.innerProvider ?? ""}/${model?.harness?.innerModel ?? model?.id ?? ""}`;
   if (/^(?:openai-codex|openai)\/.*gpt-5\.6-luna$/i.test(identity)) return requested;

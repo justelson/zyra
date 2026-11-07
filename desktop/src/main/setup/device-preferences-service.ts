@@ -1,5 +1,6 @@
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from '../../shared/keybindings'
 import { readFile, rename } from 'node:fs/promises'
+import { isAssistantReasoningEffort } from '../../shared/assistant/reasoning-efforts'
 import { basename, dirname, join } from 'node:path'
 import {
     DEVICE_PREFERENCES_SCHEMA_VERSION,
@@ -93,7 +94,6 @@ const ENUMS: Record<string, ReadonlySet<string>> = {
     commitAIProvider: new Set(['groq', 'gemini', 'codex']),
     assistantProductProfile: new Set(['concise', 'friendly', 'direct', 'thoughtful', 'playful']),
     assistantDefaultRuntimeMode: new Set(['approval-required', 'auto-review', 'edits-only', 'full-access']),
-    assistantDefaultEffort: new Set(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     assistantReasoningSummary: new Set(['auto', 'detailed', 'concise']),
     assistantBusyMessageMode: new Set(['queue', 'steer']),
     browserViewMode: new Set(['grid', 'finder']),
@@ -185,6 +185,7 @@ function sanitizeJson(value: unknown, depth = 0): unknown {
 }
 
 export function describeDevicePreferenceValue(key: string): Record<string, unknown> {
+    if (key === 'assistantDefaultEffort') return { type: 'string', maxLength: 1536, description: 'Provider default, standard effort, or an advertised encoded native option ID.' }
     if (BOOLEAN_KEYS.has(key)) return { type: 'boolean' }
     if (ENUMS[key]) return { type: 'enum', values: [...ENUMS[key]!] }
     if (NUMBER_RANGES[key]) return { type: 'integer', min: NUMBER_RANGES[key]![0], max: NUMBER_RANGES[key]![1] }
@@ -197,6 +198,7 @@ export function describeDevicePreferenceValue(key: string): Record<string, unkno
 }
 
 export function sanitizeDevicePreferenceValue(key: string, value: unknown): unknown {
+    if (key === 'assistantDefaultEffort') return isAssistantReasoningEffort(value) ? value : undefined
     if (key === 'assistantBusyMessageMode' && value === 'force') return 'queue'
     if (key === 'keyboardShortcuts') return sanitizeShortcutOverrides(value)
     if (key === 'assistantModelCompactionOverrides') return isRecord(value) ? normalizeModelCompactionOverrides(value) : undefined

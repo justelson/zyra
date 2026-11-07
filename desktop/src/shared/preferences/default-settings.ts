@@ -29,7 +29,7 @@ export const DEFAULT_DEVICE_SETTINGS = {
     assistantProductProfile: 'concise', assistantDefaultRuntimeMode: 'approval-required', assistantDefaultEffort: 'medium', assistantDefaultFastMode: false,
     assistantReasoningSummary: DEFAULT_ASSISTANT_REASONING_SUMMARY, assistantContextCompactionThresholdTokens: DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS,
     assistantModelCompactionOverrides: {} as Record<string, number>,
-    assistantDefaultWebSearch: true, assistantDefaultWebFetch: true, assistantBusyMessageMode: 'queue', assistantAutoReconnect: true, assistantHistoryPrefetch: false,
+    assistantDefaultWebSearch: true, assistantDefaultWebFetch: true, assistantBusyMessageMode: 'steer', assistantAutoReconnect: true, assistantHistoryPrefetch: false,
     assistantShowStatusDetails: true, assistantShowDiagnostics: false, accessibilityReduceMotion: false, projectIconOverrides: {},
     assistantTranscriptionEnabled: false, assistantMemoryEnabled: false, assistantTranscriptionEngine: 'browser',
 }

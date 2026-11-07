@@ -38,7 +38,7 @@ export function buildDelegationModelOptions(catalog, preferences, request = {}) 
       contextWindow: entry.contextWindow || null,
       reasoning: typeof entry.model?.reasoning === "boolean" ? entry.model.reasoning : null,
       toolUse: typeof entry.model?.toolUse === "boolean" ? entry.model.toolUse : null,
-      supportedEfforts: entry.model?.reasoning === true ? getModelThinkingLevels(entry.model) : entry.model?.reasoning === false ? ["off"] : [],
+      supportedEfforts: ['default', ...getModelThinkingLevels(entry.model)],
       estimatedApiCost: costs.get(entry.key),
       priceSource: costs.get(entry.key) ? "Model catalog estimate" : "Unknown",
       priceVerifiedAt: null,

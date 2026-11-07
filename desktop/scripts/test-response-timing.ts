@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { ResponseTimingRecorder, RESPONSE_TIMING_STORAGE_LIMIT } from '../src/main/diagnostics/response-timing-recorder'
 import { readModelRequestProgress } from '../src/shared/assistant/model-progress'
 import { sanitizeAnalyticsEvent } from '../../src/analytics/contracts.mjs'
+import { responseTimingEffort } from '../src/shared/response-timing'
 import type { AssistantRuntimeEvent } from '../src/shared/assistant/contracts'
 
+assert.equal(responseTimingEffort('default'), 'default', 'local diagnostics distinguish provider default from Off')
+assert.equal(responseTimingEffort('variant:private-provider-option'), 'unknown', 'native option IDs never become diagnostic dimensions')
 const directory = await mkdtemp(join(tmpdir(), 'zyra-response-timing-'))
 let clock = 1_800_000_000_000
 const captured: any[] = []

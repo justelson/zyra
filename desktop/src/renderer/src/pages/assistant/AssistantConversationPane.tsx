@@ -1,3 +1,6 @@
+import { assistantStore } from '@/lib/assistant/assistant-store-core'
+import { waitForAssistantStopConfirmation } from './assistant-stop-confirmation'
+import { createPendingAssistantUserMessage, isPendingAssistantUserMessage, useAssistantPendingMessages } from './useAssistantPendingMessages'
 import { withExtensionTabContext } from '@/lib/browser-extension'
 import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -50,6 +53,7 @@ import {
 } from './assistant-pane-layout'
 import { getAssistantThreadDisplayTitle, getProjectLabel, getSessionDisplayTitle, groupSessionsByProject, isAssistantDraftSession, resolveSessionProjectPath } from './assistant-sessions-rail-utils'
 import {
+    resolveAssistantTurnPresentationStartedAt,
     deriveAssistantConversationSurfaceMode,
     isAssistantComposerTurnActive,
     resolveAssistantComposerConnectionPresentation
@@ -109,6 +113,12 @@ function areQueuedComposerSessionStatesEqual(
     return true
 }
 
+function getPendingPromptTarget(sessionId: string) {
+    const session = assistantStore.getState().snapshot.sessions.find(candidate => candidate.id === sessionId)
+    const thread = session?.threads.find(candidate => candidate.id === session.activeThreadId) || session?.threads[0]
+    return thread ? { threadId: thread.id, turnId: thread.latestTurn?.id } : null
+}
+
 export function AssistantConversationPane(props: AssistantConversationPaneProps) {
     useEffect(() => {
         // Empty chats also warm rendering before the first prompt is sent.
@@ -133,6 +143,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const optimisticPromptStartedAtRef = useRef<string | null>(null)
     const [optimisticPromptSending, setOptimisticPromptSending] = useState(false)
     const [stoppingSessions, setStoppingSessions] = useState<Record<string, boolean>>({})
+    const stoppingSessionOwnersRef = useRef(new Set<string>())
     const holdComposerQueueRef = useRef<(sessionId?: string | null) => unknown>(() => undefined)
     const stopEpochRef = useRef<Record<string, number>>({})
     const asyncAnswerQueueRef = useRef<{ held: boolean; send: (prompt: string, files: ComposerContextFile[], options: AssistantComposerSendOptions) => Promise<boolean>; resume: () => unknown } | null>(null)
@@ -140,6 +151,9 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         sessionId: string
         threadId: string | null
         previousUserMessageId: string | null
+        submissionId: string
+        previousTurnId: string | null
+        turnId?: string
         startedAt: string
     } | null>(null)
     const [voicePreferences] = useState(readInstructorVoicePreferences)
@@ -188,6 +202,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     const voiceExecutionConfigurationRef = useRef<AssistantVoiceExecutionConfiguration | null>(null)
 
     const isThreadWorking = isAssistantThreadActivelyWorking(controller.activeThread)
+    const threadCompacting = useMemo(() => hasActiveAssistantCompaction(controller.activeThread?.activities || []), [controller.activeThread?.activities])
     const settlementHasPendingControl = [...(controlState?.pendingGrants || []), ...(controlState?.pendingActionApprovals || [])].some(request => controller.selectedSession?.threads.some(thread => isControlPrincipalForThread(request.principal, thread.id)))
     const pinnedChatIds = usePinnedSessionIds()
     const [chatSettlementOverrides] = useAssistantSettlementOverrides()
@@ -212,6 +227,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     }, [controller.selectedSession, settlementDisabled, chatSettled, showChatActionToast])
     const selectedSessionId = controller.selectedSession?.id || null
     const activeThreadId = controller.activeThread?.id || null
+    const pendingMessages = useAssistantPendingMessages(selectedSessionId, activeThreadId, controller.timelineMessages, !controller.history?.pageInfo.hasNewer)
     const handleLoadOlderHistory = useCallback((turnLimit = 1) => actions.loadOlderHistory(activeThreadId || undefined, turnLimit), [actions, activeThreadId])
     const handleLoadNewerHistory = useCallback((turnLimit = 1) => actions.loadNewerHistory(activeThreadId || undefined, turnLimit), [actions, activeThreadId])
     const canonicalVoiceBinding = useMemo(() => (
@@ -386,7 +402,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             threadId: controller.activeThread?.id
         }), [controller.activeThread?.id, controller.activeThread?.latestTurn?.usage, controller.selectionHydrating, sessionTurnUsage?.turns])
 
-    const timelineIsWorking = (isThreadWorking || optimisticPromptSending)
+    const timelineIsWorking = (isThreadWorking || optimisticPromptSending || threadCompacting)
         && !voiceVisible
         && !controller.history?.pageInfo.hasNewer
     const latestCanonicalUserMessageId = [...controller.timelineMessages].reverse().find((message) => message.role === 'user')?.id || null
@@ -395,19 +411,24 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         && optimisticPromptBoundary.sessionId === selectedSessionId
         && optimisticPromptBoundary.threadId === activeThreadId
     )
+    const submittedTurnId = optimisticPromptBoundary?.turnId || (optimisticPromptBoundary ? controller.timelineMessages.find(message => message.id === optimisticPromptBoundary.submissionId)?.turnId : null)
+    const canonicalTurnId = controller.activeThread?.latestTurn?.id
+    const optimisticBoundaryOwnsCurrentTurn = optimisticBoundaryBelongsToThread && (!submittedTurnId || !canonicalTurnId
+        || canonicalTurnId === submittedTurnId || canonicalTurnId === optimisticPromptBoundary?.previousTurnId)
     const optimisticPromptAwaitingUserMessage = Boolean(
-        optimisticBoundaryBelongsToThread
+        optimisticBoundaryOwnsCurrentTurn
         && latestCanonicalUserMessageId === optimisticPromptBoundary?.previousUserMessageId
     )
-    const timelinePresentationIsWorking = timelineIsWorking && !optimisticPromptAwaitingUserMessage
+    const timelinePresentationIsWorking = timelineIsWorking && (!optimisticPromptAwaitingUserMessage || pendingMessages.messages.some(isPendingAssistantUserMessage))
     const shouldShowWorkingIndicator = timelinePresentationIsWorking
         && !controller.timelineMessages.some((message) => message.role === 'assistant' && message.streaming)
     const canonicalLatestTurnStartedAt = controller.activeThread?.latestTurn?.startedAt || null
-    const effectiveLatestTurnStartedAt = optimisticBoundaryBelongsToThread && optimisticPromptBoundary
-        ? [optimisticPromptBoundary.startedAt, canonicalLatestTurnStartedAt].filter((value): value is string => Boolean(value)).sort()[0]
-        : canonicalLatestTurnStartedAt || optimisticPromptStartedAt
+    const effectiveLatestTurnStartedAt = resolveAssistantTurnPresentationStartedAt(
+        optimisticBoundaryOwnsCurrentTurn && optimisticPromptBoundary ? optimisticPromptBoundary.startedAt : null,
+        canonicalLatestTurnStartedAt || optimisticPromptStartedAt
+    )
     const displayedTimelineMessages = useMemo((): AssistantMessage[] => {
-        const canonicalMessages = reconcileAssistantMessageReplays(controller.timelineMessages)
+        const canonicalMessages = reconcileAssistantMessageReplays(pendingMessages.messages)
         if (!voiceVisible || voice.transcript.length === 0) return canonicalMessages
         const anchorKey = `${controller.activeThread?.id || 'no-thread'}:${voice.startedAt || 'not-started'}`
         if (voiceTimelineAnchorsRef.current.key !== anchorKey) {
@@ -429,7 +450,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         controller.activeThread?.id,
         controller.activeThread?.proposedPlans,
         controller.activityFeed,
-        controller.timelineMessages,
+        pendingMessages.messages,
         voice.startedAt,
         voice.transcript,
         voiceVisible
@@ -460,7 +481,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     )
     const isThreadConnecting = controller.phase.key === 'starting' || isReconnectPending
     const selectedCompacting = queueSessionStates.find(state => state.sessionId === selectedSessionId)?.compacting === true
-    const activeStatusLabel = selectedCompacting ? 'Letting compaction finish' : isThreadConnecting ? 'Connecting...' : 'Working...'
+    const activeStatusLabel = selectedCompacting ? 'Letting compaction finish'
+        : isThreadConnecting && !optimisticBoundaryBelongsToThread && !optimisticPromptSending && controller.activeThread?.latestTurn?.state !== 'running' ? 'Connecting...' : 'Working...'
     const composerConnectionPresentation = resolveAssistantComposerConnectionPresentation({
         connected: controller.connected,
         hasComposerSession: Boolean(activeComposerSessionId),
@@ -823,20 +845,34 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         await actions.declinePendingPlaygroundLabRequest({ sessionId })
     }, [actions, controller.selectedSession?.id])
 
-    const handleStopTurn = useCallback(async (requested?: { sessionId: string; turnId: string }) => {
-        const sessionId = requested?.sessionId || controller.selectedSession?.id
-        if (!sessionId || stoppingSessions[sessionId]) return { success: false as const, error: 'Stop is already pending or the Chat is unavailable.' }
+    const showStopToast = props.onShowToast
+    const handleStopTurn = useCallback(async (requested?: { sessionId: string; turnId?: string }) => {
+        const sessionId = requested?.sessionId || selectedSessionId
+        if (!sessionId || stoppingSessionOwnersRef.current.has(sessionId)) return { success: false as const, error: 'Stop is already pending or the Chat is unavailable.' }
+        stoppingSessionOwnersRef.current.add(sessionId)
+        const target = getPendingPromptTarget(sessionId)
+        const turnId = requested ? requested.turnId : target?.turnId
         stopEpochRef.current[sessionId] = (stopEpochRef.current[sessionId] || 0) + 1
         holdComposerQueueRef.current(sessionId)
         setStoppingSessions(current => ({ ...current, [sessionId]: true }))
         try {
-            const result = await actions.interruptTurnResult(requested?.turnId || controller.activeThread?.latestTurn?.id, sessionId)
-            if (!result.success) props.onShowToast?.(result.error || 'Could not confirm Stop. Your queue is held.', 'error')
+            const result = await actions.interruptTurnResult(turnId, sessionId)
+            if (!result.success) showStopToast?.(result.error || 'Could not confirm Stop. Your queue is held.', 'error')
+            const confirmationTurnId = turnId || getPendingPromptTarget(sessionId)?.turnId
+            if (result.success && target && confirmationTurnId) await waitForAssistantStopConfirmation({
+                turnId: confirmationTurnId, subscribe: assistantStore.subscribe,
+                readTurn: () => assistantStore.getState().snapshot.sessions.find(session => session.id === sessionId)?.threads.find(thread => thread.id === target.threadId)?.latestTurn || null
+            })
             return result
+        } catch (reason) {
+            const error = reason instanceof Error ? reason.message : 'Could not confirm Stop. Your queue is held.'
+            showStopToast?.(error, 'error')
+            return { success: false as const, error }
         } finally {
+            stoppingSessionOwnersRef.current.delete(sessionId)
             setStoppingSessions(current => ({ ...current, [sessionId]: false }))
         }
-    }, [actions, controller.activeThread?.latestTurn?.id, controller.selectedSession?.id, props.onShowToast, stoppingSessions])
+    }, [actions, selectedSessionId, showStopToast])
 
     useEffect(() => registerAppStopOwner(async (sessionId, turnId) => {
         const result = await handleStopTurn({ sessionId, turnId })
@@ -845,13 +881,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
     }), [handleStopTurn])
 
     const handleStopActiveTurnRecovery = useCallback(async () => {
-        const sessionId = controller.selectedSession?.id
-        if (!sessionId) throw new Error('Select a chat before stopping work.')
-        stopEpochRef.current[sessionId] = (stopEpochRef.current[sessionId] || 0) + 1
-        holdComposerQueueRef.current(sessionId)
-        const result = await actions.interruptTurnResult(undefined, sessionId)
+        if (!selectedSessionId) throw new Error('Select a chat before stopping work.')
+        // Recovery deliberately observes the canonical active turn instead of
+        // pinning the stale local turn which exposed the recovery control.
+        const result = await handleStopTurn({ sessionId: selectedSessionId })
         if (!result.success) throw new Error(result.error || 'Could not stop the active turn.')
-    }, [actions, controller.selectedSession?.id])
+    }, [handleStopTurn, selectedSessionId])
 
     const handleReconnectAssistant = useCallback(() => {
         connectionRecovery.reconnect()
@@ -882,41 +917,57 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
             props.onShowToast?.('Project change is still saving. Try sending again in a moment.', 'error')
             return false
         }
-        let browserPrompt: string
-        try { browserPrompt = await withExtensionTabContext(buildPromptWithContextFiles(prompt, contextFiles)) }
-        catch (reason) { props.onShowToast?.(reason instanceof Error ? reason.message : 'Browser context is unavailable.', 'error'); return false }
-        if (!canSubmit()) return false
-        if (pendingProjectSelectionsRef.current.get(sessionId)?.saving) {
-            props.onShowToast?.('Project change is still saving. Try sending again in a moment.', 'error')
+        const target = getPendingPromptTarget(sessionId)
+        if (!target) return false
+        const expectedThreadId = options.expectedThreadId || target.threadId
+        const canSubmitToTarget = () => canSubmit() && getPendingPromptTarget(sessionId)?.threadId === expectedThreadId
+        if (!canSubmitToTarget()) return false
+        const startedAt = new Date().toISOString()
+        const pending = createPendingAssistantUserMessage({ sessionId, threadId: target.threadId, prompt, files: contextFiles,
+            queueEntryId: options.queueEntryId, targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId || target.turnId : undefined, startedAt })
+        pendingMessages.begin(pending, sessionId === selectedSessionId)
+        if (options.dispatchMode !== 'steer' && sessionId === selectedSessionId) {
+            const previousUserMessageId = latestCanonicalUserMessageId
+            setOptimisticPromptBoundary({ sessionId, threadId: target.threadId, previousUserMessageId, previousTurnId: target.turnId || null, submissionId: pending.message.id, startedAt })
+            setOptimisticPromptStartedAt(startedAt)
+        }
+        let accepted = false
+        try {
+            const browserPrompt = await withExtensionTabContext(pending.message.text)
+            if (!canSubmitToTarget()) return false
+            if (pendingProjectSelectionsRef.current.get(sessionId)?.saving) {
+                props.onShowToast?.('Project change is still saving. Try sending again in a moment.', 'error')
+                return false
+            }
+            const images = buildPromptImageInputs(contextFiles)
+            const result = await actions.sendPromptResult(browserPrompt, {
+                sessionId, userMessageId: pending.message.id, expectedThreadId,
+                queueEntryId: options.queueEntryId,
+                dispatchMode: options.dispatchMode === 'steer' ? 'steer' : 'immediate',
+                targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId : undefined,
+                startInNewWorktree: options.startInNewWorktree, model: options.model,
+                runtimeMode: options.runtimeMode, interactionMode: options.interactionMode, effort: options.effort,
+                serviceTier: options.serviceTier, profile: options.profile || activeRuntimeZyraProfile,
+                images: images.length > 0 ? images : undefined
+            }, canSubmitToTarget)
+            accepted = result.success
+            if (result.success) {
+                pendingMessages.accept(pending.message.id, result.turnId)
+                setOptimisticPromptBoundary(current => current?.submissionId === pending.message.id ? { ...current, turnId: result.turnId } : current)
+                if (result.threadId !== target.threadId || assistantStore.getState().snapshot.selectedSessionId !== sessionId || getPendingPromptTarget(sessionId)?.threadId !== target.threadId) pendingMessages.remove(pending.message.id)
+            }
+            if (!result.success) props.onShowToast?.(result.error || 'Could not send. Your message is preserved.', 'error')
+            return accepted
+        } catch (reason) {
+            props.onShowToast?.(reason instanceof Error ? reason.message : 'Could not send. Your message is preserved.', 'error')
             return false
+        } finally {
+            if (!accepted) {
+                pendingMessages.remove(pending.message.id)
+                setOptimisticPromptBoundary(current => current?.submissionId === pending.message.id ? null : current)
+            }
         }
-        const startedAt = optimisticPromptStartedAtRef.current || new Date().toISOString()
-        const previousUserMessageId = [...controller.timelineMessages].reverse().find((message) => message.role === 'user')?.id || null
-        if (options.dispatchMode !== 'steer') {
-            setOptimisticPromptBoundary({ sessionId, threadId: controller.activeThread?.id || null, previousUserMessageId, startedAt })
-            setOptimisticPromptStartedAt((current) => current || startedAt)
-        }
-        const images = buildPromptImageInputs(contextFiles)
-        const result = await actions.sendPromptResult(browserPrompt, {
-            sessionId,
-            queueEntryId: options.queueEntryId,
-            dispatchMode: options.dispatchMode === 'steer' ? 'steer' : 'immediate',
-            targetTurnId: options.dispatchMode === 'steer' ? options.targetTurnId : undefined,
-            startInNewWorktree: options.startInNewWorktree,
-            model: options.model,
-            runtimeMode: options.runtimeMode,
-            interactionMode: options.interactionMode,
-            effort: options.effort,
-            serviceTier: options.serviceTier,
-            profile: options.profile || activeRuntimeZyraProfile,
-            images: images.length > 0 ? images : undefined
-        }, canSubmit)
-        if (!result.success) {
-            setOptimisticPromptBoundary((current) => current?.sessionId === sessionId ? null : current)
-            props.onShowToast?.(images.length > 0 ? `Could not send image: ${result.error}` : result.error || 'Could not send. Your message is preserved.', 'error')
-        }
-        return result.success
-    }, [actions, activeRuntimeZyraProfile, controller.activeThread?.id, controller.timelineMessages, props.onShowToast])
+    }, [actions, activeRuntimeZyraProfile, latestCanonicalUserMessageId, pendingMessages.begin, pendingMessages.accept, pendingMessages.remove, props.onShowToast, selectedSessionId])
     const composerTurnActive = isAssistantComposerTurnActive({
         newChatHandoffActive,
         selectedSessionIsDraft,
@@ -940,6 +991,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         queuePersistenceError
     } = useAssistantQueuedComposer({
         selectedSessionId: activeComposerSessionId,
+        activeThreadId,
         sessionStates: queueSessionStates,
         isAssistantBusy,
         commandPending: !newChatHandoffActive && controller.commandPending,
@@ -1378,7 +1430,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             turnUsageById={turnUsageById}
                             deletingMessageId={props.deletingMessageId}
                             focusMessageId={props.focusMessageId}
-                            followLatestRequestKey={optimisticBoundaryBelongsToThread && optimisticPromptBoundary ? `${optimisticPromptBoundary.sessionId}:${optimisticPromptBoundary.startedAt}` : null}
+                            followLatestRequestKey={pendingMessages.followRequestKey || (optimisticBoundaryBelongsToThread && optimisticPromptBoundary ? `${optimisticPromptBoundary.sessionId}:${optimisticPromptBoundary.startedAt}` : null)}
                             loadingChats={isLoadingSelectedChat}
                             selectionHydrating={controller.selectionHydrating}
                             coldStart={initialHistoryRef.current.cold}
@@ -1443,7 +1495,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         sending={sendingComposerPrompt}
                         thinking={composerTurnActive}
                         queuedMessageCount={queuedComposerMessageCount}
-                        queuedMessages={queuedComposerMessageItems}
+                        queuedMessages={queuedComposerMessageItems.filter(entry => entry.status !== 'sending')}
                         onForceQueuedMessage={handleForceQueuedMessage}
                         onDeleteQueuedMessage={handleDeleteQueuedMessage}
                         onMoveQueuedMessage={handleMoveQueuedMessage}
@@ -1494,6 +1546,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                         }}
                         onStop={async () => { await handleStopTurn() }}
                         isStopping={Boolean(stoppingSessions[activeComposerSessionId || ''])}
+                        canContinue={!isThreadWorking && !threadCompacting && controller.activeThread?.latestTurn?.state === 'interrupted'}
                         queueHeld={queueHeld}
                         onHoldQueue={() => handleHoldQueue()}
                         onResumeQueue={() => handleResumeQueue()}

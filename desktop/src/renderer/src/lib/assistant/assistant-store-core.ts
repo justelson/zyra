@@ -704,7 +704,21 @@ export class AssistantStore {
                     && this.state.selectionHydrationKey !== targetHydrationKey
                 ) await this.requestSessionHydration(targetSessionId, targetThreadId)
             }
-            return true
+            const updatedHistory = this.state.historyByThreadId[targetThreadId]
+            if (!updatedHistory) return false
+            // Viewport fill can span many short turns. A repeated cursor is a
+            // non-progressing page, not permission to request it indefinitely.
+            const progressed = direction === 'older'
+                ? !updatedHistory.pageInfo.hasOlder || updatedHistory.pageInfo.oldestCursor !== requestedCursor
+                : !updatedHistory.pageInfo.hasNewer || updatedHistory.pageInfo.newestCursor !== requestedCursor
+            if (!progressed) this.setState(current => {
+                const history = current.historyByThreadId[targetThreadId]
+                if (!history) return {}
+                const errorKey = direction === 'older' ? 'loadOlderError' : 'loadNewerError'
+                return { historyByThreadId: { ...current.historyByThreadId, [targetThreadId]: { ...history,
+                    [errorKey]: history[errorKey] || 'More messages could not load. Try again.' } } }
+            })
+            return progressed
         })()
         this.pendingHistoryLoads.set(targetThreadId, promise)
         return promise

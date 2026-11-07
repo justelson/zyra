@@ -1,3 +1,4 @@
+import { hasActiveAssistantCompaction } from '@shared/assistant/compaction-state'
 import type { ReactNode, RefObject } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { LegendListRef } from '@legendapp/list/react'
@@ -272,6 +273,7 @@ function AssistantTimelineImpl({
     }, [revealActivityInDom])
 
     const showVoiceAgentStatus = useVoiceAgentStatusPreference()
+    const compacting = useMemo(() => hasActiveAssistantCompaction(activities), [activities])
     const baseRows = useMemo(
         () => buildTimelineRows(entries, isWorking, activeWorkStartedAt).filter(row => showVoiceAgentStatus
             || row.kind !== 'activity' || !isVoiceStrongTaskActivity(row.activity)),
@@ -435,6 +437,7 @@ function AssistantTimelineImpl({
                     running={row.running}
                     statusLabel={row.running && waitingForCompaction ? 'Letting compaction finish' : null}
                     collapseForTerminalResponse={row.terminalResponseVisible}
+                    compacting={compacting}
                     outcome={row.outcome}
                     interruptionLabel={row.interruptionLabel}
                     displayMode={assistantChatDisplayMode}

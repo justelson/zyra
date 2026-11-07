@@ -250,7 +250,7 @@ export function deriveAssistantComposerCapabilities(
             placeholder: DEFAULT_ASSISTANT_COMPOSER_PLACEHOLDER,
             statusLabel: 'Assistant is working',
             detailLabel: canSend
-                ? 'Queue or force the next message while the current turn is still running.'
+                ? 'Send a message while the current task continues.'
                 : null,
             tone: 'info'
         }

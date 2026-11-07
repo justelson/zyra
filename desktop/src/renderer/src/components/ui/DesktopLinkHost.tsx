@@ -4,7 +4,7 @@ import { createDesktopLinkDispatcher, desktopWebLink } from '@shared/desktop-lin
 import { getDesktopLinkPreference, installDesktopLinkHandler, openDesktopLink, setDesktopLinkPreference } from '@/lib/desktop-links'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { addOverlayEventListener, NativeOverlayPortal } from './native-overlay-portal'
-import { openAccessory } from '@/lib/accessories'
+import { captureZyraBrowserLinkOpener } from '@/lib/zyra-browser-links'
 
 export function DesktopLinkHost() {
     const [choice, setChoice] = useState<string | null>(null)
@@ -13,9 +13,10 @@ export function DesktopLinkHost() {
         preference: getDesktopLinkPreference,
         remember: setDesktopLinkPreference,
         choose: setChoice,
-        open: async (url, destination) => {
+        captureContext: captureZyraBrowserLinkOpener,
+        open: async (url, destination, openBrowser) => {
             if (destination === 'system' || !isElectronRendererRuntime()) return window.devscope.openBrowserPreviewExternal(url)
-            return openAccessory({ kind: 'browser', sessionMode: 'normal', url })
+            return (openBrowser || captureZyraBrowserLinkOpener())(url)
         }
     }), [])
     useEffect(() => {

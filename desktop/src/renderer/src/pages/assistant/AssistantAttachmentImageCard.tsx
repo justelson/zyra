@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 type AssistantAttachmentImageCardProps = {
@@ -11,6 +12,8 @@ type AssistantAttachmentImageCardProps = {
     removable?: boolean
     removing?: boolean
     presentation?: 'compact' | 'card'
+    pending?: boolean
+    previewSrc?: string
 }
 
 export function AssistantAttachmentImageCard({
@@ -22,18 +25,25 @@ export function AssistantAttachmentImageCard({
     onRemove,
     removable = false,
     removing = false,
-    presentation = 'compact'
+    presentation = 'compact',
+    pending = false,
+    previewSrc
 }: AssistantAttachmentImageCardProps) {
+    const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
+    const showPreview = Boolean(previewSrc && loadedSrc !== src && previewSrc !== src)
+    const dimmed = pending || showPreview
     const image = (
         <>
             <div className={presentation === 'card' ? 'p-2 pb-0' : 'p-[3px]'}>
-                <div className={presentation === 'card' ? undefined : 'overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/20 p-0.5'}>
+                <div className={cn('relative', presentation === 'card' ? undefined : 'overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/20 p-0.5')}>
                     <img
                         src={src}
                         alt={name}
                         className={cn('w-full', presentation === 'card' ? 'rounded-md bg-black/20 object-contain' : 'rounded-[8px] object-cover', heightClassName)}
                         loading="lazy"
+                        onLoad={() => setLoadedSrc(src)}
                     />
+                    {showPreview ? <img src={previewSrc} alt="" aria-hidden="true" className={cn('absolute inset-0 h-full w-full rounded-[8px] object-cover', heightClassName)} /> : null}
                 </div>
             </div>
             {presentation === 'card' ? <div className="truncate px-3 py-2 text-xs text-sparkle-text-secondary" title={name}>{name}</div> : null}
@@ -42,6 +52,8 @@ export function AssistantAttachmentImageCard({
     return (
         <article
             data-composer-attachment-item="true"
+            data-attachment-pending={dimmed ? 'true' : undefined}
+            aria-busy={dimmed}
             className={cn(
                 'group relative overflow-hidden rounded-lg border border-white/10 bg-sparkle-card/95 shadow-lg shadow-black/20 backdrop-blur-xl transition-colors hover:border-white/20 hover:bg-white/[0.05]',
                 widthClassName
@@ -49,7 +61,7 @@ export function AssistantAttachmentImageCard({
             style={{
                 transition: 'transform 190ms ease, opacity 190ms ease, filter 190ms ease',
                 transform: removing ? 'translateY(6px) scale(0.82)' : 'translateY(0) scale(1)',
-                opacity: removing ? 0 : 1,
+                opacity: removing ? 0 : dimmed ? 0.55 : 1,
                 filter: removing ? 'blur(1px)' : 'blur(0)'
             }}
         >

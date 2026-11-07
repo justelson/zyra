@@ -1,5 +1,3 @@
-import { isAssistantReasoningEffort } from './assistant/reasoning-efforts'
-
 export const RESPONSE_TIMING_IPC = {
     read: 'zyra:diagnostics:response-timings',
     displayed: 'zyra:diagnostics:response-displayed'
@@ -11,10 +9,11 @@ export function responseTimingModel(model: string): ResponseTimingModel {
     const name = model.split('/').pop()
     return RESPONSE_TIMING_MODELS.find(value => value === name) || 'other'
 }
-export type ResponseTimingEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'unknown'
+const RESPONSE_TIMING_EFFORTS = ['default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ResponseTimingEffort = typeof RESPONSE_TIMING_EFFORTS[number] | 'unknown'
 export function responseTimingEffort(value: unknown): ResponseTimingEffort {
     if (value === 'none') return 'off'
-    return isAssistantReasoningEffort(value) && value !== 'none' ? value : 'unknown'
+    return RESPONSE_TIMING_EFFORTS.find(effort => effort === value) || 'unknown'
 }
 export type ResponseTimingOutcome = 'running' | 'completed' | 'failed' | 'cancelled' | 'unfinished'
 export type ResponseTimingRequest = {

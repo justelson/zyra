@@ -1,5 +1,6 @@
 export type AssistantInspectorNavigationRequest =
-    | { workspace: 'explorer' | 'browser' | 'terminal' | 'review' | 'control' | 'resources'; toggle?: boolean }
+    | { workspace: 'explorer' | 'terminal' | 'review' | 'control' | 'resources'; toggle?: boolean }
+    | { workspace: 'browser'; toggle?: boolean; url?: string; sessionId?: string; threadId?: string }
     | { workspace: 'tabs'; action: 'next' | 'previous' | 'close' }
     | { workspace: 'agents'; agentRunId: string }
     | { workspace: 'agents'; workflowRunId: string }
@@ -7,6 +8,10 @@ export type AssistantInspectorNavigationRequest =
 
 let currentRequest: AssistantInspectorNavigationRequest | null = null
 const listeners = new Set<(request: AssistantInspectorNavigationRequest) => void>()
+
+export function isAssistantInspectorNavigationForChat(request: AssistantInspectorNavigationRequest, sessionId: string | null, threadId: string | null): boolean {
+    return request.workspace !== 'browser' || ((!request.sessionId || request.sessionId === sessionId) && (!request.threadId || request.threadId === threadId))
+}
 
 export function requestAssistantInspectorNavigation(request: AssistantInspectorNavigationRequest): void {
     currentRequest = request

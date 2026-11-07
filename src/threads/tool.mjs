@@ -13,7 +13,7 @@ export function createThreadTool(client) {
       label: Type.Optional(Type.String()),
       messageId: Type.Optional(Type.String()),
       model: Type.Optional(Type.String({ description: 'Authenticated model id from action=models, or inherit.' })),
-      effort: Type.Optional(Type.Union(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map(value => Type.Literal(value)))),
+      effort: Type.Optional(Type.String({ maxLength: 1536, description: 'Exact supportedEfforts choice from action=models, or default for provider defaults.' })),
       permissionMode: Type.Optional(Type.Union(['read-only', 'writer', 'full-access'].map(value => Type.Literal(value)))),
       readScope: Type.Optional(Type.Array(Type.String())),
       writeScope: Type.Optional(Type.Array(Type.String())),

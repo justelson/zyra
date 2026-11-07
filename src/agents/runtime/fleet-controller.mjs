@@ -250,8 +250,8 @@ export class AgentFleetController {
     });
     const attemptId = randomUUID();
     if (request.effort != null) {
-      const efforts = route.selectedModel?.reasoning === false ? ['off'] : getModelThinkingLevels(route.selectedModel);
-      const effort = request.effort === 'none' ? 'off' : request.effort;
+      const efforts = ['default', ...getModelThinkingLevels(route.selectedModel)];
+      const effort = request.effort === 'none' && !efforts.includes('none') ? 'off' : request.effort;
       if (!efforts.includes(effort)) throw new Error(`Thinking effort ${request.effort} is unavailable for ${route.selectedKey}. Choose: ${efforts.join(', ')}.`);
       request = { ...request, effort };
     } else {

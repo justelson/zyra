@@ -1,5 +1,6 @@
 // Source-only synthetic regression: bun scripts/test-cache-transport.mjs
 import assert from 'node:assert/strict';
+import { installSessionReasoningOptions } from '../src/session-reasoning-options.mjs';
 import { stream, streamSimple, closeOpenAICodexWebSocketSessions, resetOpenAICodexWebSocketDebugStats, getOpenAICodexRequestDiagnostics } from '../src/runtime/providers/source/api/openai-codex-responses.ts';
 import { acquireCodexWebSocketProbe, finishCodexWebSocketProbe, beginCodexRequestDiagnostic, finishCodexRequestDiagnostic } from '../src/runtime/providers/source/api/codex-request-diagnostics.ts';
 const model = { id: 'fixture-model', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://fixture.test', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
@@ -73,6 +74,15 @@ try {
     assert.equal(request.context, name === 'full' ? 'full' : 'delta', `${name} transport honors continuation through the normal streamSimple caller`);
   }
   const routedOptions = options('routing-session', privateAccountB);
+  const repaired = { model, modelRegistry: { zyraOpenAIModelCatalog: new Map([[model.provider,[{id:model.id,supportedEfforts:['high']}]]]) }, agent: { streamFunction: streamSimple } };
+  installSessionReasoningOptions(repaired, () => 'high');
+  const repairedOptions = options('repaired-reasoning-session', privateAccountB);
+  await repaired.agent.streamFunction(model, context, repairedOptions).result();
+  const repairedConnects = connects;
+  await repaired.agent.streamFunction(model, { ...context, messages: [...context.messages,
+    { role:'user',content:'Append after recovering reasoning metadata.',timestamp:clock }] }, repairedOptions).result();
+  assert.equal(getOpenAICodexRequestDiagnostics('repaired-reasoning-session').at(-1).context,'delta','reasoning capability repair retains warm delta continuation through the real stream wrapper');
+  assert.equal(connects,repairedConnects,'reasoning capability repair reuses the warm socket');
   await stream(model, context, routedOptions).result();
   assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=fixture-model', 'the handshake announces the actual request model before frames are sent');
   const routedConnects = connects;

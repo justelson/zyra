@@ -118,3 +118,12 @@ const legacyHistory = store.getState().historyByThreadId[legacyId]!
 assert.deepEqual(legacyHistory.messages.map(message => [message.id, message.text]), [['canonical-legacy-current', 'ABC']], 'inactive retained legacy rows are materialized before deciding whether live replay can coalesce')
 assert.equal(store.getState().snapshot.sessions.find(session => session.id === 'legacy-cache-session')!.threads[0]!.messages.length, 0, 'inactive legacy recovery preserves timeline dematerialization')
 console.log('Live history read: authoritative history plus in-flight stream delta without retry or lost text: ok')
+
+const beforeNonProgress = store.getState().historyByThreadId[shell.id]!
+;(store as any).state = { ...store.getState(), selectionHydrationKey: null, selectionTransitionKey: null,
+    historyByThreadId: { ...store.getState().historyByThreadId, [shell.id]: { ...beforeNonProgress, pageInfo: { ...beforeNonProgress.pageInfo, hasOlder: true, oldestCursor: 'repeated-cursor' } } } }
+;(globalThis as any).window.devscope.assistant.getHistoryPage = async () => ({ success: true, page: { ...basePage, snapshotSequence: sequence,
+    messages: beforeNonProgress.messages, activities: beforeNonProgress.activities,
+    pageInfo: { ...beforeNonProgress.pageInfo, hasOlder: true, oldestCursor: 'repeated-cursor' } } })
+assert.equal(await store.loadOlderHistory(shell.id), false, 'a repeated frontier stops initial fill without an arbitrary page-count cap')
+assert.ok(store.getState().historyByThreadId[shell.id]?.loadOlderError, 'a genuinely non-progressing page exposes retry rather than claiming the whole chat loaded')

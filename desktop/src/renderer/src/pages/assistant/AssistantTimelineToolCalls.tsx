@@ -36,7 +36,6 @@ function normalizeTimelineFilePath(value: string): string {
 function isStandaloneActivity(activity: AssistantActivity): boolean {
     return activity.kind === 'thread-message'
         || activity.kind === 'thread-collaboration'
-        || isAssistantToolDiscoveryActivity(activity)
 }
 
 function buildDisplayActivityList(activities: AssistantActivity[]): AssistantActivity[] {
@@ -159,8 +158,7 @@ export const TimelineToolCallList = memo(({
             </div>
         )
     }
-    // Discovery and message rows stay visible, but only split their neighboring
-    // runs. A later loader must not unwrap all the actions that preceded it.
+    // Discovery belongs to the surrounding work. Only messages split action runs.
     const activityGroups: AssistantActivity[][] = []
     for (const activity of displayActivities) {
         const previous = activityGroups.at(-1)
@@ -176,7 +174,7 @@ export const TimelineToolCallList = memo(({
             </AssistantTimelineActionBatch>
         ) : renderActivity(run[0]!))
         return (
-            <AssistantTimelineActionBatch key={group[0]!.id} grouped={actionRuns.length > 1} activities={group} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
+            <AssistantTimelineActionBatch key={group[0]!.id} grouped={actionRuns.length > 1 && group.some(activity => !isAssistantToolDiscoveryActivity(activity))} activities={group} projectRootPath={projectRootPath} revealActivityRequest={revealActivityRequest}>
                 {renderActionRows}
             </AssistantTimelineActionBatch>
         )

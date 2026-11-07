@@ -239,6 +239,7 @@ function areAssistantModelListsEqual(left: readonly AssistantModelInfo[], right:
         return candidate?.id === model.id
             && candidate.label === model.label
             && candidate.description === model.description
+            && candidate.reasoningStatus === model.reasoningStatus
             && (candidate.supportedEfforts || []).join('|') === (model.supportedEfforts || []).join('|')
             && (candidate.inputModes || []).join('|') === (model.inputModes || []).join('|')
     })

@@ -84,6 +84,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     onPingModel?: (requestId: string) => Promise<void>
     onStop?: () => Promise<void> | void
     isStopping?: boolean
+    canContinue?: boolean
     queueHeld?: boolean
     onHoldQueue?: () => unknown
     onResumeQueue?: () => boolean | Promise<boolean> | void
@@ -316,6 +317,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
                         onRefreshModels={props.refreshModels}
                         onStop={props.onStop}
                         isStopping={props.isStopping}
+                        canContinue={props.canContinue}
                         queueHeld={props.queueHeld}
                         onHoldQueue={props.onHoldQueue}
                         onResumeQueue={props.onResumeQueue}

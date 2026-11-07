@@ -37,6 +37,7 @@ export type AssistantComposerSendOptions = {
     /** Stable request identity prevents duplicate queued copies on answer retries. */
     answerRequestId?: string
     targetTurnId?: string
+    expectedThreadId?: string
     startInNewWorktree?: boolean
     model?: string
     /** Captured at acceptance so background/queued sends cannot inherit another Chat's profile. */
@@ -68,6 +69,7 @@ export type AssistantComposerProps = {
     onDraftStarted?: () => void
     onStop?: () => Promise<void> | void
     isStopping?: boolean
+    canContinue?: boolean
     queueHeld?: boolean
     /** The attention dock retains unsaved queue edits while its composer is unmounted. */
     queueState?: AssistantComposerQueueState

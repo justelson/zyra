@@ -32,7 +32,8 @@ import type { AssistantBrowserWorkspaceController } from './AssistantBrowserWork
 import { captureAssistantBrowserTabHoverPreview } from './assistant-browser-tab-hover-preview'
 import {
     acknowledgeAssistantInspectorNavigation,
-    subscribeAssistantInspectorNavigation
+    subscribeAssistantInspectorNavigation,
+    isAssistantInspectorNavigationForChat
 } from './assistant-inspector-navigation'
 import {
     ASSISTANT_BROWSER_DANGEROUS_TAB_TITLE,
@@ -876,8 +877,13 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
     }, [browserWorkspaceKey, onClose, reviewTurnId, selectTurn])
 
     useEffect(() => subscribeAssistantInspectorNavigation(request => {
+        if (!isAssistantInspectorNavigationForChat(request, sessionId, threadId)) return
         if (request.workspace === 'agents') return
         acknowledgeAssistantInspectorNavigation(request)
+        if (request.workspace === 'browser' && request.url) {
+            openBrowserSurface(request.url, true)
+            return
+        }
         if (request.workspace === 'tabs') {
             const current = workspaceTabsRef.current
             if (!current.length) return
@@ -907,7 +913,7 @@ export const AssistantDiffPanel = memo(function AssistantDiffPanel(props: {
             else if (request.workspace === 'resources') handleOpenResourcesWorkspace()
             else handleOpenReviewWorkspace()
         }
-    }, open && workspaceHydratedKey === workspaceHydrationKey), [workspaceHydrationKey, workspaceHydratedKey, handleCloseTab, handleSelectTab, handleOpenBrowserWorkspace, handleOpenExplorerWorkspace, handleOpenTerminalWorkspace, handleOpenReviewWorkspace, handleOpenThreadDetailsWorkspace, handleOpenResourcesWorkspace, onClose, open])
+    }, open && workspaceHydratedKey === workspaceHydrationKey), [sessionId, threadId, openBrowserSurface, workspaceHydrationKey, workspaceHydratedKey, handleCloseTab, handleSelectTab, handleOpenBrowserWorkspace, handleOpenExplorerWorkspace, handleOpenTerminalWorkspace, handleOpenReviewWorkspace, handleOpenThreadDetailsWorkspace, handleOpenResourcesWorkspace, onClose, open])
 
     const buildDetachedTab = useCallback((tabId: string): AssistantUtilityTab | null => {
         const workspaceTab = workspaceTabs.find((tab) => tab.id === tabId)

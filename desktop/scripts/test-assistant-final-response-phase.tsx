@@ -30,8 +30,8 @@ assert.ok(narration.some(row => row.kind === 'turn-work-summary' && !row.termina
 const markup = renderToStaticMarkup(<TimelineTurnWorkSummary startedAt={at} completedAt={null} running collapseForTerminalResponse renderChildren={() => <div>Checks</div>} />)
 assert.match(markup, /aria-expanded="false"/, 'the ongoing-work preference allows the final-response collapse')
 assert.doesNotMatch(markup, /disabled=""/, 'the collapsed work can be reopened while the response streams')
-assert.doesNotMatch(markup, /data-assistant-working-dots="true"|Working/, 'final response uses a quiet Work disclosure rather than claiming ongoing work')
-assert.match(markup, />Work</)
+assert.doesNotMatch(markup, /data-assistant-working-dots="true"/, 'a final response keeps the quiet disclosure presentation')
+assert.match(markup, />Working for /, 'the active turn retains a timed status while its final response streams')
 assert.equal(renderToStaticMarkup(<TimelineTurnWorkSummary startedAt={at} completedAt={null} running collapseForTerminalResponse hasWork={false} renderChildren={() => null} />), '', 'final-only replies have no empty disclosure')
 for (const text of ['', 'Here is the answer.']) {
     const finalOnly = project({ ...response, text }, [])

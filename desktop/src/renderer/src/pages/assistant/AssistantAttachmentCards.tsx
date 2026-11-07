@@ -44,6 +44,7 @@ type AssistantAttachmentCardBaseProps = {
     onRemove?: () => void
     removable?: boolean
     removing?: boolean
+    pending?: boolean
     title?: string
     children: ReactNode
 }
@@ -54,6 +55,7 @@ function AttachmentCardBase({
     onRemove,
     removable = false,
     removing = false,
+    pending = false,
     title,
     children
 }: AssistantAttachmentCardBaseProps) {
@@ -76,6 +78,8 @@ function AttachmentCardBase({
     return (
         <article
             data-composer-attachment-item="true"
+            data-attachment-pending={pending ? 'true' : undefined}
+            aria-busy={pending}
             className={cn(
                 'group relative overflow-hidden rounded-lg border border-white/10 bg-sparkle-card/95 shadow-lg shadow-black/20 backdrop-blur-xl transition-colors hover:border-white/20 hover:bg-white/[0.05]',
                 widthClassName
@@ -83,7 +87,7 @@ function AttachmentCardBase({
             style={{
                 transition: 'transform 190ms ease, opacity 190ms ease, filter 190ms ease',
                 transform: removing ? 'translateY(6px) scale(0.82)' : 'translateY(0) scale(1)',
-                opacity: removing ? 0 : 1,
+                opacity: removing ? 0 : pending ? 0.55 : 1,
                 filter: removing ? 'blur(1px)' : 'blur(0)'
             }}
         >
@@ -116,6 +120,7 @@ export function AssistantPastedTextCard({
     onRemove,
     removable = false,
     removing = false,
+    pending = false,
     label = 'Pasted Text',
     previewText = null
 }: {
@@ -124,6 +129,7 @@ export function AssistantPastedTextCard({
     onRemove?: () => void
     removable?: boolean
     removing?: boolean
+    pending?: boolean
     label?: string
     previewText?: string | null
 }) {
@@ -143,6 +149,7 @@ export function AssistantPastedTextCard({
             onRemove={onRemove}
             removable={removable}
             removing={removing}
+            pending={pending}
             title="Open pasted text"
         >
             <div className="relative flex h-[96px] w-full flex-col items-center justify-start gap-1.5 p-[6px] text-left">
@@ -190,6 +197,7 @@ export function AssistantFileAttachmentCard({
     onRemove,
     removable = false,
     removing = false,
+    pending = false,
     previewText
 }: {
     name: string
@@ -201,6 +209,7 @@ export function AssistantFileAttachmentCard({
     onRemove?: () => void
     removable?: boolean
     removing?: boolean
+    pending?: boolean
     previewText?: string | null
 }) {
     useThemeRevision()
@@ -212,6 +221,7 @@ export function AssistantFileAttachmentCard({
             onRemove={onRemove}
             removable={removable}
             removing={removing}
+            pending={pending}
             title={onClick ? 'Open preview' : undefined}
         >
             <div className="flex items-start gap-2 p-2">

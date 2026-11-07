@@ -11,6 +11,7 @@
     "test:chatgpt-network-isolation": "node scripts/test-chatgpt-network-isolation.mjs",
     "test:chatgpt-accounts": "node scripts/test-chatgpt-account-aliases.mjs && node scripts/test-chatgpt-account-pool.mjs && node scripts/test-chatgpt-pool-runtime.mjs && npm run test:chatgpt-network-isolation",
     "test:startup-performance": "node scripts/test-agent-server-cold-start.mjs && node scripts/test-session-engine-imports.mjs && node scripts/test-provider-refresh-batching.mjs",
+    "test:model-reasoning": "node scripts/test-model-reasoning-options.mjs && node scripts/test-reasoning-startup-recovery.mjs && node scripts/test-reasoning-startup-bridge.mjs",
     "test:openai-model-catalog": "node scripts/test-openai-model-catalog.mjs",
     "test:bridge-startup-catalog": "node scripts/test-bridge-startup-catalog.mjs && node scripts/test-openai-model-catalog.mjs && node scripts/test-model-provider-connections.mjs && node scripts/test-direct-api-model-catalog.mjs",
     "test:assistant-startup-latency": "node scripts/test-session-worker-pool.mjs && node scripts/test-harness-transport.mjs && node scripts/test-session-worker-preparation.mjs && node scripts/test-bridge-startup-catalog.mjs",

@@ -1,4 +1,5 @@
 import { normalizePromptImages } from './prompt-images.mjs';
+import { normalizeReasoningChoice } from './reasoning-choices.mjs';
 import { pingActiveModel } from './model-ping.mjs';
 import { abortManagedBashForegroundJobs, assertManagedBashCleanup, listManagedBashJobs, stopManagedBashJobs } from './managed-bash-tool.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
@@ -203,6 +204,7 @@ function modelToInfo(model, sdk) {
     label: isHarness ? (model.name && !model.name.includes("/") ? model.name : String(model.id).split("/").pop()) : model.id,
     description: isHarness ? "OpenCode harness" : model.name && model.name !== model.id ? model.name : model.provider,
     supportedEfforts: sdk.getZyraModelThinkingLevels(model),
+    reasoningStatus: isHarness && !Array.isArray(model.harness?.variants) ? 'unknown' : 'known',
     inputModes: Array.isArray(model.input) ? [...model.input] : ["text"],
     contextWindow: numberValue(model.contextWindow),
   };
@@ -701,8 +703,6 @@ function numberValue(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const VALID_THINKING_LEVELS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
 function normalizeRuntimeMode(value) {
   return normalizeZyraPermissionMode(value) || "approval-required";
 }
@@ -710,11 +710,11 @@ function normalizeRuntimeMode(value) {
 function normalizeChatConfig(value) {
   const source = value && typeof value === "object" ? value : {};
   const model = String(source.model || "").trim();
-  const thinkingValue = String(source.thinking || "").trim().toLowerCase();
+  const thinkingValue = normalizeReasoningChoice(source.thinking);
   const profileValue = String(source.profile || "").trim().toLowerCase();
   return {
     ...(model ? { model } : {}),
-    ...(VALID_THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
+    ...(thinkingValue ? { thinking: thinkingValue } : {}),
     ...(/^[a-z0-9_-]{1,64}$/.test(profileValue) ? { profile: profileValue } : {}),
     ...(normalizeZyraPermissionMode(source.runtimeMode)
       ? { runtimeMode: normalizeRuntimeMode(source.runtimeMode) }
@@ -767,7 +767,9 @@ async function applyChatConfig(sdk, value, options = {}) {
     await sdk.setModel(runtime, requested.model, { skipAvailabilityCheck: true });
   }
   if (requested.thinking && requested.thinking !== current.thinking) {
-    sdk.setThinking(runtime, requested.thinking);
+    // Stored/client settings may outlive a model's advertised controls. Admission
+    // reconciles locally; interactive /thinking still rejects invalid choices.
+    sdk.syncZyraThinkingLevel(runtime, requested.thinking);
   }
   if (requested.profile && requested.profile !== current.profile) {
     await sdk.setProfile(runtime, requested.profile);

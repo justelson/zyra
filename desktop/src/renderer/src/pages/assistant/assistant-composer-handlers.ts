@@ -600,6 +600,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         applyMentionCandidate,
         attachFile,
         handleSend,
+        handleContinue: () => submitPrompt('immediate', 'Continue'),
         handleSendTranscript,
         handleQueueSend,
         handleForceSend,

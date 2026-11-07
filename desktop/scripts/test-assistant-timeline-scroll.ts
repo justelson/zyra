@@ -79,8 +79,7 @@ assert.deepEqual(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 730,
     viewportSize: 829,
-    pagesRequested: 0
-}), { shouldRequest: true, turnLimit: 1 }, 'an underfilled reopened chat backfills one local turn before it can look like a one-turn transcript')
+    }), { shouldRequest: true, turnLimit: 1 }, 'an underfilled reopened chat backfills one local turn before it can look like a one-turn transcript')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
@@ -90,8 +89,7 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 940,
     viewportSize: 829,
-    pagesRequested: 1
-}).shouldRequest, false, 'a viewport with one row of readable context does not fetch another page')
+    }).shouldRequest, false, 'a viewport with one row of readable context does not fetch another page')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     hasOlder: true,
@@ -100,7 +98,6 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 200,
     viewportSize: 829,
-    pagesRequested: 0,
     selectionSettled: false
 }).shouldRequest, false, 'an underfilled Chat waits for selection hydration to release the same history cursor')
 assert.equal(resolveAssistantInitialHistoryBackfill({
@@ -112,8 +109,7 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 200,
     viewportSize: 829,
-    pagesRequested: 0
-}).shouldRequest, true, 'an actively streaming chat still fills its missing historical viewport context')
+    }).shouldRequest, true, 'an actively streaming chat still fills its missing historical viewport context')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,
@@ -123,8 +119,7 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 200,
     viewportSize: 829,
-    pagesRequested: 3
-}).shouldRequest, false, 'viewport backfill has a strict request cap for short historical turns')
+    }).shouldRequest, true, 'short historical turns keep filling the viewport after three pages')
 const slowStreamPlan = resolveAssistantHistoryStreamPlan({
     startupSettled: true,
     upwardIntent: true,
@@ -276,7 +271,7 @@ assert.ok(incrementalMs < 100, 'a single tool lifecycle update remains bounded o
 const virtualTimelineSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantVirtualTimeline.tsx', import.meta.url), 'utf8')
 assert.equal(virtualTimelineSource.includes('selectionSettled: !props.selectionHydrating'), true, 'initial backfill waits until Chat selection and detail hydration release the history cursor')
 assert.equal(virtualTimelineSource.includes('if (accepted === false) initialHistoryBackfillActiveRef.current = false'), false, 'a transiently rejected page cannot permanently disable first-screen context')
-assert.match(virtualTimelineSource, /accepted === false[\s\S]{0,180}initialHistoryBackfillPagesRef\.current = Math\.max/, 'a rejected page restores its bounded retry budget')
+assert.match(virtualTimelineSource, /accepted === false[\s\S]{0,180}initialHistoryBackfillActiveRef\.current = false/, 'a rejected initial page stops automatic retries')
 assert.match(virtualTimelineSource, /initialHistoryBackfillWindowKeyRef\.current !== props\.windowKey[\s\S]{0,420}olderLoadRequestOwnerRef\.current = null[\s\S]{0,120}newerLoadRequestOwnerRef\.current = null/, 'each Chat window clears stale page-request ownership synchronously')
 assert.equal(virtualTimelineSource.includes('requestId: ++nextHistoryLoadRequestIdRef.current'), true, 'revisiting the same Chat receives a new page owner instead of reusing its window key')
 const stylesSource = readFileSync(new URL('../src/renderer/src/index.css', import.meta.url), 'utf8')
@@ -349,7 +344,7 @@ assert.equal(virtualTimelineSource.includes("addEventListener(ASSISTANT_TIMELINE
 assert.equal(virtualTimelineSource.includes('addEventListener(ASSISTANT_TIMELINE_FOLLOW_END_EVENT'), true, 'the latest button restores live-follow through a distinct event')
 assert.match(virtualTimelineSource, /handledFollowRequestRef\.current\.key === key\) return/, 'canonical updates cannot replay a consumed send and steal manual history navigation')
 assert.match(virtualTimelineSource, /maintainScrollAtEndThreshold=\{scrollMode === 'following-end' \? Number\.POSITIVE_INFINITY : 0\.12\}/, 'a tall prompt cannot break explicitly owned live follow')
-assert.match(conversationPaneSource, /followLatestRequestKey=\{optimisticBoundaryBelongsToThread && optimisticPromptBoundary/, 'only a send belonging to the displayed chat can request latest-follow')
+assert.equal(conversationPaneSource.includes('followLatestRequestKey={pendingMessages.followRequestKey || (optimisticBoundaryBelongsToThread && optimisticPromptBoundary'), true, 'only owner-scoped pending sends or the displayed boundary request latest-follow')
 const pageScrollSource = readFileSync(new URL('../src/renderer/src/pages/assistant/useAssistantPageTimelineScroll.ts', import.meta.url), 'utf8')
 assert.match(pageScrollSource, /new CustomEvent\(ASSISTANT_TIMELINE_FOLLOW_END_EVENT/, 'Scroll to bottom does not masquerade as a checkpoint jump')
 assert.doesNotMatch(pageScrollSource, /element\.scrollTo\(/, 'LegendList remains the sole owner of end scrolling')

@@ -275,6 +275,16 @@ function historyBoundaryKey(row: SqlValue[]): AssistantTimelineOrderKey {
     }
 }
 
+// Steering bubbles share a canonical turn with their original prompt. Page
+// whole tasks so reopening cannot strand the reader at a later correction.
+const USER_TURN_BOUNDARY_SQL = `(turn_id IS NULL OR turn_id = '' OR NOT EXISTS (
+    SELECT 1 FROM assistant_messages AS original
+    WHERE original.thread_id = assistant_messages.thread_id AND original.role = 'user'
+      AND original.turn_id = assistant_messages.turn_id
+      AND (original.created_at, COALESCE(original.timeline_sequence, -1), original.id)
+          < (assistant_messages.created_at, COALESCE(assistant_messages.timeline_sequence, -1), assistant_messages.id)
+))`
+
 function readForwardAssistantHistoryPage(
     db: SqlDatabase,
     threadId: string,
@@ -283,8 +293,18 @@ function readForwardAssistantHistoryPage(
     maxRecords: number,
     maxCharacters: number
 ): AssistantHistoryPage {
-    const boundaryRows = db.exec(`SELECT id, timeline_sequence, created_at FROM assistant_messages WHERE thread_id = ? AND role = 'user' AND (created_at, COALESCE(timeline_sequence, -1), 0, id) >= (?, ?, ?, ?) ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC LIMIT ?`, [threadId, ...tupleValues(lower), turnLimit + 1])[0]?.values || []
-    if (boundaryRows.length === 0) {
+    const boundaryRows = db.exec(`SELECT id, timeline_sequence, created_at FROM assistant_messages WHERE thread_id = ? AND role = 'user' AND ${USER_TURN_BOUNDARY_SQL} AND (created_at, COALESCE(timeline_sequence, -1), 0, id) >= (?, ?, ?, ?) ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC LIMIT ?`, [threadId, ...tupleValues(lower), turnLimit + 1])[0]?.values || []
+    const boundaries = boundaryRows.map(historyBoundaryKey)
+    // The renderer may evict a task suffix at a steering bubble. Preserve that
+    // inclusive cursor instead of jumping to the following task's root.
+    if (!boundaries[0] || compareAssistantTimelineOrderKeys(lower, boundaries[0]) < 0) {
+        const hasSuffix = ([['assistant_messages', 'message'], ['assistant_activities', 'activity'], ['assistant_proposed_plans', 'plan']] as const).some(([table, kind]) => {
+            const range = keyRangeSql(kind, lower, boundaries[0] ?? null)
+            return Boolean(db.exec(`SELECT 1 FROM ${table} WHERE thread_id = ?${range.sql} LIMIT 1`, [threadId, ...range.params])[0]?.values?.[0])
+        })
+        if (hasSuffix) boundaries.unshift(lower)
+    }
+    if (boundaries.length === 0) {
         return {
             threadId,
             messages: [],
@@ -300,16 +320,15 @@ function readForwardAssistantHistoryPage(
         }
     }
 
-    const pageLower = historyBoundaryKey(boundaryRows[0]!)
+    const pageLower = boundaries[0]!
     let selectedTurnCount = 1
-    const availableTurns = Math.min(turnLimit, boundaryRows.length)
+    const availableTurns = Math.min(turnLimit, boundaries.length)
     for (let count = 2; count <= availableTurns; count += 1) {
-        const candidateUpper = boundaryRows[count] ? historyBoundaryKey(boundaryRows[count]!) : null
+        const candidateUpper = boundaries[count] ?? null
         if (historyRangeExceedsBudget(db, threadId, pageLower, candidateUpper, maxRecords, maxCharacters)) break
         selectedTurnCount = count
     }
-    const upperRow = boundaryRows[selectedTurnCount]
-    const pageUpper = upperRow ? historyBoundaryKey(upperRow) : null
+    const pageUpper = boundaries[selectedTurnCount] ?? null
     return {
         threadId,
         messages: readMessages(db, threadId, pageLower, pageUpper),
@@ -360,7 +379,7 @@ function readAssistantHistoryPageRows(db: SqlDatabase, input: AssistantGetHistor
     const beforeClause = upper
         ? ' AND (created_at, COALESCE(timeline_sequence, -1), 0, id) < (?, ?, ?, ?)'
         : ''
-    const boundaryRows = db.exec(`SELECT id, timeline_sequence, created_at FROM assistant_messages WHERE thread_id = ? AND role = 'user'${beforeClause} ORDER BY created_at DESC, COALESCE(timeline_sequence, -1) DESC, id DESC LIMIT ?`, [threadId, ...(upper ? tupleValues(upper) : []), turnLimit])[0]?.values || []
+    const boundaryRows = db.exec(`SELECT id, timeline_sequence, created_at FROM assistant_messages WHERE thread_id = ? AND role = 'user' AND ${USER_TURN_BOUNDARY_SQL}${beforeClause} ORDER BY created_at DESC, COALESCE(timeline_sequence, -1) DESC, id DESC LIMIT ?`, [threadId, ...(upper ? tupleValues(upper) : []), turnLimit])[0]?.values || []
 
     if (boundaryRows.length === 0) return readLegacyFallbackPage(db, threadId, upper, turnLimit)
 
@@ -522,6 +541,7 @@ export function readAssistantHistoryAroundMessage(
         FROM assistant_messages
         WHERE thread_id = ?
           AND role = 'user'
+          AND ${USER_TURN_BOUNDARY_SQL}
           AND (created_at, COALESCE(timeline_sequence, -1), 0, id) <= (?, ?, ?, ?)
         ORDER BY created_at DESC, COALESCE(timeline_sequence, -1) DESC, id DESC
         LIMIT 1
@@ -534,6 +554,7 @@ export function readAssistantHistoryAroundMessage(
             FROM assistant_messages
             WHERE thread_id = ?
               AND role = 'user'
+              AND ${USER_TURN_BOUNDARY_SQL}
               AND (created_at, COALESCE(timeline_sequence, -1), 0, id) > (?, ?, ?, ?)
             ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC
             LIMIT 1
@@ -568,6 +589,7 @@ export function readAssistantHistoryAroundMessage(
         FROM assistant_messages
         WHERE thread_id = ?
           AND role = 'user'
+          AND ${USER_TURN_BOUNDARY_SQL}
           AND (created_at, COALESCE(timeline_sequence, -1), 0, id) > (?, ?, ?, ?)
         ORDER BY created_at ASC, COALESCE(timeline_sequence, -1) ASC, id ASC
         LIMIT 1

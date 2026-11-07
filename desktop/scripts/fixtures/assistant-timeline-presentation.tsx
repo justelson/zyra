@@ -1,3 +1,4 @@
+import { createPendingAssistantUserMessage, useAssistantPendingMessages } from '../../src/renderer/src/pages/assistant/useAssistantPendingMessages'
 import { createRef, useEffect, useState, type ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -18,6 +19,7 @@ import { TimelineVoiceTaskStatus } from '../../src/renderer/src/pages/assistant/
 import { AssistantTimeline } from '../../src/renderer/src/pages/assistant/AssistantTimeline'
 import { VoiceAgentStatusSetting } from '../../src/renderer/src/pages/settings/VoiceAgentStatusSetting'
 import { VOICE_AGENT_STATUS_STORAGE_KEY, writeVoiceAgentStatusPreference } from '../../src/renderer/src/pages/assistant/voice-agent-status-preference'
+import { buildPromptWithContextFiles } from '../../src/renderer/src/pages/assistant/assistant-composer-utils'
 import { getTimelineEntries, buildTimelineRows } from '../../src/renderer/src/pages/assistant/assistant-timeline-helpers'
 
 const container = document.getElementById('root')!
@@ -86,7 +88,82 @@ function DelayedLiveWork() {
         renderChildren={() => <div data-delayed-work-ready={measured} style={{ height: measured ? 6_000 : 120 }}>Late live work measurement</div>} />
 }
 
+let pendingSendApi: ReturnType<typeof useAssistantPendingMessages>
+let acknowledgePendingSend: (messages: import('../../src/shared/assistant/contracts').AssistantMessage[]) => void
+function PendingSendFixture() {
+    const [canonical, setCanonical] = useState<import('../../src/shared/assistant/contracts').AssistantMessage[]>([])
+    pendingSendApi = useAssistantPendingMessages('send-session', 'send-thread', canonical)
+    acknowledgePendingSend = setCanonical
+    return <>{pendingSendApi.messages.map(message => <TimelineMessage key={message.id} message={message} />)}</>
+}
+
 async function run() {
+    const previousBridge = (window as any).devscope
+    let resolveImage!: (value: unknown) => void
+    ;(window as any).devscope = { assistant: { resolveClipboardAttachment: () => new Promise(resolve => { resolveImage = resolve }) } }
+    const attachmentPrompt = buildPromptWithContextFiles('Inspect this image', [{ id: 'pending-image', path: 'clipboard://pending-image.png', name: 'pending-image.png', kind: 'image', source: 'paste', mimeType: 'image/png' }])
+    flushSync(() => root.render(<TimelineMessage message={{id:'pending-image-message',role:'user',text:attachmentPrompt,turnId:'image-turn',streaming:false,createdAt:'2026-11-07T10:00:00Z',updatedAt:'2026-11-07T10:00:00Z'}} />))
+    await pause()
+    check(!container.textContent?.includes('Retry attachment') && !container.textContent?.includes('Cached image unavailable'), 'An unresolved attachment remains pending instead of flashing failure before lookup finishes')
+    resolveImage({success:false,error:'Synthetic missing image'})
+    await pause()
+    check(container.textContent?.includes('Retry attachment') === true, 'A real missing attachment retains explicit recovery')
+    results.push('Pending attachment lookup does not flash a failure; real failures remain recoverable')
+    flushSync(() => root.render(<PendingSendFixture />))
+    const thumbnail = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="116" height="84"><rect width="116" height="84" fill="#356b93"/><text x="58" y="45" text-anchor="middle" fill="white" font-size="11">Attachment</text></svg>')
+    const sendInput = { sessionId:'send-session', threadId:'send-thread', prompt:'Queued image appears immediately', files:[{id:'preview',path:'clipboard://preview.png',name:'preview.png',kind:'image' as const,source:'paste' as const,mimeType:'image/png',previewDataUrl:thumbnail},{id:'text',path:'clipboard://context.txt',name:'context.txt',kind:'doc' as const,source:'paste' as const,mimeType:'text/plain',content:'Shared context'}],queueEntryId:'stable-entry',targetTurnId:'active-send-turn',startedAt:'2026-11-07T10:00:00Z' }
+    const pendingSend = createPendingAssistantUserMessage(sendInput)
+    flushSync(() => pendingSendApi.begin(pendingSend))
+    check(container.textContent?.includes(sendInput.prompt) === true && container.querySelector('img')?.getAttribute('src') === thumbnail, 'The pending bubble and original attachment thumbnail render before delivery or resolution')
+    const pendingCard = container.querySelector<HTMLElement>('[data-attachment-pending="true"]')
+    check(container.querySelectorAll('[data-attachment-pending="true"]').length === 2, 'Image and text attachment previews both retain their pending presentation')
+    check(pendingCard?.style.opacity === '0.55' && !container.textContent?.includes('Retry attachment'), 'The pending attachment is quietly dimmed without a false recovery action')
+    flushSync(() => pendingSendApi.begin(createPendingAssistantUserMessage(sendInput)))
+    check(container.querySelectorAll('[data-assistant-message-surface]').length === 1, 'A queued retry shares one stable message identity')
+    flushSync(() => acknowledgePendingSend([{...pendingSend.message}]))
+    await pause()
+    check(container.querySelectorAll('[data-assistant-message-surface]').length === 1, 'The canonical acknowledgement replaces the pending bubble without duplication')
+    resolveImage({success:true,path:thumbnail})
+    await waitFor(() => !container.querySelector('[data-attachment-pending="true"]'), 'A loaded canonical attachment returns to normal opacity')
+    const rejected = createPendingAssistantUserMessage({...sendInput,prompt:'Retain the draft after failure',queueEntryId:'rejected-entry',files:[]})
+    flushSync(() => pendingSendApi.begin(rejected))
+    check(container.textContent?.includes('Retain the draft after failure') === true, 'Plain pending sends are immediate too')
+    flushSync(() => pendingSendApi.remove(rejected.message.id))
+    check(!container.textContent?.includes('Retain the draft after failure'), 'An unaccepted or cancelled send removes only its pending projection')
+    const replayed = createPendingAssistantUserMessage({...sendInput, prompt:'Provider-replayed instruction', queueEntryId:'replay-entry', targetTurnId:undefined, files:[]})
+    flushSync(() => pendingSendApi.begin(replayed))
+    flushSync(() => pendingSendApi.accept(replayed.message.id, 'admitted-turn'))
+    const canonicalReplay = {...replayed.message, id:'pi-message:canonical-user', turnId:'admitted-turn'}
+    flushSync(() => acknowledgePendingSend([canonicalReplay]))
+    await pause()
+    check(container.querySelectorAll('[data-assistant-message-surface]').length === 1, 'An admitted provider replay replaces the optimistic UUID')
+    flushSync(() => acknowledgePendingSend([]))
+    check(!container.textContent?.includes('Provider-replayed instruction'), 'A replayed pending bubble cannot resurrect when its canonical turn leaves the resident window')
+    const repeated = createPendingAssistantUserMessage({...sendInput, prompt:canonicalReplay.text, queueEntryId:'repeat-entry', targetTurnId:'different-turn', files:[]})
+    flushSync(() => { pendingSendApi.begin(repeated); acknowledgePendingSend([canonicalReplay]) })
+    check(container.querySelectorAll('[data-assistant-message-surface]').length === 2, 'Identical instructions in different turns remain independent')
+    flushSync(() => pendingSendApi.remove(repeated.message.id))
+    ;(window as any).devscope = previousBridge
+    results.push('Queued/plain pending bubbles, stable delivery identity, retained dim thumbnail, canonical replacement and failure cleanup')
+    for (const coldStart of [true, false]) {
+    let sparsePages = 0
+    const showSparse = () => render(`sparse-history-${coldStart}`, { coldStart,
+        rows: Array.from({ length: sparsePages + 1 }, (_, index) => sparsePages - index).flatMap(index => rows(`sparse-${index}`)),
+        hasOlder: sparsePages < 60,
+        onLoadOlder: async () => { sparsePages++; await pause(); showSparse(); return true },
+        renderRow: row => row.kind === 'message' ? <p style={{height:36,margin:0}}>{row.message.text}</p> : null
+    })
+    showSparse()
+    await waitFor(() => sparsePages > 3 && !loading(), 'Short initial pages fill the viewport beyond the old three-page cutoff without scrolling')
+    await waitFor(() => {
+        const viewport = scrollContainerRef.current
+        return Boolean(viewport && viewport.scrollHeight > viewport.clientHeight && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 2)
+    }, 'The filled short-turn history is aligned at the bottom before it is shown')
+    check(sparsePages < 60, 'Initial backfill stops once the viewport and context are filled')
+    results.push(`${coldStart ? 'Cold' : 'Cached'} sparse history fills the measured viewport, exceeds three pages when needed, and opens at the true bottom`)
+    }
+
+
     // Real React, LegendList, layout and animation frames; no mocked readiness state.
     render('first')
     await expectVisible('first', 'A cold one-turn chat reveals without a further render or user input')
@@ -229,8 +306,9 @@ async function run() {
     const summaryRows: TimelineDisplayRow[] = liveRows.map(row => row.id === 'live-working-assistant'
         ? { id: row.id, kind: 'turn-work-summary', createdAt: row.createdAt, turnId: 'live-working', startedAt: '2026-01-01T00:00:00Z', completedAt: null, running: true, terminalResponseVisible: false, outcome: null, rows: [], liveNarrationRow: null }
         : row)
+    let compactionVisible = false
     const summaryRenderer = (row: TimelineDisplayRow) => row.kind === 'turn-work-summary'
-        ? <TimelineTurnWorkSummary key={row.id} startedAt={row.startedAt} completedAt={row.completedAt} running={row.running} outcome={row.outcome} hasWork
+        ? <TimelineTurnWorkSummary key={row.id} startedAt={row.startedAt} completedAt={row.completedAt} running={row.running} outcome={row.outcome} hasWork compacting={compactionVisible} collapseForTerminalResponse={row.terminalResponseVisible}
             renderChildren={() => <div style={{ height: 3_000 }}>Latest agent work</div>} />
         : liveRenderer(row)
     let reopenDisclosures = 0
@@ -244,6 +322,12 @@ async function run() {
     check(reopenDisclosures === 0, 'Reopening existing work never replays an expansion event')
     container.removeEventListener('assistant:timeline-disclosure-toggle', countReopenDisclosure)
     results.push('Reopening real expanded work has its full height immediately without a prompt-first expansion')
+    compactionVisible = true
+    render('live-summary-chat', { rows: summaryRows.map(row => row.kind === 'turn-work-summary' ? {...row, terminalResponseVisible:true} : row), renderRow: summaryRenderer, isWorking:true, coldStart:false })
+    await new Promise(resolve => setTimeout(resolve, 320))
+    check(container.querySelector('[data-assistant-work-summary-shell] button')?.getAttribute('aria-expanded') === 'true', 'Compaction cannot collapse expanded work even if final-phase metadata arrives')
+    check(container.querySelector('[data-assistant-work-summary-shell] button')?.textContent?.includes('Working for') === true, 'Active compaction keeps the timed work label')
+    compactionVisible = false
     const topBeforeStop = scrollContainerRef.current!.scrollTop
     render('live-summary-chat', { rows: summaryRows.map(row => row.kind === 'turn-work-summary' ? { ...row, running: false, outcome: 'interrupted', completedAt: '2026-01-01T00:00:01Z' } : row), renderRow: summaryRenderer, isWorking: false, coldStart: false })
     await new Promise(resolve => setTimeout(resolve, 450))
@@ -407,3 +491,24 @@ async function run() {
 }
 
 Object.assign(window, { timelinePresentationCheck: run() })
+
+let previewRoot: ReturnType<typeof createRoot> | null = null
+Object.assign(window, { attachmentPresentationPreview: async (ready: boolean) => {
+    previewRoot?.unmount()
+    previewRoot = createRoot(container)
+    let resolve!: (value: unknown) => void
+    ;(window as any).devscope = { assistant: { resolveClipboardAttachment: () => new Promise(done => { resolve = done }) } }
+    document.body.style.cssText = 'background:var(--color-bg);color:var(--color-text);font-family:system-ui'
+    const thumbnail = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="280" height="180"><rect width="280" height="180" fill="#243d52"/><path d="M0 155L85 60L150 120L200 80L280 165V180H0Z" fill="#81a7bd"/><circle cx="220" cy="42" r="18" fill="#f2c386"/></svg>')
+    flushSync(() => previewRoot!.render(<main style={{maxWidth:760,margin:'60px auto',padding:'0 24px'}}><PendingSendFixture /></main>))
+    const pending = createPendingAssistantUserMessage({sessionId:'send-session',threadId:'send-thread',prompt:'Can you check this screenshot?',files:[{id:'visual',path:'clipboard://screenshot.png',name:'Screenshot.png',kind:'image',source:'paste',mimeType:'image/png',previewDataUrl:thumbnail}],targetTurnId:'visual-turn',startedAt:'2026-11-07T10:00:00Z'})
+    flushSync(() => pendingSendApi.begin(pending))
+    await pause()
+    if (ready) {
+        flushSync(() => acknowledgePendingSend([{...pending.message}]))
+        resolve({success:true,path:thumbnail})
+        await waitFor(() => !container.querySelector('[data-attachment-pending="true"]'), 'Visual ready attachment loads')
+    }
+    await new Promise(done => setTimeout(done, 220))
+    check(document.documentElement.scrollWidth <= innerWidth, 'Attachment preview fits the viewport')
+} })

@@ -33,13 +33,13 @@ import { getContextFileMeta } from './assistant-composer-utils'
 import { supportsAssistantFastMode } from './assistant-model-groups'
 import { useAssistantComposerControllerEffects } from './useAssistantComposerControllerEffects'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
-import { readRememberedChoices, rememberComposerChoices } from './assistant-remembered-choices'
+import { readRememberedChoices, rememberComposerChoices, readRememberedModelEffort, rememberModelEffort } from './assistant-remembered-choices'
 import { registerAppComposerOwner } from './assistant-app-owner-state'
 import {
     serializeAssistantBrowserAnnotation,
     subscribeAssistantBrowserAnnotationAttachments
 } from './assistant-browser-annotation-composer'
-import { coerceAssistantReasoningEffortForModel, getAssistantModelReasoningEfforts } from '@shared/assistant/reasoning-efforts'
+import { coerceAssistantReasoningEffortForModel, getAssistantModelReasoningChoices, isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
 import {
     type AssistantComposerSessionState,
     writeAssistantComposerSessionState
@@ -232,11 +232,17 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     }, [configurationPublisher, configurationThreadId, isConnected, isThinking, normalizedSessionId, onBlockedSend, useSettingsDefaults])
     const chooseModel = useCallback((value: SetStateAction<string>) => {
         const next = typeof value === 'function' ? value(selectedModel) : value
+        const option = availableModelOptions.find(model => model.id === next) || { id: next, label: next, supportedEfforts: [] }
+        const effort = coerceAssistantReasoningEffortForModel(readRememberedModelEffort(next) ?? selectedEffort, option)
         setSelectedModel(next)
-        try { rememberComposerChoices({ ...readRememberedChoices(), model: next }) } catch { onBlockedSend?.('Could not remember this model. Your current chat still uses it.') }
-        void updateSettings({ assistantDefaultModel: next })
-        if (next !== selectedModel) publishConfiguration({ model: next })
-    }, [publishConfiguration, selectedModel, updateSettings, onBlockedSend])
+        setSelectedEffort(effort)
+        try {
+            rememberModelEffort(selectedModel, selectedEffort)
+            rememberComposerChoices({ ...readRememberedChoices(), model: next, effort })
+        } catch { onBlockedSend?.('Could not remember this model. Your current chat still uses it.') }
+        void updateSettings({ assistantDefaultModel: next, assistantDefaultEffort: effort })
+        if (next !== selectedModel) publishConfiguration({ model: next, effort })
+    }, [publishConfiguration, selectedModel, selectedEffort, availableModelOptions, updateSettings, onBlockedSend])
     const chooseRuntimeMode = useCallback((value: SetStateAction<AssistantRuntimeMode>) => {
         const next = typeof value === 'function' ? value(selectedRuntimeMode) : value
         setSelectedRuntimeMode(next)
@@ -276,11 +282,10 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     )
     const selectedModelSupportedEffortsSignature = typeof selectedModelOption === 'string'
         ? ''
-        : (selectedModelOption.supportedEfforts || []).join('\n')
+        : `${selectedModelOption.reasoningStatus || 'known'}:${(selectedModelOption.supportedEfforts || []).join('\n')}`
     const effortOptions = useMemo(
         () => {
-            const supported = getAssistantModelReasoningEfforts(selectedModelOption)
-            return supported.length ? supported : ['off' as const]
+            return getAssistantModelReasoningChoices(selectedModelOption)
         },
         [selectedModel, selectedModelSupportedEffortsSignature]
     )
@@ -311,12 +316,18 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         if (patch.model !== undefined) setSelectedModel(patch.model)
         if (patch.runtimeMode !== undefined) setSelectedRuntimeMode(patch.runtimeMode)
         if (patch.interactionMode !== undefined) setSelectedInteractionMode(patch.interactionMode)
-        if (patch.effort !== undefined) setSelectedEffort(coerceAssistantReasoningEffortForModel(patch.effort, activeModel || selectedModel))
+        if (patch.effort !== undefined && isAssistantReasoningEffort(patch.effort)) setSelectedEffort(patch.effort)
         if (patch.fastModeEnabled !== undefined) setFastModeEnabled(patch.fastModeEnabled)
     }, [activeModel, runtimeMode, interactionMode, activeEffort, activeFastModeEnabled, normalizedSessionId, configurationThreadId, configurationPublisher, isConnected, useSettingsDefaults])
     useEffect(() => {
-        // Preserve the chosen effort. Unsupported choices must be visible, not silently replaced.
-    }, [effortOptionsSignature, selectedModel])
+        if (typeof selectedModelOption === 'string') return
+        // New drafts reconcile once capabilities arrive. Existing explicit choices
+        // remain recoverable on refresh; unknown metadata uses the provider default.
+        if (useSettingsDefaults || !isConnected || selectedModelOption.reasoningStatus === 'unknown') {
+            setSelectedEffort(current => effortOptions.includes(current) ? current
+                : coerceAssistantReasoningEffortForModel(readRememberedModelEffort(selectedModel) ?? current, selectedModelOption))
+        }
+    }, [effortOptionsSignature, selectedModel, useSettingsDefaults, isConnected])
     const availableModelIdSignature = useMemo(() => availableModelOptions.map((model) => model.id).join('\n'), [availableModelOptions])
     const preferredAvailableModelId = latestModelId || availableModelOptions[0]?.id || ''
     useEffect(() => {
@@ -735,6 +746,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         onHoldQueue: props.onHoldQueue,
         onResumeQueue: props.onResumeQueue,
         isStopping: props.isStopping ?? false,
+        isSending,
+        canContinue: props.canContinue ?? false,
         reconnectPending,
         latestTurnUsage,
         projectId,

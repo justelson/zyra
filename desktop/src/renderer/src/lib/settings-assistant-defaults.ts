@@ -4,7 +4,7 @@ import type {
     AssistantDefaultRuntimeMode,
     Settings
 } from './settings'
-import { isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
+import { isAssistantReasoningEffort, reasoningChoiceLabel } from '@shared/assistant/reasoning-efforts'
 import { isAssistantRuntimeMode } from '@shared/assistant/contracts'
 
 type AssistantDefaultsSubset = Pick<
@@ -64,6 +64,7 @@ export function getAssistantDefaultRuntimeModeLabel(value: AssistantDefaultRunti
 }
 
 export function getAssistantDefaultEffortLabel(value: AssistantDefaultEffort): string {
+    if (value === 'default' || value.startsWith('variant:')) return reasoningChoiceLabel(value)
     switch (value) {
         case 'off':
             return 'Off'

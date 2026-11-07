@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { RendererAppBridge, RendererAppOperation } from '@shared/agent-app-operations'
 import { isAssistantRuntimeMode, type AssistantReasoningEffort } from '@shared/assistant/contracts'
-import { isAssistantReasoningEffort, getAssistantModelReasoningEfforts } from '@shared/assistant/reasoning-efforts'
+import { isAssistantReasoningEffort, getAssistantModelReasoningChoices } from '@shared/assistant/reasoning-efforts'
 import { useSettings } from '@/lib/settings'
 import { assistantStore } from '@/lib/assistant/assistant-store-core'
 import { buildAssistantChatRoute } from '@/pages/assistant/assistant-chat-route'
@@ -23,7 +23,7 @@ function validateConfiguration(patch: Record<string, unknown>, current: ChatComp
     const models = assistantStore.getState().snapshot.knownModels
     const model = models.find(model => model.id === state.model)
     if (!model) throw new Error('The selected model is unavailable. Refresh models; no replacement was selected.')
-    const supported = getAssistantModelReasoningEfforts(model)
+    const supported = getAssistantModelReasoningChoices(model)
     if (state.effort && !(supported.length ? supported : ['off']).includes(state.effort as AssistantReasoningEffort)) throw new Error('That effort is unsupported by the selected model. No value was coerced.')
     return state
 }

@@ -22,6 +22,7 @@ export const loadProjectsSettings = () => import('./ProjectsSettings')
 export const loadMemorySettings = () => import('./MemorySettings')
 export const loadArchivedChatsSettings = () => import('./ArchivedChatsSettings')
 export const loadDiagnosticsSettings = () => import('./LogsSettings')
+export const loadResponseTimingSettings = () => import('./ResponseTimingSettings')
 export const loadDataPrivacySettings = () => import('./DataPrivacySettings')
 export const loadAboutSettings = () => import('./AboutSettings')
 
@@ -69,6 +70,7 @@ const destinationLoaders: Record<string, () => Promise<unknown>> = {
     'memory-inspect': loadMemorySettings,
     privacy: loadDataPrivacySettings,
     diagnostics: loadDiagnosticsSettings,
+    'response-timings': loadResponseTimingSettings,
     about: loadAboutSettings
 }
 

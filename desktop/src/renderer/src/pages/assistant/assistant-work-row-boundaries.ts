@@ -1,5 +1,6 @@
 import type { AssistantMessage } from '@shared/assistant/contracts'
 import type { TimelineRenderRow } from './assistant-timeline-helpers'
+import { getAssistantUserTurnBoundaryIds } from './assistant-user-turn-boundaries'
 
 const turnCopies = new WeakMap<object, Map<string, object>>()
 function withTurn<T extends { turnId: string | null }>(value: T, turnId: string): T {
@@ -24,12 +25,13 @@ export function addPartialAssistantWorkBoundary(source: TimelineRenderRow[]): Ti
  * Copies stay in the renderer; canonical turns and private agent context stay intact. */
 export function prepareAssistantWorkRowBoundaries(source: TimelineRenderRow[], messages: AssistantMessage[]) {
     const rows = source.slice()
+    const boundaries = getAssistantUserTurnBoundaryIds(source)
     const usedTurnIds = new Set<string>()
     for (let start = 0; start < rows.length; start++) {
         const boundary = rows[start]
-        if (boundary.kind !== 'message' || boundary.message.role !== 'user') continue
+        if (boundary.kind !== 'message' || !boundaries.has(boundary.id)) continue
         let end = start + 1
-        while (end < rows.length && !(rows[end].kind === 'message' && (rows[end] as Extract<TimelineRenderRow, { kind: 'message' }>).message.role === 'user')) end++
+        while (end < rows.length && !boundaries.has(rows[end].id)) end++
         const segment = rows.slice(start, end)
         const originalTurnId = boundary.message.turnId || segment.flatMap(row => row.kind === 'message' ? [row.message.turnId]
             : row.kind === 'activity' ? [row.activity.turnId] : 'activities' in row ? row.activities.map(activity => activity.turnId) : []).find(Boolean)

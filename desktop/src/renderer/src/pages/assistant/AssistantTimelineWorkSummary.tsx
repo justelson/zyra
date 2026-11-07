@@ -32,15 +32,16 @@ function formatWorkSummaryStatus(
     startedAt: string,
     completedAt: string | null,
     running: boolean,
-    actionCount: number
+    actionCount: number,
+    interruptionLabel?: string | null
 ): string {
     const elapsed = formatWorkingTimer(
         startedAt,
         running ? new Date().toISOString() : completedAt || new Date().toISOString()
     )
-    const duration = elapsed
-        ? `${running ? 'Working' : 'Worked'} for ${elapsed}`
-        : running ? 'Working' : 'Worked'
+    const terminalInterruption = !running ? interruptionLabel : null
+    const verb = terminalInterruption || (running ? 'Working' : 'Worked')
+    const duration = elapsed ? `${verb} ${terminalInterruption ? 'after' : 'for'} ${elapsed}` : verb
     if (actionCount < 1) return duration
     return `${duration} · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}`
 }
@@ -64,6 +65,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     completedAt,
     running = false,
     collapseForTerminalResponse = false,
+    compacting = false,
     outcome = null,
     displayMode = 'detailed',
     actionCount = 0,
@@ -78,6 +80,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     completedAt: string | null
     running?: boolean
     collapseForTerminalResponse?: boolean
+    compacting?: boolean
     outcome?: 'completed' | 'interrupted' | 'failed' | 'no-response' | null
     displayMode?: AssistantChatDisplayMode
     actionCount?: number
@@ -89,11 +92,11 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     renderChildren: () => ReactNode
 }) {
     const { settings } = useSettings()
-    const activeCollapseLocked = running && !collapseForTerminalResponse && !settings.assistantAllowCollapseWhileWorking
+    const activeCollapseLocked = running && (!collapseForTerminalResponse || compacting) && !settings.assistantAllowCollapseWhileWorking
     const visibleActionCount = settings.assistantShowActionStats ? actionCount : 0
     const initialExpandedRef = useRef<boolean | null>(null)
     if (initialExpandedRef.current === null) {
-        initialExpandedRef.current = (running && !collapseForTerminalResponse || outcome === 'interrupted' || outcome === 'failed') && (activeCollapseLocked || readWorkSummaryExpandedPreference())
+        initialExpandedRef.current = (running && (!collapseForTerminalResponse || compacting) || outcome === 'interrupted' || outcome === 'failed') && (activeCollapseLocked || readWorkSummaryExpandedPreference())
     }
     const initialExpanded = initialExpandedRef.current
     const [expanded, setExpanded] = useState(initialExpanded)
@@ -110,14 +113,12 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const contentUnmountTimerRef = useRef<number | null>(null)
     const pendingExpansionAnchorRef = useRef<HTMLElement | null>(null)
     const minimal = displayMode === 'minimal'
-    const working = running && !collapseForTerminalResponse
-    const statusText = statusLabel || (running && collapseForTerminalResponse
-        ? visibleActionCount > 0 ? `Work · ${visibleActionCount} ${visibleActionCount === 1 ? 'action' : 'actions'}` : 'Work'
-        : formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount))
+    const working = running && (!collapseForTerminalResponse || compacting)
+    const statusText = statusLabel || formatWorkSummaryStatus(startedAt, completedAt, running, visibleActionCount, outcome === 'interrupted' ? interruptionLabel || 'Interrupted' : null)
     useEffect(() => {
         const updateStatusText = () => {
             if (statusTextRef.current) {
-                if (working && !statusLabel) {
+                if (running && !statusLabel) {
                     statusTextRef.current.textContent = formatWorkSummaryStatus(startedAt, completedAt, true, visibleActionCount)
                 } else {
                     statusTextRef.current.textContent = statusText
@@ -125,10 +126,10 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
             }
         }
         updateStatusText()
-        if (!working || statusLabel) return
+        if (!running || statusLabel) return
         const intervalId = window.setInterval(updateStatusText, 1000)
         return () => window.clearInterval(intervalId)
-    }, [visibleActionCount, completedAt, working, startedAt, statusLabel, statusText])
+    }, [visibleActionCount, completedAt, running, startedAt, statusLabel, statusText])
     const outcomeLabel = outcome === 'failed'
         ? 'Failed'
         : outcome === 'no-response'
@@ -212,7 +213,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
             return
         }
         // A narration/compaction update must not cancel the pending reveal frame.
-        if (activeCollapseLocked && wasRunning) return
+        if (wasRunning && running && (activeCollapseLocked || compacting)) return
         cancelPendingContentWork()
         pendingExpansionAnchorRef.current = null
         if (!wasRunning && running && (activeCollapseLocked || !collapseForTerminalResponse)) {
@@ -233,7 +234,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
             contentUnmountTimerRef.current = null
             setContentMounted(false)
         }, WORK_SUMMARY_UNMOUNT_DELAY_MS)
-    }, [collapseForTerminalResponse, running, activeCollapseLocked, outcome])
+    }, [collapseForTerminalResponse, compacting, running, activeCollapseLocked, outcome])
 
     useEffect(() => () => {
         if (contentRevealFrameRef.current !== null) {
@@ -247,7 +248,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     }, [])
 
     if (interruptionMarker && !hasWork) {
-        return <div className="max-w-4xl py-0.5">{interruptionMarker}</div>
+        return <div className="max-w-4xl py-0.5"><TimelineTurnInterruptionMarker label={statusText} /></div>
     }
     if (running && collapseForTerminalResponse && !hasWork) return null
 

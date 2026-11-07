@@ -22,7 +22,7 @@ function session(id: string): AssistantSession {
     return { id, title: `${id} chat`, createdAt: now, updatedAt: now, projectPath: null,
         threads: [thread], activeThreadId: thread.id, threadIds: [thread.id], archived: false } as AssistantSession
 }
-const sessions = [session('selected'), session('other')]
+let sessions = [session('selected'), session('other')]
 const calls: string[] = []
 const stopToasts: string[] = []
 let recoveryCommandsPending = false
@@ -106,6 +106,16 @@ async function move(x: number, y: number) {
     for (let count = 0; !request.done && count < 100; count++) await sleep(10)
     check(request.done, 'Electron delivered pointer movement'); await sleep()
 }
+async function clickMenu(label: string) {
+    const rect = button(label).getBoundingClientRect()
+    for (const type of ['mouseDown', 'mouseUp']) {
+        const request = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, type, done: false }
+        ;(window as any).sidebarPointerRequest = request
+        for (let count = 0; !request.done && count < 100; count++) await sleep(10)
+        check(request.done, 'Electron delivered the first native menu click')
+    }
+    await sleep()
+}
 async function hover(label: string) {
     check(button(label), `Hover target ${label} exists; menu: ${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}`)
     const rect = button(label).getBoundingClientRect()
@@ -182,18 +192,49 @@ async function run() {
     await hover('Thread'); check(button('New thread') && button('Copy thread ID'), 'Thread submenu opens on hover')
     check(button('New thread').getBoundingClientRect().height <= 29, 'sidebar portaled submenu uses the same compact density')
     const rect = button('Copy thread ID').getBoundingClientRect(); await move(rect.left + 40, rect.top + rect.height / 2); await sleep(200)
-    check(button('Copy thread ID'), 'Pointer can cross the submenu gap'); button('Copy thread ID').click(); await sleep()
+    check(button('Copy thread ID'), 'Pointer can cross the submenu gap'); await clickMenu('Copy thread ID')
     check(calls.includes('copy:other-canonical'), 'Copy targets the clicked, unselected chat canonical thread')
+    const more = document.querySelector<HTMLButtonElement>('[data-agent-inbox-layout-id="other"] button[aria-haspopup="menu"]')!
+    more.click(); await sleep(100); await hover('Thread')
+    check(button('Copy thread ID'), 'toolbar opens its Thread submenu on the first attempt')
+    let frameDelivered = false
+    requestAnimationFrame(() => { frameDelivered = true })
+    await sleep(100)
+    check(frameDelivered, 'the hidden menu fixture delivers native animation frames')
+    sessions = sessions.map(session => ({ ...session, threads: session.threads.map(thread => ({ ...thread, updatedAt: new Date().toISOString() })) }))
+    renderMenus(); await sleep(100)
+    check(button('Copy thread ID'), 'live sidebar rerender preserves the open Thread submenu until its action is selected')
+    const copiedBeforeRefresh = calls.filter(call => call === 'copy:other-canonical').length
+    await clickMenu('Copy thread ID')
+    check(calls.filter(call => call === 'copy:other-canonical').length === copiedBeforeRefresh + 1, 'the first Copy click after a sidebar update reaches the clipboard')
     await sidebar(); await hover('Thread'); button('New thread').click(); await sleep(); check(calls.includes('thread:other'), 'New thread targets clicked chat')
     await sidebar(); await hover('Project'); button('Attach project').click(); await sleep(); check(calls.includes('project:other'), 'Project picker targets clicked chat')
-    await sidebar(); button('Thread').focus(); button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await sleep()
-    check(document.activeElement === button('New thread'), 'Keyboard enters submenu')
+    await sidebar()
+    const navigationEvents: string[] = []
+    const traceNavigation = (event: Event) => navigationEvents.push(`${event.type}:${(event.target as HTMLElement)?.textContent?.slice(0, 80)}`)
+    for (const type of ['focusin', 'mouseover', 'scroll']) document.addEventListener(type, traceNavigation, true)
+    button('Thread').focus(); button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    // React may commit the keyboard-opened portal after a busy runner's next
+    // frame. Wait for the actual focus receipt, then verify it stays put.
+    const focusDeadline = performance.now() + 1000
+    while (document.activeElement !== button('New thread') && performance.now() < focusDeadline) await sleep(10)
+    const focusArrived = document.activeElement === button('New thread')
+    // Chromium can deliver this after menu animation/layout even though the
+    // pointer has not moved. Reproduce the hosted focus-loss event ordering.
+    button('Thread').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: button('Project') }))
+    button('Project').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    await sleep(250)
+    for (const type of ['focusin', 'mouseover', 'scroll']) document.removeEventListener(type, traceNavigation, true)
+    check(focusArrived && document.activeElement === button('New thread'), `Keyboard enters an existing or newly mounted submenu and retains focus; arrived=${focusArrived}; active=${document.activeElement?.textContent?.slice(0, 80)}; menus=${Array.from(document.querySelectorAll('[role="menu"]')).map(menu => menu.textContent).join(' | ')}; events=${navigationEvents.join(',')}`)
+    await hover('Project')
+    check(button('Attach project') && !button('New thread'), 'actual native pointer movement resumes submenu hover after keyboard navigation')
+    await hover('Thread')
     button('New thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); await sleep()
     check(document.activeElement === button('Thread') && !button('New thread'), 'Keyboard returns to submenu parent')
     button('Thread').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(); check(!document.querySelector('[role="menu"]'), 'Escape dismisses context menu')
     await sidebar(); button('Delete chat').click(); await sleep(); check(document.body.textContent?.includes('Delete chat?'), 'Sidebar preserves delete confirmation')
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent?.trim() === 'Cancel')!.click(); await sleep()
     await checkPreferenceRemount()
-    return ['shared complete chat actions; compact hover submenus and gap crossing; keyboard enter/return/Escape; unselected chat targeting; header/sidebar pin and settlement synchronization; delete confirmation retained']
+    return ['shared complete chat actions; first native Copy click and live-update submenu continuity with real animation frames; compact hover/gap crossing; keyboard enter/switch/return/Escape; unselected chat targeting; pin/settlement synchronization; delete confirmation retained']
 }
 ;(window as any).sidebarEdgeCheck = run()

@@ -2,7 +2,6 @@ export const ASSISTANT_HISTORY_MIN_LOOKAHEAD_VIEWPORTS = 3
 export const ASSISTANT_HISTORY_MAX_LOOKAHEAD_VIEWPORTS = 9
 export const ASSISTANT_HISTORY_MAX_TURNS_PER_PAGE = 3
 export const ASSISTANT_INITIAL_HISTORY_CONTEXT_PX = 96
-export const ASSISTANT_INITIAL_HISTORY_BACKFILL_MAX_PAGES = 3
 
 export type AssistantInitialHistoryBackfillInput = {
     initialLayoutReady: boolean
@@ -13,7 +12,6 @@ export type AssistantInitialHistoryBackfillInput = {
     requestPending: boolean
     contentLength: number
     viewportSize: number
-    pagesRequested: number
 }
 
 export function resolveAssistantInitialHistoryBackfill(
@@ -21,7 +19,6 @@ export function resolveAssistantInitialHistoryBackfill(
 ): { shouldRequest: boolean; turnLimit: number } {
     const viewportSize = Math.max(0, Number.isFinite(input.viewportSize) ? input.viewportSize : 0)
     const contentLength = Math.max(0, Number.isFinite(input.contentLength) ? input.contentLength : 0)
-    const pagesRequested = Math.max(0, Math.floor(input.pagesRequested || 0))
     const targetContentLength = viewportSize + ASSISTANT_INITIAL_HISTORY_CONTEXT_PX
     const shouldRequest = input.initialLayoutReady
         && input.selectionSettled
@@ -31,7 +28,6 @@ export function resolveAssistantInitialHistoryBackfill(
         && !input.requestPending
         && viewportSize > 0
         && contentLength < targetContentLength
-        && pagesRequested < ASSISTANT_INITIAL_HISTORY_BACKFILL_MAX_PAGES
     const shortfall = Math.max(0, targetContentLength - contentLength)
     const turnLimit = shortfall > viewportSize * 0.75 ? 2 : 1
     return { shouldRequest, turnLimit }

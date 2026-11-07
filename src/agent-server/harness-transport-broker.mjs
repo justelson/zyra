@@ -31,6 +31,6 @@ export function borrowedHarnessHooks(resolveTransport) {
   return { executable: 'server-owned-harness', ensureServe: async ({ cwd } = {}) => {
     const transport = await resolveTransport();
     if (!transport?.baseUrl || !transport.password || transport.deferred) throw Error('The server-owned harness transport is still starting.');
-    return { baseUrl: transport.baseUrl, client: { baseUrl: transport.baseUrl, password: transport.password, cwd }, release() {} };
+    return { baseUrl: transport.baseUrl, client: { baseUrl: transport.baseUrl, password: transport.password, cwd, ...(transport.apiVersion === 2 ? { apiVersion: 2 } : {}) }, release() {} };
   } };
 }

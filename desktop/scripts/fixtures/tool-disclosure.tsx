@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client'
+import { checkToolStreamingState } from './tool-streaming-state'
 import { flushSync } from 'react-dom'
 import { useRef } from 'react'
 import type { AssistantActivity, AssistantMessage } from '../../src/shared/assistant/contracts'
@@ -157,7 +158,8 @@ async function run() {
     check(!document.querySelector('[data-assistant-typed-action]'), 'Closing the actual child batch releases its tool rows')
     await click(childBatch)
     check(document.querySelectorAll('[data-assistant-typed-action]').length === 2, 'Reopening the actual child batch retains both saved tools')
-    root.unmount()
-    return ['Real tool groups defer lists, nested runs and exact output hydration independently; command jumps open lazy work and focus their target; actual saved child conversation expands, releases and restores both tools']
+    const streamingResults = await checkToolStreamingState(root)
+    // Leave the checked scene mounted for the harness's optional screenshot.
+    return ['Real tool groups defer lists, nested runs and exact output hydration independently; command jumps open lazy work and focus their target; actual saved child conversation expands, releases and restores both tools', ...streamingResults]
 }
 ;(window as any).sidebarContinuityCheck = run()

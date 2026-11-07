@@ -45,10 +45,13 @@ const deps = { ensureReady: async () => undefined, getSnapshot: () => ({ selecte
     runtime: { steerPrompt: async (_id: string, _prompt: string, options: any) => { assert.equal(options.targetTurnId, 'turn-1'); if (reject) throw Error('Unsupported steer'); return { turnId: 'turn-1' } },
         ensurePromptAvailable: async () => { throw Error('Steer must not run the new-turn busy rejection') } },
     appendEvent: (...args: any[]) => projected.push(args) }
-await sendAssistantPromptAction(deps as never, 'Keep the existing interface', { dispatchMode: 'steer', model: 'must-not-switch', effort: 'low' }, [])
+await sendAssistantPromptAction(deps as never, 'Keep the existing interface', { dispatchMode: 'steer', model: 'must-not-switch', effort: 'low', userMessageId: 'assistant-message-client-steer' }, [])
 assert.equal(projected.length, 1)
 assert.equal(projected[0][0], 'thread.message.user')
 assert.equal(projected[0][2].message.turnId, 'turn-1')
+assert.equal(projected[0][2].message.id, 'assistant-message-client-steer', 'accepted canonical steering echoes the optimistic message identity')
+await assert.rejects(sendAssistantPromptAction(deps as never, 'Wrong thread', { dispatchMode: 'steer', expectedThreadId: 'old-thread' }, []), /active thread changed/)
+assert.equal(projected.length, 1, 'stale thread admission cannot write into the newly active thread')
 reject = true
 await assert.rejects(sendAssistantPromptAction(deps as never, 'Unsupported correction', { dispatchMode: 'steer' }, []), /Unsupported/)
 assert.equal(projected.length, 1, 'Rejected steering does not leave an unsent optimistic user message')
@@ -72,7 +75,7 @@ try {
     assert.equal(projected.length - before, 1, 'joined delivery projects one user message')
     thread.latestTurn.state = 'completed'
     const restored = { ...queueDeps, queuedPromptDeliveries: new QueuedPromptDeliveryOwner(receipts) }
-    const replay = await sendAssistantPromptAction(restored as never, 'Shared correction', { ...shared, dispatchMode: 'immediate', targetTurnId: undefined }, [])
+    const replay = await sendAssistantPromptAction(restored as never, 'Shared correction', { ...shared, dispatchMode: 'immediate', targetTurnId: undefined, userMessageId: 'assistant-message-new-client', expectedThreadId: 'other-thread' }, [])
     assert.equal(replay.turnId, 'turn-1', 'accepted receipt wins over later turn state or routing changes')
     assert.equal(deliveries, 1)
     await assert.rejects(sendAssistantPromptAction(restored as never, 'Changed correction', shared, []), /conflicting payload/)

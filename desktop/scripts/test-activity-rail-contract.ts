@@ -315,9 +315,10 @@ const endCompactionActivity: AssistantActivity = {
     createdAt: iso(800),
     payload: { ...runningCompactionActivity.payload, startedAt: iso(800) }
 }
+const compactionMessages = messages.map(message => message.id === 'final' ? { ...message, phase: 'final_answer' as const } : message)
 const compactingAfterFinalRows = groupTimelineRowsIntoWorkSummaries({
-    rows: buildTimelineRows(getTimelineEntries(messages, [...activities, endCompactionActivity]), true, iso(0)),
-    messages,
+    rows: buildTimelineRows(getTimelineEntries(compactionMessages, [...activities, endCompactionActivity]), true, iso(0)),
+    messages: compactionMessages,
     latestAssistantMessageId: 'final',
     latestTurnStartedAt: iso(0),
     isWorking: true
@@ -799,7 +800,7 @@ const interruptedMarkup = renderToStaticMarkup(createElement(TimelineTurnWorkSum
     outcome: 'interrupted',
     renderChildren: () => createElement('div', null, 'Interrupted work')
 }))
-assert.equal(interruptedMarkup.includes('Worked for'), true)
+assert.equal(interruptedMarkup.includes('Interrupted after'), true)
 assert.equal(interruptedMarkup.includes('Interrupted'), true)
 assert.equal(interruptedMarkup.includes('aria-expanded="true"'), true, 'Stopped work restores its expanded preference instead of forcing completion collapse')
 assert.equal(interruptedMarkup.includes('Interrupted work'), true, 'Partial work stays available immediately after interruption')
@@ -889,14 +890,14 @@ const projectedInterruptedSummary = projectedInterruptedRows[1]
 assert.equal(projectedInterruptedSummary?.kind === 'turn-work-summary' ? projectedInterruptedSummary.outcome : null, 'interrupted')
 assert.equal(
     projectedInterruptedSummary?.kind === 'turn-work-summary'
-        ? projectedInterruptedSummary.rows.some((row) => row.id === projectedInterruptedToolAfter.id)
+        ? projectedInterruptedSummary.rows.some((row) => row.kind === 'activity' ? row.activity.id === projectedInterruptedToolAfter.id : 'activities' in row && row.activities.some(activity => activity.id === projectedInterruptedToolAfter.id))
         : false,
     true,
     'tools emitted after the last partial assistant narration must remain inside the stopped work disclosure'
 )
 assert.equal(
     projectedInterruptedSummary?.kind === 'turn-work-summary'
-        ? projectedInterruptedSummary.rows.some((row) => row.id === projectedInterruptedTerminal.id)
+        ? projectedInterruptedSummary.rows.some((row) => row.kind === 'activity' ? row.activity.id === projectedInterruptedTerminal.id : 'activities' in row && row.activities.some(activity => activity.id === projectedInterruptedTerminal.id))
         : false,
     false,
     'the technical abort activity must not remain inside the work disclosure'
@@ -1004,8 +1005,8 @@ const virtualTimelineSource = readFileSync(new URL('../src/renderer/src/pages/as
 const historyStoreSource = readFileSync(new URL('../src/renderer/src/lib/assistant/assistant-store-core.ts', import.meta.url), 'utf8')
 const historyStateSource = readFileSync(new URL('../src/renderer/src/lib/assistant/assistant-history-state.ts', import.meta.url), 'utf8')
 assert.equal(timelineSource.includes('<AssistantVirtualTimeline'), true, 'the timeline delegates mounting and measurement to the virtual list owner')
-assert.match(conversationWorkingSource, /timelineIsWorking = \(isThreadWorking \|\| optimisticPromptSending\)/u, 'prompt submission enters working state immediately instead of waiting for the runtime turn event')
-assert.match(conversationWorkingSource, /timelinePresentationIsWorking = timelineIsWorking && !optimisticPromptAwaitingUserMessage/u, 'the temporary working row waits for the newly sent user message instead of attaching to the previous prompt')
+assert.match(conversationWorkingSource, /timelineIsWorking = \(isThreadWorking \|\| optimisticPromptSending \|\| threadCompacting\)/u, 'prompt submission enters working state immediately instead of waiting for the runtime turn event')
+assert.match(conversationWorkingSource, /timelinePresentationIsWorking = timelineIsWorking && \(!optimisticPromptAwaitingUserMessage \|\| pendingMessages\.messages\.some\(isPendingAssistantUserMessage\)\)/u, 'the working row follows the immediate pending user bubble instead of attaching to the previous prompt')
 assert.match(queuedComposerTimelineSource, /onSendingChange\?\.\(true\)[\s\S]{0,120}await dispatchPrompt/u, 'the optimistic working state starts before the prompt IPC')
 assert.match(conversationWorkingSource, /latestTurnState: activeThread\?\.latestTurn\?\.state \|\| null/u, 'background queue state includes the explicit turn ledger')
 assert.match(queuedComposerTimelineSource, /state\.latestTurnState === 'running'/u, 'queued prompts cannot drain during a running turn just because its connection state changed')
@@ -1269,7 +1270,7 @@ const boundaryEntries = getTimelineEntries([
     activity({ id: 'turn-one-tool', turnId: 'turn-one', millisecond: 1300 })
 ])
 assert.equal(boundaryEntries.length, 3, 'the real user-message boundary separates tool batches')
-assert.equal(boundaryEntries.filter((entry) => entry.type === 'activity').length, 2, 'tools on either side of the user message remain individual activities')
+assert.deepEqual(boundaryEntries.filter((entry) => entry.type === 'activity-group').map(entry => entry.activities.map(activity => activity.id)), [['turn-one-tool'], ['turn-two-tool']], 'the stable single-action shells on either side keep their own exact tool identities')
 
 const managedCommand = activity({ id: 'managed-command', turnId: 'managed-turn', millisecond: 1500 })
 managedCommand.payload = {
@@ -1646,7 +1647,7 @@ assert.equal(timelineRowsSource.includes("export { TimelineWorkingIndicator } fr
 const conversationTimelinePaneSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantConversationTimelinePane.tsx', import.meta.url), 'utf8')
 const mountedVirtualTimelineSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantVirtualTimeline.tsx', import.meta.url), 'utf8')
 const conversationPaneSource = readFileSync(new URL('../src/renderer/src/pages/assistant/AssistantConversationPane.tsx', import.meta.url), 'utf8')
-assert.equal(mountedVirtualTimelineSource.includes('className="assistant-chat-scrollbar h-full w-full overflow-x-hidden [overflow-anchor:none]"'), true, 'the virtual chat viewport owns the dedicated thin scrollbar without a detached rail')
+assert.equal(mountedVirtualTimelineSource.includes('className="assistant-chat-scrollbar assistant-timeline-scrollbar h-full w-full overflow-x-hidden [overflow-anchor:none]"'), true, 'the virtual chat viewport owns the dedicated thin scrollbar without a detached rail')
 assert.equal(mountedVirtualTimelineSource.includes('AssistantVirtualTimelineMinimap'), false, 'the minimap stays out of the mounted chat path while scrolling is being tuned')
 assert.equal(conversationTimelinePaneSource.includes('timelineRailHostRef'), false, 'the hidden minimap does not leave a portal host or resize observer mounted')
 assert.equal(conversationPaneSource.includes('suppressMinimap='), false, 'the conversation no longer carries dead minimap visibility state')
@@ -1722,7 +1723,7 @@ const crossTypeSameTimeEntries = getTimelineEntries(
     [activity({ id: 'same-time-tool', turnId: 'same-time-cross-type', millisecond: 1800, timelineSequence: 200 })]
 )
 assert.deepEqual(
-    crossTypeSameTimeEntries.map((entry) => entry.type === 'message' ? entry.message.id : entry.type === 'activity' ? entry.activity.id : entry.id),
+    crossTypeSameTimeEntries.flatMap(entry => entry.type === 'activity-group' ? entry.activities.map(activity => activity.id) : [entry.type === 'message' ? entry.message.id : entry.type === 'activity' ? entry.activity.id : entry.id]),
     ['same-time-progress', 'same-time-tool', 'same-time-final'],
     'shared causal sequence must order messages and tool activity when timestamps are identical'
 )

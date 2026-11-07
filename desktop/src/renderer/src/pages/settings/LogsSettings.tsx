@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { registerSettingsCacheClearer } from '@/lib/settings-cache-registry'
 import { useSettings } from '@/lib/settings'
-import { ResponseTimingSettings } from './ResponseTimingSettings'
+import { SettingsPageLink } from './SettingsPageTabs'
 import { SettingsActionsMenu } from './SettingsActionsMenu'
 import { SettingsListPagination } from './SettingsListPagination'
 import { paginateSettingsItems } from './settings-list-page'
@@ -130,7 +130,7 @@ export default function LogsSettings({ context }: { context?: 'writing' }) {
 
     return (
         <SettingsPageContainer title={context === 'writing' ? 'Writing logs' : 'Diagnostics'} backTo="/settings/workspace/source-control/writing" backLabel="AI writing" showSettingsBack={context === 'writing'}>
-            {context !== 'writing' ? <ResponseTimingSettings /> : null}
+            {context !== 'writing' ? <SettingsSection title="Response timings" hideHeader><SettingsPageLink to="/settings/data/diagnostics/response-timings" title="Response timings" /></SettingsSection> : null}
             {context !== 'writing' ? (<SettingsSection title="Chat troubleshooting" searchSection="Output and history">
                 <SettingsRow title="Canonical diagnostics" description="Show canonical worker presence and replay sequence in the chat header." control={<SettingsSwitch checked={settings.assistantShowDiagnostics} onCheckedChange={(assistantShowDiagnostics) => updateSettings({ assistantShowDiagnostics })} label="Show canonical diagnostics" />} />
             </SettingsSection>) : null}

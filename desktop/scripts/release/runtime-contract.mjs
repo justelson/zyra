@@ -18,6 +18,7 @@ export const RUNTIME_MANIFEST_FILE = 'zyra-runtime-manifest.json'
 export const REQUIRED_RUNTIME_FILES = Object.freeze([
     'src/zyra-runtime.mjs',
     'src/harness-config-plugin.mjs',
+    'src/harness-v2-plugin/index.js',
     'src/runtime/schema/preload.mjs',
     'src/runtime/schema/bundled/manifest.json',
     'src/runtime/provenance.json',
@@ -41,6 +42,9 @@ export const REQUIRED_RUNTIME_FILES = Object.freeze([
     'src/analytics/contracts.mjs',
     'src/analytics/cli.mjs',
     'src/zyra-sdk.mjs',
+    'src/reasoning-choices.mjs',
+    'src/provider-default-reasoning.mjs',
+    'src/session-reasoning-options.mjs',
     'src/zyra-ui-bridge.mjs',
     'src/agent-server/main.mjs',
     'bin/zyra.mjs',

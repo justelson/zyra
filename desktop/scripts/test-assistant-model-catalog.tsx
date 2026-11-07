@@ -106,7 +106,7 @@ for (const compact of [false, true]) {
 }
 const harnessModel = { id: 'opencode-harness/opencode/big-pickle', label: 'Big Pickle' }
 assert.deepEqual(getAssistantModelReasoningEfforts({ ...harnessModel, supportedEfforts: [] }), [])
-assert.equal(coerceAssistantReasoningEffortForModel('high', { ...harnessModel, supportedEfforts: [] }), 'off')
+assert.equal(coerceAssistantReasoningEffortForModel('high', { ...harnessModel, supportedEfforts: [] }), 'default')
 assert.equal(coerceAssistantReasoningEffortForModel('none', { ...harnessModel, supportedEfforts: ['none', 'high'] }), 'none', 'OpenCode variants retain their own names')
 assert.deepEqual(getAssistantModelReasoningEfforts({ id: 'opencode-harness/openai/gpt-5.6-sol', label: 'gpt-5.6-sol', supportedEfforts: ['low'] }), ['low'], 'nested GPT names do not invent a Max variant')
 assert.ok(getAssistantModelReasoningEfforts('gpt-5.6-sol').includes('max'), 'legacy unqualified ChatGPT selections retain their reasoning choices')

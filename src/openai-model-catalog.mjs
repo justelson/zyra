@@ -1,6 +1,7 @@
 import { refreshModelPricing } from './model-pricing/refresh.mjs';
 import { getModelPricing, runtimeModelCost } from './model-pricing/index.mjs';
 import { createHash } from 'node:crypto';
+import { reasoningChoiceForNativeId, nativeReasoningValue } from './reasoning-choices.mjs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { resolveZyraAuthPath } from './zyra-auth-store.mjs';
@@ -61,10 +62,11 @@ export function normalizeOpenAIManifest(body, provider, now = Date.now()) {
     if (['hide', 'none'].includes(model.visibility) || model.show_in_picker === false
       || hasRetired(model.upgrade?.retirement_at, now) || hasRetired(model.shutdown_date, now)
       || (provider === 'openai' && model.supported_in_api === false)) return [];
-    const efforts = [...new Set((model.supported_reasoning_levels ?? []).map(level => level.effort).filter(effort => EFFORTS.has(effort)))];
+    const efforts = [...new Set((model.supported_reasoning_levels ?? []).map(level => reasoningChoiceForNativeId(level.effort)).filter(Boolean))];
     const tokens = value => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
     return [{ id: model.slug, provider, label: model.display_name || model.slug,
       metadataSource: 'openai-models-manifest',
+      reasoningStatus: 'known',
       compat: manifestCompat(model),
       auto_compact_token_limit: tokens(model.auto_compact_token_limit),
       context_window: tokens(model.context_window),
@@ -111,7 +113,7 @@ async function discoverModels(provider, options) {
       && !/(?:embedding|realtime|audio|transcrib|tts|image)/i.test(model.id))
   )).map(model => metadata.get(model.id) ?? {
     id: model.id, provider, label: model.id, description: 'OpenAI', supportedEfforts: [], inputModes: ['text'], contextWindow: null, maxTokens: 4096,
-    metadataSource: 'openai-models-api', context_window: null, max_context_window: null,
+    metadataSource: 'openai-models-api', reasoningStatus: 'unknown', context_window: null, max_context_window: null,
     auto_compact_token_limit: null, effective_context_window_percent: null,
   });
 }
@@ -197,7 +199,7 @@ export async function applyOpenAIModelCatalog(registry, catalog) {
       reasoning: model.supportedEfforts.length > 0,
       zyraSupportedEfforts: model.supportedEfforts,
       zyraModelInfo: model,
-      thinkingLevelMap: Object.fromEntries(model.supportedEfforts.filter(effort => effort !== 'max' || !model.supportedEfforts.includes('xhigh')).map(effort => [effort === 'max' ? 'xhigh' : effort === 'none' ? 'off' : effort, effort])),
+      thinkingLevelMap: Object.fromEntries(model.supportedEfforts.filter(effort => EFFORTS.has(effort) && (effort !== 'max' || !model.supportedEfforts.includes('xhigh'))).map(effort => [effort === 'max' ? 'xhigh' : effort === 'none' ? 'off' : effort, nativeReasoningValue(effort)])),
       // Unknown is retained, not fabricated as an 8k model. Extended capacity
       // requires a separate provider/runtime configuration, never a higher limit.
       input: model.inputModes, contextWindow: model.contextWindow, maxTokens: model.maxTokens,

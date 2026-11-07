@@ -44,7 +44,7 @@ async function run() {
         await render(mode, 'final_answer')
         assert(!button().disabled && button().getAttribute('aria-expanded') === 'false', 'final phase immediately collapses Work before text exists')
         assert(panel().getAttribute('data-state') === 'closed' && panel().getAttribute('aria-hidden') === 'true', 'real disclosure switches to its collapsed state')
-        assert(!document.querySelector('[data-assistant-working-dots]') && button().textContent === 'Work', 'final-response Work header stops saying Working or animating while the owning turn remains live')
+        assert(!document.querySelector('[data-assistant-working-dots]') && /^Working for \d/.test(button().textContent?.trim() || ''), 'final-response header retains elapsed time without activity dots while the owning turn remains live')
         await act(async () => { await wait(350) })
         assert(panel().getBoundingClientRect().height < 1, 'closed Work has zero rendered height after its animation')
         assert(!document.querySelector('[data-action-evidence]'), 'collapsed action content unmounts after the existing animation')

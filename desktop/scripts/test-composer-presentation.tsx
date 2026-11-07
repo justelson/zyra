@@ -14,6 +14,7 @@ const harness = `
 import React,{act,useState,useRef} from 'react'
 import {createRoot} from 'react-dom/client'
 import {MemoryRouter} from 'react-router-dom'
+import {deriveAssistantComposerCapabilities} from ${source('pages/assistant/assistant-composer-capabilities.ts')}
 import {AssistantComposerView} from ${source('pages/assistant/AssistantComposerView.tsx')}
 import {AssistantNewChatGreeting} from ${source('pages/assistant/AssistantNewChatGreeting.tsx')}
 import {AssistantComposerFileMenu} from ${source('pages/assistant/AssistantComposerFileMenu.tsx')}
@@ -27,20 +28,21 @@ import {setComposerSelection,composerSelection} from ${source('pages/assistant/c
 import {reconcileInlineMentionTags} from ${source('pages/assistant/assistant-composer-inline-mentions.tsx')}
 globalThis.IS_REACT_ACT_ENVIRONMENT=true
 const check=(value,message)=>{if(!value)throw Error(message)}
-const noop=()=>{}, removed=[], opened=[]
+check(!matchMedia('(prefers-reduced-motion: reduce)').matches,'motion fixture must explicitly use no-preference media independently of host settings')
+const noop=()=>{}, removed=[], opened=[], submitted=[], stopped=[]
 const data='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="160"><rect width="300" height="160" fill="#243747"/><circle cx="150" cy="70" r="35" fill="#77b7db"/><text x="150" y="130" text-anchor="middle" fill="white" font-family="sans-serif" font-size="15">Image attachment</text></svg>')
 const image={id:'image',path:'clipboard://test.png',name:'Screenshot.png',kind:'image',mimeType:'image/png',previewDataUrl:data,source:'paste',sizeBytes:200}
 window.devscope={assistant:{listPromptResources:async()=>({success:true,commands:[],skills:[],diagnostics:[]})}}
 const refs=Object.fromEntries(['composerRootRef','textareaRef','filePickerRef','mentionListRef','mentionMenuRef','modelDropdownRef','modelListRef','traitsDropdownRef'].map(key=>[key,{current:null}]))
 function Composer({placement='center'}){
  const [files,setFiles]=useState([image]),[preview,setPreview]=useState(null)
- const [text,setText]=useState('')
- window.fixtureDraft={setText,setFiles}
+ const [text,setText]=useState(''),[working,setWorking]=useState(false),[dictating,setDictating]=useState(false),[stoppedTurn,setStoppedTurn]=useState(false)
+ window.fixtureDraft={setText,setFiles,setWorking,setDictating,setStoppedTurn}
  const controller={...refs,placement,contextFiles:files,previewAttachment:preview,text,composerCursor:text.length,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],filteredModelOptions:[],modelQuery:'',activeModelIndex:0,modelsLoading:false,modelsError:null,latestModelId:null,projectChoices:[],
- capabilities:{canSend:true,composerAvailable:true,canStop:false,showBusySendActions:false},voiceInput:{isStarting:false,isRecording:false,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
+ isThinking:working,canContinue:stoppedTurn,onStop:()=>stopped.push(true),handleContinue:()=>{submitted.push('Continue');setStoppedTurn(false)},capabilities:deriveAssistantComposerCapabilities({mode:'standard',disabled:false,isConnected:true,isSending:false,isThinking:working,allowEmptySubmit:false,hasContent:Boolean(text.trim()||files.length),hasStopHandler:true,voiceBusy:dictating}),voiceInput:{isStarting:false,isRecording:dictating,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
  submitLabel:'Send',isConnected:true,selectedModel:'gpt-5',selectedModelLabel:'GPT-5',selectedEffort:'medium',selectedInteractionMode:'default',selectedRuntimeMode:'default',displayedProfile:'safe-dev',zyraProfile:'concise',EFFORT_OPTIONS:['medium'],EFFORT_LABELS:{medium:'Medium'},
  setPreviewAttachment:setPreview,removeAttachment:id=>{removed.push(id);setFiles(current=>current.filter(file=>file.id!==id))},onOpenAttachmentPreview:()=>opened.push('disk'),
- setText,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:noop,attachFile:noop,setShowModelDropdown:noop,setShowTraitsDropdown:noop,onZyraProfileChange:noop}
+ setText,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:()=>{submitted.push(text);setText('')},attachFile:noop,setShowModelDropdown:noop,setShowTraitsDropdown:noop,onZyraProfileChange:noop}
  return <div style={{width:'760px',margin:'220px auto 0'}}>{placement==='center'?<AssistantNewChatGreeting prompt="What are we building today?"/>:null}<AssistantComposerView controller={controller}/></div>
 }
 const root=createRoot(document.getElementById('root'))
@@ -79,6 +81,24 @@ try{
  for(const placement of ['center','bottom']){
   await act(async()=>root.render(<MemoryRouter><Composer key={placement} placement={placement}/><button id="outside" onClick={()=>window.outsideClicked=true}>Outside action</button></MemoryRouter>));await flush(100)
   await act(async()=>window.fixtureDraft.setFiles([]));await flush(250)
+  await act(async()=>{window.fixtureDraft.setWorking(true);window.fixtureDraft.setText('Keep the current task going')});await flush(50)
+  check(document.querySelector('[aria-label="Send"]')&&!document.querySelector('[aria-label="Stop current turn"]'),'working draft uses one Send button without a busy dispatch menu')
+  await capture('working-draft-'+placement)
+  await act(async()=>window.fixtureDraft.setDictating(true));await flush(50)
+  check(document.querySelector('[aria-label="Send"]').disabled,'live dictation cannot submit partial text while work continues')
+  await act(async()=>window.fixtureDraft.setDictating(false));await flush(50)
+  await act(async()=>document.querySelector('[aria-label="Send"]').click());await flush(50)
+  check(submitted.at(-1)==='Keep the current task going'&&stopped.length===0,'working Send forwards the draft without stopping work')
+  check(document.querySelector('[aria-label="Stop current turn"]'),'clearing draft restores Stop')
+  await capture('working-empty-'+placement)
+  await act(async()=>{window.fixtureDraft.setWorking(false);window.fixtureDraft.setStoppedTurn(true)});await flush(50)
+  check(document.querySelector('[aria-label="Continue response"]')&&!document.querySelector('[aria-label="Stop current turn"]'),'stopped empty composer offers Continue')
+  await capture('stopped-'+placement)
+  await act(async()=>window.fixtureDraft.setText('Use a different approach'));await flush(50)
+  check(document.querySelector('[aria-label="Send"]')&&!document.querySelector('[aria-label="Continue response"]'),'new instruction replaces Continue with Send')
+  await act(async()=>window.fixtureDraft.setText(''));await flush(50)
+  await act(async()=>document.querySelector('[aria-label="Continue response"]').click());await flush(50)
+  check(submitted.at(-1)==='Continue','Continue invokes its own action instead of sending an empty draft')
   const input=document.querySelector('[data-composer-text-input]')
   const minimum=Number.parseFloat(getComputedStyle(input).lineHeight)*3
   check(input.getBoundingClientRect().height>=minimum-1,'composer preserves original three-line writing space')
@@ -203,6 +223,30 @@ try{
  await act(async()=>document.execCommand('insertLineBreak'));await flush(80)
  await act(async()=>document.execCommand('insertText',false,'next line'));await flush(80)
  check(editorState.text.endsWith('\\nnext line'),'multiline text preserves line breaks')
+ await act(async()=>{editorState.setText('');editorState.setTags([])});await flush(80)
+ const placeholderVisible=()=>{const style=getComputedStyle(input,'::before');return style.content.includes('Message Zyra')&&style.display!=='none'&&style.visibility!=='hidden'}
+ check(placeholderVisible(),'clearing the controlled prompt restores its placeholder')
+ input.focus()
+ await act(async()=>document.execCommand('insertText',false,'temporary prompt'));await flush(30)
+ check(!placeholderVisible(),'placeholder hides for a written prompt')
+ setComposerSelection(input,0,editorState.text.length)
+ await act(async()=>document.execCommand('delete'));await flush(80)
+ check(!editorState.text.trim()&&placeholderVisible(),'native deletion restores placeholder despite an invisible filler break: '+JSON.stringify({text:editorState.text,dom:input.innerHTML}))
+ await act(async()=>document.execCommand('undo'));await flush(80)
+ check(editorState.text==='temporary prompt'&&!placeholderVisible(),'placeholder repair preserves native Undo')
+ const blankPrompt='  '+String.fromCharCode(10)+'  '
+ await act(async()=>editorState.setText(blankPrompt));await flush(30)
+ check(editorState.text===blankPrompt&&placeholderVisible(),'blank drafts show the hint without deleting intentional whitespace')
+ await act(async()=>editorState.setText(''));await flush(30)
+ await act(async()=>input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true})))
+ check(!placeholderVisible(),'IME composition hides the placeholder before candidate text arrives')
+ await act(async()=>{input.textContent='你';input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,inputType:'insertCompositionText',data:'你'}))})
+ check(editorState.text===''&&!placeholderVisible(),'IME candidate text does not overlap the placeholder or submit a partial draft')
+ await act(async()=>input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'你'})));await flush(30)
+ check(editorState.text==='你'&&!placeholderVisible(),'composition commits its text normally')
+ await act(async()=>editorState.setText(''));await flush(30)
+ await act(async()=>{input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));input.innerHTML='<br>';input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:''}))});await flush(30)
+ check(!editorState.text.trim()&&placeholderVisible(),'cancelled composition restores the placeholder even with a filler break')
  const sentSkill='/skill:background-terminals whats this for?'
  await act(async()=>root.render(<div data-message-skill-fixture style={{width:420,margin:20,borderRadius:12,padding:14,background:'var(--surface-active)'}}><CollapsibleUserMessageBody content={sentSkill}/></div>));await flush(100)
  const sentChip=document.querySelector('[data-skill-reference]')
@@ -266,16 +310,21 @@ try {
     await writeFile(join(directory, 'main.cjs'), `
 const {app,BrowserWindow}=require('electron');
 app.setPath('userData',${JSON.stringify(join(directory,'profile'))});
+${process.argv.includes('--host-reduced-motion') ? "app.commandLine.appendSwitch('force-prefers-reduced-motion');" : ''}
 app.whenReady().then(async()=>{
  const window=new BrowserWindow({show:false,width:1100,height:900,webPreferences:{backgroundThrottling:false,offscreen:true}});
  window.webContents.setFrameRate(60);
  window.webContents.on('paint',()=>{});
  window.webContents.on('console-message',event=>{console.log(event.message);if(event.message.includes('COMPOSER_PRESENTATION_PASS'))app.exit(0);if(event.message.includes('COMPOSER_PRESENTATION_FAIL'))app.exit(1)});
+ // Start Chromium before CDP, then set real media before mounting the fixture.
+ await window.loadURL('about:blank');
+ window.webContents.debugger.attach('1.3');
+ await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
  await window.loadFile(${JSON.stringify(join(directory,'test.html'))});
  ${screenshots ? `let previous;setInterval(async()=>{
   if(window.isDestroyed())return;
   const phase=await window.webContents.executeJavaScript('window.testPhase');
-  if(!['cards','picker','drawer-center','drawer-bottom','brands-dark','brands-light','message-skills','message-skills-clean-history'].includes(phase)||phase===previous)return;
+  if(!['working-draft-center','working-empty-center','working-draft-bottom','working-empty-bottom','stopped-center','stopped-bottom','cards','picker','drawer-center','drawer-bottom','brands-dark','brands-light','message-skills','message-skills-clean-history'].includes(phase)||phase===previous)return;
   previous=phase;
   await window.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   require('fs').mkdirSync(${JSON.stringify(resolve(screenshots))},{recursive:true});

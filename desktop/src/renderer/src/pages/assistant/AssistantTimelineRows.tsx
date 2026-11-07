@@ -1,4 +1,7 @@
 // @refresh reset
+import { useAssistantClipboardAttachmentResolution } from './useAssistantClipboardAttachmentResolution'
+import { readSentAttachmentPreview } from './assistant-sent-attachment-previews'
+import { isPendingAssistantUserMessage } from './useAssistantPendingMessages'
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, Gauge, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
@@ -565,8 +568,9 @@ export const TimelineMessage = memo(({
         () => message.role === 'user' ? parseUserMessageAttachments(message.text || '') : { body: message.text || '', attachments: [] },
         [message.role, message.text]
     )
-    const [resolvedClipboardAttachmentPaths, setResolvedClipboardAttachmentPaths] = useState<Record<string, string>>({})
-    const [clipboardAttachmentRecovery, setClipboardAttachmentRecovery] = useState<Record<string, 'loading' | 'error'>>({})
+    const clipboardResolution = useAssistantClipboardAttachmentResolution(message.id, parsedUserMessage.attachments)
+    const resolvedClipboardAttachmentPaths = clipboardResolution.paths
+    const clipboardAttachmentRecovery = clipboardResolution.recovery
     const [copied, setCopied] = useState(false)
     const [nowIso, setNowIso] = useState(() => new Date().toISOString())
     const [previewAttachment, setPreviewAttachment] = useState<ComposerContextFile | null>(null)
@@ -602,44 +606,6 @@ export const TimelineMessage = memo(({
         const intervalId = window.setInterval(() => setNowIso(new Date().toISOString()), 1000)
         return () => window.clearInterval(intervalId)
     }, [message.streaming])
-
-    useEffect(() => {
-        let cancelled = false
-        const clipboardAttachments = parsedUserMessage.attachments.filter((attachment) => isClipboardAttachmentReference(attachment.path))
-
-        if (clipboardAttachments.length === 0) {
-            setResolvedClipboardAttachmentPaths({})
-            setClipboardAttachmentRecovery({})
-            return () => {
-                cancelled = true
-            }
-        }
-
-        void (async () => {
-            const resolvedEntries = await Promise.all(
-                clipboardAttachments.map(async (attachment) => {
-                    const result = await window.devscope.assistant.resolveClipboardAttachment({
-                        reference: attachment.path || ''
-                    })
-                    if (!result.success || !result.path) return { id: attachment.id, path: null }
-                    return { id: attachment.id, path: result.path }
-                })
-            )
-
-            if (cancelled) return
-
-            setResolvedClipboardAttachmentPaths(
-                Object.fromEntries(resolvedEntries.filter((entry) => Boolean(entry.path)).map((entry) => [entry.id, entry.path as string]))
-            )
-            setClipboardAttachmentRecovery(
-                Object.fromEntries(resolvedEntries.filter((entry) => !entry.path).map((entry) => [entry.id, 'error' as const]))
-            )
-        })()
-
-        return () => {
-            cancelled = true
-        }
-    }, [parsedUserMessage.attachments])
 
     const assistantElapsed = useMemo(() => {
         if (!isAssistant || !isLastAssistantInTurn) return null
@@ -832,10 +798,12 @@ export const TimelineMessage = memo(({
                                 if (attachment.citation) return <AssistantCitationChip key={attachment.id} file={citationContextFile(attachment.citation, attachment.id)} />
                                 const isImage = attachment.type === 'IMAGE'
                                 const isVideo = attachment.type === 'VIDEO' || Boolean(attachment.mime?.toLowerCase().startsWith('video/'))
+                                const sentPreview = readSentAttachmentPreview(message.id, attachment.path)
                                 const resolvedAttachmentPath = attachment.path && isClipboardAttachmentReference(attachment.path)
                                     ? (resolvedClipboardAttachmentPaths[attachment.id] || null)
                                     : attachment.path
-                                const renderImage = isImage && canRenderAttachmentImage(resolvedAttachmentPath)
+                                const previewPath = resolvedAttachmentPath || sentPreview?.path || null
+                                const imageSrc = isImage && canRenderAttachmentImage(previewPath) ? getFileUrl(String(previewPath)) : isImage ? sentPreview?.previewDataUrl : undefined
                                 const unresolvedClipboardMedia = (isImage || isVideo)
                                     && isClipboardAttachmentReference(attachment.path)
                                     && !resolvedAttachmentPath
@@ -863,57 +831,38 @@ export const TimelineMessage = memo(({
                                         source: 'paste' as const
                                     }
                                     : null
+                                const recoveryButton = unresolvedClipboardMedia && attachmentRecoveryState === 'error' ? (
+                                    <button type="button" onClick={async () => {
+                                        const result = await clipboardResolution.retry(attachment.id, attachment.path || '')
+                                        if (result && !result.success) onLinkNotice?.(result.error, 'error')
+                                        else if (result && !result.path) onLinkNotice?.('The cached attachment is still unavailable.', 'error')
+                                    }} className="inline-flex items-center justify-center gap-1 rounded-md border border-amber-400/20 bg-amber-500/[0.08] px-2 py-1 text-[10px] font-medium text-amber-100 transition-colors hover:bg-amber-500/[0.14]">
+                                        <RotateCcw size={10} />Retry attachment
+                                    </button>
+                                ) : null
                                 return (
-                                    renderImage ? (
+                                    imageSrc ? (
+                                        <div key={attachment.id} className="flex w-[116px] flex-col gap-1.5">
                                         <AssistantAttachmentImageCard
-                                            key={attachment.id}
-                                            name={attachment.displayName}
-                                            src={getFileUrl(String(resolvedAttachmentPath))}
-                                            widthClassName="w-[116px]"
-                                            heightClassName="h-[84px]"
-                                            onClick={(onOpenAttachmentPreview || onOpenFilePath) && resolvedAttachmentPath ? () => {
-                                                if (onOpenAttachmentPreview && previewTarget) {
-                                                    void onOpenAttachmentPreview({ name: previewTarget.name, path: resolvedAttachmentPath }, previewTarget.ext)
-                                                    return
-                                                }
-                                                void onOpenFilePath?.(resolvedAttachmentPath)
+                                            name={attachment.displayName} src={imageSrc} previewSrc={sentPreview?.previewDataUrl}
+                                            pending={unresolvedClipboardMedia || isPendingAssistantUserMessage(message)}
+                                            widthClassName="w-[116px]" heightClassName="h-[84px]"
+                                            onClick={(onOpenAttachmentPreview || onOpenFilePath) && previewPath ? () => {
+                                                if (onOpenAttachmentPreview && previewTarget) { void onOpenAttachmentPreview({ name: previewTarget.name, path: previewPath }, previewTarget.ext); return }
+                                                void onOpenFilePath?.(previewPath)
                                             } : undefined}
                                         />
+                                        {recoveryButton}
+                                        </div>
                                     ) : unresolvedClipboardMedia ? (
-                                        <div key={attachment.id} className="flex w-[116px] flex-col gap-1.5">
-                                            <AssistantFileAttachmentCard
-                                                widthClassName="w-[116px]"
-                                                name={attachment.displayName}
-                                                contentType={attachment.type}
-                                                category={isVideo ? 'video' : 'image'}
-                                                pathLabel={isVideo ? 'Cached video unavailable' : 'Cached image unavailable'}
-                                            />
-                                            <button
-                                                type="button"
-                                                disabled={attachmentRecoveryState === 'loading'}
-                                                onClick={async () => {
-                                                    setClipboardAttachmentRecovery((current) => ({ ...current, [attachment.id]: 'loading' }))
-                                                    const result = await window.devscope.assistant.resolveClipboardAttachment({ reference: attachment.path || '' })
-                                                    if (result.success && result.path) {
-                                                        setResolvedClipboardAttachmentPaths((current) => ({ ...current, [attachment.id]: result.path as string }))
-                                                        setClipboardAttachmentRecovery((current) => {
-                                                            const next = { ...current }
-                                                            delete next[attachment.id]
-                                                            return next
-                                                        })
-                                                        return
-                                                    }
-                                                    setClipboardAttachmentRecovery((current) => ({ ...current, [attachment.id]: 'error' }))
-                                                    onLinkNotice?.(result.success ? 'The cached attachment is still unavailable.' : result.error, 'error')
-                                                }}
-                                                className="inline-flex items-center justify-center gap-1 rounded-md border border-amber-400/20 bg-amber-500/[0.08] px-2 py-1 text-[10px] font-medium text-amber-100 transition-colors hover:bg-amber-500/[0.14] disabled:cursor-wait disabled:opacity-60"
-                                            >
-                                                {attachmentRecoveryState === 'loading' ? <Loader2 size={10} className="animate-spin" /> : <RotateCcw size={10} />}
-                                                {attachmentRecoveryState === 'loading' ? 'Recovering' : 'Retry attachment'}
-                                            </button>
+                                        <div key={attachment.id} className="flex w-[116px] flex-col gap-1.5" aria-busy={attachmentRecoveryState !== 'error'}>
+                                            <AssistantFileAttachmentCard pending={isPendingAssistantUserMessage(message) || attachmentRecoveryState !== 'error'} widthClassName="w-[116px]" name={attachment.displayName} contentType={attachment.type}
+                                                category={isVideo ? 'video' : 'image'} pathLabel={attachmentRecoveryState === 'error' ? 'Cached attachment unavailable' : 'Loading attachment'} />
+                                            {recoveryButton}
                                         </div>
                                     ) : attachment.isClipboard && !isImage && !isVideo ? (
                                         <AssistantPastedTextCard
+                                            pending={isPendingAssistantUserMessage(message)}
                                             key={attachment.id}
                                             widthClassName="w-[108px]"
                                             onClick={previewAttachmentFile ? () => setPreviewAttachment(previewAttachmentFile) : undefined}
@@ -921,6 +870,7 @@ export const TimelineMessage = memo(({
                                         />
                                     ) : (
                                         <AssistantFileAttachmentCard
+                                            pending={isPendingAssistantUserMessage(message)}
                                             key={attachment.id}
                                             widthClassName="w-[116px]"
                                             name={attachment.displayName}
@@ -996,6 +946,7 @@ export const TimelineMessage = memo(({
         && prev.filePath === next.filePath
         && prev.onInternalLinkClick === next.onInternalLinkClick
         && prev.onLinkNotice === next.onLinkNotice
+        && isPendingAssistantUserMessage(prev.message) === isPendingAssistantUserMessage(next.message)
         && areMessagesEqual(prev.message, next.message)
 })
 

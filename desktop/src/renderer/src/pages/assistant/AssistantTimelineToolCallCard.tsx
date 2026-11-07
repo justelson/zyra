@@ -10,6 +10,7 @@ import {
     type AssistantReadMetadata
 } from '@shared/assistant/read-activity'
 import { AnimatedHeight } from '@/components/ui/AnimatedHeight'
+import { AssistantTerminalOutputText } from './AssistantTerminalOutputText'
 import { getFileUrl } from '@/components/ui/file-preview/utils'
 import { useSettings, type AssistantChatDisplayMode, type AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { cn } from '@/lib/utils'
@@ -260,6 +261,8 @@ export const TimelineToolCallCard = memo(({
     const userChangedExpansionRef = useRef(false)
     const autoCollapseTimerRef = useRef<number | null>(null)
     const commandOutputViewportRef = useRef<HTMLDivElement | null>(null)
+    const followOutputTailRef = useRef(true)
+    const outputWasExpandedRef = useRef(false)
     const previousStatusRef = useRef<'success' | 'running' | 'failed'>(getActivityStatus(activity))
     const filePaths = useMemo(() => getActivityPaths(activity), [activity])
     const createdFilePaths = useMemo(() => getCreatedFilePaths(activity), [activity])
@@ -575,10 +578,15 @@ export const TimelineToolCallCard = memo(({
     }, [isRead, status])
 
     useLayoutEffect(() => {
+        const wasExpanded = outputWasExpandedRef.current
+        outputWasExpandedRef.current = expanded
         if (!isTerminalLikeTool || !canExpandBody || !expanded || !terminalOutputText) return
         const element = commandOutputViewportRef.current
         if (!element) return
-        element.scrollTop = element.scrollHeight
+        if (!wasExpanded) followOutputTailRef.current = true
+        const selection = window.getSelection()
+        const selectingOutput = Boolean(selection && !selection.isCollapsed && element.contains(selection.anchorNode))
+        if (followOutputTailRef.current && !selectingOutput) element.scrollTop = element.scrollHeight
     }, [canExpandBody, expanded, isTerminalLikeTool, terminalOutputHeightClass, terminalOutputText])
 
     useEffect(() => {
@@ -602,9 +610,9 @@ export const TimelineToolCallCard = memo(({
             return
         }
 
-        if (previousStatusRef.current === 'running') {
+        if (previousStatusRef.current === 'running' && !userChangedExpansionRef.current) {
             autoCollapseTimerRef.current = window.setTimeout(() => {
-                setExpanded(false)
+                if (!userChangedExpansionRef.current) setExpanded(false)
                 autoCollapseTimerRef.current = null
             }, 500)
         }
@@ -628,6 +636,7 @@ export const TimelineToolCallCard = memo(({
             <button
                 type="button"
                 onClick={handlePrimaryAction}
+                aria-expanded={canExpandBody ? expanded : undefined}
                 title={opensRelatedCommand ? 'Go to original command' : undefined}
                 data-assistant-action-row="true"
                 className={cn(
@@ -779,6 +788,12 @@ export const TimelineToolCallCard = memo(({
                             {copyValue ? <div className="absolute right-2 top-1.5 z-10"><TimelineCopyButton value={copyValue} compact /></div> : null}
                             <div
                                 ref={commandOutputViewportRef}
+                                onScroll={(event) => {
+                                    const element = event.currentTarget
+                                    followOutputTailRef.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 24
+                                    if (!followOutputTailRef.current) userChangedExpansionRef.current = true
+                                }}
+                                onPointerDown={() => { userChangedExpansionRef.current = true }}
                                 className={cn(
                                     'custom-scrollbar overflow-y-auto overscroll-x-contain px-2.5 py-1.5 font-mono text-[11px] leading-5 text-[color-mix(in_srgb,var(--color-text)_88%,var(--color-bg))] [tab-size:4] subpixel-antialiased',
                                     status === 'running' ? 'overflow-x-hidden' : 'overflow-x-auto',
@@ -787,10 +802,8 @@ export const TimelineToolCallCard = memo(({
                                 )}
                             >
                                 <pre className="flex min-h-full min-w-full w-max flex-col justify-end whitespace-pre">
-                                    <span
-                                        key={status === 'running' ? `${rawOutput.length}-${rawToolBodyText.length}` : 'complete'}
-                                    >
-                                        {terminalOutputText}
+                                    <span>
+                                        <AssistantTerminalOutputText text={terminalOutputText} />
                                         {status === 'running' ? (
                                             <span className="ml-1 inline-block h-3 w-1 rounded-sm bg-[color-mix(in_srgb,var(--status-warning)_72%,var(--color-text))] align-[-2px] animate-terminal-caret" />
                                         ) : null}

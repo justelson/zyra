@@ -49,7 +49,7 @@ export class HarnessTransport {
     void this.preparation.catch(() => {});
     // This descriptor travels only on the private bridge pipe, never in the
     // canonical catalog, events, connected result, or renderer response.
-    return { baseUrl: lease.baseUrl, password: lease.client.password };
+    return { baseUrl: lease.baseUrl, password: lease.client.password, ...(lease.client.apiVersion === 2 ? { apiVersion: 2 } : {}) };
   }
 
   async prepare() {

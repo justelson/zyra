@@ -190,6 +190,9 @@ const stream = (model, context, options) => {
         apiKey,
         websocketRequestId
       );
+      const routingHint = `model=${body.model}${body.service_tier ? `;tier=${body.service_tier}` : ""}`;
+      sseHeaders.set("x-codex-routing-hint", routingHint);
+      websocketHeaders.set("x-codex-routing-hint", routingHint);
       body.store = false;
       const bodyJson = JSON.stringify(body);
       const bodyByteLength = new TextEncoder().encode(bodyJson).byteLength;
@@ -458,6 +461,9 @@ function buildRequestBody(model, context, options, cacheSessionId, grammarToolIn
         summary: options.reasoningSummary ?? "auto"
       };
     }
+  }
+  if (model.id === "gpt-6.1-sol") {
+    body.reasoning = { ...body.reasoning, context: "current_turn" };
   }
   return body;
 }
@@ -830,7 +836,8 @@ async function connectWebSocket(url, headers, signal, connectTimeoutMs = DEFAULT
 }
 async function acquireWebSocket(url, headers, requestedSessionId, accountId, signal, connectTimeoutMs, env) {
   const scopeKey = `${accountId}
-${url}`;
+${url}
+${headers.get("x-codex-routing-hint") ?? ""}`;
   const existingEntries = requestedSessionId ? websocketSessionCache.get(requestedSessionId) : void 0;
   const sessionId = requestedSessionId && !existingEntries?.has(scopeKey) && (!existingEntries && websocketSessionCache.size >= 128 || existingEntries && existingEntries.size >= 8) ? void 0 : requestedSessionId;
   if (!sessionId) {
@@ -1135,7 +1142,8 @@ async function processWebSocketStream(url, body, headers, output, stream2, model
     options?.env
   );
   let keepConnection = true;
-  const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
+  const transport = options?.transport ?? "auto";
+  const useCachedContext = transport === "websocket-cached" || transport === "auto";
   const fullBody = body;
   const requestBody = useCachedContext && entry ? buildCachedWebSocketRequestBody(entry, fullBody) : fullBody;
   const stats = cacheSessionId ? getOrCreateWebSocketDebugStats(cacheSessionId) : void 0;

@@ -1,3 +1,6 @@
+import { installSessionReasoningOptions } from '../../session-reasoning-options.mjs';
+import { toRuntimeThinkingLevel } from '../../thinking-levels.mjs';
+import { normalizeReasoningChoice } from '../../reasoning-choices.mjs';
 import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { createBrowserControlTool } from "../../agent-control/browser-control-tool.mjs";
@@ -48,9 +51,12 @@ export class ChildSessionFactory {
     // come from the parent's live runtime. The SDK ignores old auth/registry
     // options and would silently create an unrelated default credential store.
     if (!this.modelRuntime) throw new Error("Child sessions require the parent model runtime.");
+    const [engine, { DefaultResourceLoader }] = await Promise.all([
+      loadRuntimeEngine(),
+      import('../../runtime/engine/src/core/resource-loader.js'),
+    ]);
     const {
       createAgentSession,
-      DefaultResourceLoader,
       getAgentDir,
       SettingsManager,
       createEditTool,
@@ -59,7 +65,7 @@ export class ChildSessionFactory {
       createLsTool,
       createReadTool,
       createWriteTool,
-    } = await loadRuntimeEngine();
+    } = engine;
     const cwd = path.resolve(options.cwd ?? this.project);
     if (!options.noSession) await mkdir(this.transcriptDirectory, { recursive: true });
     const agentDir = this.agentDir ?? getAgentDir();
@@ -100,7 +106,7 @@ export class ChildSessionFactory {
       agentDir,
       modelRuntime: this.modelRuntime,
       model: options.model,
-      thinkingLevel: normalizeThinkingLevel(options.effort),
+      thinkingLevel: toRuntimeThinkingLevel(normalizeThinkingLevel(options.effort)),
       tools: [...(options.tools || []).filter(tool => tool !== 'app' || chatReadTools.length > 0), ...(options.threadClient ? ['thread'] : [])],
       customTools,
       noTools: options.tools?.length || options.threadClient ? undefined : 'all',
@@ -110,6 +116,7 @@ export class ChildSessionFactory {
       sessionStartEvent: { type: "session_start", reason: options.sessionFile ? "resume" : "new" },
     });
     browserSessionRef.current = result.session;
+    installSessionReasoningOptions(result.session, normalizeThinkingLevel(options.effort));
     result.session.getContextCompactionPolicy = () => resolveModelCompactionPolicy(result.session.model, this.modelCompactionOverrides);
     if (!options.noSession) ensureSessionDurable(sessionManager);
     if (options.controlClient && new Set(options.tools ?? []).has("browser_control")) applyBrowserLoaderOnlyState(result.session);
@@ -227,6 +234,5 @@ export function buildChildSystemPrompt(options = {}) {
 }
 
 function normalizeThinkingLevel(value) {
-  const level = String(value ?? "medium").toLowerCase();
-  return ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level) ? level : "medium";
+  return normalizeReasoningChoice(value) ?? 'default';
 }

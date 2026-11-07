@@ -1,6 +1,10 @@
 # Zyra roadmap
 
-Desktop response timing diagnostics are implemented locally for the next requested Preview. Local timing records remain always on; PostHog summaries use existing optional analytics consent. Settings Diagnostics separates provider response, Desktop receipt and visible text, with runtime retry, compaction and proven stall counters. See [measurement semantics and focused checks](development/response-timing.md). Installed runtime activation and live-model measurements remain separate acceptance steps.
+A lightweight [chat latency runner](development/chat-latency-runner.md) now reuses the selected installed runtime's real server, bridge, SDK and provider for isolated synthetic test chats, with explicit live-credit gating and a separate bare-provider comparison. It measures setup and first-text delivery without a Desktop build. User-chat history and Desktop/phone paint timing remain separate acceptance paths.
+
+Cold Chat setup now prepares its unbound worker while the admitted runtime fingerprint is read, and defers optional package discovery and HTML export until requested. Default SDK discovery, explicit extensions, child sessions and real HTML export remain covered. Source and live isolated-harness checks pass; installed activation remains a separate step.
+
+Desktop response timing diagnostics are implemented locally for the next requested Preview. Local timing records remain always on; PostHog summaries use existing optional analytics consent. Diagnostics opens response timings through one row, with a compact summary, optional sortable turn history and info tips. Provider response, Desktop receipt and visible text remain distinct, with runtime retry, compaction and proven stall counters. See [measurement semantics and focused checks](development/response-timing.md). Installed runtime activation and live-model measurements remain separate acceptance steps.
 
 
 **Status: v0.6.2 release preparation. Last reviewed: 2026-09-18.**

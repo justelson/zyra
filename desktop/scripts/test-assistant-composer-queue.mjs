@@ -19,8 +19,12 @@ try {
         nodePaths: [join(desktop, 'node_modules')],
         alias: { '@': join(desktop, 'src/renderer/src'), '@shared': join(desktop, 'src/shared') }, logLevel: 'silent'
     })
-    const css = await postcss([tailwindcss({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerQueue.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantComposerMenuSurface.tsx')] })])
-        .process(`${await readFile(join(desktop, 'src/renderer/src/styles/theme-tokens.css'), 'utf8')}\n@tailwind base;\n@tailwind components;\n@tailwind utilities;`, { from: undefined })
+    // Native textareas also use the application's global scrollbar rules.
+    const scrollbars = postcss.parse(await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8')).nodes
+        .filter(node => node.type === 'rule' && node.selectors.every(selector => selector.startsWith('::-webkit-scrollbar')))
+        .map(node => node.toString()).join('\n')
+    const css = await postcss([tailwindcss({ ...tailwindConfig, content: ['AssistantComposerQueue', 'AssistantComposerMenuSurface', 'AssistantQuestionTransition'].map(name => join(desktop, 'src/renderer/src/pages/assistant', `${name}.tsx`)) })])
+        .process(`${await readFile(join(desktop, 'src/renderer/src/styles/theme-tokens.css'), 'utf8')}\n@tailwind base;\n@tailwind components;\n@tailwind utilities;\n${scrollbars}`, { from: undefined })
     await writeFile(join(directory, 'renderer.css'), css.css)
     const screenshot = resolve(process.env.ZYRA_QUEUE_SCREENSHOT || join(desktop, '../docs.local/qa/assistant-composer-queue.png'))
     await mkdir(dirname(screenshot), { recursive: true })
@@ -38,8 +42,22 @@ try {
             await window.loadFile(${JSON.stringify(html)});
             const results = await window.webContents.executeJavaScript('window.runComposerQueueChecks()');
             for (const result of results) console.log('PASS: ' + result);
-            await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-            require('node:fs').writeFileSync(${JSON.stringify(screenshot)}, (await window.webContents.capturePage()).toPNG());
+            const capture = async (path) => {
+                await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+                await window.webContents.executeJavaScript('Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {})))');
+                const rect = await window.webContents.executeJavaScript(
+                    '(() => { const r = document.querySelector("[data-composer-drawer]").getBoundingClientRect(); return { x: Math.max(0, Math.floor(r.x) - 8), y: Math.max(0, Math.floor(r.y) - 8), width: Math.ceil(r.width) + 16, height: Math.ceil(r.height) + 16 }; })()');
+                require('node:fs').writeFileSync(path, (await window.webContents.capturePage(rect)).toPNG());
+            };
+            await capture(${JSON.stringify(screenshot)});
+            await window.webContents.executeJavaScript('document.querySelectorAll("[data-queued-message-preview]")[1].click()');
+            await capture(${JSON.stringify(screenshot.replace(/\.png$/i, '-expanded.png'))});
+            await window.webContents.executeJavaScript('document.querySelectorAll("[data-queued-message-preview]")[1].click(); document.querySelector("[data-composer-drawer]").parentElement.style.width = "360px"');
+            await capture(${JSON.stringify(screenshot.replace(/\.png$/i, '-narrow.png'))});
+            await window.webContents.executeJavaScript(${JSON.stringify('document.querySelector("[data-composer-drawer]").parentElement.style.width = "560px"; Array.from(document.querySelectorAll("button")).filter(button => button.getAttribute("aria-label") === "Edit queued message")[1].click()')});
+            await capture(${JSON.stringify(screenshot.replace(/\.png$/i, '-editing.png'))});
+            await window.webContents.executeJavaScript('document.querySelector("[data-composer-drawer]").parentElement.style.width = "360px"');
+            await capture(${JSON.stringify(screenshot.replace(/\.png$/i, '-editing-narrow.png'))});
             console.log('Queue screenshot: ' + ${JSON.stringify(screenshot)});
             clearTimeout(timeout); app.quit();
         }).catch(error => { console.error(error); app.exit(1); });

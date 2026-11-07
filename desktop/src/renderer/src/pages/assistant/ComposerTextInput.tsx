@@ -22,6 +22,12 @@ export const ComposerTextInput = forwardRef<HTMLTextAreaElement, Props>(function
     const composing = useRef(false)
     const renderedTheme = useRef(theme)
     const onRemove = useRef(onRemoveTag); onRemove.current = onRemoveTag
+    // Chromium keeps filler <br> nodes after native deletion. Placeholder state
+    // follows meaningful editor text, while native DOM/Undo remain untouched.
+    const syncPlaceholder = () => {
+        const root = rootRef.current
+        if (root) root.dataset.composerEmpty = String(!composing.current && !composerNodeText(root).trim())
+    }
     useImperativeHandle(forwardedRef, () => rootRef.current as unknown as HTMLTextAreaElement, [])
 
     useLayoutEffect(() => {
@@ -37,6 +43,7 @@ export const ComposerTextInput = forwardRef<HTMLTextAreaElement, Props>(function
 
     useLayoutEffect(() => {
         const root = rootRef.current!, text = String(value)
+        syncPlaceholder()
         const signature = JSON.stringify(tags.map(tag => [tag.id, tag.kind, tag.path]))
         const domSignature = JSON.stringify(readTags(root).map(tag => [tag.id, tag.kind, tag.path]))
         if (composing.current || (composerNodeText(root) === text && signature === domSignature && theme === renderedTheme.current)) return
@@ -60,11 +67,12 @@ export const ComposerTextInput = forwardRef<HTMLTextAreaElement, Props>(function
             nodes.push(chip); cursor = tag.end
         }
         addText(text.slice(cursor)); root.replaceChildren(...nodes)
+        syncPlaceholder()
         renderedTheme.current = theme
         if (focused) setComposerSelection(root, Math.min(caret[0], text.length), Math.min(caret[1], text.length))
     }, [value, tags, theme])
 
-    const emit = (event: unknown) => { onChange?.(event as Parameters<NonNullable<Props['onChange']>>[0]); onTagsChange(readTags(rootRef.current!)) }
+    const emit = (event: unknown) => { syncPlaceholder(); onChange?.(event as Parameters<NonNullable<Props['onChange']>>[0]); onTagsChange(readTags(rootRef.current!)) }
     const insert = (text: string) => { rootRef.current?.focus(); const escaped = document.createElement('div'); escaped.textContent = text; document.execCommand('insertHTML', false, escaped.innerHTML.replace(/\r?\n/g, '<br>')) }
     const copySelection = (event: React.ClipboardEvent<HTMLDivElement>, cut = false) => {
         const [start, end] = composerSelection(rootRef.current!)
@@ -73,9 +81,9 @@ export const ComposerTextInput = forwardRef<HTMLTextAreaElement, Props>(function
         event.clipboardData.setData('text/plain', composerNodeText(rootRef.current!).slice(start, end))
         if (cut && !disabled) document.execCommand('delete')
     }
-    return <div role="textbox" aria-multiline="true" {...props as React.HTMLAttributes<HTMLDivElement>} ref={rootRef} style={{ ...props.style, minHeight: `${rows}lh` }} contentEditable={!disabled} suppressContentEditableWarning aria-disabled={disabled || undefined} data-composer-text-input data-placeholder={placeholder} className={`${props.className || ''} whitespace-pre-wrap break-words empty:before:pointer-events-none empty:before:font-normal empty:before:text-sparkle-text-muted empty:before:opacity-80 empty:before:content-[attr(data-placeholder)]`}
-        onInput={event => { if (!composing.current) emit(event) }}
-        onCompositionStart={() => { composing.current = true }} onCompositionEnd={event => { composing.current = false; emit(event) }}
+    return <div role="textbox" aria-multiline="true" {...props as React.HTMLAttributes<HTMLDivElement>} ref={rootRef} style={{ ...props.style, minHeight: `${rows}lh` }} contentEditable={!disabled} suppressContentEditableWarning aria-disabled={disabled || undefined} data-composer-text-input data-composer-empty={!String(value).trim()} data-placeholder={placeholder} className={`${props.className || ''} relative whitespace-pre-wrap break-words before:pointer-events-none before:absolute before:font-normal before:text-sparkle-text-muted before:opacity-80 data-[composer-empty=true]:before:content-[attr(data-placeholder)]`}
+        onInput={event => { if (composing.current) syncPlaceholder(); else emit(event) }}
+        onCompositionStart={() => { composing.current = true; syncPlaceholder() }} onCompositionEnd={event => { composing.current = false; emit(event) }}
         onKeyDown={event => {
             if (composing.current || event.nativeEvent.isComposing) return
             if (!disabled && (event.key === 'Backspace' || event.key === 'Delete')) {

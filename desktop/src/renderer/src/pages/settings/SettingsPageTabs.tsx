@@ -23,11 +23,11 @@ export function SettingsPageTabs({ family }: { family: SettingsPageFamily }) {
     </nav>
 }
 
-export function SettingsPageLink({ to, title, description }: { to: string; title: string; description: string }) {
+export function SettingsPageLink({ to, title, description }: { to: string; title: string; description?: string }) {
     const location = useLocation()
     return <Link to={to} state={settingsDetailNavigationState(location)} onPointerEnter={() => preloadSettingsRoute(to)} onFocus={() => preloadSettingsRoute(to)}
         className="flex min-w-0 items-center justify-between gap-4 border-t border-[var(--settings-border)] px-4 py-3.5 text-[var(--settings-text)] transition-colors first:border-t-0 hover:bg-[var(--settings-row-hover)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent-primary)]">
-        <span className="min-w-0"><span className="block text-[13px] font-medium">{title}</span><span className="mt-1 block text-[12px] leading-5 text-[var(--settings-text-secondary)]">{description}</span></span>
+        <span className="min-w-0"><span className="block text-[13px] font-medium">{title}</span>{description ? <span className="mt-1 block text-[12px] leading-5 text-[var(--settings-text-secondary)]">{description}</span> : null}</span>
         <ChevronRight size={15} className="shrink-0 text-[var(--settings-text-muted)]" />
     </Link>
 }

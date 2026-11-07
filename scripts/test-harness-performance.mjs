@@ -17,6 +17,7 @@ const checks = [
   ['scripts/test-harness-stream-recovery.mjs'],
   ['scripts/test-runtime-latency.mjs'],
   ['scripts/test-opencode-harness.mjs'],
+  ['scripts/test-harness-v2.mjs'],
 ];
 for (const args of checks) await new Promise((resolve, reject) => {
   const child = spawn(process.execPath, args, { cwd: path.resolve(import.meta.dirname, '..'), stdio: 'inherit', windowsHide: true });

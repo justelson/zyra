@@ -6,6 +6,7 @@ import { dismissTransientMenus, TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/trans
 import { cn } from '@/lib/utils'
 import { FileActionsMenuSecondaryAction } from './FileActionsMenuSecondaryAction'
 import { resolveFileActionsMenuWidth, resolveFileActionsSubmenuPosition } from './file-actions-menu-layout'
+import { getOverlayOwnerRect } from './native-overlay-events'
 
 export interface FileActionsMenuChoice {
     id: string
@@ -92,6 +93,10 @@ export function FileActionsMenu({
     const menuRef = useRef<HTMLDivElement | null>(null)
     const submenuRef = useRef<HTMLDivElement | null>(null)
     const focusAfterSubmenuMount = useRef(false)
+    // Layout/animation can synthesize hover under a stationary pointer. Keep
+    // keyboard focus authoritative until its screen position actually changes.
+    const keyboardNavigation = useRef(false)
+    const pointerPosition = useRef<{ x: number; y: number } | null>(null)
     const [inlineDirection, setInlineDirection] = useState<'up' | 'down'>('down')
     const [menuPosition, setMenuPosition] = useState<{
         direction: 'up' | 'down'
@@ -121,6 +126,7 @@ export function FileActionsMenu({
         dismissTransientMenus()
         setMenuPosition(null)
         focusAfterOpen.current = focus
+        keyboardNavigation.current = focus
         setOpen(true)
     }, [disabled, open])
     useLayoutEffect(() => {
@@ -149,6 +155,13 @@ export function FileActionsMenu({
             first?.focus()
         }
     }, [])
+    // Switching between open submenus reuses the portal node, so its ref does
+    // not mount again. Apply a keyboard focus request after its choices update.
+    useLayoutEffect(() => {
+        if (!open || !expandedItemId || !focusAfterSubmenuMount.current) return
+        const first = submenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+        if (first) { focusAfterSubmenuMount.current = false; first.focus() }
+    }, [open, expandedItemId, submenuPosition])
     const accentedMenuStyle = accentColor ? ({
         '--file-actions-menu-accent': accentColor,
         borderColor: `color-mix(in srgb, ${accentColor} 30%, var(--surface-divider))`,
@@ -204,14 +217,17 @@ export function FileActionsMenu({
         if (!open) return
 
         updatePosition()
+        // Measuring after a render is not a user dismissal. Live sidebar items
+        // receive fresh callbacks/metadata while a submenu is being used.
+        const remeasure = () => updatePosition(menuRef.current?.offsetWidth ?? resolvedMenuWidth)
         const handleResize = () => {
             setExpandedItemId(null)
             setSubmenuPosition(null)
             updatePosition(menuRef.current?.offsetWidth ?? resolvedMenuWidth)
         }
-        const rafId = window.requestAnimationFrame(handleResize)
+        const rafId = window.requestAnimationFrame(remeasure)
         window.addEventListener('resize', handleResize)
-        const observer = matchTriggerWidth && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(handleResize) : null
+        const observer = matchTriggerWidth && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(remeasure) : null
         const anchor = anchorRef?.current || buttonRef.current
         if (anchor) observer?.observe(anchor)
         return () => {
@@ -221,8 +237,23 @@ export function FileActionsMenu({
         }
     }, [compact, rowHeight, items, menuLabel, open, preferredDirection, effectivePresentation, resolvedMenuWidth, matchTriggerWidth, anchorRef, contextAnchor])
 
+    useLayoutEffect(() => {
+        if (!open || !expandedItemId) return
+        const item = items.find(item => item.id === expandedItemId)
+        if (!item || item.disabled || !item.choices?.length) {
+            setExpandedItemId(null); setSubmenuPosition(null)
+            return
+        }
+        const row = menuRef.current?.querySelector<HTMLElement>('[data-expanded="true"]')
+        const anchor = item.submenuOnly ? row : row?.querySelector<HTMLElement>('button[aria-haspopup="menu"]')
+        if (!anchor) return
+        const next = resolveFileActionsSubmenuPosition(getOverlayOwnerRect(anchor), item.submenuOnly ? 196 : 168, item.choices.length, item.submenuOnly ? (chatCompact ? 28 : 32) : rowHeight, window.innerWidth, window.innerHeight)
+        setSubmenuPosition(previous => previous?.top === next.top && previous.left === next.left && previous.side === next.side ? previous : next)
+    }, [open, expandedItemId, items, menuPosition, chatCompact, rowHeight])
+
     useEffect(() => {
         if (!open) {
+            focusAfterSubmenuMount.current = false
             setExpandedItemId(null)
             setSubmenuPosition(null)
         }
@@ -242,7 +273,13 @@ export function FileActionsMenu({
 
         const dismiss = closeMenu
         const handlePointerDown = (event: PointerEvent) => {
+            keyboardNavigation.current = false
             if (!isOverlayEventInside(event, rootRef.current, menuRef.current, submenuRef.current)) dismiss()
+        }
+        const handlePointerMove = (event: MouseEvent) => {
+            const previous = pointerPosition.current
+            pointerPosition.current = { x: event.screenX, y: event.screenY }
+            if (!previous || previous.x !== event.screenX || previous.y !== event.screenY) keyboardNavigation.current = false
         }
         const handleFocusIn = (event: FocusEvent) => {
             if (isOverlayEventInside(event, rootRef.current, menuRef.current, submenuRef.current)) return
@@ -250,6 +287,8 @@ export function FileActionsMenu({
         }
         const handleEscape = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') return
+            keyboardNavigation.current = true
+            cancelSubmenuClose()
             if (handleEscapeLocally) {
                 event.preventDefault()
                 event.stopPropagation()
@@ -266,12 +305,14 @@ export function FileActionsMenu({
         }
 
         const removePointer = addOverlayEventListener('pointerdown', handlePointerDown, true)
+        const removeMove = addOverlayEventListener('mousemove', handlePointerMove, true)
         const removeFocus = addOverlayEventListener('focusin', handleFocusIn)
         const removeEscape = addOverlayEventListener('keydown', handleEscape, handleEscapeLocally)
         const removeBlur = addOverlayWindowBlurListener(dismiss)
         window.addEventListener(TRANSIENT_MENU_DISMISS_EVENT, dismiss)
         return () => {
             removePointer()
+            removeMove()
             removeFocus()
             removeEscape()
             removeBlur()
@@ -279,28 +320,32 @@ export function FileActionsMenu({
         }
     }, [closeMenu, expandedItemId, open, handleEscapeLocally])
 
-    if (items.length === 0) return null
-
     const cancelSubmenuClose = () => {
         if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current)
         submenuCloseTimer.current = null
     }
+    if (items.length === 0) return null
+
     const scheduleSubmenuClose = () => {
+        if (keyboardNavigation.current) return
         cancelSubmenuClose()
         submenuCloseTimer.current = setTimeout(() => { setExpandedItemId(null); setSubmenuPosition(null) }, 160)
     }
     const openSubmenu = (item: FileActionsMenuItem, element: HTMLElement, focus = false) => {
         if (item.disabled || !item.choices?.length) return
         cancelSubmenuClose()
+        if (focus) keyboardNavigation.current = true
         focusAfterSubmenuMount.current = focus
         setExpandedItemId(item.id)
-        setSubmenuPosition(resolveFileActionsSubmenuPosition(element.getBoundingClientRect(), 196, item.choices.length, chatCompact ? 28 : 32, window.innerWidth, window.innerHeight))
+        setSubmenuPosition(resolveFileActionsSubmenuPosition(getOverlayOwnerRect(element), 196, item.choices.length, chatCompact ? 28 : 32, window.innerWidth, window.innerHeight))
         if (focus && expandedItemId === item.id && submenuRef.current) {
             focusAfterSubmenuMount.current = false
             submenuRef.current.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
         }
     }
     const focusSubmenuParent = () => {
+        keyboardNavigation.current = true
+        cancelSubmenuClose()
         const parent = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[data-submenu-id]') || []).find(button => button.dataset.submenuId === expandedItemId)
         setExpandedItemId(null)
         setSubmenuPosition(null)
@@ -310,6 +355,13 @@ export function FileActionsMenu({
     const menuDirection = effectivePresentation === 'inline' ? inlineDirection : menuPosition?.direction
     const hoverSubmenus = items.some(item => item.submenuOnly)
     const expandedHoverSubmenu = items.some(item => item.id === expandedItemId && item.submenuOnly)
+    const hoverItem = (item: FileActionsMenuItem, element: HTMLElement) => {
+        if (keyboardNavigation.current) return
+        cancelSubmenuClose()
+        if (expandedItemId === item.id) return
+        if (item.submenuOnly) openSubmenu(item, element)
+        else { setExpandedItemId(null); setSubmenuPosition(null) }
+    }
     const menuBody = (
         <div
             role="menu"
@@ -331,6 +383,8 @@ export function FileActionsMenu({
                 const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
                 if (buttons.length === 0) return
                 event.preventDefault()
+                keyboardNavigation.current = true
+                cancelSubmenuClose()
                 const currentIndex = buttons.indexOf(event.currentTarget.ownerDocument.activeElement as HTMLButtonElement)
                 const nextIndex = event.key === 'Home'
                     ? 0
@@ -363,10 +417,10 @@ export function FileActionsMenu({
                         className={cn('group/menu-row flex w-full items-stretch', !item.disabled && !item.danger && 'file-actions-menu-row')}
                         data-expanded={expandedItemId === item.id ? 'true' : undefined}
                         onMouseEnter={hoverSubmenus ? event => {
-                            cancelSubmenuClose()
-                            if (item.submenuOnly) openSubmenu(item, event.currentTarget)
-                            else if (expandedItemId !== item.id) { setExpandedItemId(null); setSubmenuPosition(null) }
+                            pointerPosition.current ??= { x: event.screenX, y: event.screenY }
+                            hoverItem(item, event.currentTarget)
                         } : undefined}
+                        onMouseMove={hoverSubmenus ? event => hoverItem(item, event.currentTarget) : undefined}
                         onMouseLeave={item.submenuOnly ? scheduleSubmenuClose : undefined}
                     >
                         <button
@@ -427,7 +481,7 @@ export function FileActionsMenu({
                                         return
                                     }
                                     setExpandedItemId(item.id)
-                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(event.currentTarget.getBoundingClientRect(), 168, item.choices?.length || 0, rowHeight, window.innerWidth, window.innerHeight))
+                                    setSubmenuPosition(resolveFileActionsSubmenuPosition(getOverlayOwnerRect(event.currentTarget), 168, item.choices?.length || 0, rowHeight, window.innerWidth, window.innerHeight))
                                 }}
                                 className={cn(
                                     'inline-flex w-7 shrink-0 items-center justify-center rounded-r-[4px] text-sparkle-text-muted transition-colors hover:text-sparkle-text',
@@ -464,6 +518,8 @@ export function FileActionsMenu({
                 onKeyDown={(event) => {
                     if (event.key !== 'ArrowDown' && !(radioSelection && event.key === 'ArrowUp')) return
                     event.preventDefault()
+                    keyboardNavigation.current = true
+                    cancelSubmenuClose()
                     if (!open) requestOpen(true)
                     else initialMenuButton(menuRef.current, radioSelection)?.focus()
                 }}
@@ -536,6 +592,8 @@ export function FileActionsMenu({
                         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
                         if (buttons.length === 0) return
                         event.preventDefault()
+                        keyboardNavigation.current = true
+                        cancelSubmenuClose()
                         const currentIndex = buttons.indexOf(event.currentTarget.ownerDocument.activeElement as HTMLButtonElement)
                         const nextIndex = event.key === 'Home'
                             ? 0

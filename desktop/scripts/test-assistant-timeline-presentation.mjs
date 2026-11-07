@@ -1,13 +1,17 @@
 import { build } from 'esbuild'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import electronPath from 'electron'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
+import tailwindConfig from '../tailwind.config.js'
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const directory = await mkdtemp(join(tmpdir(), 'zyra-timeline-presentation-'))
+const screenshots = process.argv.includes('--screenshots') ? join(desktop, '../docs.local/reviews/chat-presentation-stability/screenshots') : null
 try {
     await writeFile(join(directory, 'settings.ts'), 'export function useSettings(){ return { settings: { assistantAllowCollapseWhileWorking:false, assistantShowActionStats:false } } }');
     // Exercise real message/stream wrappers without loading unrelated Markdown,
@@ -38,6 +42,14 @@ try {
         .min-h-0{min-height:0}.overflow-hidden{overflow:hidden}
         .transition-\\[grid-template-rows\\]{transition-property:grid-template-rows}
         </style></head><body><div id="root"></div><script>${bundle.outputFiles.find(file => file.path.endsWith('.js')).text}</script></body></html>`)
+    if (screenshots) {
+        const appCss = postcss.parse(await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8'))
+        appCss.walkAtRules('import', rule => rule.remove())
+        const styles = await postcss([tailwindcss({ ...tailwindConfig, content: [join(desktop, 'src/renderer/src/pages/assistant/AssistantTimelineRows.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantAttachment*.tsx')] })]).process(appCss.toString(), { from: undefined })
+        const tokens = await readFile(join(desktop, 'src/renderer/src/styles/theme-tokens.css'), 'utf8')
+        await writeFile(join(directory, 'visual.css'), tokens + '\n' + styles.css)
+        await mkdir(screenshots, { recursive: true })
+    }
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `
         const { app, BrowserWindow } = require('electron');
@@ -49,6 +61,18 @@ try {
             await window.loadFile(${JSON.stringify(html)});
             const results = await window.webContents.executeJavaScript('window.timelinePresentationCheck');
             for (const result of results) console.log('PASS: ' + result);
+            if (${Boolean(screenshots)}) {
+                const fs = require('node:fs');
+                await window.webContents.executeJavaScript('new Promise(resolve => {const link=document.createElement("link");link.rel="stylesheet";link.href="visual.css";link.onload=resolve;document.head.append(link)})');
+                for (const width of [1000,390]) {
+                    window.setContentSize(width,700);
+                    for (const ready of [false,true]) {
+                        await window.webContents.executeJavaScript('window.attachmentPresentationPreview(' + ready + ')');
+                        fs.writeFileSync(${JSON.stringify(screenshots)} + '/attachment-' + (ready?'ready':'pending') + '-' + width + '.png', (await window.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+                    }
+                }
+                console.log('PASS: pending/ready attachment screenshots at desktop and narrow widths');
+            }
             clearTimeout(timeout);
             app.quit();
         }).catch(error => { console.error(error); app.exit(1); });

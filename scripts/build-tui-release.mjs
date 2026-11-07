@@ -95,6 +95,7 @@ async function collectResources() {
     "install.ps1",
     "install.sh",
     "src/harness-config-plugin.mjs",
+    "src/harness-v2-plugin/index.js",
   ];
   for (const directory of ["analytics", "prompts", "agents", "workflows", "commands", "themes", "skills", "src/auth-assets"]) {
     files.push(...await walk(directory));

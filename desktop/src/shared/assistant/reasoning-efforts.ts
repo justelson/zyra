@@ -1,4 +1,6 @@
 import type { AssistantModelInfo, AssistantReasoningEffort } from './contracts'
+import { normalizeReasoningChoice, reasoningChoiceLabel } from '../../../../src/reasoning-choices.mjs'
+export { reasoningChoiceLabel }
 
 export const CHATGPT_REASONING_EFFORTS: readonly AssistantReasoningEffort[] = Object.freeze([
     'low',
@@ -15,20 +17,12 @@ export const GPT_56_REASONING_EFFORTS: readonly AssistantReasoningEffort[] = Obj
     'max'
 ])
 
-const KNOWN_REASONING_EFFORTS = new Set<AssistantReasoningEffort>([
-    'off',
-    'none',
-    'minimal',
-    ...CHATGPT_REASONING_EFFORTS,
-    'max'
-])
-
 function isDirectOpenAiModel(id: string): boolean {
     return id.startsWith('openai-codex/') || id.startsWith('openai/')
         || (!id.includes('/') && /^(?:gpt-|codex-)/i.test(id))
 }
 export function isAssistantReasoningEffort(value: unknown): value is AssistantReasoningEffort {
-    return typeof value === 'string' && KNOWN_REASONING_EFFORTS.has(value as AssistantReasoningEffort)
+    return typeof value === 'string' && normalizeReasoningChoice(value) === value
 }
 
 export function isGpt56AssistantModel(model: string | Pick<AssistantModelInfo, 'id' | 'label'> | null | undefined): boolean {
@@ -41,6 +35,7 @@ export function isGpt56AssistantModel(model: string | Pick<AssistantModelInfo, '
 export function getAssistantModelReasoningEfforts(
     model: string | AssistantModelInfo | null | undefined
 ): AssistantReasoningEffort[] {
+    if (typeof model !== 'string' && model?.reasoningStatus === 'unknown') return []
     if (typeof model !== 'string' && model?.supportedEfforts) {
         const supported = model.supportedEfforts.filter((effort) => (
             isAssistantReasoningEffort(effort)
@@ -48,7 +43,7 @@ export function getAssistantModelReasoningEfforts(
         return [...supported]
     }
     const id = typeof model === 'string' ? model : model?.id || ''
-    if (!isDirectOpenAiModel(id)) return []
+    if (typeof model !== 'string' || !isDirectOpenAiModel(id)) return []
     return [...(isGpt56AssistantModel(model) ? GPT_56_REASONING_EFFORTS : CHATGPT_REASONING_EFFORTS)]
 }
 
@@ -57,14 +52,9 @@ export function coerceAssistantReasoningEffortForModel(
     model: string | AssistantModelInfo | null | undefined
 ): AssistantReasoningEffort {
     const efforts = getAssistantModelReasoningEfforts(model)
-    if (efforts.length === 0) return 'off'
+    if (value === 'default' || efforts.length === 0) return 'default'
     const requested = isAssistantReasoningEffort(value) ? value : 'medium'
-    if (typeof model !== 'string' && model?.supportedEfforts) return efforts.includes(requested) ? requested : efforts.includes('medium') ? 'medium' : efforts[0]!
-    const id = typeof model === 'string' ? model : model?.id || ''
-    if (!isDirectOpenAiModel(id)) {
-        return efforts.includes(requested) ? requested : efforts[0]
-    }
-
+    if (typeof model !== 'string' && model?.supportedEfforts) return efforts.includes(requested) ? requested : 'default'
     if (isGpt56AssistantModel(model)) {
         const compatible = requested === 'off' || requested === 'none' || requested === 'minimal' ? 'low' : requested
         return efforts.includes(compatible) ? compatible : 'medium'
@@ -75,15 +65,11 @@ export function coerceAssistantReasoningEffortForModel(
         : requested === 'max'
             ? 'xhigh'
             : requested
-    if (efforts.includes(compatible)) return compatible
+    return efforts.includes(compatible) ? compatible : efforts[0]
 
-    const order = CHATGPT_REASONING_EFFORTS
-    const requestedIndex = Math.max(0, order.indexOf(compatible))
-    for (let index = requestedIndex; index < order.length; index += 1) {
-        if (efforts.includes(order[index])) return order[index]
-    }
-    for (let index = requestedIndex - 1; index >= 0; index -= 1) {
-        if (efforts.includes(order[index])) return order[index]
-    }
-    return efforts[0] || 'medium'
+}
+
+/** Absence of capability metadata never means that reasoning is disabled. */
+export function getAssistantModelReasoningChoices(model: string | AssistantModelInfo | null | undefined): AssistantReasoningEffort[] {
+    return ['default', ...getAssistantModelReasoningEfforts(model).filter(effort => effort !== 'default')]
 }

@@ -24,13 +24,18 @@ export function AssistantTimelineActionBatch(props: {
     activities: AssistantActivity[]
     projectRootPath?: string | null
     controlRun?: boolean
+    grouped?: boolean
     revealActivityRequest?: AssistantActivityRevealRequest | null
     children: ReactNode | (() => ReactNode)
 }) {
     const { settings } = useSettings()
+    const grouped = props.grouped !== false
     const revealActivityId = props.revealActivityRequest?.activityId
     const containsRevealTarget = Boolean(revealActivityId && props.activities.some(activity => activity.id === revealActivityId))
     const [expanded, setExpanded] = useState(containsRevealTarget)
+    // Single actions use this same shell before a group exists. Reader
+    // interaction keeps their contents visible when more actions arrive.
+    const preserveReading = () => { if (!grouped) setExpanded(true) }
     useEffect(() => {
         if (containsRevealTarget) setExpanded(true)
     }, [props.revealActivityRequest, containsRevealTarget])
@@ -58,10 +63,10 @@ export function AssistantTimelineActionBatch(props: {
         [currentActivity, nowIso, running]
     )
     useEffect(() => {
-        if (!running) return
+        if (!grouped || !running) return
         const intervalId = window.setInterval(() => setNowIso(new Date().toISOString()), 1000)
         return () => window.clearInterval(intervalId)
-    }, [running])
+    }, [grouped, running])
     const diffTotals = useMemo(() => props.activities.reduce((totals, activity) => {
         if (activity.payload?.approvalPending === true || getActivityStatus(activity) !== 'success') return totals
         const stats = getActivityDiffStats(activity)
@@ -79,14 +84,19 @@ export function AssistantTimelineActionBatch(props: {
 
     return (
         <div
-            className="max-w-4xl py-0.5"
-            data-assistant-action-batch="true"
-            data-assistant-control-run={props.controlRun ? 'true' : undefined}
-            data-action-batch-intent={settledIntent || undefined}
-            data-current-action-intent={currentActionTitle}
-            data-settled-action-intent={!running && settledIntent ? settledIntent : undefined}
+            className={grouped ? 'max-w-4xl py-0.5' : undefined}
+            data-assistant-action-batch={grouped ? 'true' : undefined}
+            data-assistant-control-run={grouped && props.controlRun ? 'true' : undefined}
+            onPointerDownCapture={preserveReading}
+            onClickCapture={preserveReading}
+            onFocusCapture={preserveReading}
+            onWheelCapture={preserveReading}
+            data-action-batch-intent={grouped ? settledIntent || undefined : undefined}
+            data-current-action-intent={grouped ? currentActionTitle : undefined}
+            data-settled-action-intent={grouped && !running && settledIntent ? settledIntent : undefined}
         >
-            <button
+            {grouped ? <button
+                key="trigger"
                 ref={triggerRef}
                 type="button"
                 aria-expanded={expanded}
@@ -122,9 +132,9 @@ export function AssistantTimelineActionBatch(props: {
                     aria-hidden="true"
                 />
                 </span>
-            </button>
-            <AnimatedHeight isOpen={expanded} duration={ACTION_BATCH_MOTION_MS} crispContent unmountOnExit>
-                <AssistantActionBatchScroll expanded={expanded}>
+            </button> : null}
+            <AnimatedHeight key="body" isOpen={!grouped || expanded} duration={ACTION_BATCH_MOTION_MS} crispContent unmountOnExit>
+                <AssistantActionBatchScroll expanded={!grouped || expanded} grouped={grouped}>
                     <ActionBatchContent>{props.children}</ActionBatchContent>
                 </AssistantActionBatchScroll>
             </AnimatedHeight>

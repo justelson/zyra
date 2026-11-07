@@ -13,7 +13,6 @@ import {
   resetApiProviders,
   streamSimple
 } from "../../../providers/src/compat.js";
-import { getThemeByName, theme } from "../modes/interactive/theme/theme.js";
 import { stripFrontmatter } from "../utils/frontmatter.js";
 import { sleep } from "../utils/sleep.js";
 import { normalizeToolResultImages } from "../utils/tool-result-images.js";
@@ -31,8 +30,6 @@ import {
   shouldCompact
 } from "./compaction/index.js";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.js";
-import { exportSessionToHtml } from "./export-html/index.js";
-import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
 import {
   ExtensionRunner,
   wrapRegisteredTools
@@ -2714,6 +2711,11 @@ ${command}` : command;
    * @returns Path to exported file
    */
   async exportToHtml(outputPath, options = {}) {
+    const [{ getThemeByName, theme }, { exportSessionToHtml }, { createToolHtmlRenderer }] = await Promise.all([
+      import("../modes/interactive/theme/theme.js"),
+      import("./export-html/index.js"),
+      import("./export-html/tool-renderer.js")
+    ]);
     const themeName = [options.themeName, this.settingsManager.getTheme()].find(
       (candidate) => candidate !== void 0 && getThemeByName(candidate) !== void 0
     );

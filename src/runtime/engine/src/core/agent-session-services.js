@@ -3,9 +3,6 @@ import { join } from "node:path";
 import { getAgentDir } from "../config.js";
 import { resolvePath } from "../utils/paths.js";
 import { ModelRuntime } from "./model-runtime.js";
-import {
-  DefaultResourceLoader
-} from "./resource-loader.js";
 import { createAgentSession } from "./sdk.js";
 import { SettingsManager } from "./settings-manager.js";
 function applyExtensionFlagValues(resourceLoader, extensionFlagValues) {
@@ -57,6 +54,7 @@ async function createAgentSessionServices(options) {
     signal: options.modelRuntimeSignal
   });
   const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
+  const { DefaultResourceLoader } = await import("./resource-loader.js");
   const resourceLoader = new DefaultResourceLoader({
     ...options.resourceLoaderOptions ?? {},
     cwd,

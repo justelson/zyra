@@ -1,3 +1,4 @@
+import { REASONING_LABELS } from '../../../../../../src/reasoning-choices.mjs'
 import type { AssistantComposerSessionState } from './assistant-composer-session-state'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import type { AssistantRuntimeMode } from '@shared/assistant/contracts'
@@ -5,16 +6,7 @@ import { DRAFT_STORAGE_KEY } from './assistant-composer-utils'
 
 export const COMPOSER_SESSION_PERSIST_DEBOUNCE_MS = 180
 
-export const EFFORT_LABELS: Record<AssistantComposerPreferenceEffort, string> = {
-    off: 'Off',
-    none: 'None',
-    minimal: 'Minimal',
-    low: 'Light',
-    medium: 'Medium',
-    high: 'High',
-    xhigh: 'Extra High',
-    max: 'Max'
-}
+export const EFFORT_LABELS = REASONING_LABELS
 
 export function buildEffortSliderTicks(optionCount: number): string {
     const safeCount = Math.max(1, Math.floor(optionCount))

@@ -2,6 +2,7 @@ import { settleActivityAtTurnEnd } from '@shared/assistant/activity-settlement'
 import { getAssistantInterruptionLabel } from '@shared/assistant/interruption'
 import { addPartialAssistantWorkBoundary, prepareAssistantWorkRowBoundaries } from './assistant-work-row-boundaries'
 import { prepareAssistantPeerReplyEndings } from './assistant-peer-replies'
+import { getAssistantUserTurnBoundaryIds, isVoiceConversationMessage } from './assistant-user-turn-boundaries'
 import type { AssistantActivity, AssistantMessage, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import { normalizeAssistantMessageReferenceId } from '@shared/assistant/message-identity'
 import {
@@ -14,12 +15,6 @@ import {
     type TimelineRenderRow,
     type TimelineTurnWorkSummaryRow
 } from './assistant-timeline-helpers'
-
-function isVoiceConversationMessage(message: AssistantMessage): boolean {
-    return message.modality === 'voice'
-        || message.id.startsWith('voice_')
-        || message.id.startsWith('voice-live-')
-}
 
 function getRowTurnId(row: TimelineRenderRow): string | null {
     if (row.kind === 'message') return row.message.turnId
@@ -265,6 +260,10 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
     // historical tasks followed by a new prompt.
     for (const row of rows) if (row.kind === 'message' && row.peerReply?.fallback && row.message.turnId) finalByTurn.set(row.message.turnId, row.message.id)
     const projectedTerminalOutcomeByTurn = buildProjectedTerminalOutcomeByTurn(rows)
+    const userBoundaryIds = getAssistantUserTurnBoundaryIds(rows)
+    const isUserBoundary = (row: TimelineRenderRow): row is Extract<TimelineRenderRow, { kind: 'message' }> => (
+        row.kind === 'message' && userBoundaryIds.has(row.id)
+    )
     const messageRowIndexById = new Map<string, number>()
     const previousUserIndexByRow = new Int32Array(rows.length)
     const nextUserIndexByRow = new Int32Array(rows.length)
@@ -274,14 +273,14 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         const row = rows[index]
         if (row.kind === 'message') {
             messageRowIndexById.set(row.message.id, index)
-            if (row.message.role === 'user') previousUserIndex = index
+            if (isUserBoundary(row)) previousUserIndex = index
         }
     }
     let nextUserIndex = rows.length
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         nextUserIndexByRow[index] = nextUserIndex
         const row = rows[index]
-        if (row.kind === 'message' && row.message.role === 'user') nextUserIndex = index
+        if (isUserBoundary(row)) nextUserIndex = index
     }
     const runningTurnId = [...(turnUsageById?.entries() || [])]
         .reverse()
@@ -289,7 +288,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
     let latestUserIndex = -1
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         const row = rows[index]
-        if (row.kind === 'message' && row.message.role === 'user') {
+        if (isUserBoundary(row)) {
             latestUserIndex = index
             break
         }
@@ -329,7 +328,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
     const finalAnswerStarted = activeFinalMessage?.phase === 'final_answer'
     let terminalResponseVisible = finalAnswerStarted
     let postResponseCompactionRunning = false
-    if (settledFinalIndex >= 0) {
+    if (settledFinalIndex >= 0 && (finalAnswerStarted || (activeTurnId && turnUsageById?.get(activeTurnId)?.state === 'completed'))) {
         for (let index = settledFinalIndex + 1; index < rows.length; index += 1) {
             const row = rows[index]
             if (
@@ -357,8 +356,7 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
         for (let index = rows.length - 1; index >= 0; index -= 1) {
             const candidate = rows[index]
             if (
-                candidate.kind === 'message'
-                && candidate.message.role === 'user'
+                isUserBoundary(candidate)
                 && (!activeTurnId || candidate.message.turnId === activeTurnId || !candidate.message.turnId)
             ) {
                 userIndex = index
@@ -484,18 +482,19 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
 
     for (let userIndex = 0; userIndex < rows.length; userIndex += 1) {
         const userRow = rows[userIndex]
-        if (userRow.kind !== 'message' || userRow.message.role !== 'user') continue
+        if (!isUserBoundary(userRow)) continue
         if (isVoiceConversationMessage(userRow.message)) continue
         if (ranges.has(userIndex + 1)) continue
 
         const endIndex = nextUserIndexByRow[userIndex] ?? rows.length
 
         const turnRows = rows.slice(userIndex + 1, endIndex)
-        if (turnRows.length === 0) continue
         const turnId = inferLegacyUserTurnId(userRow.message, turnRows, turnUsageById)
         if (!turnId) continue
+        const usage = turnUsageById?.get(turnId)
+        if (turnRows.length === 0 && usage?.state !== 'interrupted') continue
         const nextBoundary = rows[endIndex]
-        if (nextBoundary?.kind === 'message' && nextBoundary.threadMessage) {
+        if (turnRows.length && nextBoundary?.kind === 'message' && nextBoundary.threadMessage) {
             const outcome = getProjectedTerminalOutcomeFromRows(turnRows)
             const workRows = (outcome === 'interrupted' ? stripProjectedInterruptions(turnRows) : turnRows).filter(row => row.kind !== 'working' && !rowMustStayVisible(row))
             if (workRows.length) ranges.set(userIndex + 1, { endIndex, summary: {
@@ -506,7 +505,6 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
             continue
         }
 
-        const usage = turnUsageById?.get(turnId)
         const handoffRows = turnRows.filter((row) => row.kind === 'user-input')
         if (handoffRows.length > 0) {
             const firstHandoffIndex = turnRows.findIndex((row) => row.kind === 'user-input')
@@ -612,6 +610,13 @@ export function groupTimelineRowsIntoWorkSummaries(input: {
             continue
         }
         displayRows.push(rows[index])
+        // Stopping before the first action has no rows to consume. Insert its
+        // canonical timed summary after the prompt without swallowing a boundary.
+        const emptyRange = ranges.get(index + 1)
+        if (emptyRange?.endIndex === index + 1) {
+            displayRows.push(emptyRange.summary)
+            ranges.delete(index + 1)
+        }
     }
     return displayRows.filter(row => !(row.kind === 'message' && row.workBoundaryOnly)
         && !(row.kind === 'working' && finalAnswerStarted && !postResponseCompactionRunning)).map(row => {

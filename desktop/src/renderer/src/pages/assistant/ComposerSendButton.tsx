@@ -8,6 +8,8 @@ export const ComposerSendButton = memo(({
     isThinking,
     isStopping = false,
     canSend,
+    canContinue = false,
+    onContinue,
     label = 'Send',
     reconnectPending = false,
     onStop,
@@ -19,23 +21,26 @@ export const ComposerSendButton = memo(({
     isThinking: boolean
     isStopping?: boolean
     canSend: boolean
+    canContinue?: boolean
+    onContinue?: () => void
     label?: string
     reconnectPending?: boolean
     onStop?: () => Promise<void> | void
     onReconnect?: () => Promise<void> | void
     onSend: () => void
 }) => {
-    const canStop = (isThinking || isStopping) && Boolean(onStop) && isConnected
+    const canStop = (isStopping || (isThinking && !canSend)) && Boolean(onStop) && isConnected
     const canReconnect = !isConnected && Boolean(onReconnect)
-    const isEmptyState = !canStop && !disabled && isConnected && !canSend
-    const isDisabled = canStop || canReconnect ? false : disabled || !isConnected || !canSend
+    const canResume = canContinue && Boolean(onContinue) && !isThinking && !canSend && isConnected
+    const isEmptyState = !canStop && !canResume && !disabled && isConnected && !canSend
+    const isDisabled = canStop || canReconnect ? false : disabled || !isConnected || (!canSend && !canResume)
 
     return (
         <button
             type="button"
             data-shortcut-command={canStop ? 'app.stopTurn' : undefined}
             disabled={isStopping || isDisabled}
-            aria-label={isStopping ? 'Stopping current turn' : canStop ? 'Stop current turn' : canReconnect ? 'Reconnect assistant' : label}
+            aria-label={isStopping ? 'Stopping current turn' : canStop ? 'Stop current turn' : canReconnect ? 'Reconnect assistant' : canResume ? 'Continue response' : label}
             aria-busy={isStopping}
             onClick={() => {
                 if (canStop) {
@@ -46,9 +51,10 @@ export const ComposerSendButton = memo(({
                     void onReconnect?.()
                     return
                 }
+                if (canResume) { onContinue?.(); return }
                 onSend()
             }}
-            title={isStopping ? 'Stopping… Your draft and queue stay saved.' : canStop ? 'Stop current turn and hold queued messages' : canReconnect ? 'Reconnect assistant' : label}
+            title={isStopping ? 'Stopping… Your draft and queue stay saved.' : canStop ? 'Stop current turn and hold queued messages' : canReconnect ? 'Reconnect assistant' : canResume ? 'Continue response; queued messages stay held' : label}
             className={cn(
                 'relative inline-flex h-[36px] items-center justify-center overflow-hidden rounded-full border transition-all duration-150',
                 label === 'Send' || canReconnect ? 'w-[36px]' : 'gap-1.5 px-3.5',
@@ -70,6 +76,8 @@ export const ComposerSendButton = memo(({
                     <Square size={15} fill="currentColor" />
                 ) : canReconnect ? (
                     reconnectPending ? <Loader2 size={17} className="animate-spin" /> : <RotateCw size={17} />
+                ) : canResume ? (
+                    <RotateCw size={17} />
                 ) : label === 'Send' ? (
                     <SendHorizontal size={18} className={isEmptyState ? 'opacity-35' : undefined} />
                 ) : (

@@ -97,7 +97,7 @@ interface RequestBody {
 	tool_choice?: OpenAICodexResponsesOptions["toolChoice"];
 	parallel_tool_calls?: boolean;
 	temperature?: number;
-	reasoning?: { effort?: string; summary?: string };
+	reasoning?: { effort?: string; summary?: string; context?: "auto" | "current_turn" | "all_turns" };
 	service_tier?: ResponseCreateParamsStreaming["service_tier"];
 	text?: { verbosity?: string };
 	include?: string[];
@@ -288,6 +288,11 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				apiKey,
 				websocketRequestId,
 			);
+			// Codex routes HTTP requests and WebSocket handshakes by model/tier.
+			// Derive this after onPayload so the route agrees with the actual frame.
+			const routingHint = `model=${body.model}${body.service_tier ? `;tier=${body.service_tier}` : ""}`;
+			sseHeaders.set("x-codex-routing-hint", routingHint);
+			websocketHeaders.set("x-codex-routing-hint", routingHint);
 			// Codex requires store:false, including when a payload hook customizes the request.
 			body.store = false;
 			const bodyJson = JSON.stringify(body);
@@ -618,6 +623,14 @@ function buildRequestBody(
 				summary: options.reasoningSummary ?? "auto",
 			};
 		}
+	}
+	// Legacy Chat replays the full transcript. Sol's all-turns default
+	// also renders old opaque reasoning, which can dominate a follow-up.
+	// Keep the selected effort and every history item; scope reasoning
+	// reuse to this user turn, including its tool-call continuations.
+	// Apply this even when the caller leaves effort at the provider default.
+	if (model.id === "gpt-6.1-sol") {
+		body.reasoning = { ...body.reasoning, context: "current_turn" };
 	}
 
 	return body;
@@ -1155,7 +1168,7 @@ async function acquireWebSocket(
 	reused: boolean;
 	release: (options?: { keep?: boolean }) => void;
 }> {
-	const scopeKey = `${accountId}\n${url}`;
+	const scopeKey = `${accountId}\n${url}\n${headers.get("x-codex-routing-hint") ?? ""}`;
 	const existingEntries = requestedSessionId ? websocketSessionCache.get(requestedSessionId) : undefined;
 	// Active requests are never evicted. Overflow uses an uncached connection instead.
 	const sessionId = requestedSessionId && !existingEntries?.has(scopeKey) &&
@@ -1171,7 +1184,7 @@ async function acquireWebSocket(
 	}
 
 	let accountEntries = websocketSessionCache.get(sessionId);
-	// Connections and continuation state cannot cross endpoint boundaries.
+	// Connections and continuation state cannot cross endpoint/model/tier routes.
 	accountId = scopeKey;
 	const cached = accountEntries?.get(accountId);
 	if (cached) {
@@ -1516,7 +1529,8 @@ async function processWebSocketStream(
 		options?.env,
 	);
 	let keepConnection = true;
-	const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
+	const transport = options?.transport ?? "auto";
+	const useCachedContext = transport === "websocket-cached" || transport === "auto";
 	// ChatGPT Codex Responses rejects `store: true` ("Store must be set to false").
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;

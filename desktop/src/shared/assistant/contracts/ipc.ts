@@ -316,6 +316,8 @@ export interface AssistantSendPromptOptions {
     /** Steer the exact active turn without cancelling it or changing its configuration. */
     dispatchMode?: 'immediate' | 'steer'
     targetTurnId?: string
+    /** Reject stale admission if this session has navigated to another thread. */
+    expectedThreadId?: string
     startInNewWorktree?: boolean
     sessionId?: string
     model?: string
@@ -330,7 +332,7 @@ export interface AssistantSendPromptOptions {
     skipPlaygroundTerminalAccessRequest?: boolean
     playgroundTerminalAccessRequestSuppressed?: boolean
     suppressUserMessage?: boolean
-    /** Reserved by the service when a structured answer becomes a real user message. */
+    /** Stable identity for a structured answer or an optimistic Desktop submission. */
     userMessageId?: string
 }
 

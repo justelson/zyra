@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { projectRequest, observeTurnEvent, summarizeSample, distribution } from './response-latency/metrics.mjs';
+const row = projectRequest({ startedAt: 100, firstEventMs: 20, firstTextMs: 80, account: 'private',
+  prompt: 'private', endpoint: 'private', transport: 'websocket', outcome: 'stop', retries: 0 });
+assert.equal(JSON.stringify(row).includes('private'), false);
+assert.equal(row.firstTextMs, 80);
+const sample = { submittedAt: 90, instanceStartedAt: 0, textCharacters: 0, retries: 0, compactions: 0, toolCalls: 0 };
+observeTurnEvent(sample, { type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'hidden' } }, 110);
+assert.equal(sample.firstTextReceivedAt, undefined);
+observeTurnEvent(sample, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '' } }, 120);
+assert.equal(sample.firstTextReceivedAt, undefined);
+observeTurnEvent(sample, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'OK' } }, 185);
+observeTurnEvent(sample, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '!' } }, 190);
+const summary = summarizeSample(sample, [row]);
+assert.equal(summary.submitToFirstTextMs, 95); assert.equal(summary.providerFirstTextMs, 80);
+assert.equal(summary.textCharacters, 3); assert.equal(summary.submitToCompletedMs, null);
+observeTurnEvent(sample, { type: 'agent_end', willRetry: true, outcome: 'failed' }, 191);
+assert.equal(sample.outcome, undefined);
+observeTurnEvent(sample, { type: 'agent_end', willRetry: false, outcome: 'completed' }, 192);
+assert.equal(sample.outcome, 'completed');
+sample.failure = 'timeout';
+observeTurnEvent(sample, { type: 'agent_end', outcome: 'interrupted' }, 195);
+assert.equal(summarizeSample(sample, []).outcome, 'timeout', 'abort cleanup cannot erase an observed timeout');
+assert.deepEqual(distribution([4, null, 2, 8, 6]), { count: 4, min: 2, median: 5, max: 8 });
+assert.equal(distribution([null, undefined]), null);
+assert.equal(summarizeSample({ ...sample, name: 'fresh-chat', instanceStartedAt: undefined }, []).coldStartToFirstTextMs, null);
+console.log('Chat latency metrics distinguish hidden/empty text, preserve first receipt, retain missing stages and exclude private provider fields.');

@@ -21,6 +21,15 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const syntaxTargets = [
+  'scripts/benchmark-chat-latency.mjs',
+  'scripts/response-latency/metrics.mjs',
+  'scripts/response-latency/project.mjs',
+  'scripts/response-latency/observe-provider.mjs',
+  'scripts/response-latency/provider-baseline.mjs',
+  'scripts/test-chat-latency-metrics.mjs',
+  'scripts/test-chat-latency-observer.mjs',
+  'scripts/test-chat-latency-gate.mjs',
+  'scripts/test-chat-latency-provider.mjs',
   'src/app-control-tool.mjs',
   'src/app-area-operations.mjs',
   'src/agent-server/app-operations.mjs',
@@ -43,6 +52,11 @@ const syntaxTargets = [
   "scripts/ci/relay/worker.mjs",
   "scripts/test-ci-relay.mjs",
   "src/openai-model-catalog.mjs",
+  "src/reasoning-choices.mjs",
+  "src/provider-default-reasoning.mjs",
+  "src/session-reasoning-options.mjs",
+  "scripts/test-reasoning-startup-recovery.mjs",
+  "scripts/test-reasoning-startup-bridge.mjs",
   "scripts/test-openai-model-catalog.mjs",
   "scripts/test-openai-model-runtime.mjs",
   "scripts/test-zyra-task-ownership-prompt.mjs",
@@ -184,6 +198,8 @@ const syntaxTargets = [
   "scripts/test-provider-transactions.mjs",
   "src/opencode-harness.mjs",
   "scripts/test-opencode-harness.mjs",
+  "scripts/test-harness-v2.mjs",
+  "scripts/test-model-reasoning-options.mjs",
   "scripts/test-agent-role-models.mjs",
   "scripts/test-server-memory-queue.mjs",
   "scripts/test-runtime-activation.mjs",
@@ -215,6 +231,12 @@ const syntaxTargets = [
 ];
 
 const coreTests = [
+  "scripts/test-reasoning-startup-recovery.mjs",
+  "scripts/test-reasoning-startup-bridge.mjs",
+  'scripts/test-chat-latency-metrics.mjs',
+  'scripts/test-chat-latency-observer.mjs',
+  'scripts/test-chat-latency-gate.mjs',
+  'scripts/test-chat-latency-provider.mjs',
   "scripts/test-runtime-schema-paths.mjs",
   "scripts/test-chat-settlement.mjs",
   "scripts/test-chatgpt-account-aliases.mjs",
@@ -298,6 +320,8 @@ const coreTests = [
   "scripts/test-zyra-tool-definition.mjs",
   "scripts/test-provider-transactions.mjs",
   "scripts/test-opencode-harness.mjs",
+  "scripts/test-harness-v2.mjs",
+  "scripts/test-model-reasoning-options.mjs",
   "scripts/test-agent-role-models.mjs",
   "scripts/test-server-memory-queue.mjs",
   "scripts/test-runtime-activation.mjs",
@@ -333,6 +357,8 @@ const coreTests = [
 // Quick mode stays deterministic and side-effect-light. Larger state, UI, and
 // orchestration suites remain in core/full so quick is useful during iteration.
 const quickCoreTests = [
+  "scripts/test-reasoning-startup-recovery.mjs",
+  "scripts/test-reasoning-startup-bridge.mjs",
   "scripts/test-ci-relay.mjs",
   "scripts/test-zyra-task-ownership-prompt.mjs",
   "scripts/test-control-bridge-deadline.mjs",
@@ -353,6 +379,8 @@ const quickCoreTests = [
   "scripts/test-legal-release-contract.mjs",
   "scripts/test-zyra-model-availability.mjs",
   "scripts/test-opencode-harness.mjs",
+  "scripts/test-harness-v2.mjs",
+  "scripts/test-model-reasoning-options.mjs",
   "scripts/test-chatgpt-realtime-call.mjs",
   "scripts/test-codex-realtime-contract-sync.mjs",
   "scripts/test-provider-runtime-migration.mjs",
@@ -393,6 +421,8 @@ const desktopTasks = [
   { label: "desktop:test:renderer-bootstrap", bunArgs: ["run", "--cwd", "desktop", "test:renderer-bootstrap"] },
   { label: "desktop:test:response-timing", bunArgs: ["run", "--cwd", "desktop", "test:response-timing"] },
   { label: "desktop:test:assistant-history-recovery", bunArgs: ["run", "--cwd", "desktop", "test:assistant-history-recovery"] },
+  { label: "desktop:test:chat-presentation-stability", bunArgs: ["run", "--cwd", "desktop", "test:chat-presentation-stability"] },
+  { label: "desktop:test:assistant-stop-flow", bunArgs: ["run", "--cwd", "desktop", "test:assistant-stop-flow"] },
   { label: "desktop:test:browser-extension-startup", bunArgs: ["run", "--cwd", "desktop", "test:browser-extension-startup"] },
   { label: "desktop:test:visualizations", bunArgs: ["run", "--cwd", "desktop", "test:visualizations"] },
   { label: "desktop:test:visualization-resources", bunArgs: ["run", "--cwd", "desktop", "test:visualization-resources"] },

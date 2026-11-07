@@ -3,12 +3,14 @@ export function subscribeHarnessEvents(client, { fetchImpl = fetch, signal, onEv
   const controller = new AbortController();
   const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   let connected = false;
+  let readyResolve;
+  const ready = new Promise(resolve => { readyResolve = resolve; });
   const timer = setTimeout(() => controller.abort(), 30_000);
   timer.unref?.();
   const finished = (async () => {
     let reader;
     try {
-      const response = await fetchImpl(`${client.baseUrl}/event`, {
+      const response = await fetchImpl(`${client.baseUrl}${client.apiVersion === 2 ? '/api/event' : '/event'}`, {
         signal: combined, redirect: 'error', headers: {
           Authorization: `Basic ${Buffer.from(`opencode:${client.password}`).toString('base64')}`,
           Accept: 'text/event-stream',
@@ -18,6 +20,7 @@ export function subscribeHarnessEvents(client, { fetchImpl = fetch, signal, onEv
       clearTimeout(timer);
       if (!response.ok || !response.headers?.get('content-type')?.includes('text/event-stream') || !response.body) return;
       connected = true;
+      readyResolve(true);
       reader = response.body.getReader();
       const decoder = new TextDecoder();
       let pending = '';
@@ -41,12 +44,13 @@ export function subscribeHarnessEvents(client, { fetchImpl = fetch, signal, onEv
     finally {
       const wasConnected = connected;
       connected = false;
+      readyResolve(false);
       clearTimeout(timer);
       await reader?.cancel().catch(() => {});
       onDisconnect?.(wasConnected);
     }
   })();
-  return { get connected() { return connected; }, finished, close() { controller.abort(); } };
+  return { get connected() { return connected; }, ready, finished, close() { controller.abort(); } };
 }
 
 /** Reject old turns and foreign chats before publishing any text or tool. */

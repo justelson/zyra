@@ -440,6 +440,7 @@ export interface AssistantModelInfo {
     label: string
     description?: string
     supportedEfforts?: AssistantReasoningEffort[]
+    reasoningStatus?: 'known' | 'unknown'
     inputModes?: string[]
     contextWindow?: number | null
     provider?: string

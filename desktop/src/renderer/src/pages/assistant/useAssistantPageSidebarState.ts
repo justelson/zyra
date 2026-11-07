@@ -1,3 +1,4 @@
+import { REASONING_LABELS } from '../../../../../../src/reasoning-choices.mjs'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
 import { useSettings } from '@/lib/settings'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
@@ -32,16 +33,7 @@ export type AssistantRailGroupMode = 'project' | 'flat'
 export type AssistantRailSortMode = 'updated' | 'created'
 export type AssistantRailFilterMode = 'all' | 'relevant'
 
-export const SIDEBAR_EFFORT_LABELS: Record<AssistantComposerPreferenceEffort, string> = {
-    off: 'Off',
-    none: 'None',
-    minimal: 'Minimal',
-    low: 'Light',
-    medium: 'Medium',
-    high: 'High',
-    xhigh: 'Extra High',
-    max: 'Max'
-}
+export const SIDEBAR_EFFORT_LABELS = REASONING_LABELS
 
 function readRightSidebarWidth(sessionId: string | null): number {
     if (!sessionId) return 420

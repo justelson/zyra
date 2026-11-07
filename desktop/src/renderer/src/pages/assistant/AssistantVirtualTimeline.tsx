@@ -116,7 +116,6 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
     const initialHistoryBackfillWindowKeyRef = useRef(props.windowKey)
     const initialHistoryBackfillReadyRef = useRef(false)
     const initialHistoryBackfillActiveRef = useRef(true)
-    const initialHistoryBackfillPagesRef = useRef(0)
     const mediaAnchorRef = useRef<AssistantTimelineMediaAnchor | null>(null)
     const previousScrollTopRef = useRef(0)
     const previousScrollSampleAtRef = useRef(0)
@@ -145,13 +144,12 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         coldWindowRef.current = { key: props.windowKey, cold: props.coldStart === true }
     }
     if (props.focusMessageId) coldWindowRef.current.cold = false
-    const coldHistoryPending = coldWindowRef.current.cold
+    const coldHistoryPending = (coldWindowRef.current.cold || (props.hasOlder && !props.focusMessageId))
         && coldHistoryReadyKey !== props.windowKey && !userNavigationAwayRef.current
     if (initialHistoryBackfillWindowKeyRef.current !== props.windowKey) {
         initialHistoryBackfillWindowKeyRef.current = props.windowKey
         initialHistoryBackfillReadyRef.current = false
         initialHistoryBackfillActiveRef.current = true
-        initialHistoryBackfillPagesRef.current = 0
         olderLoadRequestPendingRef.current = false
         newerLoadRequestPendingRef.current = false
         olderLoadRequestOwnerRef.current = null
@@ -297,6 +295,19 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         ) return
         const state = props.listRef.current?.getState()
         const element = props.scrollContainerRef?.current
+        const renderedRows = element ? Array.from(element.querySelectorAll<HTMLElement>('[data-assistant-timeline-row-id]')).filter(row => {
+            const parentRow = row.parentElement?.closest('[data-assistant-timeline-row-id]')
+            return !parentRow || !element.contains(parentRow)
+        }) : []
+        const mountedIds = new Set(renderedRows.map(row => row.dataset.assistantTimelineRowId))
+        let contentLength = state?.contentLength || 0
+        if (renderedRows.length && renderedRows.length === props.rows.length && props.rows.every(row => mountedIds.has(row.id))) {
+            let top = Number.POSITIVE_INFINITY, bottom = Number.NEGATIVE_INFINITY
+            for (const row of renderedRows) { const bounds = row.getBoundingClientRect(); top = Math.min(top, bounds.top); bottom = Math.max(bottom, bounds.bottom) }
+            // A short fully mounted window has real geometry; do not reveal it
+            // based on Legend's earlier item-height estimates.
+            contentLength = Math.min(contentLength, Math.max(0, bottom - top) + 44)
+        }
         const initialHistory = {
             initialLayoutReady: initialHistoryBackfillReadyRef.current,
             selectionSettled: !props.selectionHydrating,
@@ -304,15 +315,15 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             loadingOlder: props.loadingOlder,
             hasLoadError: Boolean(props.loadOlderError),
             requestPending: olderLoadRequestPendingRef.current,
-            contentLength: state?.contentLength || 0,
+            contentLength,
             viewportSize: state?.scrollLength || element?.clientHeight || 0,
-            pagesRequested: initialHistoryBackfillPagesRef.current
         }
         const plan = resolveAssistantInitialHistoryBackfill(initialHistory)
         if (!plan.shouldRequest || !props.onLoadOlder) {
             // A queued frame may predate the render that marks startup settled.
             // Read the current window's completion instead of that frame's closure.
             if (settledWindowKeyRef.current === targetWindowKey && (!props.onLoadOlder || shouldRevealAssistantInitialHistory(initialHistory))) {
+                initialHistoryBackfillActiveRef.current = false
                 setColdHistoryReadyKey(targetWindowKey)
             }
             return
@@ -324,15 +335,14 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         }
         olderLoadRequestPendingRef.current = true
         olderLoadRequestOwnerRef.current = requestOwner
-        initialHistoryBackfillPagesRef.current += 1
         void Promise.resolve(props.onLoadOlder(plan.turnLimit)).then((accepted) => {
             if (olderLoadRequestOwnerRef.current !== requestOwner) return
             olderLoadRequestOwnerRef.current = null
             olderLoadRequestPendingRef.current = false
             setHistoryFillRevision(value => value + 1)
             if (accepted === false) {
+                initialHistoryBackfillActiveRef.current = false
                 setColdHistoryReadyKey(targetWindowKey)
-                initialHistoryBackfillPagesRef.current = Math.max(0, initialHistoryBackfillPagesRef.current - 1)
             }
         }).catch(() => {
             if (olderLoadRequestOwnerRef.current !== requestOwner) return
@@ -343,6 +353,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         })
     }, [
         props.hasOlder,
+        props.rows.length,
         props.listRef,
         props.loadOlderError,
         props.loadingOlder,

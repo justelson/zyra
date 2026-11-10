@@ -1,5 +1,6 @@
 import { addAppearanceManagedFontFaces } from '../../src/renderer/src/lib/appearance-font-faces'
 import { StrictMode } from 'react'
+import { SettingsProvider } from '@/lib/settings'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { AssistantBrowserRecordingHost } from '../../src/renderer/src/pages/assistant/AssistantBrowserRecordingHost'
@@ -62,7 +63,7 @@ const container=document.getElementById('root')!
 const root=createRoot(container)
 const latest=()=>updates.at(-1)
 ;(window as any).recordingHostCheck=(async()=>{
-    flushSync(()=>root.render(<StrictMode><AssistantBrowserRecordingHost/></StrictMode>))
+    flushSync(()=>root.render(<StrictMode><SettingsProvider><AssistantBrowserRecordingHost/></SettingsProvider></StrictMode>))
     await pause()
     check(commands.size===0&&presentations.size===0&&enumerations===0,'idle must keep native bridge and microphone enumeration cold')
     patch({status:'ready',tabId:'tab:fixture',guestWebContentsId:7})

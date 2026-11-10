@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import type { OnboardingSnapshot } from '../src/shared/onboarding/contracts'
 import { resolveOnboardingGateMode } from '../src/renderer/src/onboarding/onboarding-gate-policy'
 import { resolveAppLoadingRoute } from '../src/renderer/src/components/ui/app-loading-route'
@@ -42,6 +43,18 @@ assert.equal(resolveAppLoadingRoute('#/browser-popup/window'), 'browser-popup')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appSource = readFileSync(resolve(here, '../src/renderer/src/App.tsx'), 'utf8')
+const appAst = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+let recordingHosts = 0
+function checkRecordingContext(node: ts.Node, settingsDepth = 0): void {
+    const settingsProvider = ts.isJsxElement(node) && node.openingElement.tagName.getText(appAst) === 'SettingsProvider'
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(appAst) === 'AssistantBrowserRecordingHost') {
+        recordingHosts++
+        assert.ok(settingsDepth > 0, 'recording host must mount inside SettingsProvider; a bare sibling crashes the app root')
+    }
+    ts.forEachChild(node, child => checkRecordingContext(child, settingsDepth + Number(settingsProvider)))
+}
+checkRecordingContext(appAst)
+assert.equal(recordingHosts, 4, 'normal, Accessories, utility and browser popup surfaces each own one recording host')
 const appRouteSkeletonSource = readFileSync(resolve(here, '../src/renderer/src/components/ui/AppRouteSkeleton.tsx'), 'utf8')
 const gateSource = readFileSync(resolve(here, '../src/renderer/src/onboarding/OnboardingGate.tsx'), 'utf8')
 const flowSource = readFileSync(resolve(here, '../src/renderer/src/onboarding/OnboardingFlow.tsx'), 'utf8')

@@ -365,7 +365,7 @@ function AppSurface() {
         return <Suspense fallback={null}><AssistantVoiceWidget /></Suspense>
     }
     if (/^#\/accessories(?:[/?]|$)/.test(window.location.hash)) {
-        return <SettingsProvider><TerminalContextProvider><HashRouter><Suspense fallback={<div className="flex h-screen items-center justify-center bg-sparkle-bg text-sm text-sparkle-text-secondary">Opening Accessories…</div>}><AccessoryWindowPage /></Suspense></HashRouter></TerminalContextProvider></SettingsProvider>
+        return <SettingsProvider><TerminalContextProvider><HashRouter><Suspense fallback={<div className="flex h-screen items-center justify-center bg-sparkle-bg text-sm text-sparkle-text-secondary">Opening Accessories…</div>}><AccessoryWindowPage /></Suspense></HashRouter></TerminalContextProvider><AssistantBrowserRecordingHost /></SettingsProvider>
     }
     if (isQuickPreviewRoute(window.location.hash)) return <QuickOpenWindow />
     const assistantUtilityWindow = /^#\/assistant-utility(?:[/?]|$)/.test(window.location.hash)
@@ -375,6 +375,7 @@ function AppSurface() {
                 <Suspense fallback={<AppRouteSkeleton pathname="/assistant-utility" />}>
                     <AssistantUtilityWindow />
                 </Suspense>
+                <AssistantBrowserRecordingHost />
             </SettingsProvider>
         )
     }
@@ -385,6 +386,7 @@ function AppSurface() {
                 <Suspense fallback={<AppRouteSkeleton pathname="/browser-popup" />}>
                     <AssistantBrowserPopupWindow />
                 </Suspense>
+                <AssistantBrowserRecordingHost />
             </SettingsProvider>
         )
     }
@@ -398,6 +400,7 @@ function AppSurface() {
                 </OnboardingProvider>
                 <UpdateInstallConfirmation />
             </AppUpdatesProvider>
+            <AssistantBrowserRecordingHost />
         </SettingsProvider>
     )
 }
@@ -409,7 +412,7 @@ function App() {
         window.addEventListener(ZYRA_THEME_CHANGED_EVENT, refreshBrowserTheme)
         return () => window.removeEventListener(ZYRA_THEME_CHANGED_EVENT, refreshBrowserTheme)
     }, [])
-    return <><AppSurface /><AssistantBrowserRecordingHost /><DesktopLinkHost /></>
+    return <><AppSurface /><DesktopLinkHost /></>
 }
 
 export default App

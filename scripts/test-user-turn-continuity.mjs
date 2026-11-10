@@ -38,7 +38,8 @@ import { appendFileSync } from 'node:fs';
 let emit, finish, timestamp = 1793966400000;
 const append = message => appendFileSync(${JSON.stringify(sessionFile)}, JSON.stringify({type:'message',id:String(message.timestamp),message})+'\\n');
 const sendUser = text => { const message={role:'user',content:[{type:'text',text}],timestamp:timestamp++};emit({type:'message_start',message});emit({type:'message_end',message});append(message); };
-export async function createZyraSession(){return {session:{sessionManager:{getSessionId:()=> 'turn-fixture'},subscribe(fn){emit=fn;return ()=>{}},async steer(text){sendUser(text)},async abort(){finish?.()},abortCompaction(){},dispose(){}}};}
+export async function createZyraSession(){return {session:{getActiveToolNames:()=>[],sessionManager:{getSessionId:()=> 'turn-fixture'},subscribe(fn){emit=fn;return ()=>{}},async steer(text){sendUser(text)},async abort(){finish?.()},abortCompaction(){},dispose(){}}};}
+export function getZyraAvailableModels() { return []; }
 export function describeRuntime(){return {};}
 export function getZyraThinkingLevel(){return 'low';}
 export function setZyraReasoningSummary(){}

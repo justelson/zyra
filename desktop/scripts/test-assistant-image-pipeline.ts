@@ -92,13 +92,15 @@ try {
     await mkdir(fakeSdkDir, { recursive: true })
     await writeFile(join(fakeSdkDir, 'zyra-sdk.mjs'), `
 import { writeFile } from 'node:fs/promises'
+export async function prepareZyraSessionRuntime() {}
 export async function createZyraSession() {
     return {
         session: {
+            getActiveToolNames: () => [],
             subscribe: () => () => {},
             steer: async (prompt, images) => writeFile(process.env.ZYRA_IMAGE_CAPTURE_PATH, JSON.stringify({ prompt, images })),
             followUp: async (prompt, images) => writeFile(process.env.ZYRA_IMAGE_CAPTURE_PATH, JSON.stringify({ prompt, images })),
-            modelRegistry: { authStorage: { modelRuntime: { refresh: async () => {} } } },
+            modelRegistry: { authStorage: { refreshAuthProvider: async () => ({ errors: new Map() }), modelRuntime: { refresh: async () => {} } } },
             sessionManager: { getSessionId: () => 'fake-provider-thread' },
             dispose: () => {}
         },
@@ -258,13 +260,27 @@ export async function warmupZyraRuntime() { return { models: [] } }
         'the Pi bridge must forward native image content to the SDK'
     )
 
-    const serviceSource = await readFile(new URL('../src/main/assistant/service-session-actions.ts', import.meta.url), 'utf8')
-    const sendActionSource = serviceSource.slice(serviceSource.indexOf('export async function sendAssistantPromptAction'))
-    assert.ok(
-        sendActionSource.indexOf('prepareAssistantPromptImages(options?.images)')
-            < sendActionSource.indexOf('createAssistantUserMessage(input'),
-        'image validation must happen before the user message is recorded'
-    )
+    const { sendAssistantPromptAction } = await import('../src/main/assistant/service-session-actions')
+    const { createAssistantThread } = await import('../src/main/assistant/service-state')
+    const { createAssistantSessionRecord } = await import('../src/main/assistant/service-records')
+    const { createDefaultAssistantSnapshot } = await import('../src/shared/assistant/projector')
+    const thread = createAssistantThread(new Date().toISOString())
+    thread.latestTurn = { id: 'image-turn', state: 'running' } as typeof thread.latestTurn
+    const session = createAssistantSessionRecord({ sessionId: 'image-session', title: 'Image fixture', projectPath: null, thread, createdAt: new Date().toISOString() })
+    const snapshot = { ...createDefaultAssistantSnapshot(), selectedSessionId: session.id, sessions: [session] }
+    let recorded = 0, dispatched = 0
+    const deps: any = { ensureReady: async () => {}, getSnapshot: () => snapshot,
+        appendEvent: () => { recorded++ },
+        runtime: { ensurePromptAvailable: async () => {}, steerPrompt: async () => { dispatched++; return { turnId: 'image-turn' } } }
+    }
+    for (const dispatchMode of [undefined, 'steer'] as const) {
+        await assert.rejects(sendAssistantPromptAction(deps, 'Inspect synthetic attachment', {
+            sessionId: session.id, dispatchMode, targetTurnId: 'image-turn',
+            images: [{ path: unsupportedPath, name: 'not-an-image.txt', mimeType: 'text/plain' }]
+        }), /image/i)
+    }
+    assert.equal(recorded, 0, 'invalid images cannot create a durable user message in either send mode')
+    assert.equal(dispatched, 0, 'invalid images cannot reach the working model')
 
     console.log('Assistant native image pipeline: ok')
 } finally {

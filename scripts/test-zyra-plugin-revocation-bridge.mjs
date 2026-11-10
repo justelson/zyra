@@ -25,6 +25,7 @@ export async function createZyraSession(options) {
   const job = { done: new Promise((resolve) => { finishJob = resolve; }) };
   return {
     session: {
+      getActiveToolNames: () => [],
       sessionManager: { getSessionId: () => 'fixture-chat', getSessionName: () => 'Fixture' },
       subscribe(listener) { emit = listener; return () => {}; },
       clearQueue() { record('clear-queue'); },
@@ -42,6 +43,7 @@ export async function createZyraSession(options) {
   };
 }
 export function getZyraThinkingLevel() { return 'medium'; }
+export function getZyraAvailableModels() { return []; }
 export function describeRuntime() { return {}; }
 export function setZyraReasoningSummary() {}
 export async function runZyraPrompt() {

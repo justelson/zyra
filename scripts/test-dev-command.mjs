@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -50,8 +50,8 @@ try {
   assert.equal(child.status, 0, child.stderr || child.error?.message);
   const output = JSON.parse(child.stdout.trim());
   assert.deepEqual(output.args, ["resume", "--thread", "fixture-chat"]);
-  assert.equal(output.project, fixture);
-  assert.equal(output.root, checkout);
+  assert.equal(realpathSync(output.project), realpathSync(fixture));
+  assert.equal(realpathSync(output.root), realpathSync(checkout));
   assert.equal(output.channel, "desktop");
   assert.match(output.state, /Zyra-dev[/\\]assistant[/\\]agent-server$/);
   writeFileSync(result.path, "unmanaged command");

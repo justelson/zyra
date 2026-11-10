@@ -16,10 +16,13 @@ try {
     const policy = shell.match(/<meta http-equiv="Content-Security-Policy"[\s\S]*?\/>/)?.[0]
     if (!policy) throw new Error('Real app CSP must be present')
     await writeFile(join(directory, 'fixture.js'), bundle.outputFiles[0].text)
+    const playerCss = bundle.outputFiles.find(file => file.path.endsWith('.css'))?.text || ''
+    const includePlayerCss = process.env.ZYRA_QA_PLAYER_CSS === '1'
     await writeFile(join(directory, 'visualization-frame.html'), visualizationFrameDocument())
     const appCss = await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8')
     const scrollbarCss = (appCss.match(/\.assistant-(?:chat|timeline)-scrollbar[^{}]*\{[^{}]*\}/g) || []).join('\n')
     await writeFile(join(directory, 'index.html'), `<!doctype html><html><head>${policy}<style>${scrollbarCss}
+    ${includePlayerCss ? playerCss : ''}
     html,body,#root{height:100%;margin:0}:root{--color-bg:#101318;--color-card:#181c22;--color-text:#eef1f6;--color-text-muted:#a8b0bd;--accent-primary:#568cff;--surface-divider:#343b46}
     body{font:14px system-ui;background:var(--color-bg);color:var(--color-text)}.h-full{height:100%}.w-full{width:100%}.relative{position:relative}.absolute{position:absolute}.inset-0{inset:0}.pb-4{padding-bottom:16px}.my-3{margin:12px 0}.mb-2{margin-bottom:8px}.flex{display:flex}.items-center{align-items:center}iframe{display:block;width:100%;border:0}figure{margin:12px 0}p{margin:8px 0}header{height:26px}.markdown-image-frame,.markdown-image-open,.markdown-video-frame{display:block}.markdown-image-open{position:relative;width:fit-content;max-width:100%}.markdown-image-open-label,.markdown-image-loading{display:none}img{height:auto;max-width:100%}video{display:block;max-width:100%;max-height:560px}.min-w-0{min-width:0}.gap-1{gap:4px}.text-sparkle-text-muted{color:var(--color-text-muted)}
     </style></head><body><div id="root"></div><script src="./fixture.js"></script></body></html>`)

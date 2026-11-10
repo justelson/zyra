@@ -67,6 +67,18 @@ test('Desktop prepares native Windows identity without blocking the event loop',
   const script = `import assert from 'node:assert/strict'; import {prepareHostProcessIdentity,readProcessIdentity} from ${JSON.stringify(moduleUrl)}; let responsive=false; const ready=prepareHostProcessIdentity(); setImmediate(()=>responsive=true); await ready; assert.ok(responsive,'OS query must yield to the event loop'); const value=readProcessIdentity(process.pid); assert.ok(value?.id.startsWith('windows:')); assert.ok(value.startedAtMs<=Date.now());`;
   await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script], { timeout: 25000, windowsHide: true });
 });
+test('a failed native probe remains fail-closed but explicit async preparation can recover', { skip: process.platform !== 'win32' }, async () => {
+  const moduleUrl = new URL('../src/process-identity.mjs', import.meta.url).href;
+  const script = `import assert from 'node:assert/strict'; import {prepareHostProcessIdentity,readProcessIdentity} from ${JSON.stringify(moduleUrl)};
+    const root=process.env.SystemRoot; process.env.SystemRoot='Z:\\missing-native-probe-fixture';
+    await prepareHostProcessIdentity(); assert.equal(readProcessIdentity(process.pid),null);
+    process.env.SystemRoot=root;
+    await Promise.all([prepareHostProcessIdentity(),prepareHostProcessIdentity()]);
+    const value=readProcessIdentity(process.pid); assert.ok(value?.id.startsWith('windows:'));
+    assert.deepEqual(readProcessIdentity(process.pid),value);`;
+  await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script], { timeout: 25000, windowsHide: true });
+});
+
 test('releasing an earlier owner preserves a replacement lock', t => {
   const { directory, file } = fixture(t);
   const release = acquireHostLock(directory, options);

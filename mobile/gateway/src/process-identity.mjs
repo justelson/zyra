@@ -8,7 +8,9 @@ let clockTicks, ownIdentity, preparing;
 const execFileAsync = promisify(execFile);
 const windowsQuery = pid => ({
   shell: path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'),
-  script: `$p=Get-Process -Id ${pid} -ErrorAction Stop; $s=$p.StartTime.ToUniversalTime(); [pscustomobject]@{id=('windows:'+$s.Ticks.ToString());startedAtMs=([DateTimeOffset]$s).ToUnixTimeMilliseconds()}|ConvertTo-Json -Compress`
+  // Direct CLR access avoids loading PowerShell's Management/Utility cmdlets
+  // for one immutable OS birth stamp. Keep the exact ticks used by old locks.
+  script: `$s=[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime();$c=[System.Globalization.CultureInfo]::InvariantCulture;[Console]::Out.Write('{"id":"windows:'+$s.Ticks.ToString($c)+'","startedAtMs":'+([DateTimeOffset]$s).ToUnixTimeMilliseconds().ToString($c)+'}')`
 });
 const parseWindowsIdentity = stdout => {
   const value = JSON.parse(stdout.trim());
@@ -17,9 +19,9 @@ const parseWindowsIdentity = stdout => {
 
 /** Prime immutable self metadata without blocking Desktop's main thread. */
 export async function prepareHostProcessIdentity() {
-  if (ownIdentity !== undefined) return;
-  preparing ||= (async () => {
-    if (process.platform !== 'win32') { readProcessIdentity(process.pid); return; }
+  if (ownIdentity) return;
+  const request = preparing ||= (async () => {
+    if (process.platform !== 'win32') { const value = readNativeIdentity(process.pid); ownIdentity = value ? Object.freeze(value) : null; return; }
     try {
       const { shell, script } = windowsQuery(process.pid);
       const { stdout } = await execFileAsync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { ...commandOptions, timeout: 15000 });
@@ -27,7 +29,7 @@ export async function prepareHostProcessIdentity() {
       ownIdentity = value ? Object.freeze(value) : null;
     } catch { ownIdentity = null; }
   })();
-  await preparing;
+  try { await request; } finally { if (preparing === request) preparing = undefined; }
 }
 
 /** Public OS process metadata only. Unknown identity must never authorize takeover. */

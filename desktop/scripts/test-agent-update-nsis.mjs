@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -11,10 +11,11 @@ assert.doesNotMatch(source, /taskkill|Stop-Process|KILL_PROCESS/, 'the scoped ha
 assert.match(source, /installer-pending-\$\{VERSION\}.*[\s\S]*installer-ready-\$\{VERSION\}/);
 if (process.platform !== 'win32') { console.log('SKIP NSIS compilation on non-Windows; handoff source safety assertions passed'); }
 else {
-  const cache = path.join(process.env.LOCALAPPDATA, 'electron-builder/Cache/nsis');
-  const versions = await readdir(cache);
-  const executable = versions.map(version => path.join(cache, version, 'makensis.exe')).find(file => existsSync(file));
-  if (!executable) throw new Error('NSIS compiler unavailable. Installer syntax gate remains pending.');
+  const { getMakeNsisPath } = await import('app-builder-lib/out/toolsets/windows.js');
+  const compiler = await getMakeNsisPath();
+  const executable = compiler.path;
+  const compilerEnv = { ...process.env, ...compiler.env };
+  if (!existsSync(executable)) throw new Error('NSIS compiler unavailable. Installer syntax gate remains pending.');
   const directory = await mkdtemp(path.join(tmpdir(), 'zyra-nsis-syntax-'));
   try {
     await writeFile(path.join(directory, 'fixture.nsi'), `Unicode true
@@ -61,13 +62,13 @@ Section "Uninstall"
  !insertmacro customUnInstall
 SectionEnd
 `);
-    const uninstall = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'uninstaller.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    const uninstall = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'uninstaller.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true, env: compilerEnv });
     assert.equal(uninstall.status, 0, uninstall.stdout + uninstall.stderr);
     assert.equal(existsSync(path.join(directory, 'uninstaller-fixture.exe')), true);
-    const result = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    const result = spawnSync(executable, ['/WX', '/V2', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true, env: compilerEnv });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(existsSync(path.join(directory, 'fixture.exe')), true);
-    const expanded = spawnSync(executable, ['/PPO', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    const expanded = spawnSync(executable, ['/PPO', path.join(directory, 'fixture.nsi')], { encoding: 'utf8', timeout: 15_000, windowsHide: true, env: compilerEnv });
     assert.equal(expanded.status, 0, expanded.stdout + expanded.stderr);
     assert.ok(expanded.stdout.includes('$APPDATA\\Zyra Syntax Profile\\updates\\installer-requests'), 'actual NSIS expansion must target the product profile, not the installation folder');
     assert.ok(!expanded.stdout.includes('$APPDATA\\Zyra Syntax Fixture\\updates'), 'installation folder identity must never locate consent flags');

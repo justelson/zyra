@@ -1686,6 +1686,26 @@ function runResumedTranscriptInputGapRegression() {
   }
 }
 
+function runCanonicalRecoveryDraftRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  const editor = new EditorComponent({ getHasTranscript: () => ui._host.hasTranscript, suggestions: () => [] });
+  ui._host.setInputComponent(editor);
+  editor.setText('Keep this unsent steering draft');
+  const old = assistantMessage('Old partial snapshot', 'old');
+  ui.event({ type: 'message_start', message: old });
+  const recovered = assistantMessage('Canonical recovered answer', 'recovered');
+  ui.event({ type: 'zyra_history_replaced', events: [
+    { type: 'message_start', message: recovered, historical: true },
+    { type: 'message_end', message: recovered, historical: true },
+  ] });
+  assert.equal(ui._host.inputComponent, editor, 'recovery keeps the mounted editor');
+  assert.equal(editor.buffer, 'Keep this unsent steering draft');
+  const lines = ui._debugRenderLinesForTests(90).map(stripAnsi).join('\n');
+  assert.match(lines, /Canonical recovered answer/);
+  assert.doesNotMatch(lines, /Old partial snapshot/);
+}
+
 function runEditorBusySpacingRegression() {
   const editor = new EditorComponent({
     getBusy: () => true,
@@ -2705,8 +2725,8 @@ function runGpt56ThinkingLevelsRegression() {
     assert.deepEqual(payload.reasoning, { effort: "max", summary: "auto" });
     assert.equal(payload.service_tier, "priority", "thinking payload changes must preserve other provider controls");
 
-    assert.equal(setThinking(runtime), "low", "cycling after max should wrap to GPT-5.6 low");
-    assert.equal(session.thinkingLevel, "low", "GPT-5.6 has no selectable no-reasoning level");
+    assert.equal(setThinking(runtime), "default", "cycling after max returns to provider default");
+    assert.equal(session.thinkingLevel, "off", "the engine sentinel is separate from the provider-default selection");
 
     session.model = { provider: "openai-codex", id: "gpt-5.5", reasoning: true };
     assert.deepEqual(getZyraAvailableThinkingLevels(runtime), ["low", "medium", "high", "xhigh"], "ChatGPT models should begin at low in the TUI");
@@ -2923,6 +2943,7 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runRestartTransitionReplacesInputRailRegression();
 runEditorStatusGapRegression();
 runResumedTranscriptInputGapRegression();
+runCanonicalRecoveryDraftRegression();
 runEditorBusySpacingRegression();
 runEditorWordWrapRegression();
 runEditorSoftWrapWhitespaceRegression();

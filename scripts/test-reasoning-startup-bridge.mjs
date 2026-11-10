@@ -18,7 +18,12 @@ try {
   Object.values(config.providers)[0].models[0].reasoning = false;
   await writeFile(configPath,JSON.stringify(config));
   worker = new AgentBridgeWorker({root:resolve(import.meta.dirname,'..'),cwd:project});
-  await worker.request('connect',{surface:'memory-worker',project,cwd:project,model:fixtureModel,thinking:'high',memoryEnabled:false},{timeoutMs:20000});
+  const connected=await worker.request('connect',{surface:'memory-worker',project,cwd:project,model:fixtureModel,thinking:'high',memoryEnabled:false},{timeoutMs:20000});
+  assert(Array.isArray(connected.availableModels),'real bridge exposes its already loaded host model catalog without a separate warmup');
+  assert(Array.isArray(connected.activeToolNames),'real bridge exposes the active tool inventory');
+  assert.equal((await worker.request('memory.configure',{enabled:false})).memoryMode,'disabled');
+  assert.equal((await worker.request('preferences.get',{})).memoryMode,'disabled');
+  assert.equal((await worker.request('memory.run',{})).skipped,true,'manual consolidation reaches real owned runtime; disabled memory does not run a provider');
   const result = await worker.request('configure',{thinking:'high'},{timeoutMs:5000});
   assert.equal(result.config.thinking,'default','a stale saved effort on a model without controls must not reject starting a thread');
   const key='synthetic-bridge-openai-key';
@@ -36,6 +41,10 @@ try {
   assert.equal(native.config.thinking,'variant:Ultra%20mode','the real bridge retains exact future native IDs through configuration');
   const defaults=await worker.request('configure',{thinking:'default'},{timeoutMs:5000});
   assert.equal(defaults.config.thinking,'default','provider default survives bridge configuration and acknowledgement');
+  const tier=await worker.request('configure',{codexServiceTier:'priority'},{timeoutMs:5000});
+  assert.equal(tier.config.codexServiceTier,'priority','service tier is applied to the actual worker runtime');
+  const cleared=await worker.request('clear_queue',{}, {timeoutMs:5000});assert.deepEqual(cleared,{steering:[],followUp:[]},'queue clear returns an acknowledged receipt from the real engine');
+  const bash=await worker.request('bash.abort',{}, {timeoutMs:5000});assert.equal(bash.aborted,true);
   isolated.assertOffline();
   console.log('Real bridge startup: stale effort recovery, exact future native IDs and provider default, offline');
 } finally {

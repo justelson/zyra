@@ -5,6 +5,7 @@ import { MobilePluginAccess } from './mobile-plugin-access'
 import { MobileFleetAccess } from './mobile-fleet-access'
 import { MobileReviewAccess } from './mobile-review-access'
 import { MobileProjectPresentations } from './mobile-project-presentation'
+import { MobileBrowserCaptures } from './mobile-browser-captures'
 import { mobileListenerPort, preferredMobileAddress } from '../shared/mobile-access-policy'
 import { readFile, mkdir, rename, writeFile, realpath, stat } from 'node:fs/promises'
 import { networkInterfaces, hostname } from 'node:os'
@@ -26,7 +27,7 @@ export class MobileAccessManager {
     private serial: Promise<unknown> = Promise.resolve()
     private readonly directory: string
     private readonly projectPresentations: MobileProjectPresentations
-    constructor(private readonly userData: string, private readonly service: () => AssistantService, projectIconOverrides: () => Promise<Record<string, string>> = async () => ({})) {
+    constructor(private readonly userData: string, private readonly service: () => AssistantService, projectIconOverrides: () => Promise<Record<string, string>> = async () => ({}), private readonly timingSummary: (properties: Record<string, unknown>) => void = () => {}) {
         this.directory = join(userData, 'mobile-access')
         this.projectPresentations = new MobileProjectPresentations(projectIconOverrides, async () => (await this.service().listProjects()).catalog.projects)
     }
@@ -156,6 +157,8 @@ export class MobileAccessManager {
             searchChats: input => this.service().searchMobileChats(input),
             searchContext: input => this.service().mobileSearchContext(input),
             projectPresentation: project => this.projectPresentations.get(project),
+            captures: new MobileBrowserCaptures(join(this.userData, 'browser-preview', 'artifacts')),
+            timingSummary: properties => this.timingSummary(properties),
             terminalFactory: (_device, receive) => new MobileTerminalAccess(this.service, receive),
             voiceFactory: (device, receive) => new MobileVoiceAccess(this.service(), receive, device.name),
             pluginFactory: (_device, changed) => new MobilePluginAccess(this.service(), changed),

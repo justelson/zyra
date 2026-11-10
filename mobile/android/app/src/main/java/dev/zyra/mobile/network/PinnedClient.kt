@@ -12,7 +12,7 @@ import javax.net.ssl.X509TrustManager
 object PinnedClient {
     fun fingerprint(cert: X509Certificate): String = MessageDigest.getInstance("SHA-256").digest(cert.encoded).joinToString("") { "%02x".format(it) }
     fun create(pin: String): OkHttpClient {
-        require(Regex("[a-f0-9]{64}").matches(pin)) { "Invalid host identity." }
+        if (!Regex("[a-f0-9]{64}").matches(pin)) throw HostFailure("INVALID_PIN", "Invalid host identity.")
         val trust = object : X509TrustManager {
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) { throw CertificateException("Client authentication is not supported here.") }

@@ -76,6 +76,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
   // gRPC based providers (e.g. NVIDIA NIM)
   "ResourceExhausted"
 ]);
+const NON_RETRYABLE_REQUEST_ERROR_PATTERN = /\b(?:401|403)\b|unauthori[sz]ed|authentication|invalid api key|no api key|permission denied|access denied|invalid (?:request|argument)|(?:request|input|json) schema|unsupported (?:model|parameter|effort)|thinking must be one of|no (?:chatgpt )?account.*available|usage limit|context_length_exceeded|maximum context|content.?policy|websocket.*\b1008\b/i;
 class RetrySleepAbortError extends Error {
   constructor() {
     super("Aborted");
@@ -112,7 +113,7 @@ async function retryAssistantCall(produce, policy, signal, callbacks) {
       if (lastRetry) await callbacks?.onRetryFinished?.(true, lastRetry.attempt);
       return response;
     }
-    if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {
+    if (attempt >= maxAttempts || !isRetryableAssistantError(response, attempt)) {
       if (lastRetry) await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);
       return response;
     }
@@ -132,11 +133,11 @@ async function retryAssistantCall(produce, policy, signal, callbacks) {
     await callbacks?.onRetryAttemptStart?.();
   }
 }
-function isRetryableAssistantError(message) {
-  if (message.stopReason !== "error" || !message.errorMessage) return false;
-  const errorMessage = message.errorMessage;
-  if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
-  return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+function isRetryableAssistantError(message, previousAttempts = 0) {
+  if (message.stopReason !== "error" || message.errorRetryable === false) return false;
+  const errorMessage = message.errorMessage || "Unknown error";
+  if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage) || NON_RETRYABLE_REQUEST_ERROR_PATTERN.test(errorMessage)) return false;
+  return message.errorRetryable === true || RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage) || previousAttempts === 0;
 }
 export {
   isRetryableAssistantError,

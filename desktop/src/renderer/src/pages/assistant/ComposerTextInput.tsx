@@ -47,7 +47,9 @@ export const ComposerTextInput = forwardRef<HTMLTextAreaElement, Props>(function
         const signature = JSON.stringify(tags.map(tag => [tag.id, tag.kind, tag.path]))
         const domSignature = JSON.stringify(readTags(root).map(tag => [tag.id, tag.kind, tag.path]))
         if (composing.current || (composerNodeText(root) === text && signature === domSignature && theme === renderedTheme.current)) return
-        const focused = root.ownerDocument.activeElement === root, caret = composerSelection(root)
+        // A native Browser guest can own the keyboard while this document's
+        // activeElement still points at its last focused composer.
+        const focused = root.ownerDocument.hasFocus() && root.ownerDocument.activeElement === root, caret = composerSelection(root)
         const oldRoots = chipRoots.current; chipRoots.current = []; queueMicrotask(() => oldRoots.forEach(chip => chip.unmount()))
         const nodes: Node[] = []
         const addText = (content: string) => content.split('\n').forEach((line, index) => { if (index) nodes.push(document.createElement('br')); nodes.push(document.createTextNode(line)) })

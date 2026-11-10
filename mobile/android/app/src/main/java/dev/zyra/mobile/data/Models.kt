@@ -29,7 +29,7 @@ data class Pairing(val hostId: String, val name: String, val url: String, val fi
         }
     }
 }
-data class Chat(val id: String, val title: String, val project: String, val state: String, val attention: String?, val archived: Boolean, val machineId: String = "", val modifiedAt: String = "", val model: String = "", val lastTurnState: String = "", val tuiOpen: Boolean = false, val hasChanges: Boolean? = null, val hasWork: Boolean? = null, val activeTurnStartedAt: String = "", val lastTurnId: String = "", val lastTurnCompletedAt: String = "", val lastSeenCompletedTurnId: String = "", val viewed: Boolean = false, val settled: Boolean? = null, val settlementManual: Boolean? = null) {
+data class Chat(val id: String, val title: String, val project: String, val state: String, val attention: String?, val archived: Boolean, val machineId: String = "", val modifiedAt: String = "", val model: String = "", val lastTurnState: String = "", val tuiOpen: Boolean = false, val hasChanges: Boolean? = null, val hasWork: Boolean? = null, val activeTurnStartedAt: String = "", val lastTurnId: String = "", val lastTurnCompletedAt: String = "", val lastSeenCompletedTurnId: String = "", val viewed: Boolean = false, val settled: Boolean? = null, val settlementManual: Boolean? = null, val notification: ChatNotification? = null, val pendingQuestionCount: Int = 0) {
     val key get() = "$machineId:$id"
     val working get() = state == "running" || state == "background"
     val modelLabel get() = model.substringAfter('/').ifBlank { "Assistant" }
@@ -43,7 +43,7 @@ data class Chat(val id: String, val title: String, val project: String, val stat
             return Chat(v.getString("canonicalChatId"), BrowserContext.display(v.optString("title", "Untitled chat")), v.optString("project"),
                 presence?.optString("state") ?: "detached", presence?.optString("attention")?.takeUnless { it == "null" || it.isBlank() }, v.optBoolean("archived"), machineId, v.optString("modifiedAt"), chatModel(v.opt("model")),
                 presence?.optJSONObject("latestTurn")?.optString("state").orEmpty().takeUnless { it == "null" }.orEmpty(),
-                presence?.optJSONArray("clients")?.let { clients -> (0 until clients.length()).any { clients.optJSONObject(it)?.optString("surface") == "tui" } } ?: false, v.opt("hasChanges") as? Boolean, v.opt("hasWork") as? Boolean, startedAt, (turn?.opt("id") as? String).orEmpty(), (turn?.opt("completedAt") as? String).orEmpty(), (v.opt("lastSeenCompletedTurnId") as? String).orEmpty(), (presence?.optJSONArray("viewers")?.length() ?: 0) > 0, v.opt("settled") as? Boolean, v.opt("settlementManual") as? Boolean)
+                presence?.optJSONArray("clients")?.let { clients -> (0 until clients.length()).any { clients.optJSONObject(it)?.optString("surface") == "tui" } } ?: false, v.opt("hasChanges") as? Boolean, v.opt("hasWork") as? Boolean, startedAt, (turn?.opt("id") as? String).orEmpty(), (turn?.opt("completedAt") as? String).orEmpty(), (v.opt("lastSeenCompletedTurnId") as? String).orEmpty(), (presence?.optJSONArray("viewers")?.length() ?: 0) > 0, v.opt("settled") as? Boolean, v.opt("settlementManual") as? Boolean, ChatNotification.parse(presence?.optJSONObject("notification")), presence?.optInt("pendingQuestionCount") ?: 0)
         }
     }
 }
@@ -56,7 +56,7 @@ fun chatModel(value: Any?): String {
     return raw.takeIf { it.length <= 1025 && it.none { c -> c.code < 32 || c.code == 127 } }?.trim().orEmpty()
 }
 data class TimelineItem(val id: String, val role: String, val text: String, val kind: String = "message", val raw: String = "", val pending: Boolean = false, val reasoning: String = "", val toolNames: List<String> = emptyList(), val historyIndex: Long? = null)
-data class SessionView(val id: String = "", val sequence: Long = 0, val items: List<TimelineItem> = emptyList(), val running: Boolean = false, val olderCursor: String? = null, val config: ChatConfiguration = ChatConfiguration())
+data class SessionView(val id: String = "", val sequence: Long = 0, val items: List<TimelineItem> = emptyList(), val running: Boolean = false, val olderCursor: String? = null, val config: ChatConfiguration = ChatConfiguration(), val activeTurnId: String? = null, val canonicalTurnCompletion: Boolean = false)
 enum class ConnectionState { Offline, Connecting, Connected, Reconnecting }
 
 data class AvailableModel(val id: String, val label: String, val description: String, val efforts: List<String>, val contextWindow: Int) {

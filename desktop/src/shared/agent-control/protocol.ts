@@ -72,7 +72,7 @@ export type RendererControlGrantInput = {
 
 export type AgentControlBridgeOperation =
     | { operation: 'list_targets'; targetKind?: 'zyra-browser' | 'chrome-tab' }
-    | { operation: 'open_tab'; reveal?: boolean; sessionMode?: BrowserSessionMode; url?: string }
+    | { operation: 'open_tab'; targetKind?: 'zyra-browser' | 'chrome-tab'; targetId?: string; grantId?: string; reveal?: boolean; sessionMode?: BrowserSessionMode; url?: string }
     | { operation: 'reveal_tab'; targetId: string }
     | { operation: 'close_tab'; targetId: string; grantId: string }
     | { operation: 'refresh_tab'; targetId: string; grantId: string }

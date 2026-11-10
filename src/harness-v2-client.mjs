@@ -1,7 +1,7 @@
 /** OpenCode 2's native HTTP contract. Credentials stay on the owned loopback. */
 export async function requestV2(client, route, { method = 'GET', body, signal, timeoutMs = 30_000, fetchImpl = client.fetch ?? fetch } = {}) {
   const url = new URL(`/api${route}`, client.baseUrl);
-  if (client.cwd && ['/model', '/agent', '/plugin', '/location', '/permission/request'].includes(route)) url.searchParams.set('location[directory]', client.cwd);
+  if (client.cwd && (['/model', '/agent', '/plugin', '/location', '/permission/request'].includes(route) || route.startsWith('/rpc/'))) url.searchParams.set('location[directory]', client.cwd);
   const response = await fetchImpl(url.href, { method, redirect: 'error',
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     headers: { Authorization: `Basic ${Buffer.from(`opencode:${client.password}`).toString('base64')}`,
@@ -25,7 +25,8 @@ export function v2CatalogPayload(payload) {
       capabilities: { toolcall: model.capabilities?.tools === true, reasoning: model.capabilities?.reasoning === true
         || model.capabilities?.reasoning?.supported === true || Boolean(model.compatibility?.reasoningField)
         || model.variants?.some(variant => variant.settings?.reasoningEffort !== undefined || variant.settings?.thinkingBudget !== undefined)
-        || model.capabilities?.output?.includes('reasoning') === true },
+        || model.capabilities?.output?.includes('reasoning') === true,
+        input: { image: model.capabilities?.input?.includes('image') === true } },
       cost: { input: price('input'), output: price('output'), cache: tiers[0]?.cache },
     };
   }

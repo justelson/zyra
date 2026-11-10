@@ -37,7 +37,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.zyra.mobile.voice.VoiceTimeline
 
 @Composable fun SessionScreen(state: MobileState, vm: MobileSession, topInset: androidx.compose.ui.unit.Dp = 0.dp) {
-    CompositionLocalProvider(LocalMarkdownImage provides { image -> SessionMarkdownImage(image, state, vm) }, LocalMarkdownOpenFile provides vm::openMarkdownFile, LocalMarkdownCompactImages provides true) {
+    val reportDisplay = remember(vm) { { id: String -> vm.responseTimings.recorder.displayed(id); Unit } }
+    CompositionLocalProvider(LocalResponseTextDisplayed provides reportDisplay, LocalMarkdownImage provides { image -> SessionMarkdownImage(image, state, vm) }, LocalMarkdownOpenFile provides vm::openMarkdownFile, LocalMarkdownCompactImages provides true) {
         SessionContent(state, vm, topInset)
     }
 }
@@ -168,7 +169,7 @@ import dev.zyra.mobile.voice.VoiceTimeline
                     "approval_requested" -> ApprovalCard(item, connected && item.id !in state.responding, vm)
                     "user_input_requested" -> Unit // The active form lives in the composer.
                     "tool", "deferred" -> { TimelineTool(item) { vm.inspect(item) }; MediaImages(item.raw, vm) }
-                    "interrupted" -> Text("Interrupted", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    "interrupted" -> Text(item.text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     "resolved" -> Unit // The canonical response renders its question/answer summary.
                     else -> TimelineMessage(item, media = { MediaImages(item.raw, vm) }, questionAnswers = questionAnswers[item.id].orEmpty()) { vm.inspect(item) }
                 }

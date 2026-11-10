@@ -60,7 +60,7 @@ import kotlinx.coroutines.delay
                 if (state.page == "fleet" && state.detail == null) FleetHeaderTitle(vm.fleet, state.connection == ConnectionState.Connected, vm::openFleet) else
                 if (state.page == "plugins" && state.detail == null) PluginsHeaderTitle(state.machine?.name.orEmpty(), state.connection == ConnectionState.Connected, { pluginMachines = true }) else
                 if (state.page in setOf("limits", "usage") && state.detail == null) UsageDestinationTitle(state.page, vm::page) else
-                Text(if (state.detail != null) state.detailTitle else when (state.page) { "search-context" -> state.searchSelection?.chat?.title ?: "Search result"; "chat" -> state.title; "chats" -> "Chats"; "workspace" -> "Files & changes"; "terminal" -> "Terminal"; "fleet" -> "Agents & workflows"; "plugins" -> "Plugins"; "plugin-store" -> "Plugin Store"; "plugin-detail" -> "Plugin details"; "settings" -> "Settings"; "chat-settings" -> "Chat settings"; "chat-models" -> "Model & thinking"; "limits", "usage" -> "Usage & limits"; "storage" -> "Storage"; "appearance" -> "Appearance"; "voice-settings" -> "Voice"; "about" -> "About"; "licenses" -> "Open-source licenses"; else -> if (state.page.startsWith("license:")) licenseTitle(state.page.substringAfter(":")) else "Computers" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                Text(if (state.detail != null) state.detailTitle else when (state.page) { "search-context" -> state.searchSelection?.chat?.title ?: "Search result"; "chat" -> state.title; "chats" -> "Chats"; "workspace" -> "Files & changes"; "terminal" -> "Terminal"; "fleet" -> "Agents & workflows"; "plugins" -> "Plugins"; "plugin-store" -> "Plugin Store"; "plugin-detail" -> "Plugin details"; "settings" -> "Settings"; "chat-settings" -> "Chat settings"; "chat-models" -> "Model & thinking"; "limits", "usage" -> "Usage & limits"; "storage" -> "Storage"; "captures" -> "Browser captures"; "diagnostics" -> "Diagnostics"; "appearance" -> "Appearance"; "voice-settings" -> "Voice"; "about" -> "About"; "licenses" -> "Open-source licenses"; else -> if (state.page.startsWith("license:")) licenseTitle(state.page.substringAfter(":")) else "Computers" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
                 if (state.page in listOf("chat", "chats")) {
                     Row(Modifier.then(if (state.page == "chats") Modifier.clickable { machinePicker = true } else Modifier).padding(top = if (state.page == "chat") 0.dp else 3.dp, bottom = if (state.page == "chat") 0.dp else 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(if (state.page == "chats") state.machines.find { it.id == state.machineFilter }?.name ?: "All machines"
@@ -121,6 +121,8 @@ import kotlinx.coroutines.delay
                                     vm.modelPicker::selectInline, vm.modelPicker::thinking, vm::loadModels)
                             }
                         }
+                        "diagnostics" -> ResponseTimingsScreen(vm)
+                        "captures" -> BrowserCapturesScreen(state, vm)
                         "storage" -> StorageSettingsScreen(vm::localStorageUsage, vm::clearHistoryStorage)
                         "about" -> AboutScreen(vm::page)
                         "licenses" -> LicensesScreen(vm::page)
@@ -136,7 +138,13 @@ import kotlinx.coroutines.delay
             }
             }
             AppStatusOverlay(state, vm::dismissError, Modifier.align(Alignment.TopCenter).padding(top =
-                if (floatingHeader) padding.calculateTopPadding() else if (state.page == "new-chat") WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp else padding.calculateTopPadding()))
+                if (floatingHeader) padding.calculateTopPadding() else if (state.page == "new-chat") WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp else padding.calculateTopPadding()), recover = {
+                when (state.connectionFailure?.recovery) {
+                    ConnectionRecovery.PairAgain -> setup = true
+                    ConnectionRecovery.Update -> vm.page("machines")
+                    else -> state.machine?.let { vm.retryConnection(it.id) }
+                }
+            })
         }
     }
     if (setup) SetupSheet(state, scannedLink, consumedLink, vm::pair, cancel = { setup = false }) { setup = false; vm.page("chats") }

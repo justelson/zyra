@@ -29,6 +29,8 @@ class MediaController(private val app: Application, private val scope: Coroutine
         if (changed) revision.value++
     }
     suspend fun cached(machine: String, ref: JSONObject) = downloads.cached(machine, ref)
+    suspend fun playback(machine: String, session: String, ref: JSONObject, request: suspend (String, JSONObject) -> JSONObject, progress: (Long, Long) -> Unit): File =
+        downloads.load(machine, session, ref, request, progress)
     suspend fun inline(machine: String, session: String, ref: JSONObject, request: suspend (String, JSONObject) -> JSONObject): File? {
         val cached = downloads.cached(machine, ref)
         return if (cached != null || ref.optLong("bytes") <= 512 * 1024) downloads.load(machine, session, ref, request) { _, _ -> } else null

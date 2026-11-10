@@ -408,6 +408,10 @@ export class NativeOverlayManager {
     }
 
     private present(owner: Owner, slot: OverlaySlot, allowed = owner.window.isFocused() && owner.window.isVisible() && !owner.window.isMinimized()): void {
+        const focusRequested = slot.focus
+        // An explicit open may focus once. Bounds changes, streamed layout and
+        // later owner focus events never renew that request.
+        slot.focus = false
         if (!slot.contents || slot.contents.isDestroyed()) return
         const visible = slot.visible && (slot.kind === 'interactive' || allowed)
         if (visible) this.resize(owner, slot)
@@ -416,7 +420,7 @@ export class NativeOverlayManager {
             const changed = slot.view.getVisible() !== visible
             const heldFocus = slot.contents.isFocused()
             if (changed) slot.view.setVisible(visible)
-            if (visible && slot.focus && owner.window.isFocused() && !slot.contents.isFocused()) slot.contents.focus()
+            if (visible && focusRequested && allowed && !slot.contents.isFocused()) slot.contents.focus()
             else if (changed && !visible && heldFocus && allowed && !owner.contents.isDestroyed()) owner.contents.focus()
         } else if (slot.companion) {
             // React removes passive content when its lease ends. Keep that transparent,

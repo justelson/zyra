@@ -1,3 +1,4 @@
+import { configureBrowserCaptureHandoff } from './browser-capture-handoff'
 import { KEYBINDING_DISPATCH_CHANNEL, configureShortcutOverrides, shortcutAccelerator, type AppNavigationCommand, type ShortcutPlatform } from '../shared/keybindings'
 import { randomBytes } from 'node:crypto'
 import { prepareAppShortcutInput, registerKeybindingRecording } from './keybindings'
@@ -323,7 +324,7 @@ function getWindowChromeOptions(): Pick<Electron.BrowserWindowConstructorOptions
     }
 }
 
-function sendAppMenuCommand(command: 'new-chat' | 'search' | 'settings' | 'reload' | 'about'): void {
+function sendAppMenuCommand(command: 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture'): void {
     sendMainRendererCommand('window:app-menu-command', command)
 }
 
@@ -346,6 +347,8 @@ function sendMainRendererCommand(channel: 'window:app-menu-command' | typeof KEY
     if (openingWindow || target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', deliver)
     else deliver()
 }
+
+configureBrowserCaptureHandoff(() => sendAppMenuCommand('browser-capture'), () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined)
 
 // Fixed destination only. Browser clients never receive arbitrary window control.
 ipcMain.handle('desktop:open-settings', () => {

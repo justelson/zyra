@@ -14,6 +14,15 @@ const WORK_SUMMARY_MOTION_MS = 260
 const WORK_SUMMARY_UNMOUNT_DELAY_MS = WORK_SUMMARY_MOTION_MS + 40
 const WORK_SUMMARY_EXPANDED_PREFERENCE_KEY = 'zyra:assistant-work-expanded:v1'
 
+function isWorkContentBeingRead(content: HTMLElement | null): boolean {
+    if (!content) return false
+    const document = content.ownerDocument
+    if (content.contains(document.activeElement)) return true
+    const selection = document.getSelection()
+    return Boolean(selection && !selection.isCollapsed && selection.rangeCount
+        && selection.getRangeAt(0).intersectsNode(content))
+}
+
 function readWorkSummaryExpandedPreference(): boolean {
     try {
         return localStorage.getItem(WORK_SUMMARY_EXPANDED_PREFERENCE_KEY) !== 'false'
@@ -106,6 +115,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
     const [contentVisible, setContentVisible] = useState(initialExpanded)
     const panelId = useId()
     const triggerRef = useRef<HTMLButtonElement | null>(null)
+    const contentRef = useRef<HTMLDivElement | null>(null)
     const statusTextRef = useRef<HTMLSpanElement | null>(null)
     const previousRunningRef = useRef(running)
     const previousTerminalResponseRef = useRef(collapseForTerminalResponse)
@@ -218,11 +228,15 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
         pendingExpansionAnchorRef.current = null
         if (!wasRunning && running && (activeCollapseLocked || !collapseForTerminalResponse)) {
             const restoreExpanded = !settings.assistantAllowCollapseWhileWorking || readWorkSummaryExpandedPreference()
+            if (restoreExpanded && expanded && contentMounted && contentVisible) return
             setExpanded(restoreExpanded)
             setContentVisible(false)
             setContentMounted(restoreExpanded)
             return
         }
+        // Completion is a data update. It cannot make an actively focused or
+        // selected tool inert, remove its contents or discard its selection.
+        if (isWorkContentBeingRead(contentRef.current)) return
         requestAssistantTimelineDisclosureAnchor(
             resolveAssistantTimelineCompletionAnchor(triggerRef.current),
             WORK_SUMMARY_MOTION_MS,
@@ -304,7 +318,7 @@ export const TimelineTurnWorkSummary = memo(function TimelineTurnWorkSummary({
                 </button>
                 {!minimal && outcome !== 'interrupted' ? <div className="h-px w-full bg-white/[0.07]" aria-hidden="true" /> : null}
             </div>
-            <div id={panelId}>
+            <div id={panelId} ref={contentRef}>
                 <AnimatedHeight isOpen={contentVisible} duration={WORK_SUMMARY_MOTION_MS} crispContent>
                     {contentMounted ? (
                         <div className={minimal ? 'pt-1' : 'pt-2'}>

@@ -12,6 +12,7 @@ export const loadSkillsSettings = () => import('./SkillsSettings')
 export const loadPluginsSettings = () => import('./PluginsSettings')
 export const loadVoiceSettings = () => import('./VoiceSettings')
 export const loadConnectionsSettings = () => import('./ConnectionsSettings')
+export const loadBrowserCapturesSettings = () => import('./BrowserCapturesSettings')
 export const loadBrowserControlSettings = () => import('./BrowserControlSettings')
 export const loadFilesEditorSettings = () => import('./FilesEditorSettings')
 export const loadTerminalRuntimeSettings = () => import('./TerminalRuntimeSettings')
@@ -55,6 +56,7 @@ const destinationLoaders: Record<string, () => Promise<unknown>> = {
     'browser-control': loadBrowserControlSettings,
     'browser-privacy': loadBrowserControlSettings,
     'browser-data': loadBrowserControlSettings,
+    'browser-captures': loadBrowserCapturesSettings,
     'browser-extensions': loadBrowserControlSettings,
     'files-editor': loadFilesEditorSettings,
     'file-editor': loadFilesEditorSettings,

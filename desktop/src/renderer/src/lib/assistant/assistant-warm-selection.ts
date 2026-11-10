@@ -75,7 +75,7 @@ export function prepareAssistantWarmSelection(input: AssistantWarmSelectionInput
         !threadId
         || !isAssistantRetainedHistoryFresh(retainedHistory)
         || ((thread?.messageCount || 0) === 0 && (thread?.activityCount || 0) === 0 && !thread?.latestTurn)
-        || !hasRenderableAssistantRetainedHistory(retainedHistory)
+        || !hasRenderableAssistantRetainedHistory(retainedHistory, thread)
     ) return { snapshot, historyByThreadId: input.historyByThreadId }
 
     const warmHistory = { ...retainedHistory!, lastUsedAt: Date.now() }

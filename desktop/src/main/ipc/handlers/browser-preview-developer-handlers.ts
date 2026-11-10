@@ -1,3 +1,4 @@
+import { enqueueBrowserCaptureDraft, readBrowserCaptureDraft, acknowledgeBrowserCaptureDraft } from '../../browser-capture-handoff'
 import { captureBrowserPage } from '../../browser-page-capture'
 import { browserRecordingCapture, resolveBrowserRecordingController, type BrowserRecordingAudioSource } from '../../browser-recording-capture'
 import { randomUUID } from 'crypto'
@@ -39,6 +40,7 @@ import {
 import { session } from 'electron'
 import { stageAssistantClipboardImageFile } from '../../assistant/clipboard-attachments'
 import { getBrowserUserZoomFactor, setManagedBrowserUserZoomFactor } from '../../browser-view-presentation'
+import { BrowserCaptureLibrary } from '../../browser-capture-library'
 
 const BROWSER_ZOOM_MIN = 0.25
 const BROWSER_ZOOM_MAX = 2
@@ -68,6 +70,7 @@ type ActiveRecording = {
 }
 
 const artifacts = new Map<string, StoredArtifact>()
+const libraryGrants = new Map<number, Set<string>>()
 const colorSchemeByGuestId = new Map<number, DevScopeBrowserColorScheme>()
 const colorLifecycleInstalled = new Set<number>()
 const activeAnnotations = new Map<number, ActiveAnnotation>()
@@ -148,9 +151,23 @@ function rememberArtifact(artifact: StoredArtifact): DevScopeBrowserCaptureArtif
     return publicArtifact
 }
 
+function capturePreview(artifact: DevScopeBrowserCaptureArtifact & { path: string }, maxWidth = 200, maxHeight = 120): DevScopeBrowserCaptureArtifact {
+    const { path, ...capture } = artifact
+    if (capture.kind !== 'screenshot') return capture
+    try {
+        const image = nativeImage.createFromPath(path)
+        if (image.isEmpty()) return capture
+        const size = image.getSize()
+        const scale = Math.min(1, maxWidth / size.width, maxHeight / size.height)
+        return { ...capture, width: size.width, height: size.height, thumbnailDataUrl: image.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) }).toDataURL() }
+    } catch { return capture }
+}
+
 function ownedArtifact(event: IpcMainInvokeEvent, artifactId: string): StoredArtifact {
     const normalizedId = String(artifactId || '')
-    const artifact = artifacts.get(normalizedId)
+    const artifact = libraryGrants.get(event.sender.id)?.has(normalizedId)
+        ? { ...new BrowserCaptureLibrary(artifactDirectory()).get(normalizedId), ownerWebContentsId: event.sender.id }
+        : artifacts.get(normalizedId)
     if (!artifact || artifact.ownerWebContentsId !== event.sender.id) {
         throw new Error('That Browser capture is no longer available to this window.')
     }
@@ -461,10 +478,9 @@ export async function handleCaptureBrowserPreviewScreenshot(event: IpcMainInvoke
 export async function handleStageBrowserPreviewArtifactForAssistant(event: IpcMainInvokeEvent, artifactId: string) {
     try {
         const artifact = ownedArtifact(event, artifactId)
-        if (artifact.kind !== 'screenshot') throw new Error('Only Browser screenshots can be attached to chat.')
         const reference = await stageAssistantClipboardImageFile({
             sourcePath: artifact.path,
-            fileName: `preview-annotation-${artifact.artifactId.slice('browser-screenshot:'.length)}.png`
+            fileName: artifact.kind === 'screenshot' ? `preview-annotation-${artifact.artifactId.slice('browser-screenshot:'.length)}.png` : `browser-recording-${artifact.artifactId.split(':')[1]}.${artifact.mimeType.includes('mp4') ? 'mp4' : 'webm'}`
         })
         return { success: true as const, reference }
     } catch (error) {
@@ -549,7 +565,7 @@ export async function handleStartBrowserPreviewAnnotation(
             if (!guest.isFocused()) guest.focus()
             const raw = await guest.executeJavaScriptInIsolatedWorld(
                 BROWSER_PREVIEW_ANNOTATION_WORLD_ID,
-                [{ code: browserPreviewAnnotationSource(normalizeAnnotationTheme(input.theme)) }],
+                [{ code: browserPreviewAnnotationSource(normalizeAnnotationTheme(input.theme), input.standalone === true) }],
                 true
             ) as { status?: unknown; annotation?: unknown; captureRect?: unknown }
             if (raw?.status !== 'attached') {
@@ -693,4 +709,45 @@ export async function handleSaveBrowserPreviewRecording(
         log.error('[BrowserPreview] Recording save failed:', error)
         return { success: false as const, error: errorMessage(error, 'Could not save Browser recording.') }
     }
+}
+
+export async function handleListBrowserCaptures(event: IpcMainInvokeEvent, input: { offset?: number; limit?: number; kind?: 'screenshot' | 'recording' } = {}) {
+    try {
+        const page = new BrowserCaptureLibrary(artifactDirectory()).list(input || {})
+        const grants = libraryGrants.get(event.sender.id) || new Set<string>()
+        for (const capture of page.captures) grants.add(capture.artifactId)
+        while (grants.size > 1_024) grants.delete(grants.values().next().value!)
+        libraryGrants.set(event.sender.id, grants)
+        if (libraryGrants.size > 32) libraryGrants.delete(libraryGrants.keys().next().value!)
+        const captures = page.captures.map(capture => capturePreview(capture))
+        return { success: true as const, ...page, captures }
+    } catch (error) { return { success: false as const, error: errorMessage(error, 'Could not load Browser captures.') } }
+}
+export async function handleDeleteBrowserCapture(event: IpcMainInvokeEvent, artifactId: string) {
+    try {
+        if (!libraryGrants.get(event.sender.id)?.has(artifactId)) throw new Error('Open the capture library before deleting a capture.')
+        new BrowserCaptureLibrary(artifactDirectory()).delete(artifactId)
+        artifacts.delete(artifactId)
+        libraryGrants.get(event.sender.id)?.delete(artifactId)
+        return { success: true as const }
+    } catch (error) { return { success: false as const, error: errorMessage(error, 'Could not delete the capture.') } }
+}
+
+export async function handleAttachBrowserCaptureToChat(event: IpcMainInvokeEvent, input: { artifactId: string; sessionId?: string | null; annotation?: import('../../../shared/contracts/devscope-api').DevScopeBrowserAnnotationPayload }) {
+    try {
+        const artifact = ownedArtifact(event, input?.artifactId)
+        if (input.annotation && (typeof input.annotation.id !== 'string' || typeof input.annotation.comment !== 'string' || JSON.stringify(input.annotation).length > 100_000)) throw new Error('Selection is too large to attach.')
+        const staged = await handleStageBrowserPreviewArtifactForAssistant(event, artifact.artifactId)
+        if (!staged.success) return staged
+        enqueueBrowserCaptureDraft({ sessionId: typeof input.sessionId === 'string' ? input.sessionId.slice(0, 200) : null, reference: staged.reference, artifact: capturePreview((({ ownerWebContentsId: _owner, ...capture }) => capture)(artifact), 640, 440), annotation: input.annotation })
+        return { success: true as const }
+    } catch (error) { return { success: false as const, error: errorMessage(error, 'Could not attach capture to chat.') } }
+}
+export async function handleReadBrowserCaptureDraft(event: IpcMainInvokeEvent) {
+    try { return { success: true as const, draft: readBrowserCaptureDraft(event.sender.id) } }
+    catch (error) { return { success: false as const, error: errorMessage(error, 'Could not read capture draft.') } }
+}
+export async function handleAcknowledgeBrowserCaptureDraft(event: IpcMainInvokeEvent, id: string) {
+    try { acknowledgeBrowserCaptureDraft(event.sender.id, id); return { success: true as const } }
+    catch (error) { return { success: false as const, error: errorMessage(error, 'Could not acknowledge capture draft.') } }
 }

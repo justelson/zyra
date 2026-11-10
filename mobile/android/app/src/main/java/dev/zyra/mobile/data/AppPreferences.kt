@@ -11,6 +11,9 @@ class AppPreferences(context: Context) {
     val appearance = mutable.asStateFlow()
     private val notificationsMutable = MutableStateFlow(prefs.getBoolean("notifications", false))
     val notifications = notificationsMutable.asStateFlow()
+    private val shareTimingsMutable = MutableStateFlow(prefs.getBoolean("shareTimings", false))
+    val shareTimings = shareTimingsMutable.asStateFlow()
+    fun shareTimings(enabled: Boolean) { shareTimingsMutable.value = enabled; prefs.edit().putBoolean("shareTimings", enabled).apply() }
     fun notifications(enabled: Boolean) { notificationsMutable.value = enabled; prefs.edit().putBoolean("notifications", enabled).apply() }
     private val settledMutable = MutableStateFlow(ChatSettlement.decode(prefs.getString("settledTurns", "{}").orEmpty()))
     val settlements = settledMutable.asStateFlow()

@@ -457,7 +457,7 @@ export class BrowserPopupManager {
                 pageView,
                 pageContents,
                 lastRecordedUrl: '',
-                activateOnReady: details.disposition !== 'background-tab',
+                activateOnReady: details.disposition !== 'background-tab' && this.isForegroundSource(sourceContents, ownerWindow),
                 disposed: false
             }
             const active = this.activeByOwner.get(ownerWindow) || new Set<ManagedBrowserPopup>()
@@ -514,6 +514,15 @@ export class BrowserPopupManager {
         }
     }
 
+    private isForegroundSource(sourceContents: WebContents, fallback: BrowserWindow): boolean {
+        if (sourceContents.isDestroyed()) return false
+        // Nested popups have their own physical window; ownership of the chat
+        // alone does not grant permission to activate a new native window.
+        const sourceWindow = BrowserWindow.fromWebContents(sourceContents) || fallback
+        return !sourceWindow.isDestroyed() && sourceWindow.isFocused() && sourceWindow.isVisible()
+            && !sourceWindow.isMinimized() && sourceContents.isFocused()
+    }
+
     private configurePopupLifecycle(popup: ManagedBrowserPopup, sourceContents: WebContents): void {
         const { shellWindow, pageContents } = popup
         const publish = () => this.publishState(popup)
@@ -547,7 +556,8 @@ export class BrowserPopupManager {
         shellWindow.webContents.on('did-finish-load', () => {
             publish()
             if (!shellWindow.isDestroyed()) {
-                if (popup.activateOnReady) {
+                // The user may have switched apps while the popup shell loaded.
+                if (popup.activateOnReady && this.isForegroundSource(sourceContents, popup.ownerWindow)) {
                     shellWindow.show()
                     pageContents.focus()
                 } else {

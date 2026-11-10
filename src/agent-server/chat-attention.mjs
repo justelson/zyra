@@ -1,3 +1,5 @@
+import { ChatNotificationContent } from './chat-notification-content.mjs';
+
 const VIEW_LEASE_MS = 35_000;
 const MAX_RECEIPTS = 2048;
 
@@ -8,6 +10,7 @@ export class CanonicalChatAttention {
     this.now = options.now || Date.now;
     this.views = new Map();
     this.receipts = new Map();
+    this.content = new WeakMap();
   }
   report(client, canonicalChatId, input) {
     const key = `${client.connectionId || client.clientId}:${input.viewId || 'main'}`;
@@ -43,18 +46,29 @@ export class CanonicalChatAttention {
   }
   observe(session, event) {
     const id = session.sessionKey;
+    let content = this.content.get(session);
+    if (!content) { content = new ChatNotificationContent(); this.content.set(session, content); }
+    let update;
+    try { update = content.observe(session.latestTurn?.id, event, this.now()); } catch { return; }
     if (event?.type === 'agent_start' && this.server.catalog.markSettlementActive?.(id)) this.server.broadcastCatalogChanged({ canonicalChatId: id, metadata: true });
     const turn = session.latestTurn;
     const ended = ['agent_end', 'zyra_server_turn_completed'].includes(event?.type) && event.willRetry !== true;
     if (ended && turn && ['completed', 'interrupted'].includes(turn.state) && this.isViewed(id)) this.acknowledge(id, turn.id, turn.completedAt);
-    const kind = event?.type === 'user_input_requested' ? 'input' : event?.type === 'approval_requested' ? 'approval' : ended && turn?.state === 'completed' ? 'completed' : null;
+    const waiting = session.pendingApprovalRequestIds?.size > 0 || session.pendingUserInputRequestIds?.size > 0;
+    const kind = update && turn?.state === 'running' ? 'update' : event?.type === 'user_input_requested' ? 'input' : event?.type === 'approval_requested' ? 'approval' : ended && turn?.state === 'completed' && !waiting ? 'completed' : null;
     if (!kind) return;
-    const token = `${id}:${kind}:${kind === 'completed' ? turn.id : event.requestId}`;
+    const token = `${id}:${kind}:${kind === 'completed' ? turn.id : kind === 'update' ? `${turn.id}:${event.id}` : event.requestId}`;
     if (this.receipts.has(token)) return;
     this.receipts.set(token, this.now());
     if (this.receipts.size > MAX_RECEIPTS) this.receipts.delete(this.receipts.keys().next().value);
+    const summary = update || content.take(kind, event);
+    // Paired clients receive this through their authorized catalog projection,
+    // including after a reconnect. It is never persisted as transcript content.
+    session.notification = { token, kind, turnId: turn?.id || null, ...(summary ? { title: summary.title, body: summary.body } : {}), occurredAt: new Date(this.now()).toISOString() };
+    this.server.broadcastCatalogChanged({ canonicalChatId: id, presence: true });
     if (this.isViewed(id) || kind === 'completed' && this.server.catalog.record?.metadata?.[id]?.lastSeenCompletedTurnId === turn.id) return;
     const desktop = [...this.server.clients.values()].find(client => client.authenticated && client.canOpenWorkspace && client.socket?.writable);
-    if (desktop) this.server.send(desktop, { type: 'chat.attention', canonicalChatId: id, kind, token, turnId: turn?.id || null, occurredAt: new Date(this.now()).toISOString() });
+    if (desktop) this.server.send(desktop, { type: 'chat.attention', canonicalChatId: id, kind, token, turnId: turn?.id || null,
+      ...(summary ? { title: summary.title, body: summary.body } : {}), occurredAt: new Date(this.now()).toISOString() });
   }
 }

@@ -146,3 +146,34 @@ test('desktop discovery exposes metadata without attaching; approved observation
     assert.equal(controller.targetId(41),undefined)
   } finally { globalThis.fetch=originalFetch }
 })
+
+test('desktop tab creation stays in the granted Chrome window without focus or automatic page access',async()=>{
+  const f=fixture(),originalFetch=globalThis.fetch,created=[],removed=[],events=[]
+  chrome.tabs.query=async()=>[{id:41,url:'https://example.test/editor',title:'Editor',incognito:false}]
+  chrome.tabs.create=async input=>{created.push(input);return {id:42,...input}}
+  chrome.tabs.remove=async id=>{removed.push(id)}
+  f.values.zyraPairingSessionV1={pairId:'pair-test',token:'token-test',port:45678,expiresAt:new Date(Date.now()+60000).toISOString()}
+  globalThis.fetch=async(_url,init)=>{
+    const event=JSON.parse(init.body);events.push(event)
+    return Response.json({ok:true,nextToken:'token-test',targetId:'chrome:new',targets:event.tabs?.map(tab=>({tabId:tab.tabId,targetId:'chrome:anchor'}))})
+  }
+  try {
+    const {AppController}=await moduleAt('src/app-controller.ts'),controller=new AppController(()=>{})
+    await controller.execute({type:'discover-tabs'},new AbortController().signal)
+    const documentId=events.find(event=>event.type==='tabs.discover').tabs[0].documentId
+    const request={type:'open-tab',tabId:41,documentId,url:'https://example.test/new'}
+    await assert.rejects(controller.execute({...request,documentId:'foreign'},new AbortController().signal),/no longer shared/)
+    await assert.rejects(controller.execute({...request,url:'chrome://settings'},new AbortController().signal),/HTTP/)
+    const opened=await controller.execute(request,new AbortController().signal)
+    assert.equal(opened.tabId,42)
+    assert.deepEqual(created,[{windowId:7,url:'https://example.test/new',active:false}])
+    assert.equal(controller.targetId(42),'chrome:new')
+    assert.equal(controller.control.list().length,0,'creation registers metadata and leaves page access to a new exact-target grant')
+    const abort=new AbortController()
+    chrome.tabs.create=async()=>{abort.abort();return {id:43}}
+    await assert.rejects(controller.execute(request,abort.signal))
+    assert.deepEqual(removed,[43],'cancellation removes only the tab created by this request')
+    f.setTab({incognito:true})
+    await assert.rejects(controller.execute(request,new AbortController().signal),/Private browsing/)
+  } finally {globalThis.fetch=originalFetch;delete globalThis.chrome}
+})

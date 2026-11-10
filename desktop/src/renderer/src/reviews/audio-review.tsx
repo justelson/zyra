@@ -9,7 +9,7 @@ import '@/index.css'
 function AudioReview() {
     const [light, setLight] = useState(false)
     const params = new URLSearchParams(location.search)
-    const [mode, setMode] = useState<'grouped' | 'individual' | 'short'>(params.get('view') === 'short' ? 'short' : params.get('grouped') === '1' ? 'grouped' : 'individual')
+    const [mode, setMode] = useState<'grouped' | 'individual' | 'short' | 'media'>(params.get('view') === 'media' ? 'media' : params.get('view') === 'short' ? 'short' : params.get('grouped') === '1' ? 'grouped' : 'individual')
     useLayoutEffect(() => {
         const theme = THEMES.find(candidate => candidate.id === (light ? 'light' : 'vercel'))!
         for (const [key, value] of Object.entries(theme.tokens)) {
@@ -20,14 +20,16 @@ function AudioReview() {
         document.body.classList.toggle('light', light)
     }, [light])
     const origin = location.origin
-    const content = mode === 'short'
+    const content = mode === 'media'
+        ? `Here’s the final cut.\n\n[School and ambition, final 4K](${origin}/__media-preview__/${params.get('state') || 'sample'}.mp4)\n\n[Soundtrack](${origin}/__audio-preview__/sample.wav)`
+        : mode === 'short'
         ? `A short audio clip.\n\n[Short clip](${origin}/__audio-preview__/short.wav)`
         : `Rendered the audio version. Original speed.\n\n[Listen to the MP3](${origin}/__audio-preview__/sample.mp3)\n\n[WAV](${origin}/__audio-preview__/sample.wav)\n\nAudio only.`
     return <div className="flex h-screen flex-col bg-sparkle-bg text-sparkle-text">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-sparkle-border px-5 text-xs text-sparkle-text-dark">
-            <span>Audio embeds</span>
+            <span>{mode === 'media' ? 'Chat media' : 'Audio embeds'}</span>
             <select aria-label="Preview layout" value={mode} onChange={event => setMode(event.target.value as typeof mode)} className="ml-auto mr-3 rounded border-0 bg-sparkle-card px-2 py-1 text-xs">
-                <option value="individual">Two-player test</option><option value="grouped">Message</option><option value="short">Short clip</option>
+                <option value="individual">Two-player test</option><option value="grouped">Message</option><option value="short">Short clip</option><option value="media">Chat media</option>
             </select>
             <button type="button" aria-label={light ? 'Use dark theme' : 'Use light theme'} onClick={() => setLight(value => !value)} className="flex size-7 items-center justify-center rounded hover:bg-white/5">{light ? <Moon size={14} /> : <Sun size={14} />}</button>
         </header>

@@ -227,6 +227,11 @@ import {
     handleSetBrowserPreviewColorScheme,
     handleSetBrowserPreviewZoom,
     handleStageBrowserPreviewArtifactForAssistant,
+    handleAttachBrowserCaptureToChat,
+    handleReadBrowserCaptureDraft,
+    handleAcknowledgeBrowserCaptureDraft,
+    handleListBrowserCaptures,
+    handleDeleteBrowserCapture,
     handleStartBrowserPreviewAnnotation,
     handleStartBrowserPreviewRecording,
     handlePrepareBrowserPreviewRecordingAudio,
@@ -347,7 +352,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     const mobileAccess = new MobileAccessManager(app.getPath('userData'), getAssistantService, async () => {
         const value = (await setupServices.preferences.get({ surface: 'desktop' })).settings.projectIconOverrides
         return value && typeof value === 'object' ? value as Record<string, string> : {}
-    })
+    }, properties => setupServices.analytics.capture({ event: 'zyra_v1_mobile_response_timing', properties }))
     setupServices.preferences.subscribe(event => { if (event.changedKeys.includes('projectIconOverrides')) mobileAccess.invalidateProjectArtwork() })
     ipcMain.handle(MOBILE_ACCESS_IPC, (_event, action, input) => {
         if (action === 'state') return mobileAccess.state()
@@ -619,6 +624,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle('devscope:browserPreview:openDevTools', handleOpenBrowserPreviewDevTools)
     ipcMain.handle('devscope:browserPreview:captureScreenshot', handleCaptureBrowserPreviewScreenshot)
     ipcMain.handle('devscope:browserPreview:stageArtifactForAssistant', handleStageBrowserPreviewArtifactForAssistant)
+    ipcMain.handle('devscope:browserPreview:attachToChat', handleAttachBrowserCaptureToChat)
+    ipcMain.handle('devscope:browserPreview:readChatDraft', handleReadBrowserCaptureDraft)
+    ipcMain.handle('devscope:browserPreview:acknowledgeChatDraft', handleAcknowledgeBrowserCaptureDraft)
+    ipcMain.handle('devscope:browserPreview:listCaptures', handleListBrowserCaptures)
+    ipcMain.handle('devscope:browserPreview:deleteCapture', handleDeleteBrowserCapture)
     ipcMain.handle('devscope:browserPreview:openArtifact', handleOpenBrowserPreviewArtifact)
     ipcMain.handle('devscope:browserPreview:revealArtifact', handleRevealBrowserPreviewArtifact)
     ipcMain.handle('devscope:browserPreview:copyArtifact', handleCopyBrowserPreviewArtifact)

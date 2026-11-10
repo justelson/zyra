@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { MAX_FLEET_SUMMARY_BYTES } from "./contracts.mjs";
+import { redactSecretText } from '../secret-redaction.mjs';
 
 const PRESENTATION_COMMANDS = [
   /\b(?:tell|instruct|require|force)\s+(?:the\s+)?parent\b/i,
@@ -11,12 +12,6 @@ const APPROVAL_CLAIMS = [
   /\bpermission\s+(?:has\s+been|is)\s+granted\b/i,
   /\bI\s+(?:grant|approve|authorize)\b/i,
 ];
-const SECRET_PATTERNS = [
-  [/\b(?:sk|sess|key)-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_SECRET]"],
-  [/\bgh[opusr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_SECRET]"],
-  [/\b(code|state)=([^&\s]{8,})/gi, (_match, name) => `${name}=[REDACTED_SECRET]`],
-  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\b/g, "[REDACTED_SECRET]"],
-];
 const PROTOCOL_MARKER_RE = /(^|\n)\s*(system|assistant|user|tool|developer)\s*:/gi;
 
 export function scanChildOutput(input, options = {}) {
@@ -25,8 +20,7 @@ export function scanChildOutput(input, options = {}) {
   for (const pattern of PRESENTATION_COMMANDS) if (pattern.test(raw)) warnings.push("parent_presentation_instruction");
   for (const pattern of APPROVAL_CLAIMS) if (pattern.test(raw)) warnings.push("approval_or_permission_claim");
 
-  let safeText = raw;
-  for (const [pattern, replacement] of SECRET_PATTERNS) safeText = safeText.replace(pattern, replacement);
+  let safeText = redactSecretText(raw);
   if (PROTOCOL_MARKER_RE.test(safeText)) {
     warnings.push("protocol_shaped_role_marker");
     safeText = safeText.replace(PROTOCOL_MARKER_RE, (_match, prefix, role) => `${prefix}[${role} marker]:`);

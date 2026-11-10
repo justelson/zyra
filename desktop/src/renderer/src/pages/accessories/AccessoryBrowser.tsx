@@ -1,3 +1,4 @@
+import { useSettings } from '@/lib/settings'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { LoaderCircle, Plus, X } from 'lucide-react'
 import type { AccessoryNavigationRequest } from '@shared/accessories'
@@ -65,6 +66,7 @@ export function AccessoryBrowser({
     const suppressClickRef = useRef<string | null>(null)
     const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
     const preview = useFilePreview()
+    const { settings } = useSettings()
     const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
     const handledRequest = useRef<string | null>(null)
     const [navigationRequest, setNavigationRequest] = useState<{ id: string; tabId: string; url: string; sessionMode: BrowserSessionMode } | null>(null)
@@ -384,7 +386,7 @@ export function AccessoryBrowser({
                 tabIdPrefix={tabIdPrefix}
                 persistState={false}
             />
-            <AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} />
+            <AssistantInspectorDeveloperToast allowChatAttachment={settings.assistantBrowserStandaloneAiTools !== false} toast={developerToast} onDismiss={dismissDeveloperToast} />
             {previewModal}
         </div>
     )

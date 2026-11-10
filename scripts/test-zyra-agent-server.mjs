@@ -43,6 +43,7 @@ class FakeWorker extends EventEmitter {
     this.controlResponses = [];
     this.requests = [];
     this.canonicalReceipts = new Map();
+    this.queue = { steering: [], followUp: [] };
     this.disposed = false;
   }
   isAlive() { return !this.disposed; }
@@ -52,6 +53,7 @@ class FakeWorker extends EventEmitter {
       threadId: String(payload.threadId || "").includes("chat-auth-peer") ? "chat:auth-peer" : "chat:test",
       providerThreadId: sessionPath,
       events: [],
+      availableModels: [{ id: 'openai-codex/gpt-5.6-sol', supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], contextWindow: 400000 }],
       messages: [
         { id: "connected:user", role: "user", content: "connected user" },
         { id: "connected:tool", role: "toolResult", toolCallId: "connected:call", content: [{ type: "text", text: "connected historical output" }] }
@@ -69,6 +71,16 @@ class FakeWorker extends EventEmitter {
       return Promise.resolve({ success: true, text: "Utility text result", model: payload.model || "openai-codex/test" });
     }
     if (type === "abort") return Promise.resolve({ aborted: true });
+    if (type === 'steer' || type === 'follow_up') {
+      this.queue[type === 'steer' ? 'steering' : 'followUp'].push(payload.prompt);
+      this.emit('event', { type: 'queue_update', ...this.queue });
+      return Promise.resolve({});
+    }
+    if (type === 'clear_queue') {
+      const cleared = { steering: [...this.queue.steering], followUp: [...this.queue.followUp] };
+      this.queue = { steering: [], followUp: [] }; this.emit('event', { type: 'queue_update', ...this.queue });
+      return Promise.resolve(cleared);
+    }
     if (type === "canonical_message.append") {
       const receipt = {
         receiptId: "zyra_entry_voice_test",
@@ -476,10 +488,10 @@ try {
   assert.equal(server.state().sessions[0].activeRequests, 1, "closing Desktop must not stop active work");
   workers[0].emit("event", { type: "managed_bash_job_update", jobId: "cmd:server", status: "running", background: true });
   workers[0].emit("event", { type: "agent_end", willRetry: false });
-  await waitUntil(() => server.state().sessions[0].latestTurn?.state === "completed");
+  await waitUntil(() => tuiEvents.some(entry => entry.event?.type === 'agent_end' && entry.event?.willRetry === false));
   const agentEndCatalog = await tui.request("catalog.list", {});
-  assert.equal(agentEndCatalog.chats[0].presence.state, "ready", "agent_end must settle the canonical turn before the prompt request unwinds");
-  assert.equal(agentEndCatalog.chats[0].presence.activeTurnId, null, "settled presence cannot advertise a live turn id");
+  assert.equal(agentEndCatalog.chats[0].presence.state, "running", "provider end cannot settle a request that still owns post-turn work");
+  assert.equal(agentEndCatalog.chats[0].presence.activeTurnId, "turn:test");
   assert.equal(agentEndCatalog.chats[0].presence.modelRequestProgress, null);
   await assert.rejects(tui.request('session.request', { sessionKey: 'chat:test', type: 'model_ping', payload: { requestId: 'request:ping', targetTurnId: 'turn:test' } }), /exact active turn/i, 'terminal turn rejects Ping even before worker unwind');
   assert.equal(server.sessions.get("chat:test")?.activeRequestContext?.turnId, "turn:test", "completed response retains worker ownership through post-turn maintenance");
@@ -509,12 +521,12 @@ try {
   const reconnect = client("desktop:reconnect", "desktop", ["desktop-control"]);
   await reconnect.connect();
   const replay = await reconnect.attach({ project, cwd: project, session: "chat:test", localThreadId: "assistant-thread:reconnect", lastSequence: 0 });
-  assert.equal(replay.replay.length, 18, "replay includes accepted prompt, process ownership, post-turn maintenance and durable question-response receipts");
+  assert.equal(replay.replay.length, 19, "replay includes explicit canonical completion after post-turn work and durable question-response receipts");
   assert.equal(replay.replay.filter(entry => ['user_input_response_claimed', 'user_input_response_completed'].includes(entry.event.type)).length, 2, 'Question resolution claims and completions survive reconnect without a second dispatch');
   assert.equal(replay.replay.filter(entry => entry.event.type === 'managed_bash_job_update').length, 2);
   assert.equal(replay.replay.filter((entry) => entry.event.type === "zyra_server_prompt_accepted").length, 1);
   const providerReplay = replay.replay.filter((entry) => !["zyra_server_prompt_accepted", "compaction_start", "compaction_end", "managed_bash_job_update", "user_input_response_claimed", "user_input_response_completed", "model_request_progress"].includes(entry.event.type));
-  assert.equal(providerReplay.length, 9, "reconnect must replay metadata, fleet, provider events, approvals, user input, retry state, and the authoritative agent completion");
+  assert.equal(providerReplay.length, 10, "reconnect retains provider end and explicit canonical completion separately");
   assert.equal(providerReplay[0].event.type, "agent.created");
   assert.equal(Object.keys(providerReplay[0].event.fleet.agents).length, 1);
   assert.equal(providerReplay[1].event.type, "session_metadata");
@@ -530,7 +542,7 @@ try {
   assert.equal(providerReplay[8].event.type, "agent_end");
   assert.equal(providerReplay[8].event.willRetry, false);
   assert.equal(providerReplay.filter((entry) => entry.event.type === "agent_end" && entry.event.willRetry !== true).length, 1, "only the final agent_end is the durable provider completion boundary");
-  assert.equal(providerReplay.filter((entry) => entry.event.type === "zyra_server_turn_completed").length, 0, "prompt resolution cannot append a duplicate synthetic completion after agent_end");
+  assert.equal(providerReplay.filter((entry) => entry.event.type === "zyra_server_turn_completed").length, 1, "the owning request publishes one explicit completion after provider end and maintenance");
 
   const maintenancePrompt = tui.request("session.request", {
     sessionKey: "chat:test", type: "prompt", payload: { prompt: "complete then maintain" },
@@ -542,7 +554,7 @@ try {
   workers[0].emit("event", { type: "message_start", message: { role: "user", content: [{ type: "text", text: "complete then maintain" }] } });
   assert.equal(server.attachmentSnapshot(maintainedSession, maintainedSession.sequence).pendingOperations.length, 0, "canonical user receipt clears accepted placeholder from attach snapshots");
   workers[0].emit("event", { type: "agent_end", willRetry: false });
-  await waitUntil(() => server.state().sessions[0].latestTurn?.state === "completed");
+  assert.equal(server.state().sessions[0].latestTurn?.state, 'running', 'post-turn work remains owned until the worker request finishes');
   const beforeQueued = workers[0].requests.filter((entry) => entry.type === "prompt").length;
   const queuedPrompt = tui.request("session.request", {
     sessionKey: "chat:test", type: "prompt", payload: { prompt: "next during maintenance" },
@@ -555,7 +567,7 @@ try {
   await waitUntil(() => tuiEvents.some((entry) => entry.event?.type === "compaction_start" && entry.requestContext?.turnId === "turn:maintenance"));
   const maintainingSnapshot = server.attachmentSnapshot(maintainedSession, maintainedSession.sequence);
   assert.equal(maintainingSnapshot.replay.length, 0);
-  assert.equal(maintainingSnapshot.activeRequestContext, null, "completed work is not advertised as an active response during compaction");
+  assert.equal(maintainingSnapshot.activeRequestContext.turnId, 'turn:maintenance', "compaction retains the canonical request until explicit completion");
   assert.equal(maintainingSnapshot.pendingOperations.length, 1);
   assert.equal(maintainingSnapshot.pendingOperations[0].event.type, "compaction_start");
   assert.equal(maintainingSnapshot.pendingOperations[0].requestContext.turnId, "turn:maintenance", "reconnect retains the completed turn's maintenance envelope");
@@ -672,14 +684,14 @@ try {
     }
   });
   workers[0].emit("event", { type: "agent_end", willRetry: false });
-  await waitUntil(() => !tuiRuntime.session.isStreaming && !resumedActiveTui.session.isStreaming);
+  await waitUntil(() => tuiRuntime.session.isStreaming && resumedActiveTui.session.isStreaming);
   workers[0].emit("event", { type: "compaction_start", reason: "manual" });
   await waitUntil(() => tuiRuntime.session.isCompacting && resumedActiveTui.session.isCompacting);
-  assert.equal(tuiRuntime.session.isStreaming, false, "post-answer compaction cannot resurrect the completed TUI response");
-  assert.equal(resumedActiveTui.session.isStreaming, false);
+  assert.equal(tuiRuntime.session.isStreaming, true, "post-answer compaction retains the still-owned turn");
+  assert.equal(resumedActiveTui.session.isStreaming, true);
   workers[0].emit("event", { type: "compaction_end", reason: "manual", aborted: false, willRetry: false });
   await waitUntil(() => !tuiRuntime.session.isCompacting && !resumedActiveTui.session.isCompacting);
-  assert.equal(tuiRuntime.session.isStreaming, false, "maintenance completion keeps the TUI response settled");
+  assert.equal(tuiRuntime.session.isStreaming, true, "only the canonical completion settles the TUI response");
   workers[0].finishPrompt({});
   await externalPrompt;
   await waitUntil(() => !tuiRuntime.session.isStreaming && !resumedActiveTui.session.isStreaming);
@@ -703,7 +715,8 @@ try {
   const pendingFollowUp = tuiRuntime.session.followUp("continue after this turn");
   assert.deepEqual(tuiRuntime.session.getSteeringMessages(), ["redirect from TUI"]);
   assert.deepEqual(tuiRuntime.session.getFollowUpMessages(), ["continue after this turn"]);
-  assert.deepEqual(tuiRuntime.session.clearQueue(), {
+  await Promise.all([pendingSteer, pendingFollowUp]);
+  assert.deepEqual(await tuiRuntime.session.clearQueue(), {
     steering: ["redirect from TUI"],
     followUp: ["continue after this turn"]
   }, "remote clearQueue must return queued text for Stop/Escape restoration");

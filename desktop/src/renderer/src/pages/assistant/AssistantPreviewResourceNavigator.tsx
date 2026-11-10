@@ -10,7 +10,7 @@ import type { ComposerContextFile } from './assistant-composer-types'
 import { getContentTypeTag, getContextFileMeta, toKbLabel } from './assistant-composer-utils'
 import { openAssistantFileTarget } from './assistant-file-navigation'
 import { buildAssistantResourceIndex, type AssistantResource } from './assistant-resource-index'
-import { assistantResourceCaption } from './assistant-resource-labels'
+import { assistantResourceCaption, assistantResourceForPath } from './assistant-resource-labels'
 import type { AssistantDiffTurn } from './assistant-diff-types'
 import { isClipboardAttachmentReference } from './assistant-timeline-helpers'
 
@@ -28,6 +28,7 @@ type AssistantPreviewResourceNavigatorProps = {
     turns: AssistantDiffTurn[]
     projectPath: string | null
     activeFilePath: string
+    resources?: AssistantResource[]
     onOpenPreview: (file: { name: string; path: string }, ext: string, options?: PreviewOpenOptions) => Promise<void>
     onOpenUrl: (url: string) => void
 }
@@ -76,13 +77,6 @@ function resourceLocation(resource: AssistantResource): string {
     return resource.url || resource.path || resource.attachment?.path || resource.subtitle
 }
 
-function resourceMatchesActiveFile(resource: AssistantResource, activeFilePath: string): boolean {
-    const activePath = normalizedPath(activeFilePath)
-    if (!activePath) return false
-    return [resource.path, resource.attachment?.path]
-        .some((candidate) => normalizedPath(candidate) === activePath)
-}
-
 function ResourceImage({ resource }: { resource: AssistantResource }) {
     const immediateSource = directImageSource(resource)
     const [resolvedSource, setResolvedSource] = useState<string | null>(immediateSource)
@@ -124,6 +118,7 @@ export function AssistantPreviewResourceNavigator({
     turns,
     projectPath,
     activeFilePath,
+    resources: suppliedResources,
     onOpenPreview,
     onOpenUrl
 }: AssistantPreviewResourceNavigatorProps) {
@@ -134,9 +129,9 @@ export function AssistantPreviewResourceNavigator({
     const [explicitSelection, setExplicitSelection] = useState<{ id: string; activeFilePath: string } | null>(null)
     const [inlinePreview, setInlinePreview] = useState<ComposerContextFile | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const resources = useMemo(() => buildAssistantResourceIndex({ turns, projectPath }).resources, [projectPath, turns])
+    const resources = useMemo(() => suppliedResources ?? buildAssistantResourceIndex({ turns, projectPath }).resources, [projectPath, turns, suppliedResources])
     const normalizedActiveFilePath = normalizedPath(activeFilePath)
-    const activeFileResource = resources.find((resource) => resourceMatchesActiveFile(resource, activeFilePath))
+    const activeFileResource = assistantResourceForPath(resources, activeFilePath)
     const explicitSelectionIsCurrent = Boolean(
         explicitSelection
         && explicitSelection.activeFilePath === normalizedActiveFilePath

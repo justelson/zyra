@@ -32,6 +32,7 @@ export interface FilePreviewModalProps extends PreviewMeta {
     previewBody?: ReactNode
     mediaItems?: PreviewMediaItem[]
     navigationSidebar?: ReactNode
+    navigationSidebarInitiallyOpen?: boolean
     onSaved?: (filePath: string) => Promise<void> | void
     onShowToast?: (message: string, tone?: 'success' | 'error' | 'info') => void
     onClose: () => void

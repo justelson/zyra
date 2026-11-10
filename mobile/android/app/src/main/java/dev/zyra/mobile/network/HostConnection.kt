@@ -50,7 +50,8 @@ class HostConnection(val machine: Machine) {
                     val value = JSONObject(text)
                     when (value.optString("type")) {
                         "hello.ok" -> {
-                            require(value.getString("hostId") == machine.id) { "The paired host identity changed." }
+                            if (value.optInt("version") != 1) throw HostFailure("UNSUPPORTED_PROTOCOL", "Update Zyra to connect.")
+                            if (value.getString("hostId") != machine.id) throw HostFailure("HOST_IDENTITY_CHANGED", "The paired host identity changed.")
                             val advertised = value.optJSONArray("capabilities")
                             capabilities = (0 until (advertised?.length() ?: 0)).map { advertised!!.getString(it) }.toSet()
                             mutableRuntimeStatus.value = RuntimeStatus.fromHello(value)

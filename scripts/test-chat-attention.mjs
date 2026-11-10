@@ -58,10 +58,18 @@ try {
   await desktop.request('session.view', { session: 'chat:other', viewId: 'main', viewing: true });
   await view(desktop, false);
   assert.equal((await desktop.request('catalog.get', { session: 'chat:other' })).chat.presence.viewers.length, 1, 'a stale old-chat cleanup cannot remove the new reader');
-  begin('unread'); end(); await flush();
+  begin('unread');
+  worker.emit('event', { type: 'session_notification', id: 'notify-completed', kind: 'completed', title: 'Preview build ready', body: 'Checks passed. The installer is ready in Downloads.' });
+  await flush(); assert.equal(alerts.length, 0, 'the agent cannot announce completion while work is still running');
+  end(); await flush();
   assert.equal(alerts.length, 1);
   assert.equal((await flush()).presence.viewers.length, 0, 'viewing a different chat does not suppress this completion');
   assert.equal(alerts[0].kind, 'completed');
+  assert.equal(alerts[0].title, 'Preview build ready');
+  assert.equal(alerts[0].body, 'Checks passed. The installer is ready in Downloads.');
+  const mobileSummary = (await phone.request('catalog.get', { session: id })).chat.presence.notification;
+  assert.equal(mobileSummary.token, alerts[0].token);
+  assert.equal(mobileSummary.body, alerts[0].body, 'paired clients receive the same structured summary through their catalog');
   end(); await flush();
   assert.equal(alerts.length, 1, 'duplicate terminal events do not alert twice');
   await view(desktop, true, { surface: 'browser' });
@@ -75,8 +83,11 @@ try {
   await desktop.request('session.view', { session: id, viewId: 'other-window', viewing: false });
 
   begin('needs-input');
-  worker.emit('event', { type: 'user_input_requested', requestId: 'question-one' }); await flush();
+  worker.emit('event', { type: 'user_input_requested', requestId: 'question-one', questions: [{ header: 'Target', question: 'Which preview target should be built?' }] }); await flush();
   assert.equal(alerts.at(-1).kind, 'input');
+  assert.equal(alerts.at(-1).body, 'Which preview target should be built?');
+  end(); await flush();
+  assert.equal(alerts.at(-1).kind, 'input', 'a pending question cannot produce a false completion notice');
   const count = alerts.length;
   worker.emit('event', { type: 'user_input_requested', requestId: 'question-one' }); await flush();
   assert.equal(alerts.length, count);
@@ -95,5 +106,16 @@ try {
   await view(phone, true); phone.close();
   await new Promise(resolve => setImmediate(resolve)); await flush();
   assert.equal((await flush()).presence.viewers.length, 0, 'disconnect releases the reader');
+  session.pendingApprovalRequestIds.clear(); session.pendingUserInputRequestIds.clear();
+  begin('milestone');
+  worker.emit('event', { type: 'session_notification', id: 'update-one', kind: 'update', title: 'Checks passed', body: 'Packaging is running.' }); await flush();
+  assert.equal(alerts.at(-1).kind, 'update');
+  const updates = alerts.length;
+  worker.emit('event', { type: 'session_notification', id: 'update-too-soon', kind: 'update', title: 'More checks', body: 'Still running.' }); await flush();
+  assert.equal(alerts.length, updates, 'server enforces milestone spacing');
+  end(); await flush();
+  const finishedCount = alerts.length;
+  worker.emit('event', { type: 'session_notification', id: 'late-update', kind: 'update', title: 'Late', body: 'Must not show.' }); await flush();
+  assert.equal(alerts.length, finishedCount, 'updates cannot revive a completed turn');
   console.log('PASS: live canonical views, durable read receipts, cross-surface sync, one-shot PC notices, attention, retries, expiry and disconnect');
 } finally { for (const client of clients) client.close(); await server.stop(); rmSync(dir, { recursive: true, force: true }); }

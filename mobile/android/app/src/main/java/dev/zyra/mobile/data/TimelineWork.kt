@@ -34,6 +34,12 @@ class TimelineWork {
         val value = raw(item); val message = value.optJSONObject("message") ?: value
         return item.id.removePrefix("message:").startsWith("voice_") || message.optJSONObject("zyraCanonicalMessage")?.optString("modality") == "voice"
     }
+    private fun userRoot(item: TimelineItem): String? {
+        val value = raw(item); val message = value.optJSONObject("message") ?: value
+        val tag = message.optJSONObject("zyraUserTurn") ?: return null
+        val root = tag.optString("rootMessageId")
+        return root.takeIf { tag.optInt("version") == 1 && Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,511}").matches(it) }
+    }
     private fun reply(item: TimelineItem): Boolean {
         if (item.text.isNotBlank()) return true
         val value = raw(item); val message = value.optJSONObject("message") ?: value
@@ -86,7 +92,14 @@ class TimelineWork {
         val result = mutableListOf<ChatRailRow>()
         val nextGroupIds = mutableMapOf<String, String>()
         val usedGroupIds = mutableSetOf<String>()
-        val boundaries = view.items.indices.filter { view.items[it].role == "user" }.toMutableList()
+        val boundaries = mutableListOf<Int>()
+        var previousRoot: String? = null
+        for ((index, item) in view.items.withIndex()) {
+            if (item.role != "user") continue
+            val root = userRoot(item)
+            if (root == null || root != previousRoot) boundaries.add(index)
+            previousRoot = root ?: item.id.removePrefix("message:")
+        }
         if (boundaries.firstOrNull() != 0) boundaries.add(0, 0)
         boundaries.add(view.items.size)
         for (part in 0 until boundaries.lastIndex) {
@@ -98,7 +111,8 @@ class TimelineWork {
                 }
             }
             if (segment.isEmpty()) continue
-            val interrupted = segment.any { item ->
+            val stopped = segment.any { item -> raw(item).optJSONObject("interruption")?.optString("kind") == "stopped" }
+            val interrupted = stopped || segment.any { item ->
                 val value = raw(item); val message = value.optJSONObject("message") ?: value
                 message.optString("stopReason") in setOf("aborted", "interrupted") || value.optString("outcome") == "interrupted"
             }
@@ -135,7 +149,7 @@ class TimelineWork {
                 }
             }
             if (interrupted && !running) result.add(ChatRailRow.Message(TimelineItem(
-                "interrupted:" + segment.first().id, "system", "Interrupted", "interrupted")))
+                "interrupted:" + segment.first().id, "system", if (stopped) "Stopped" else "Interrupted", "interrupted")))
         }
         groupIds = nextGroupIds
         return result

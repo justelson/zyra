@@ -46,7 +46,10 @@ export function mountBrowserRecordingOverlay(): void {
         menu.style.maxWidth = '344px'
         const menuWidth = opened ? Math.max(286, menu.offsetWidth) : 0
         const recoveryWidth = !message.hidden || !get('saved-actions').hidden ? 270 : 0
-        const width = Math.min(424, Math.ceil(Math.max(toolbar.scrollWidth + 2, menuWidth + 2, recoveryWidth)))
+        toolbar.style.width = 'max-content'
+        const toolbarWidth = toolbar.scrollWidth
+        toolbar.style.width = ''
+        const width = Math.min(424, Math.ceil(Math.max(toolbarWidth + 2, menuWidth + 2, recoveryWidth)))
         root.style.width = `${width}px`
         menu.style.width = ''
         menu.style.maxWidth = ''
@@ -173,6 +176,10 @@ export function mountBrowserRecordingOverlay(): void {
         root.title = next.title
         for (const key of ['background', 'foreground', 'muted', 'accent', 'border'] as const) document.documentElement.style.setProperty(`--${key}`, next.theme[key])
         document.documentElement.style.colorScheme = next.theme.dark ? 'dark' : 'light'
+        document.documentElement.style.fontFamily = next.theme.fontFamily || 'system-ui, sans-serif'
+        const font = get('appearance-font')
+        if (next.theme.fontCss !== undefined && font.textContent !== next.theme.fontCss) font.textContent = next.theme.fontCss || ''
+        get('saved-label').hidden = next.status !== 'saved'
         const seconds = Math.max(0, Math.floor(next.elapsedMs / 1000))
         get('duration').textContent = seconds >= 3600 ? `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
         const ready = next.status === 'ready'
@@ -200,9 +207,10 @@ export function mountBrowserRecordingOverlay(): void {
         audio.setAttribute('aria-label', audio.title)
         get('dismiss').hidden = (!terminal && !ready) || next.unsaved
         get('saved-actions').hidden = !terminal || (!next.hasArtifact && !next.unsaved)
+        get('attach-chat').hidden = !next.hasArtifact || !next.canAttachToChat
         get('view').hidden = !next.hasArtifact
         get('save-copy').hidden = !next.unsaved
-        const text = next.error || (next.status === 'starting' ? 'Starting recording…' : next.status === 'stopping' ? 'Saving recording…' : next.status === 'saved' ? 'Recording saved' : next.status === 'paused' ? 'Recording paused' : '')
+        const text = next.error || (next.status === 'starting' ? 'Starting recording…' : next.status === 'stopping' ? 'Saving recording…' : next.status === 'paused' ? 'Recording paused' : '')
         message.hidden = !text
         message.dataset.error = String(Boolean(next.error))
         if (message.textContent !== text) message.textContent = text
@@ -210,6 +218,7 @@ export function mountBrowserRecordingOverlay(): void {
         else renderMenu()
         resize()
     }
+    document.fonts.addEventListener('loadingdone', resize)
     api.onState(next => { stateEvents++; render(next) })
     void api.getState().then(next => { if (next && stateEvents === 0) render(next) }).catch(() => {
         if (stateEvents) return

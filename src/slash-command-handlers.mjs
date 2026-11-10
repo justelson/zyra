@@ -1,3 +1,4 @@
+import { formatTuiResponseTimings } from './diagnostics/tui-response-summary.mjs';
 import {
   buildSessionInfo,
   configureZyraOpenAIApiKey,
@@ -124,10 +125,18 @@ async function handleSlashCommand(runtime, ui, text, parsed, controls = {}) {
         return true;
       }
       await runtime.agentServer?.refreshPresence?.();
+      await runtime.agentServer?.memoryPreferences?.();
       ui.status(describeRuntime(runtime));
       return true;
     case "profile":
       return runProfile(runtime, ui, arg);
+    case "diagnostics": {
+      if (!runtime.responseTimings) { ui.info('Response timing diagnostics require the canonical terminal client.'); return true; }
+      if (arg && arg.trim() !== 'json') { ui.info('Usage: /diagnostics [json]'); return true; }
+      const rows = runtime.responseTimings.recorder.read();
+      ui.info(arg.trim() === 'json' ? JSON.stringify(rows, null, 2) : formatTuiResponseTimings(rows).join('\n'));
+      return true;
+    }
     case "memory":
       return runMemory(runtime, ui, arg);
     case "browser":
@@ -168,6 +177,7 @@ async function handleSlashCommand(runtime, ui, text, parsed, controls = {}) {
     case "chat":
       if (arg.trim().toLowerCase() === "info") {
         await runtime.agentServer?.refreshPresence?.();
+      await runtime.agentServer?.memoryPreferences?.();
         ui.sessionInfo(buildSessionInfo(runtime));
         return true;
       }
@@ -340,7 +350,7 @@ async function runProfile(runtime, ui, arg) {
   return true;
 }
 
-function runMemory(runtime, ui, arg) {
+async function runMemory(runtime, ui, arg) {
   const memory = createZyraMemoryController(runtime);
   const action = arg.trim().toLowerCase();
   if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
@@ -348,13 +358,13 @@ function runMemory(runtime, ui, arg) {
     return true;
   }
 
-  const current = memory.threadMode();
+  const current = runtime.agentServer ? await runtime.agentServer.memoryPreferences() : memory.threadMode();
   const nextMode = ["on", "enable", "enabled"].includes(action)
     ? "enabled"
     : ["off", "disable", "disabled"].includes(action)
       ? "disabled"
       : current.mode === "enabled" ? "disabled" : "enabled";
-  const result = memory.setThreadMode(nextMode);
+  const result = runtime.agentServer ? await runtime.agentServer.setMemoryMode(nextMode) : memory.setThreadMode(nextMode);
   ui.info(`Memory ${result.mode === "enabled" ? "on" : "off"} for this chat.`);
   return true;
 }
@@ -592,7 +602,7 @@ async function runMemoryConsolidate(runtime, ui, controls) {
   ui.beginProgress("Consolidating Zyra memory");
   controls.setTerminalTitleState?.("compacting");
   try {
-    const result = await memory.consolidate();
+    const result = runtime.agentServer ? await runtime.agentServer.consolidateMemory() : await memory.consolidate();
     ui.info(memory.formatConsolidationResult(result));
   } finally {
     ui.endProgress();

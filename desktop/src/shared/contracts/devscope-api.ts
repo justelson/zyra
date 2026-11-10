@@ -402,6 +402,7 @@ export type DevScopeBrowserAnnotationTheme = {
 }
 
 export type DevScopeBrowserAnnotationInput = DevScopeBrowserGuestTargetInput & {
+    standalone?: boolean
     theme: DevScopeBrowserAnnotationTheme
 }
 
@@ -511,7 +512,15 @@ export type DevScopeUpdateActionResult = {
     state: DevScopeUpdateState
 }
 
-export type DevScopeAppMenuCommand = 'new-chat' | 'search' | 'settings' | 'reload' | 'about'
+export type DevScopeBrowserCaptureDraft = {
+    id: string
+    sessionId: string | null
+    reference: string
+    artifact: DevScopeBrowserCaptureArtifact
+    annotation?: DevScopeBrowserAnnotationPayload
+}
+
+export type DevScopeAppMenuCommand = 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture'
 
 export type DevScopeWindowRuntimeInfo = {
     platform: ZyraClientPlatform
@@ -1026,6 +1035,11 @@ export interface DevScopeApi {
     setBrowserPreviewColorScheme: (input: DevScopeBrowserGuestTargetInput & { colorScheme: DevScopeBrowserColorScheme }) => Promise<DevScopeResult>
     openBrowserPreviewDevTools: (input: DevScopeBrowserGuestTargetInput & { mode?: 'docked' | 'popout' }) => Promise<DevScopeResult>
     captureBrowserPreviewScreenshot: (input: DevScopeBrowserGuestTargetInput) => Promise<DevScopeResult<{ artifact: DevScopeBrowserCaptureArtifact }>>
+    attachBrowserCaptureToChat: (input: { artifactId: string; sessionId?: string | null; annotation?: DevScopeBrowserAnnotationPayload }) => Promise<DevScopeResult>
+    readBrowserCaptureDraft: () => Promise<DevScopeResult<{ draft: DevScopeBrowserCaptureDraft | null }>>
+    acknowledgeBrowserCaptureDraft: (id: string) => Promise<DevScopeResult>
+    listBrowserCaptures: (input?: { offset?: number; limit?: number; kind?: 'screenshot' | 'recording' }) => Promise<DevScopeResult<{ captures: DevScopeBrowserCaptureArtifact[]; total: number; offset: number; limit: number }>>
+    deleteBrowserCapture: (artifactId: string) => Promise<DevScopeResult>
     stageBrowserPreviewArtifactForAssistant: (artifactId: string) => Promise<DevScopeResult<{ reference: string }>>
     openBrowserPreviewArtifact: (artifactId: string) => Promise<DevScopeResult>
     revealBrowserPreviewArtifact: (artifactId: string) => Promise<DevScopeResult>

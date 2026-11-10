@@ -47,7 +47,7 @@ const DESKTOP_WORKSPACE_TIMEOUT_MS = 15_000;
 const DESKTOP_WORKSPACE_KINDS = new Set(["browser", "details", "explorer", "resources", "agents", "diff", "terminal"]);
 const DESKTOP_WORKSPACE_OPERATIONS = new Set(["open", "list", "show"]);
 const ACTIVE_FLEET_STATUSES = new Set(["queued", "starting", "running", "waiting", "blocked", "paused", "recovering"]);
-const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.global\.configure|auth\.refresh|abort|steer|model_ping|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|managed_bash\.(?:list|stop)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
+const BRIDGE_REQUEST_PATTERN = /^(?:prompt|thread_message\.receive|configure|preferences\.get|memory\.configure|memory\.run|memory\.global\.configure|auth\.refresh|abort|bash\.abort|steer|model_ping|follow_up|compact|clear_queue|reload|canonical_message\.(?:append|find)|managed_bash\.(?:list|stop)|approval\.respond|user_input\.respond|agents\.[a-zA-Z0-9._-]+|workflows\.[a-zA-Z0-9._-]+)$/;
 
 function hashAuthorityProof(value) {
   return createHash("sha256").update(String(value || "")).digest("base64url");
@@ -742,6 +742,7 @@ export class ZyraAgentServer extends EventEmitter {
       attention: [...session.pendingUserInputRequestIds].some(id => session.pendingUserInputModes.get(id) !== 'async') ? "user-input" : session.pendingApprovalRequestIds.size > 0 ? "approval" : null,
       pendingQuestionCount: [...session.pendingUserInputRequestIds].filter(id => session.pendingUserInputModes.get(id) === 'async').length,
       latestTurn: session.latestTurn ? { ...session.latestTurn } : null,
+      notification: session.notification?.turnId === session.latestTurn?.id ? session.notification : null,
       modelRequestProgress: turnRunning ? session.modelRequestProgress || null : null,
       latestSequence: session.sequence
     };
@@ -922,6 +923,9 @@ export class ZyraAgentServer extends EventEmitter {
       pendingOperations: [...session.pendingOperationEvents.values()].sort((a, b) => a.sequence - b.sequence),
       liveMessage: session.liveMessage,
       pendingTools: [...session.pendingToolEvents.values()],
+      queue: session.queueState,
+      capabilities: { canonicalTurnCompletion: true, canonicalSnapshots: true, queueReceipts: true, modelCatalog: true, bashAbort: true, serviceTier: true,
+        configurationFields: ['model', 'thinking', 'profile', 'runtimeMode', 'webSearch', 'webFetch', 'codexServiceTier'] },
       latestSequence: session.sequence,
       activeRequestContext: session.latestTurn?.state === "running" ? session.activeRequestContext : null,
       presence: this.sessionPresence(session.sessionKey),
@@ -1116,6 +1120,7 @@ class ServerOwnedSession {
     this.pendingAttentionEvents = new Map();
     this.liveMessage = null;
     this.pendingToolEvents = new Map();
+    this.queueState = { steering: [], followUp: [] };
     this.pendingOperationEvents = new Map();
     this.pendingApprovalRequestIds = new Set();
     this.approvalResponses = new ApprovalResponses(this.pendingApprovalRequestIds);
@@ -1155,13 +1160,13 @@ class ServerOwnedSession {
     });
     this.worker.on("stderr", (text) => this.server.emit("worker-stderr", { sessionKey: this.sessionKey, text }));
     this.worker.on("worker-error", (error) => this.server.emit("worker-error", { sessionKey: this.sessionKey, error }));
-    this.worker.on("exit", ({ error, code }) => {
+    this.worker.on("exit", ({ error, code, diagnostic }) => {
       if (this.worker.shutdownReason && code === 0) {
         const owned = [this, ...new Set(this.server.sessions.values())].filter((value, index, all) => all.indexOf(value) === index && (value === this || value.parentOwner === this));
         for (const session of owned) if (session.latestTurn?.state === 'running') session.publish({ type: 'zyra_server_turn_completed', turnId: session.latestTurn.id, outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } });
         for (const session of owned) { session.dispose('Stopped for agent update.'); this.server.removeSession(session); }
       } else {
-        this.publish({ type: "server.worker.exited", error: error.message });
+        this.publish({ type: "server.worker.exited", error: error.message, ...(diagnostic ? { diagnostic } : {}) });
         this.server.removeSession(this);
       }
     });
@@ -1332,6 +1337,9 @@ class ServerOwnedSession {
       || this.isTurnTerminal(this.activeRequestContext?.turnId))) {
       throw new AgentServerProtocolError(`${type === 'model_ping' ? 'Ping' : 'Steering'} requires the exact active turn.`, 'AGENT_SERVER_SESSION_BUSY');
     }
+    if (type === 'model_ping' && this.lastOwnedAgentEnd?.turnId === this.activeRequestContext?.turnId && !this.modelRequestProgress) {
+      throw new AgentServerProtocolError('Ping requires the exact active turn and provider request.', 'AGENT_SERVER_SESSION_BUSY');
+    }
     const approvalResponsePromise = type === "approval.respond" ? this.approvalResponses.respond(client.clientId, payload, () => this.worker.request(type, payload)) : null;
     const continuationEpoch = this.userInputContinuationEpoch;
     const questionId = String(payload?.requestId || '');
@@ -1377,7 +1385,7 @@ class ServerOwnedSession {
     // Validate attachments before accepting a visible prompt, using the worker's contract.
     const promptImages = type === "prompt" ? normalizePromptImages(payload?.images) : undefined;
     if (type === "prompt" && (this.activeRequestContext || this.foregroundPromptRequests > 0)) {
-      if (!this.isTurnTerminal(this.activeRequestContext?.turnId)) {
+      if (!this.isTurnTerminal(this.activeRequestContext?.turnId) && this.lastOwnedAgentEnd?.turnId !== this.activeRequestContext?.turnId) {
         throw new AgentServerProtocolError("This canonical chat already has an active turn.", "AGENT_SERVER_SESSION_BUSY");
       }
       // The answer is complete, but context maintenance still owns the worker.
@@ -1410,7 +1418,7 @@ class ServerOwnedSession {
       this.server.notifyDesktopWorkspaceTurn(this.sessionKey, requestContext.turnId);
       // SDK preflight may compact before it appends the canonical user message.
       // This receipt is a presentation event; the worker remains the transcript writer.
-      if (type === 'prompt') this.publish({ type: "zyra_server_prompt_accepted", message: {
+      if (type === 'prompt') this.publish({ type: "zyra_server_prompt_accepted", timingStartedAt: performance.timeOrigin + performance.now(), message: {
         role: "user", content: [{ type: "text", text: String(payload?.prompt || "") }, ...(promptImages || [])], timestamp: Date.now()
       } });
     }
@@ -1439,7 +1447,8 @@ class ServerOwnedSession {
         this.publish({ type: 'zyra_server_turn_completed', turnId: stoppingTurnId, outcome: 'interrupted', interruption: { kind: 'stopped', source: 'user' } });
       }
       if (ownsTurn && !this.isTurnTerminal(requestContext.turnId)) {
-        this.publish({ type: "zyra_server_turn_completed", outcome: "completed" });
+        const ended = this.lastOwnedAgentEnd;
+        this.publish({ type: "zyra_server_turn_completed", ...(ended?.turnId === requestContext.turnId ? ended.result : { outcome: 'completed' }) });
       }
       return result;
     } catch (error) {
@@ -1521,6 +1530,7 @@ class ServerOwnedSession {
     if (event?.type === 'zyra_agent_interruption') this.pendingAgentInterruption = event.interruption;
     if (event?.type === 'agent_start') {
       this.pendingAgentInterruption = null;
+      this.lastOwnedAgentEnd = null;
       // A queued continuation can begin after agent_end but before its owning
       // request returns. Completed IDs are immutable on every client: reuse
       // would hide the new run and make Stop target a completed turn.
@@ -1532,6 +1542,14 @@ class ServerOwnedSession {
     if (event?.type === 'agent_end' && this.pendingAgentInterruption) {
       event = { ...event, outcome: 'interrupted', interruption: this.pendingAgentInterruption };
       this.pendingAgentInterruption = null;
+    }
+    if (event?.type === 'auto_retry_end' && event.success === false && this.foregroundPromptRequests > 0) {
+      const errorMessage = String(event.finalError || 'Provider recovery failed.');
+      this.lastOwnedAgentEnd = { turnId: this.activeRequestContext?.turnId, result: isNetworkRecoveryError(errorMessage)
+        ? { outcome: 'interrupted', errorMessage } : agentEndOutcome({ outcome: 'failed', errorMessage }) };
+    }
+    if (event?.type === 'agent_end' && event.willRetry !== true && this.foregroundPromptRequests > 0) {
+      this.lastOwnedAgentEnd = { turnId: this.activeRequestContext?.turnId, result: { ...agentEndOutcome(event), ...(event.interruption ? { interruption: event.interruption } : {}) } };
     }
     if (event?.type === 'zyra_child_session_event') {
       if (this.server.updateMaintenance) return;
@@ -1622,8 +1640,8 @@ class ServerOwnedSession {
       && this.activeRequestContext === publishedRequestContext
       && ((event?.type === "agent_end" && event.willRetry !== true) || event?.type === "zyra_server_turn_completed")
     ) {
-      // Keep attribution and serialization until the worker finishes post-turn
-      // maintenance. Presence already reflects the completed answer above.
+      // Keep attribution and serialization until the owning request finishes
+      // maintenance or drains any steering queued during that maintenance.
       if (this.foregroundPromptRequests === 0) {
         this.server.notifyDesktopWorkspaceTurnEnded(this.sessionKey, publishedRequestContext.turnId);
         this.activeRequestContext = null;
@@ -1642,6 +1660,12 @@ class ServerOwnedSession {
       || previousAttention !== (this.pendingApprovalRequestIds.size > 0 || this.pendingUserInputRequestIds.size > 0)
       || previousBackgroundWork !== this.hasBackgroundWork()) this.syncMemoryQueue();
     this.scheduleIdleStop();
+    if (event?.type === 'agent_end' && event.willRetry !== true && this.foregroundPromptRequests === 0) {
+      // Background/legacy workers have no owning prompt RPC to publish this
+      // boundary. Emit the same canonical marker used by foreground requests.
+      const turnId = publishedRequestContext?.turnId || this.latestTurn?.id;
+      if (turnId) this.publish({ type: 'zyra_server_turn_completed', turnId, ...agentEndOutcome(event), ...(event.interruption ? { interruption: event.interruption } : {}) });
+    }
   }
 
   updatePendingOperations(entry) {
@@ -1654,7 +1678,7 @@ class ServerOwnedSession {
     if (type === 'compaction_end') this.pendingOperationEvents.delete('compaction');
     if (type === 'auto_retry_start') this.pendingOperationEvents.set('recovery', entry);
     if (type === 'auto_retry_end') this.pendingOperationEvents.delete('recovery');
-    if (type === 'zyra_server_turn_completed' || type === 'agent_end' && event.willRetry !== true) this.pendingOperationEvents.clear();
+    if (type === 'zyra_server_turn_completed' || type === 'agent_end' && event.willRetry !== true && this.foregroundPromptRequests === 0) this.pendingOperationEvents.clear();
   }
 
   isTurnTerminal(turnIdValue) {
@@ -1676,9 +1700,14 @@ class ServerOwnedSession {
 
   updateRuntimeSummary(event, requestContext, occurredAt) {
     if (event?.canonicalCommit === true) return;
+    if (event?.type === 'queue_update') this.queueState = {
+      steering: Array.isArray(event.steering) ? [...event.steering] : [],
+      followUp: Array.isArray(event.followUp) ? [...event.followUp] : []
+    };
     if ((event?.type === 'message_start' || event?.type === 'message_update') && event.message?.role === 'assistant') this.liveMessage = event.message;
     if (['message_end', 'message_discarded'].includes(event?.type) && event.message?.role === 'assistant') this.liveMessage = null;
     if (event?.type === 'tool_execution_start' && event.toolCallId) this.pendingToolEvents.set(String(event.toolCallId), event);
+    if (event?.type === 'tool_execution_update' && event.toolCallId) this.pendingToolEvents.set(String(event.toolCallId), { ...this.pendingToolEvents.get(String(event.toolCallId)), ...event });
     if (event?.type === 'tool_execution_end' && event.toolCallId) this.pendingToolEvents.delete(String(event.toolCallId));
     if (event?.type === "approval_requested" && event.requestId) {
       this.pendingApprovalRequestIds.add(String(event.requestId));
@@ -1694,11 +1723,7 @@ class ServerOwnedSession {
       this.liveMessage = null;
       this.pendingToolEvents.clear();
       for (const [id, pending] of this.pendingAttentionEvents) {
-        if (pending.type === 'user_input_requested' && pending.mode === 'async') continue;
-        this.pendingAttentionEvents.delete(id);
-        this.pendingUserInputRequestIds.delete(id);
-        this.userInputRequestEpochs.delete(id);
-        this.pendingUserInputModes.delete(id);
+        if (pending.type === 'approval_requested') this.pendingAttentionEvents.delete(id);
       }
       this.pendingApprovalRequestIds.clear();
     }
@@ -1724,7 +1749,7 @@ class ServerOwnedSession {
       this.pendingAttentionEvents.delete(id);
       this.userInputRequestEpochs.delete(id);
     }
-    if (event?.type === 'zyra_server_turn_completed') {
+    if (event?.type === 'zyra_server_turn_completed' && event.outcome && event.outcome !== 'completed') {
       for (const requestId of this.pendingUserInputRequestIds) {
         if (this.pendingUserInputModes.get(requestId) === 'async') continue;
         this.pendingUserInputRequestIds.delete(requestId);
@@ -1752,6 +1777,7 @@ class ServerOwnedSession {
       this.latestTurn = { ...this.latestTurn, assistantMessageId: String(event.message.id) };
     }
     if (event?.type === "auto_retry_end" && event.success === false && this.latestTurn) {
+      if (this.foregroundPromptRequests > 0) return;
       if (this.isTurnTerminal(this.latestTurn.id)) return;
       this.latestTurn = {
         ...this.latestTurn,
@@ -1761,6 +1787,9 @@ class ServerOwnedSession {
       return;
     }
     if (event?.type === "agent_end" && event.willRetry === true) return;
+    // The owning request may still compact, retry or process steering after a
+    // provider ends. Only its explicit completion settles an owned turn.
+    if (event?.type === "agent_end" && this.foregroundPromptRequests > 0) return;
     if (event?.type !== "zyra_server_turn_completed" && event?.type !== "agent_end") return;
     const completedTurnId = turnId || this.latestTurn?.id;
     if (!completedTurnId || this.isTurnTerminal(completedTurnId)) return;

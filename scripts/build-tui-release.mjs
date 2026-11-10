@@ -96,6 +96,7 @@ async function collectResources() {
     "install.sh",
     "src/harness-config-plugin.mjs",
     "src/harness-v2-plugin/index.js",
+    "src/harness-v2-plugin/tool-mailbox.js",
   ];
   for (const directory of ["analytics", "prompts", "agents", "workflows", "commands", "themes", "skills", "src/auth-assets"]) {
     files.push(...await walk(directory));
@@ -105,8 +106,7 @@ async function collectResources() {
     relativePath: relativePath.replaceAll("\\", "/"),
     content: await readFile(path.join(root, relativePath)),
   })));
-  // The console executable and installer integration use the exact same ICO as
-  // Desktop. Embed the bytes under a neutral asset path, not Desktop code.
+  // The executable, Terminal profile and shortcut share the terminal variant.
   resources.push({ relativePath: STANDALONE_WINDOWS_ICON_RESOURCE, content: await readFile(windowsIcon) });
   for (const [directory, prefix] of [["src/runtime/engine/src/modes/interactive/theme", "runtime-engine/theme"], ["src/runtime/engine/src/core/export-html", "runtime-engine/export-html"], ["src/runtime/engine/src/modes/interactive/assets", "runtime-engine/assets"], ["src/runtime/terminal/native", "runtime-terminal/native"]]) {
  for (const file of await walk(directory)) {

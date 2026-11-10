@@ -695,6 +695,8 @@ async function testRepresentativeCatalogEvents() {
     zyra_v1_account_connection: { action: "connect" },
     zyra_v1_chat: { action: "send" },
     zyra_v1_response_timing: { model_name: "gpt-6.1-sol", outcome: "completed", first_display_ms: 1234 },
+    zyra_v1_cli_response_timing: { model_name: "gpt-6.1-sol", outcome: "completed", first_display_ms: 1234 },
+    zyra_v1_mobile_response_timing: { model_name: "gpt-6.1-sol", outcome: "completed", first_display_ms: 1234 },
     zyra_v1_voice: { action: "start" },
     zyra_v1_project: { action: "open" },
     zyra_v1_files: { action: "preview" },
@@ -707,6 +709,7 @@ async function testRepresentativeCatalogEvents() {
   const owners = {
     zyra_v1_app_lifecycle: "desktop_main", zyra_v1_onboarding: "desktop_main", zyra_v1_account_connection: "desktop_main",
     zyra_v1_chat: "desktop_main", zyra_v1_response_timing: "desktop_main", zyra_v1_voice: "desktop_main", zyra_v1_project: "desktop_main",
+    zyra_v1_cli_response_timing: "cli", zyra_v1_mobile_response_timing: "desktop_main",
     zyra_v1_files: "desktop_renderer", zyra_v1_browser: "desktop_main", zyra_v1_utility_window: "desktop_main",
     zyra_v1_workspace_ui: "desktop_renderer", zyra_v1_cli: "cli",
   };
@@ -720,6 +723,7 @@ async function testInstrumentationReachability() {
   const sources = Object.fromEntries(await Promise.all([
     "desktop/src/main/index.ts",
     "desktop/src/main/ipc/handlers/setup-handlers.ts",
+    "desktop/src/main/ipc/handlers.ts",
     "desktop/src/main/assistant/service.ts",
     "desktop/src/main/browser-view-manager.ts",
     "desktop/src/main/browser-popup-manager.ts",

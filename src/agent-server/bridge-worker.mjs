@@ -4,6 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { BridgeCrashDiagnostic, describeBridgeExit } from './bridge-crash-diagnostic.mjs';
 
 export class AgentBridgeWorker extends EventEmitter {
   constructor(options = {}) {
@@ -104,6 +105,7 @@ export class AgentBridgeWorker extends EventEmitter {
       stdio: ["pipe", "pipe", "pipe"]
     });
     const child = this.child;
+    const crashDiagnostic = new BridgeCrashDiagnostic();
     // Writes can fail after the child begins exiting, including a dispose write.
     // Keep the pipe listener through shutdown so EPIPE cannot crash the server.
     child.stdin.on("error", (error) => {
@@ -116,6 +118,7 @@ export class AgentBridgeWorker extends EventEmitter {
     this.lines = readline.createInterface({ input: this.child.stdout });
     this.lines.on("line", (line) => this.handleLine(line));
     this.child.stderr.on("data", (chunk) => {
+      crashDiagnostic.record(chunk);
       const text = String(chunk || "").trim();
       if (text) this.emit("stderr", text);
     });
@@ -123,11 +126,13 @@ export class AgentBridgeWorker extends EventEmitter {
       this.emit("worker-error", error);
       this.rejectPending(error);
     });
-    this.child.on("exit", (code, signal) => {
-      const error = new Error(this.shutdownReason || `Agent bridge exited${code === null ? "" : ` with code ${code}`}${signal ? ` signal ${signal}` : ""}.`);
+    // close follows stdio drain, so fatal stderr cannot arrive after its report.
+    this.child.on("close", (code, signal) => {
+      const diagnostic = crashDiagnostic.finish(code, signal);
+      const error = Object.assign(new Error(this.shutdownReason || describeBridgeExit(diagnostic)), { diagnostic });
       this.child = null;
       this.rejectPending(error);
-      if (!this.disposed) this.emit("exit", { code, signal, error });
+      if (!this.disposed) this.emit("exit", { code, signal, error, diagnostic });
     });
   }
 

@@ -666,6 +666,13 @@ const paste = () => {
     results.push('Question dictation, shared recorder, typed-draft append, cancel, latest-answer voice submission, numeric answers and stale-request isolation')
     results.push('Bounded sliders, editable values, 0–100 and fractional ranges, untouched/cleared answers, explicit zero, fixed ranges and unbounded fallback')
     const ordinarySends: string[] = []
+    questionId = 'focus-through-streaming'; choice = false; extraQuestions = []; render(); await sleep()
+    check(input(), 'A text question is available before focus continuity check')
+    const elsewhere = document.createElement('input'); document.body.append(elsewhere); elsewhere.focus()
+    render(); await sleep()
+    check(document.activeElement === elsewhere, 'Refreshing the same pending question cannot take focus back from another input')
+    elsewhere.remove()
+    results.push('Pending question snapshots preserve the user’s current input focus')
     const dismissed: string[] = []
     const paneRef = createRef<HTMLDivElement>()
     const asyncRequest = { id: 'async-card', requestId: 'async-card', mode: 'async', status: 'pending', createdAt: new Date().toISOString(), questions: [{ id: 'later', header: 'Later', question: 'Which target should I use later?', type: 'text', options: [], required: true }] }

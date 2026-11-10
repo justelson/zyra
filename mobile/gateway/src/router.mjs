@@ -1,4 +1,5 @@
 import { appendTextAttachments } from './text-attachments.mjs';
+import { sanitizeAnalyticsEvent } from '../../../src/analytics/contracts.mjs';
 import { readAccountLimits } from './account-limits.mjs';
 import { projectSessionDetails } from './session-details.mjs';
 import { projectCatalogMetadata } from './catalog-metadata.mjs';
@@ -19,10 +20,10 @@ const ACTIONS = new Set(['prompt', 'abort', 'steer', 'follow_up', 'compact', 'cl
   'approval.respond', 'user_input.respond', 'agents.list', 'agents.listDefinitions', 'agents.listRuns', 'agents.status',
   'agents.spawn', 'agents.send', 'agents.stop', 'agents.retry', 'agents.resume', 'agents.transcript',
   'workflows.list', 'workflows.listRuns', 'workflows.status', 'workflows.run', 'workflows.pause', 'workflows.resume', 'workflows.stop']);
-const CONFIG = ['model', 'thinking', 'profile', 'runtimeMode', 'webSearch', 'webFetch'];
+const CONFIG = ['model', 'thinking', 'profile', 'runtimeMode', 'webSearch', 'webFetch', 'codexServiceTier'];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
 export class HostRouter {
-  constructor({ client, owner, cache, projects = [], allProjects = false, hiddenProjects = [], prepareChat, regenerateTitle, review, fleet, accountLimits, usage, resolveScope, searchChats, searchContext, projectPresentation, terminal, voice, plugins, uploads, runtimeStatus }) { this.client = client; this.owner = owner; this.cache = cache; this.projects = projects; this.allProjects = allProjects; this.hiddenProjects = hiddenProjects; this.attached = new Set(); this.prepareChat = prepareChat; this.regenerateTitle = regenerateTitle; this.review = review; this.fleet = fleet; this.accountLimits = accountLimits; this.usage = usage; this.searchChats = searchChats; this.searchContext = searchContext; this.projectPresentation = projectPresentation; this.terminal = terminal; this.voice = voice; this.plugins = plugins; this.uploads = uploads; this.runtimeStatus = runtimeStatus; this.files = new WorkspaceFiles({ projects, resolveScope, allProjects, hiddenProjects, allowsProject: project => this.allowsProject(project) }); }
+  constructor({ client, owner, cache, projects = [], allProjects = false, hiddenProjects = [], prepareChat, regenerateTitle, review, fleet, accountLimits, usage, resolveScope, searchChats, searchContext, projectPresentation, terminal, voice, plugins, uploads, runtimeStatus, captures, timingSummary }) { this.timingSummary = timingSummary; this.captures = captures; this.client = client; this.owner = owner; this.cache = cache; this.projects = projects; this.allProjects = allProjects; this.hiddenProjects = hiddenProjects; this.attached = new Set(); this.prepareChat = prepareChat; this.regenerateTitle = regenerateTitle; this.review = review; this.fleet = fleet; this.accountLimits = accountLimits; this.usage = usage; this.searchChats = searchChats; this.searchContext = searchContext; this.projectPresentation = projectPresentation; this.terminal = terminal; this.voice = voice; this.plugins = plugins; this.uploads = uploads; this.runtimeStatus = runtimeStatus; this.files = new WorkspaceFiles({ projects, resolveScope, allProjects, hiddenProjects, allowsProject: project => this.allowsProject(project) }); }
   allowsProject(project) {
     const key = value => { const normalized = path.resolve(String(value || '.')); return process.platform === 'win32' ? normalized.toLowerCase() : normalized; };
     return !this.hiddenProjects.some(hidden => key(hidden) === key(project)) && (this.allProjects || this.projects.some(shared => key(shared) === key(project)));
@@ -38,6 +39,26 @@ export class HostRouter {
   }
   async dispatch(method, params = {}, operationId) {
     assert(params && typeof params === 'object' && !Array.isArray(params), 'Invalid request parameters.');
+    if (method === 'diagnostics.summary') {
+      assert(typeof this.timingSummary === 'function', 'Update Zyra on this PC to share timing summaries.');
+      const summary = sanitizeAnalyticsEvent({ event: 'zyra_v1_mobile_response_timing', properties: { ...params, source: 'desktop_main' } });
+      if (summary) { const { source, schema_version, ...properties } = summary.properties; try { await this.timingSummary(properties); } catch { /* Optional analytics never blocks client work. */ } }
+      return { accepted: true };
+    }
+    if (method.startsWith('captures.')) {
+      assert(this.captures, 'Update Zyra on this PC to browse saved Browser captures.');
+      // Like machine-level Plugins, this library is not scoped to a single
+      // project. Restricted devices must never receive unrelated capture data.
+      assert(this.allProjects && this.hiddenProjects.length === 0, 'This PC shares selected folders only. Browser captures are unavailable.');
+      try {
+        if (method === 'captures.list') return await this.captures.list({ offset: params.offset, limit: params.limit });
+        if (method === 'captures.reference') return await this.captures.reference(params.artifactId);
+        if (method === 'captures.get') return await this.captures.get(params.artifactId);
+        if (method === 'captures.chunk') return await this.captures.chunk(params.ref, params.offset);
+        if (method === 'captures.delete') return await this.captures.delete(params.artifactId);
+      } catch { throw fault('CAPTURE_UNAVAILABLE', 'Capture unavailable. Refresh the library and try again.'); }
+      throw fault('METHOD_NOT_ALLOWED', 'This capture operation is unavailable.');
+    }
     if (method === 'account.limits') return readAccountLimits(this.accountLimits);
     if (method === 'account.usage') {
       assert(this.usage, 'Update Zyra Desktop to view recorded usage.');
@@ -279,9 +300,10 @@ export class HostRouter {
     throw fault('METHOD_NOT_ALLOWED', 'This operation is not available through mobile access.');
   }
 }
+// Timing summaries are best-effort and must not enter the durable command ledger.
 // Voice signaling is tied to a live connection; never replay a prior connection's
 // start/stop or persist transient Voice events in the durable command ledger.
-export const isRead = (method, params = {}) => ['account.limits', 'account.usage', 'session.details'].includes(method) || REVIEW_METHODS.has(method) || DICTATION_METHODS.has(method) || PLUGIN_READS.has(method) || READS.has(method) || WORKSPACE_READS.has(method) || VOICE_METHODS.has(method) || VIEW_METHODS.has(method) || ['upload.begin', 'upload.status', 'upload.chunk', 'upload.finish', 'upload.cancel', 'fleet.definition', 'host.status', 'operation.status', 'media.chunk', 'body.chunk', 'session.attach', 'session.detach', 'terminal.list', 'terminal.attach', 'terminal.detach', 'terminal.input', 'terminal.resize'].includes(method)
+export const isRead = (method, params = {}) => ['diagnostics.summary', 'account.limits', 'account.usage', 'session.details', 'captures.list', 'captures.get', 'captures.chunk', 'captures.reference'].includes(method) || REVIEW_METHODS.has(method) || DICTATION_METHODS.has(method) || PLUGIN_READS.has(method) || READS.has(method) || WORKSPACE_READS.has(method) || VOICE_METHODS.has(method) || VIEW_METHODS.has(method) || ['upload.begin', 'upload.status', 'upload.chunk', 'upload.finish', 'upload.cancel', 'fleet.definition', 'host.status', 'operation.status', 'media.chunk', 'body.chunk', 'session.attach', 'session.detach', 'terminal.list', 'terminal.attach', 'terminal.detach', 'terminal.input', 'terminal.resize'].includes(method)
   || (method === 'session.request' && (params.type === 'preferences.get' || /^(agents|workflows)\.(list|listDefinitions|listRuns|status|transcript)$/.test(params.type)));
 
 

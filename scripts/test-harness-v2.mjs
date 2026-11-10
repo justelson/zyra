@@ -34,9 +34,13 @@ assert.equal(configuration.agents.other.system, 'preserved');
 assert.equal(configuration.permissions[2].effect, 'ask');
 assert.ok(configuration.agents['zyra-managed'].permissions.some(rule => rule.resource === 'rm *' && rule.effect === 'deny'));
 assert.equal(configuration.plugins[0], 'other');
+assert.equal(configuration.compaction.auto, false, 'only Zyra compacts its canonical conversation');
+assert.deepEqual(managedV2Config('{"compaction":{"auto":true,"keep":{"tokens":24000}}}').compaction, { auto: false, keep: { tokens: 24000 } });
 const originalMcp = { private: { type: 'local', command: ['fixture'], disabled: false } };
 const processMcp = structuredClone(originalMcp);
-await plugin.setup({ mcp: { transform: callback => callback({ list: () => Object.entries(processMcp), update: (name, update) => update(processMcp[name]) }) } });
+const disposable = async () => ({ dispose: async () => {} });
+await plugin.setup({ mcp: { transform: callback => callback({ list: () => Object.entries(processMcp), update: (name, update) => update(processMcp[name]) }) },
+  tool: { transform: disposable, reload: async () => {} }, rpc: { register: disposable }, session: { hook: disposable } });
 assert.equal(processMcp.private.disabled, true); assert.equal(originalMcp.private.disabled, false);
 
 let catalogAttempts = 0;

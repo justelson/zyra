@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { HarnessToolConversation } from './harness-tool-turn.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value) ?? 'null').digest('hex');
 
@@ -9,6 +10,7 @@ export class HarnessConversation {
     this.record = null;
     this.busy = false;
     this.disposed = false;
+    this.tools = new HarnessToolConversation({ idleMs });
   }
 
   async acquire({ client, identity, history, create, remove }) {
@@ -62,7 +64,7 @@ export class HarnessConversation {
   dispose() {
     if (!this.disposal) {
       this.disposed = true;
-      this.disposal = this.clear();
+      this.disposal = Promise.all([this.clear(), this.tools.dispose()]);
     }
     return this.disposal;
   }

@@ -54,6 +54,12 @@ const slashCommands = [
     terminalState: "compacting",
   },
   {
+    name: "diagnostics",
+    description: "show local response timings",
+    panelLabel: "/diagnostics [json]",
+    inlineArgs: ["json"],
+  },
+  {
     name: "analytics",
     description: "view or change product analytics",
     panelLabel: "/analytics [status|on|off]",

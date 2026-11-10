@@ -23,6 +23,6 @@ import dev.zyra.mobile.data.ConnectionState
         HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         state.machines.forEach { machine ->
             val connection = state.machineStatus[machine.id] ?: ConnectionState.Offline
-            ZyraSettingRow(icon = null, title = machine.name, subtitle = connectionLabel(connection), leading = { MachineStatusIcon(connection) }, click = { select(machine.id) }, trailing = { if (state.machineFilter == machine.id) AppIcon(R.drawable.ic_check, "Selected") })
+            ZyraSettingRow(icon = null, title = machine.name, subtitle = state.machineFailures[machine.id]?.message ?: connectionLabel(connection), leading = { MachineStatusIcon(connection) }, click = { select(machine.id) }, trailing = { if (state.machineFilter == machine.id) AppIcon(R.drawable.ic_check, "Selected") })
         }
 }

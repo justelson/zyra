@@ -89,7 +89,7 @@ export function restoreHarnessProvider(registry, entry, harness = {}) {
   }
   registry.registerProvider(HARNESS_PROVIDER_ID, buildHarnessExtensionConfig({
     models: models.map((model) => ({ ...model,
-      toolUse: Boolean(harness.onPermission && harness.onActivity && model.harness?.toolcall) })),
+      toolUse: model.harness?.toolcall === true })),
     streamSimple: createHarnessStreamSimple({ executable: harness.executable, ensureServe: harness.ensureServe, fetchImpl: harness.fetch, spawnImpl: harness.spawn,
       onPermission: harness.onPermission, onActivity: harness.onActivity, conversation: harness.conversation, onMetric: harness.onMetric, resolveCwd: harness.resolveCwd }),
     refreshModels: createHarnessRefreshModels({ storedModels: models, executable: harness.executable, ensureServe: harness.ensureServe, spawnImpl: harness.spawn, fetchImpl: harness.fetch }),
@@ -392,7 +392,7 @@ export async function connectHarnessProvider(input = {}, options = {}) {
     });
     options.runtime?.modelRegistry?.registerProvider?.(HARNESS_PROVIDER_ID, buildHarnessExtensionConfig({
       models: models.map((model) => ({ ...model,
-        toolUse: Boolean(harness.onPermission && harness.onActivity && model.harness?.toolcall) })),
+        toolUse: model.harness?.toolcall === true })),
       streamSimple: createHarnessStreamSimple({ executable: detected.executable, fetchImpl: harness.fetch, spawnImpl: harness.spawn,
         onPermission: harness.onPermission, onActivity: harness.onActivity, conversation: harness.conversation, onMetric: harness.onMetric, resolveCwd: harness.resolveCwd }),
       refreshModels: createHarnessRefreshModels({ storedModels: models, executable: detected.executable, spawnImpl: harness.spawn, fetchImpl: harness.fetch }),

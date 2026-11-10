@@ -1,4 +1,5 @@
 import { assertRuntimeStartAllowed, clearInstallHandoff, inspectInstallRecovery, recoverInstallHandoff } from './install-guard.mjs';
+import { agentServerRequestTimeout } from './request-timeouts.mjs';
 import { RUNTIME_ACTIVATION_VERSION, readRuntimeRevision } from "./runtime-revision.mjs";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -411,11 +412,12 @@ export class ZyraAgentServerClient extends EventEmitter {
     const id = `request:${process.pid}:${this.nextRequestId++}`;
     return new Promise((resolve, reject) => {
       let timer;
-      if (options.timeoutMs) {
+      const timeoutMs = options.timeoutMs ?? agentServerRequestTimeout(method, params);
+      if (timeoutMs) {
         timer = setTimeout(() => {
           this.pending.delete(id);
           reject(Object.assign(new Error(`Agent-server request ${method} timed out.`), { code: "AGENT_SERVER_TIMEOUT" }));
-        }, Math.max(100, Number(options.timeoutMs)));
+        }, Math.max(100, Number(timeoutMs)));
         timer.unref?.();
       }
       try {

@@ -88,7 +88,7 @@ export async function checkToolStreamingState(root: Root): Promise<string[]> {
     const messages: AssistantMessage[] = [{ id: 'stream-prompt', role: 'user', text: 'Run fixture actions', turnId: 'stream-turn', timelineSequence: 1, createdAt: '2026-11-06T11:59:59Z', updatedAt: '2026-11-06T11:59:59Z' }]
     const scrollContainerRef = createRef<HTMLDivElement>()
     const renderTimeline = async (activities: AssistantActivity[], timelineMessages = messages) => {
-        flushSync(() => root.render(<div style={{ height: 720, width: 900 }}><AssistantTimeline threadId="stream-fixture" windowKey="stream-fixture" isWorking messages={timelineMessages} activities={activities} assistantToolOutputDefaultMode="collapsed" scrollContainerRef={scrollContainerRef} /></div>))
+        flushSync(() => root.render(<div style={{ height: 720, width: 900 }}><textarea id="stream-draft" defaultValue="Keep this draft" /><iframe id="stream-page" title="Synthetic browser page" /><AssistantTimeline threadId="stream-fixture" windowKey="stream-fixture" isWorking messages={timelineMessages} activities={activities} assistantToolOutputDefaultMode="collapsed" scrollContainerRef={scrollContainerRef} /></div>))
         await wait(500)
     }
     await renderTimeline([a]); await click(tool())
@@ -112,5 +112,17 @@ export async function checkToolStreamingState(root: Root): Promise<string[]> {
     await renderTimeline([afterSteer, b, a], [...messages, correction])
     check(document.querySelectorAll('[data-assistant-work-summary-shell]').length === 1 && tool() === fullSingle && outputOpen(), 'Tool actions arriving after steering continue inside the same open work')
     window.getSelection()!.removeAllRanges()
+    const draft = document.getElementById('stream-draft') as HTMLTextAreaElement
+    draft.focus(); draft.setSelectionRange(2, 6)
+    for (let chunk = 0; chunk < 8; chunk++) {
+        await renderTimeline([{ ...afterSteer, payload: { ...afterSteer.payload, output: `Streaming chunk ${chunk}`, status: chunk === 7 ? 'completed' : 'running' } }, b, a], [...messages, correction])
+        check(document.activeElement === draft && draft.selectionStart === 2 && draft.selectionEnd === 6 && draft.value === 'Keep this draft', 'Streaming tools cannot disturb the active composer, draft or selection')
+    }
+    const page = document.getElementById('stream-page') as HTMLIFrameElement
+    page.contentDocument!.body.innerHTML = '<input id="page-draft" value="Browser draft">'
+    const pageDraft = page.contentDocument!.getElementById('page-draft') as HTMLInputElement
+    pageDraft.focus(); pageDraft.setSelectionRange(1, 4)
+    await renderTimeline([command('arriving-command', 'running'), afterSteer, b, a], [...messages, correction])
+    check(document.activeElement === page && page.contentDocument!.activeElement === pageDraft && pageDraft.selectionStart === 1 && pageDraft.selectionEnd === 4, 'New tool calls cannot move focus or selection out of the Browser page')
     return ['Streaming tool updates preserve disclosure, selection, focus and reader-owned output scrolling through list and full timeline grouping transitions', 'Mid-turn user steering retains one original Work shell, chronological bubbles, open tools, focus and selection as actions continue']
 }

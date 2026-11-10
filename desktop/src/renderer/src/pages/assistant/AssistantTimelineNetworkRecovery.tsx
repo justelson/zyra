@@ -1,4 +1,4 @@
-import { Loader2, MessageCircle, Wifi, WifiOff } from 'lucide-react'
+import { Check, Loader2, MessageCircle, Wifi, WifiOff } from 'lucide-react'
 import type { AssistantActivity } from '@shared/assistant/contracts'
 import { cn } from '@/lib/utils'
 import { isAssistantConnectionRecoveryActivity } from './assistant-timeline-helpers'
@@ -10,13 +10,15 @@ export function AssistantTimelineNetworkRecovery({ activity }: { activity: Assis
     const status = String(activity.payload?.['status'] || '').toLowerCase()
     const retrying = status === 'retrying'
     const paused = status === 'paused'
-    const Icon = retrying ? Loader2 : activity.kind === 'model.ping' ? MessageCircle : paused ? WifiOff : Wifi
+    const network = activity.kind === 'connection.recovery' || activity.payload?.recoveryKind === 'network'
+    const Icon = retrying ? Loader2 : activity.kind === 'model.ping' ? MessageCircle : network ? (paused ? WifiOff : Wifi) : Check
 
     return (
         <div
             className={cn(
                 ASSISTANT_ACTION_ROW_CLASS, 'text-[12px] font-medium leading-5',
-                paused ? 'text-amber-200/70' : 'text-[var(--status-success)]'
+                'motion-safe:transition-colors motion-safe:duration-150',
+                paused ? 'text-amber-200/70' : retrying ? 'text-sparkle-text-secondary' : 'text-sparkle-text-muted'
             )}
             role="status"
             aria-live="polite"

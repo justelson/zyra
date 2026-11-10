@@ -49,4 +49,4 @@ export declare function retryAssistantCall(produce: () => Promise<AssistantMessa
  * overflow separately, then apply their own retry budget, backoff, and reporting
  * before restarting the assistant turn.
  */
-export declare function isRetryableAssistantError(message: AssistantMessage): boolean;
+export declare function isRetryableAssistantError(message: AssistantMessage, previousAttempts?: number): boolean;

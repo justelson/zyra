@@ -37,7 +37,8 @@ function render(content: string, filePath?: string, mediaMode: 'none' | 'images'
 }
 function videoSource(markup: string): string {
     const tag = markup.match(/<video\b[^>]*>/)?.[0] || ''
-    assert.match(tag, /controls=""/)
+    assert.match(markup, /data-video-player=""/, 'chat embeds the custom video player')
+    assert.doesNotMatch(tag, /\bcontrols(?:=|\s|>)/)
     assert.match(tag, /preload="metadata"/)
     assert.doesNotMatch(tag, /autoplay/i)
     const source = tag.match(/\bsrc="([^"]+)"/)?.[1]

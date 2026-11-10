@@ -16,6 +16,7 @@ const SAFE_TOOL_NAMES = new Set([
   "begin_action_batch",
   "set_chat_title",
   "set_work_context",
+  "notify_user",
   // This tool is bound to the caller's own session and accepts no target.
   "context",
 ]);

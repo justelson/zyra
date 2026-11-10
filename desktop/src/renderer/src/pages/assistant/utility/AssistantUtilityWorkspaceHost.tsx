@@ -1,3 +1,4 @@
+import { AssistantInspectorDeveloperToast, useAssistantInspectorDeveloperToast } from '../AssistantInspectorDeveloperToast'
 import { openDesktopLink } from '@/lib/desktop-links'
 import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -18,7 +19,7 @@ import { AssistantBrowserWorkspace, type AssistantBrowserWorkspaceController } f
 import { AssistantFilesWorkspace } from '../AssistantFilesWorkspace'
 import { AssistantFleetWorkspace } from '../AssistantFleetWorkspace'
 import { AssistantPreviewResourceNavigator } from '../AssistantPreviewResourceNavigator'
-import { buildAssistantResourceIndex } from '../assistant-resource-index'
+import { buildAssistantChatResourceTurns, buildAssistantPreviewResources } from '../assistant-chat-resources'
 import { assistantResourceForPath } from '../assistant-resource-labels'
 import { AssistantResourcesWorkspace } from '../AssistantResourcesWorkspace'
 import { AssistantReviewLanding } from '../AssistantReviewLanding'
@@ -59,6 +60,7 @@ export function AssistantUtilityWorkspaceHost({ tab, active, windowId, onStateCa
     const capsuleRef = useRef<AssistantUtilityStateCapsule | undefined>(tab.stateCapsule)
     const reviewWorkspace = tab.workspace === 'diff' || tab.workspace === 'resources' || tab.workspace === 'turn'
     const needsReviewData = active && reviewWorkspace
+    const needsTranscriptData = active && (reviewWorkspace || preview.previewFile?.type === 'image')
     const needsFleetData = active && (tab.workspace === 'details' || tab.workspace === 'agents')
     const [turnDetails, setTurnDetails] = useState<Record<string, AssistantTurnDetail>>({})
     const resourcesCapsule = tab.stateCapsule?.workspace === 'resources' ? tab.stateCapsule : undefined
@@ -80,8 +82,8 @@ export function AssistantUtilityWorkspaceHost({ tab, active, windowId, onStateCa
         const session = state.snapshot.sessions.find((entry) => entry.id === tab.sessionId)
         const thread = session?.threads.find((entry) => entry.id === tab.threadId)
         return {
-            messages: needsReviewData ? thread?.messages || EMPTY_MESSAGES : EMPTY_MESSAGES,
-            activities: needsReviewData ? thread?.activities || EMPTY_ACTIVITIES : EMPTY_ACTIVITIES,
+            messages: needsTranscriptData ? thread?.messages || EMPTY_MESSAGES : EMPTY_MESSAGES,
+            activities: needsTranscriptData ? thread?.activities || EMPTY_ACTIVITIES : EMPTY_ACTIVITIES,
             activeTurnId: needsReviewData && thread?.latestTurn?.state === 'running' ? thread.latestTurn.id : null,
             fleetSnapshot: needsFleetData ? state.snapshot.fleetByThreadId[tab.threadId] || null : null
         }
@@ -130,16 +132,22 @@ export function AssistantUtilityWorkspaceHost({ tab, active, windowId, onStateCa
         void window.devscope.assistantUtility.tabReady(windowId, tab.id)
     }, [tab.id, tab.workspace, windowId])
 
-    const previewResources = useMemo(() => preview.previewFile
-        ? buildAssistantResourceIndex({ turns, projectPath: tab.projectPath || null }).resources
-        : [], [turns, tab.projectPath, Boolean(preview.previewFile)])
+    const previewResourceTurns = useMemo(() => buildAssistantChatResourceTurns({
+        messages: [...threadData.messages, ...Object.values(turnDetails).flatMap(detail => detail.messages)],
+        activities: [...threadData.activities, ...Object.values(turnDetails).flatMap(detail => detail.activities)],
+        projectPath: tab.projectPath || null
+    }), [threadData.messages, threadData.activities, turnDetails, tab.projectPath])
+    const previewResources = useMemo(() => buildAssistantPreviewResources({ turns: previewResourceTurns,
+        projectPath: tab.projectPath || null, activeFile: preview.previewFile
+    }), [previewResourceTurns, tab.projectPath, preview.previewFile])
     const previewDisplayFile = preview.previewFile ? {
         ...preview.previewFile,
         displayName: assistantResourceForPath(previewResources, preview.previewFile.path)?.title || preview.previewFile.displayName
     } : null
     const previewResourceNavigator = preview.previewFile && (tab.workspace === 'resources' || preview.previewFile.type === 'image') ? (
         <AssistantPreviewResourceNavigator
-            turns={turns}
+            turns={previewResourceTurns}
+            resources={previewResources}
             projectPath={tab.projectPath || null}
             activeFilePath={preview.previewFile.path}
             onOpenPreview={preview.openPreview}
@@ -161,6 +169,7 @@ export function AssistantUtilityWorkspaceHost({ tab, active, windowId, onStateCa
             active={active}
             chromeContext="peek"
             mediaItems={preview.previewMediaItems}
+            navigationSidebarInitiallyOpen={previewResourceNavigator ? previewResources.length > 1 : undefined}
             navigationSidebar={previewResourceNavigator}
             onOpenLinkedPreview={preview.openPreview}
             onOpenLinkedPreviewInNewTab={preview.openPreviewInNewTab}
@@ -243,6 +252,7 @@ function UtilityBrowser({ tab, active, windowId, onOpenPreview }: {
     windowId: string
     onOpenPreview: ReturnType<typeof useFilePreview>['openPreview']
 }) {
+    const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
     const [controlState, setControlState] = useState<ControlStateSnapshot | null>(null)
     const [navigationRequest, setNavigationRequest] = useState<{
         id: number
@@ -271,7 +281,9 @@ function UtilityBrowser({ tab, active, windowId, onOpenPreview }: {
         return () => { cancelled = true; unsubscribe() }
     }, [])
     return (
+        <>
         <AssistantBrowserWorkspace
+            captureSessionId={tab.sessionId}
             workspaceKey={`utility:${tab.canonicalChatId}:${tab.id}`}
             threadId={tab.threadId}
             projectPath={tab.projectPath || null}
@@ -319,9 +331,11 @@ function UtilityBrowser({ tab, active, windowId, onOpenPreview }: {
             }}
             onRequestTabSelection={(tabId) => controllerRef.current?.activateTab(tabId)}
             onControllerChange={(controller) => { controllerRef.current = controller }}
-            onDeveloperToast={() => undefined}
+            onDeveloperToast={showDeveloperToast}
             onOpenPreview={onOpenPreview}
         />
+        <AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} />
+        </>
     )
 }
 

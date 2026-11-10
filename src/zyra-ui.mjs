@@ -667,7 +667,18 @@ export function createZyraUi(options = {}) {
       for (const event of events) this.event(event);
       if (events.length === 0) appendPanel(infoPanel("This chat has no stored transcript entries.", theme));
     },
+    replaceHistory(events = []) {
+      // Recovery replaces transcript state without resetting the user's composer.
+      const banners = host.components.filter(component => component instanceof StartupBannerComponent);
+      resetInteractiveState();
+      host.replaceComponents(banners, { clear: true });
+      this.history(events);
+    },
     event(event) {
+      if (event.type === 'zyra_history_replaced') {
+        this.replaceHistory(event.events || []);
+        return;
+      }
       if (event.type === "history_error") {
         appendPanel(errorPanel(event.errorMessage || "Stored chat error", theme));
         return;
@@ -933,6 +944,7 @@ export function createZyraUi(options = {}) {
       };
     },
     _host: host,
+    onRendered(listener) { return host.onRendered(listener); },
     _debugBeginInteractiveForTests() {
       inputActive = true;
     },

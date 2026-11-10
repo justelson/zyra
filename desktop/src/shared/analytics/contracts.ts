@@ -26,6 +26,8 @@ export function normalizeAnalyticsWorkspaceKind(value: string): AnalyticsWorkspa
 export type AnalyticsOutcome = 'started' | 'ready' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'recovered' | 'available' | 'current' | 'unknown' | 'prevented' | 'blocked' | 'allowed' | 'denied' | 'unavailable'
 
 export type AnalyticsEventPropertiesMap = {
+    zyra_v1_cli_response_timing: AnalyticsEventPropertiesMap['zyra_v1_response_timing']
+    zyra_v1_mobile_response_timing: AnalyticsEventPropertiesMap['zyra_v1_response_timing']
     zyra_v1_app_lifecycle: { action: 'launch_ready' | 'shutdown' | 'crash' | 'hang' | 'update_check'; outcome?: AnalyticsOutcome; launch_bucket?: 'cold' | 'warm' | 'unknown'; process_kind?: 'main' | 'renderer' | 'gpu' | 'utility' | 'other'; duration_ms?: number; error_code?: string }
     zyra_v1_onboarding: { action: 'step_started' | 'step_completed' | 'step_back' | 'completed' | 'abandoned' | 'review_started' | 'review_exited'; step?: 'welcome' | 'connection' | 'appearance' | 'projects' | 'finish' | 'unknown'; outcome?: AnalyticsOutcome; error_code?: string }
     zyra_v1_account_connection: { action: 'connect' | 'replace' | 'retry' | 'disconnect'; method?: 'subscription' | 'api' | 'unknown'; outcome?: AnalyticsOutcome; error_code?: string }

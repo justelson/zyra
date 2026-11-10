@@ -1,6 +1,8 @@
+import { APPEARANCE_FONT_FACES_CHANGED_EVENT, getAppearanceFontResource } from '@/lib/appearance-font-faces'
+import { useSettings } from '@/lib/settings'
 import { NativeOverlayPortal } from '@/components/ui/native-overlay-portal'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Download, Pause, Play, Square, Video, X } from 'lucide-react'
+import { Download, MessageSquarePlus, Pause, Play, Square, Video, X } from 'lucide-react'
 import type { BrowserRecordingOverlayCommand, BrowserRecordingOverlayPresentation, BrowserRecordingOverlayState } from '@shared/contracts/browser-recording-overlay'
 import { ZYRA_THEME_CHANGED_EVENT } from '@/lib/theme-events'
 import {
@@ -13,15 +15,19 @@ function readTheme(): BrowserRecordingOverlayState['theme'] {
     const style = getComputedStyle(document.documentElement)
     const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
     return {
-        background: token('--color-bg-secondary', '#252525'), foreground: token('--color-text', '#eeeeee'),
+        background: token('--surface-floating', token('--color-card', '#252525')), foreground: token('--color-text', '#eeeeee'),
         muted: token('--color-text-secondary', '#aaaaaa'), accent: token('--accent-primary', '#ee9944'),
-        border: token('--color-border', '#ffffff1a'), dark: style.colorScheme !== 'light'
+        border: token('--surface-divider', token('--color-border', '#ffffff1a')), dark: style.colorScheme !== 'light',
+        fontFamily: style.fontFamily, fontCss: getAppearanceFontResource(document, style.fontFamily)?.css || ''
     }
 }
 
 /** One host per renderer: recording survives workspace navigation and tab transfers. */
 export function AssistantBrowserRecordingHost() {
+    const { settings } = useSettings()
     const state = useSyncExternalStore(subscribeAssistantBrowserRecording, readAssistantBrowserRecording)
+    const attachingRef = useRef(false)
+    const sentFontCss = useRef<string | undefined>(undefined)
     const stateRef = useRef(state)
     stateRef.current = state
     const [devices, setDevices] = useState<BrowserRecordingOverlayState['microphones']>([])
@@ -29,6 +35,7 @@ export function AssistantBrowserRecordingHost() {
     const [presentation, setPresentation] = useState<BrowserRecordingOverlayPresentation | null>(null)
     const [bridgeError, setBridgeError] = useState<string | null>(null)
     const active = state.status !== 'idle'
+    const canAttach = Boolean(state.captureDestination?.enabled && (state.captureDestination.sessionId || settings.assistantBrowserStandaloneAiTools !== false))
     const native = typeof window.devscope?.setBrowserRecordingOverlay === 'function'
     const refreshRequest = useRef(0)
     const refreshDevices = useCallback(async () => {
@@ -55,7 +62,8 @@ export function AssistantBrowserRecordingHost() {
         const refresh = () => setTheme(readTheme())
         refresh()
         window.addEventListener(ZYRA_THEME_CHANGED_EVENT, refresh)
-        return () => window.removeEventListener(ZYRA_THEME_CHANGED_EVENT, refresh)
+        window.addEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, refresh)
+        return () => { window.removeEventListener(ZYRA_THEME_CHANGED_EVENT, refresh); window.removeEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, refresh) }
     }, [active])
     const command = useCallback(async (action: BrowserRecordingOverlayCommand) => {
         try {
@@ -69,6 +77,17 @@ export function AssistantBrowserRecordingHost() {
                 case 'refresh-devices': await refreshDevices(); break
                 case 'save-copy': downloadUnsavedAssistantBrowserRecording(); break
                 case 'dismiss': dismissAssistantBrowserRecording(); setBridgeError(null); break
+                case 'attach-chat': {
+                    const current = stateRef.current
+                    if (!current.artifact || !current.captureDestination?.enabled || !canAttach || attachingRef.current) break
+                    attachingRef.current = true
+                    try {
+                        const result = await window.devscope.attachBrowserCaptureToChat({ artifactId: current.artifact.artifactId, sessionId: current.captureDestination.sessionId })
+                        if (!result.success) throw new Error(result.error || 'Could not attach recording.')
+                        dismissAssistantBrowserRecording()
+                    } finally { attachingRef.current = false }
+                    break
+                }
                 case 'show-artifact': {
                     const artifact = stateRef.current.artifact
                     if (artifact) {
@@ -82,13 +101,14 @@ export function AssistantBrowserRecordingHost() {
             // Encoder/save errors already live in the store and its overlay.
             if (!readAssistantBrowserRecording().error) setBridgeError(error instanceof Error ? error.message : 'Recording action failed.')
         }
-    }, [refreshDevices])
+    }, [canAttach, refreshDevices])
     useEffect(() => {
         if (!native || !active) return
         const unsubscribeCommand = window.devscope.onBrowserRecordingOverlayCommand(action => { void command(action) })
         const unsubscribePresentation = window.devscope.onBrowserRecordingOverlayPresentation(setPresentation)
         return () => {
             unsubscribeCommand(); unsubscribePresentation()
+            sentFontCss.current = undefined
             void window.devscope.setBrowserRecordingOverlay(null).catch(() => {})
             setPresentation(null)
         }
@@ -96,16 +116,18 @@ export function AssistantBrowserRecordingHost() {
     useEffect(() => {
         if (!native || !active || !theme || !state.tabId || !state.guestWebContentsId) return
         let disposed = false
+        const fontCss = sentFontCss.current === theme.fontCss ? undefined : theme.fontCss
+        sentFontCss.current = theme.fontCss
         void window.devscope.setBrowserRecordingOverlay({
             target: { tabId: state.tabId, guestWebContentsId: state.guestWebContentsId }, status: state.status as BrowserRecordingOverlayState['status'],
             title: 'Recording tab', elapsedMs: state.elapsedMs, microphone: state.microphone, microphonePending: state.microphonePending,
             microphones: devices, audioSource: state.audioSource, audioPending: state.audioPending,
             tabAudioSupported: state.tabAudioSupported, systemAudioSupported: state.systemAudioSupported,
-            error: state.error, unsaved: state.unsaved, hasArtifact: Boolean(state.artifact), theme
+            error: state.error, unsaved: state.unsaved, hasArtifact: Boolean(state.artifact), canAttachToChat: canAttach, theme: { ...theme, fontCss }
         }).then(result => { if (!disposed && !result.success) setBridgeError(result.error || 'Recording controls could not open.') })
             .catch(error => { if (!disposed) setBridgeError(error instanceof Error ? error.message : 'Recording controls could not open.') })
         return () => { disposed = true }
-    }, [native, active, state, devices, theme])
+    }, [native, active, canAttach, state, devices, theme])
     useEffect(() => { setBridgeError(null); setPresentation(null) }, [state.tabId, state.guestWebContentsId])
     useEffect(() => {
         if (state.status === 'ready' && presentation?.targetGone
@@ -130,6 +152,7 @@ export function AssistantBrowserRecordingHost() {
             {state.status === 'ready' ? <button className={buttonClass} title="Start recording" onClick={() => void command({ kind: 'start' })}><Play size={13} /></button> : null}
             {live ? <><button className={buttonClass} title={state.status === 'paused' ? 'Resume recording' : 'Pause recording'} onClick={() => void command({ kind: state.status === 'paused' ? 'resume' : 'pause' })}>{state.status === 'paused' ? <Play size={13} /> : <Pause size={13} />}</button><button className={buttonClass} title="Stop and save recording" onClick={() => void command({ kind: 'stop' })}><Square size={12} /></button></> : null}
             {state.unsaved ? <button className={buttonClass} title="Save video copy" onClick={() => void command({ kind: 'save-copy' })}><Download size={14} /></button> : null}
+            {state.artifact && canAttach ? <button className={buttonClass} title="Attach to chat" onClick={() => void command({ kind: 'attach-chat' })}><MessageSquarePlus size={14} /></button> : null}
             {state.artifact ? <button className={buttonClass} title="View recording" onClick={() => void command({ kind: 'show-artifact' })}><Video size={14} /></button> : null}
             {!busy && !live ? <button className={buttonClass} title="Dismiss recording controls" onClick={() => void command({ kind: 'dismiss' })}><X size={14} /></button> : null}
         </div>

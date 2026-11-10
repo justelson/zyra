@@ -1,10 +1,11 @@
+import { normalizeCodexServiceTierPreference } from './codex-service-tier-preference.mjs';
 import { normalizePromptImages } from './prompt-images.mjs';
 import { normalizeReasoningChoice } from './reasoning-choices.mjs';
 import { pingActiveModel } from './model-ping.mjs';
 import { abortManagedBashForegroundJobs, assertManagedBashCleanup, listManagedBashJobs, stopManagedBashJobs } from './managed-bash-tool.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
 import { normalizeCanonicalMessageSourceId } from './message-identity.mjs';
-import { createUserTurnContinuity } from './user-turn-continuity.mjs';
+import { createUserTurnContinuity, readUserTurnRootMessageId } from './user-turn-continuity.mjs';
 import { ensureSessionDurable } from './agent-server/session-durability.mjs';
 import { sessionPreferences } from './session-preferences.mjs';
 import { refreshSavedProviderModels, registerSavedProviders } from "./provider-connections.mjs";
@@ -285,6 +286,7 @@ async function handleConnect(payload) {
     model: payload.model,
     profile: requestedThreadId ? undefined : payload.profile,
     thinking: payload.thinking ?? "medium",
+    codexServiceTier: payload.codexServiceTier,
     reasoningSummary: payload.reasoningSummary ?? (payload.surface === "memory-worker" ? "auto" : undefined),
     startInNewWorktree: payload.startInNewWorktree,
     contextCompactionThresholdTokens: payload.contextCompactionThresholdTokens,
@@ -308,6 +310,9 @@ async function handleConnect(payload) {
     onChatTitle: payload.surface === 'memory-worker' ? undefined : async (title) => {
       send({ type: 'event', event: { type: 'session_title', ...title } });
     },
+    onNotification: payload.surface === 'memory-worker' || payload.purpose === 'voice-primary' ? undefined : async notification => {
+      send({ type: 'event', event: { type: 'session_notification', ...notification } });
+    },
     onWorkContext: payload.surface === 'memory-worker' || payload.purpose === 'voice-primary' || payload.noSession === true ? undefined : async (workContext) => {
       send({ type: 'event', event: { type: 'session_work_context', workContext } });
     },
@@ -322,6 +327,14 @@ async function handleConnect(payload) {
     }
     runtime = await createRuntime({ session: undefined, noSession: Boolean(payload.noSession) });
   }
+  const configureTools = runtime.session.setActiveToolsByName?.bind(runtime.session);
+  if (configureTools) runtime.session.setActiveToolsByName = names => {
+    const before = runtime.session.getActiveToolNames().join('\0');
+    const result = configureTools(names);
+    const activeToolNames = runtime.session.getActiveToolNames();
+    if (before !== activeToolNames.join('\0')) send({ type: 'event', event: { type: 'session_tools', activeToolNames } });
+    return result;
+  };
   const storedChatConfig = readStoredChatConfig(runtime.session.sessionManager);
   await applyChatConfig(sdk, storedChatConfig || normalizeChatConfig(payload), { emit: false });
   const chatConfig = currentChatConfig(sdk);
@@ -428,6 +441,9 @@ async function handleConnect(payload) {
     webSearch: chatConfig.webSearch,
     webFetch: chatConfig.webFetch,
     config: chatConfig,
+    modelInfo: runtime.session.model ? modelToInfo(runtime.session.model, sdk) : undefined,
+    availableModels: sdk.getZyraAvailableModels(runtime.session.modelRegistry).map(model => modelToInfo(model, sdk)),
+    activeToolNames: runtime.session.getActiveToolNames(),
     usage: described.usage,
     contextUsage: described.contextUsage,
     autoCompactionEnabled: runtime.session.autoCompactionEnabled !== false,
@@ -519,7 +535,7 @@ function normalizeEvent(event, modelContextWindow) {
       maxAttempts: numberValue(event.maxAttempts),
       delayMs: numberValue(event.delayMs),
       errorMessage,
-      recoveryKind: classifyRecoveryError(errorMessage),
+      recoveryKind: ['network', 'provider'].includes(event.recoveryKind) ? event.recoveryKind : classifyRecoveryError(errorMessage),
     };
   }
 
@@ -565,6 +581,7 @@ function normalizeMessage(message, modelContextWindow) {
   const timestamp = normalizeMessageTimestamp(message.timestamp);
   const role = stringValue(message.role);
   return {
+    ...(readUserTurnRootMessageId(message) ? { zyraUserTurn: { version: 1, rootMessageId: readUserTurnRootMessageId(message) } } : {}),
     id: normalizeCanonicalMessageSourceId(stringValue(message.id)
       || stringValue(message.messageId)
       || stringValue(message.entryId)
@@ -715,6 +732,7 @@ function normalizeChatConfig(value) {
   return {
     ...(model ? { model } : {}),
     ...(thinkingValue ? { thinking: thinkingValue } : {}),
+    ...(normalizeCodexServiceTierPreference(source.codexServiceTier) ? { codexServiceTier: normalizeCodexServiceTierPreference(source.codexServiceTier) } : {}),
     ...(/^[a-z0-9_-]{1,64}$/.test(profileValue) ? { profile: profileValue } : {}),
     ...(normalizeZyraPermissionMode(source.runtimeMode)
       ? { runtimeMode: normalizeRuntimeMode(source.runtimeMode) }
@@ -740,6 +758,7 @@ function currentChatConfig(sdk) {
   return normalizeChatConfig({
     model: model?.provider && model?.id ? `${model.provider}/${model.id}` : undefined,
     thinking: sdk.getZyraThinkingLevel(runtime),
+    codexServiceTier: runtime?.codexServiceTierState?.value || runtime?.codexServiceTier || "default",
     profile: runtime?.profile,
     runtimeMode: activePermissionMode,
     webSearch: runtime?.webSearch,
@@ -750,6 +769,7 @@ function currentChatConfig(sdk) {
 function sameChatConfig(left, right) {
   return left?.model === right?.model
     && left?.thinking === right?.thinking
+    && left?.codexServiceTier === right?.codexServiceTier
     && left?.profile === right?.profile
     && left?.runtimeMode === right?.runtimeMode
     && left?.webSearch === right?.webSearch
@@ -771,6 +791,7 @@ async function applyChatConfig(sdk, value, options = {}) {
     // reconciles locally; interactive /thinking still rejects invalid choices.
     sdk.syncZyraThinkingLevel(runtime, requested.thinking);
   }
+  if (requested.codexServiceTier && requested.codexServiceTier !== current.codexServiceTier) sdk.setCodexMode(runtime, requested.codexServiceTier);
   if (requested.profile && requested.profile !== current.profile) {
     await sdk.setProfile(runtime, requested.profile);
   }
@@ -973,6 +994,7 @@ async function handleCanonicalMessageOperation(type, payload = {}) {
 
 async function handleSessionOperation(type, payload = {}) {
   if (!runtime?.session) throw new Error("Zyra bridge is not connected.");
+  if (type === 'bash.abort') { await runtime.session.abortBash?.(); await runtime.managedBash?.abortAll?.(); return { aborted: true }; }
   if (type === 'model_ping') return pingActiveModel(runtime, payload.requestId);
   if (type === "steer") {
     const cancel = runtime.userTurnContinuity?.expectSteeringMessage();
@@ -986,8 +1008,8 @@ async function handleSessionOperation(type, payload = {}) {
   }
   if (type === "compact") return runtime.session.compact(String(payload.instructions || "").trim() || undefined);
   if (type === "clear_queue") {
-    runtime.session.clearQueue?.();
-    return {};
+    const cleared = runtime.session.clearQueue?.();
+    return { steering: cleared?.steering || [], followUp: cleared?.followUp || [] };
   }
   if (type === "reload") {
     const sdk = await loadSdk();
@@ -1132,6 +1154,16 @@ async function handleMessage(message) {
       sendResponse(id, true, { result: { enabled: sdk.setZyraMemoryEnabled(runtime, enabled) } });
       return;
     }
+    if (message?.type === 'memory.run') {
+      if (!runtime || runtime.session.isStreaming || runtime.session.isCompacting || memoryJobController) throw new Error('Wait for the current work before consolidating memory.');
+      const controller = new AbortController(); memoryJobController = controller;
+      try {
+        const sdk = await loadSdk();
+        const result = await sdk.runZyraMemoryConsolidation(runtime, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]) });
+        sendResponse(id, true, { result });
+      } finally { if (memoryJobController === controller) memoryJobController = undefined; }
+      return;
+    }
     if (message?.type === "memory.consolidate") { sendResponse(id, true, await consolidateIdleMemory()); return; }
     if (message?.type === 'plugin.revoke') {
       pluginRevocationPromise ??= Promise.resolve().then(async () => {
@@ -1242,7 +1274,7 @@ async function handleMessage(message) {
       sendResponse(id, true, { result: await handleCanonicalMessageOperation(message.type, message.payload ?? {}) });
       return;
     }
-    if (["steer", "model_ping", "follow_up", "compact", "clear_queue", "reload"].includes(message?.type)) {
+    if (["steer", "model_ping", "follow_up", "compact", "clear_queue", "reload", "bash.abort"].includes(message?.type)) {
       sendResponse(id, true, { result: await handleSessionOperation(message.type, message.payload ?? {}) });
       return;
     }

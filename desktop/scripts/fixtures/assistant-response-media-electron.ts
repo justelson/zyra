@@ -74,7 +74,7 @@ void app.whenReady().then(async () => {
         assert.equal(result.initial.paused, true)
         assert.equal(result.initial.time, 0)
         assert.equal(result.initial.autoplay, false)
-        assert.equal(result.initial.controls, true)
+        assert.equal(result.initial.controls, false)
         assert.equal(result.initial.preload, 'metadata')
         assert.ok(result.playedTo > 0.15)
         assert.ok(result.playedAfterSeekTo > result.seekTo)

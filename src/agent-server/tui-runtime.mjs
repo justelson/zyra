@@ -1,3 +1,9 @@
+import { createTuiModelCatalog, unknownTuiModel } from './tui-model-catalog.mjs';
+import { normalizeCodexServiceTierPreference } from '../codex-service-tier-preference.mjs';
+import { tuiHistoryCoverage, isCoveredTuiEvent, normalizeTuiQueue, tuiSnapshotEvents } from './tui-recovery.mjs';
+import { TuiApprovals } from './tui-approvals.mjs';
+import { agentEndOutcome } from './agent-end-outcome.mjs';
+import { createClientResponseTimings } from '../diagnostics/client-response-timing-store.mjs';
 import { normalizeReasoningChoice } from '../reasoning-choices.mjs';
 import { normalizeCanonicalMessageSourceId } from '../message-identity.mjs';
 import { assistantMessageCost } from '../model-pricing/message-cost.mjs';
@@ -34,6 +40,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const requestedPermissionFields = resolveTuiPermissionAttachFields(options, preferences);
   const requestedChatConfig = normalizeRemoteChatConfig({
     thinking: options.thinking,
+    codexServiceTier: options.codexServiceTier,
     ...requestedPermissionFields,
   });
   const clientId = `tui:${process.pid}:${randomUUID()}`;
@@ -61,6 +68,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     noSession: Boolean(options.noSession),
     model: preferences.model,
     thinking: preferences.thinking,
+    codexServiceTier: preferences.codexServiceTier,
     profile: preferences.profile || "default",
     ...requestedPermissionFields,
     webSearch: preferences.webSearch,
@@ -71,8 +79,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const connectedConfig = normalizeRemoteChatConfig(asRecord(connected.config) || connected);
   const canonicalChatId = String(attached.canonicalChatId || attached.sessionKey);
   let viewLeaseTimer;
-  const { modelRegistry } = await createZyraRuntime();
-  registerZyraRuntimeModels(modelRegistry);
+  const { modelRegistry: localModelRegistry } = await createZyraRuntime();
+  registerZyraRuntimeModels(localModelRegistry);
+  const hostModels = createTuiModelCatalog(localModelRegistry, connected.availableModels || (connected.modelInfo ? [connected.modelInfo] : []));
+  const modelRegistry = hostModels.registry;
   const model = resolveModel(modelRegistry, String(connectedConfig.model || connected.model || preferences.model));
   const sessionFile = typeof connected.sessionFile === "string" ? connected.sessionFile : null;
   const state = {
@@ -89,6 +99,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
   let currentSessionName = asString(connected.sessionName);
   let currentProject = asString(connected.cwd) || asString(connected.project) || project;
   let historyEvents = [];
+  let historyEntries = [];
   let historyCursor = null;
   let historyHasOlder = false;
   try {
@@ -98,7 +109,8 @@ export async function createZyraTuiClientRuntime(options = {}) {
       limit: TUI_RESUME_HISTORY_ENTRY_LIMIT
     }, { timeoutMs: 35_000 });
     const history = asRecord(historyResult.history);
-    historyEvents = projectHistoryEntries(selectTuiResumeEntries(history?.entries));
+    historyEntries = selectTuiResumeEntries(history?.entries);
+    historyEvents = projectHistoryEntries(historyEntries);
     const pageInfo = asRecord(history?.pageInfo);
     historyCursor = asString(pageInfo?.oldestCursor);
     historyHasOlder = pageInfo?.hasOlder === true;
@@ -107,31 +119,40 @@ export async function createZyraTuiClientRuntime(options = {}) {
   }
   const eventListeners = new Set();
   const fleetListeners = new Set();
-  const respondedApprovalRequestIds = new Set();
-  const resolvedApprovalRequestIds = new Set();
-  const approvalAbortControllers = new Map();
   const respondedUserInputRequestIds = new Set();
   const resolvedUserInputRequestIds = new Set();
   const locallyResolvedUserInputRequestIds = new Set();
   const userInputAbortControllers = new Map();
   const pendingUserInputEvents = new Map();
   const pendingUserInputResponses = new Map();
-  let approvalHandler = null;
   let userInputHandler = null;
-  const activeTools = new Set(["read", "bash", "edit", "write", "request_user_input", ...(preferences.webSearch ? ["web_search"] : []), ...(preferences.webFetch ? ["web_fetch"] : [])]);
+  const activeTools = new Set(Array.isArray(connected.activeToolNames) ? connected.activeToolNames : []);
+  const managedBashListeners = new Set();
   const steering = [];
   const followUp = [];
+  const queueSubmissions = new Set();
+  let queueRevision = 0;
+  let hostCapabilities = attached.capabilities || {};
   let disposed = false;
   let latestSequence = 0;
+  let replayReady = false;
+  let recoveringSnapshot = false;
+  let recoveryBuffer = [];
+  let recoveryBufferBytes = 0;
+  let recoveryOverflow = false;
+  let reattachPromise = null;
+  let reconnectTimer;
+
   let currentPresence = asRecord(attached.presence);
   let activeTurnId = asString(asRecord(attached.activeRequestContext)?.turnId) || activeTurnFromPresence(currentPresence);
   let settledTurnId = currentPresence?.latestTurn?.state !== "running" ? asString(currentPresence?.latestTurn?.id) : null;
   let remotelyAttached = true;
   let reconnectDetached = () => Promise.resolve();
-  let systemPrompt = "";
+  let currentServiceTier = connectedConfig.codexServiceTier || preferences.codexServiceTier;
   let thinkingLevel = requestedChatConfig.thinking || connectedConfig.thinking || connected.thinking || preferences.thinking;
   const thinkingState = { value: thinkingLevel };
   let currentModel = model;
+  let currentMemoryMode = null;
   let currentProfile = connectedConfig.profile || connected.profile || preferences.profile || "default";
   const connectedPermissionMode = connectedConfig.runtimeMode || connected.runtimeMode;
   let currentPermissionMode = normalizeRemoteRuntimeMode(requestedChatConfig.runtimeMode || connectedPermissionMode);
@@ -144,6 +165,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     model: `${model.provider}/${model.id}`,
     thinking: connectedConfig.thinking || connected.thinking || preferences.thinking,
     profile: currentProfile,
+    codexServiceTier: connectedConfig.codexServiceTier || currentServiceTier,
     runtimeMode: normalizeRemoteRuntimeMode(connectedPermissionMode),
     webSearch: currentWebSearch,
     webFetch: currentWebFetch,
@@ -154,6 +176,15 @@ export async function createZyraTuiClientRuntime(options = {}) {
   let drainUserInputContinuations = async () => undefined;
   let enqueueUserInputContinuation = async () => undefined;
   let flushPendingUserInputResponses = async () => undefined;
+
+  const approvals = new TuiApprovals({
+    send: payload => request("approval.respond", payload),
+    available: () => remotelyAttached && !disposed,
+    report: errorMessage => { for (const listener of eventListeners) listener({ type: "history_error", historical: false, errorMessage }); }
+  });
+  const responseTimings = createClientResponseTimings(path.join(client.paths.stateDirectory, 'diagnostics', 'tui'), {
+    capture: properties => captureCliEvent('zyra_v1_cli_response_timing', properties)
+  });
 
   const presentUserInputRequest = (event) => {
     const requestId = asString(event?.requestId);
@@ -184,12 +215,14 @@ export async function createZyraTuiClientRuntime(options = {}) {
 
   const dispatch = (event, requestContext, replay = false) => {
     if (!event || typeof event !== "object") return;
+    const timingTurnId = requestContext?.turnId || activeTurnId;
+    if (timingTurnId) responseTimings.recorder.observe(timingTurnId, event, replay);
     // Replay rebuilds transcript/UI state only. Live turn ownership comes from
     // authoritative attach presence; otherwise a historical post-agent_end event
     // carrying the old request context can resurrect a completed turn locally.
     // Post-answer maintenance retains its request context for attribution. It
     // cannot reopen the completed response while compaction finishes.
-    if (!replay && requestContext?.turnId && requestContext.turnId !== settledTurnId
+    if (!replay && !event.transportOnly && requestContext?.turnId && requestContext.turnId !== settledTurnId
       && event.type !== "zyra_server_turn_completed" && event.type !== "agent_settled") {
       activeTurnId = requestContext.turnId;
       currentPresence = {
@@ -198,7 +231,12 @@ export async function createZyraTuiClientRuntime(options = {}) {
         activeTurnId,
       };
     }
-    if (!replay && (event.type === "zyra_server_turn_completed" || (event.type === "agent_end" && event.willRetry !== true))) {
+    const legacyEnd = event.type === 'agent_end' && event.willRetry !== true && hostCapabilities.canonicalTurnCompletion !== true;
+    if (!replay && (event.type === "zyra_server_turn_completed" || legacyEnd)) {
+      if (legacyEnd && timingTurnId) {
+        const outcome = agentEndOutcome(event).outcome;
+        responseTimings.recorder.finish(timingTurnId, outcome === 'interrupted' ? 'cancelled' : outcome);
+      }
       settledTurnId = requestContext?.turnId || activeTurnId || settledTurnId;
       if (!requestContext?.turnId || requestContext.turnId === activeTurnId) activeTurnId = null;
       currentPresence = {
@@ -222,9 +260,22 @@ export async function createZyraTuiClientRuntime(options = {}) {
         thinkingState.value = config.thinking;
       }
       if (config.profile) currentProfile = config.profile;
+      if (config.codexServiceTier) currentServiceTier = config.codexServiceTier;
       if (config.runtimeMode) currentPermissionMode = config.runtimeMode;
       if (typeof config.webSearch === "boolean") currentWebSearch = config.webSearch;
       if (typeof config.webFetch === "boolean") currentWebFetch = config.webFetch;
+    }
+    if (event.type === 'session_memory') currentMemoryMode = event.memoryMode;
+    if (event.type === 'session_tools' && Array.isArray(event.activeToolNames)) {
+      activeTools.clear(); for (const name of event.activeToolNames) if (typeof name === 'string') activeTools.add(name);
+    }
+    if (event.type === 'managed_bash_job_update') for (const listener of managedBashListeners) listener(event);
+    if (event.type === 'queue_update') {
+      const queue = normalizeTuiQueue(event);
+      steering.splice(0, steering.length, ...queue.steering);
+      followUp.splice(0, followUp.length, ...queue.followUp);
+      queueRevision++;
+      for (const pending of queueSubmissions) if (pending.accepted) queueSubmissions.delete(pending);
     }
     if (event.type === "compaction_start") compacting = true;
     if (event.type === "compaction_end") compacting = false;
@@ -235,33 +286,8 @@ export async function createZyraTuiClientRuntime(options = {}) {
       currentSessionName = asString(event.title) || currentSessionName;
       currentProject = asString(event.cwd) || asString(event.project) || currentProject;
     }
-    if (event.type === "approval_resolved") {
-      const requestId = asString(event.requestId);
-      if (requestId) {
-        resolvedApprovalRequestIds.add(requestId);
-        approvalAbortControllers.get(requestId)?.abort();
-        approvalAbortControllers.delete(requestId);
-      }
-    }
-    if (event.type === "approval_requested") {
-      const requestId = asString(event.requestId);
-      if (requestId && !respondedApprovalRequestIds.has(requestId)) {
-        respondedApprovalRequestIds.add(requestId);
-        void Promise.resolve().then(async () => {
-          if (resolvedApprovalRequestIds.has(requestId)) return;
-          const controller = new AbortController();
-          approvalAbortControllers.set(requestId, controller);
-          let decision = "decline";
-          try {
-            decision = await approvalHandler?.(event, { signal: controller.signal }) || "decline";
-          } catch {}
-          approvalAbortControllers.delete(requestId);
-          if (resolvedApprovalRequestIds.has(requestId) || controller.signal.aborted) return;
-          if (!['acceptOnce', 'acceptForSession', 'decline'].includes(decision)) decision = "decline";
-          await request("approval.respond", { requestId, decision }).catch(() => undefined);
-        });
-      }
-    }
+    if (event.type === "approval_resolved") approvals.resolve(event.requestId);
+    if (event.type === "approval_requested") approvals.receive(event);
     if (event.type === "user_input_resolved") {
       const requestId = asString(event.requestId);
       if (requestId) {
@@ -290,12 +316,28 @@ export async function createZyraTuiClientRuntime(options = {}) {
       latestFleet = asRecord(event.fleet) || latestFleet;
       for (const listener of fleetListeners) listener({ event, snapshot: latestFleet });
     }
-    for (const listener of eventListeners) listener(event);
+    for (const listener of eventListeners) listener(!replay && timingTurnId ? { ...event, timingTurnId } : event);
   };
 
+  const bufferRecoveryEntry = entry => {
+    const bytes = Buffer.byteLength(JSON.stringify(entry));
+    if (recoveryBuffer.length >= 512 || recoveryBufferBytes + bytes > 8 * 1024 * 1024) {
+      recoveryBuffer = []; recoveryBufferBytes = 0; recoveryOverflow = true;
+      return;
+    }
+    recoveryBuffer.push(entry); recoveryBufferBytes += bytes;
+  };
   const consumeServerEntry = (entry, replay = false) => {
     const sequence = Number(entry?.sequence) || 0;
     if (sequence && sequence <= latestSequence) return;
+    if (!replay && recoveringSnapshot) { bufferRecoveryEntry(entry); return; }
+    if (!replay && replayReady && (sequence > latestSequence + 1 || entry?.event?.type === 'zyra_server_event_omitted')) {
+      // The triggering event predates our new attach snapshot. Do not advance
+      // the cursor or print it before the canonical snapshot confirms it.
+      remotelyAttached = false;
+      void reconnectDetached();
+      return;
+    }
     if (sequence) {
       latestSequence = sequence;
       currentPresence = { ...(currentPresence || {}), latestSequence: sequence };
@@ -324,11 +366,19 @@ export async function createZyraTuiClientRuntime(options = {}) {
   ].sort((left, right) => (Number(left.entry?.sequence) || 0) - (Number(right.entry?.sequence) || 0));
   for (const item of initialEntries) consumeServerEntry(item.entry, item.replay);
   latestSequence = Math.max(latestSequence, Number(attached.latestSequence) || 0);
+  state.messages.splice(0, state.messages.length, ...dedupeRemoteMessages([...historyEntries.filter(entry => entry?.type === "message" && entry.message).map(entry => entry.message), ...state.messages]));
+  const initialCoverage = tuiHistoryCoverage(historyEntries);
+  historyEvents = tuiSnapshotEvents(attached, historyEvents, initialCoverage);
+  if (attached.queue) dispatch({ type: 'queue_update', ...normalizeTuiQueue(attached.queue) }, undefined, true);
+  for (const event of attached.pendingAttention || []) dispatch(event, undefined, true);
+  replayReady = true;
+
 
   const synchronizePresence = (value) => {
     const presence = asRecord(value);
     if (!presence) return currentPresence;
     currentPresence = presence;
+    responseTimings.recorder.reconcile(presence);
     const remoteTurnId = activeTurnFromPresence(presence);
     if (remoteTurnId) activeTurnId = remoteTurnId;
     else if (["ready", "idle", "completed", "failed", "interrupted"].includes(asString(presence.state))) {
@@ -341,17 +391,55 @@ export async function createZyraTuiClientRuntime(options = {}) {
 
   const ensureAttached = async () => {
     if (remotelyAttached) return;
-    const result = await client.attach({
-      project: currentProject,
-      cwd: currentProject,
-      session: canonicalChatId,
-      localThreadId,
-      lastSequence: latestSequence
-    });
-    remotelyAttached = true;
-    synchronizePresence(result.presence);
-    for (const entry of Array.isArray(result.replay) ? result.replay : []) consumeServerEntry(entry, true);
-    queueMicrotask(() => { void flushPendingUserInputResponses(); });
+    if (reattachPromise) return reattachPromise;
+    recoveringSnapshot = true;
+    reattachPromise = (async () => {
+      const result = await client.attach({ project: currentProject, cwd: currentProject, session: canonicalChatId, localThreadId, lastSequence: latestSequence });
+      const read = await client.request("catalog.history", { session: canonicalChatId, project: currentProject, limit: TUI_RESUME_HISTORY_ENTRY_LIMIT }, { timeoutMs: 35_000 });
+      if (disposed) return;
+      const history = asRecord(read.history);
+      if (!Array.isArray(history?.entries)) throw new Error('Canonical chat history is unavailable; recovery is still pending.');
+      historyEntries = selectTuiResumeEntries(history.entries);
+      historyEvents = projectHistoryEntries(historyEntries);
+      const coverage = tuiHistoryCoverage(historyEntries);
+      const messages = historyEntries.filter(entry => entry?.type === 'message' && entry.message).map(entry => entry.message);
+      state.messages.splice(0, state.messages.length, ...dedupeRemoteMessages(messages));
+      historyCursor = asString(history.pageInfo?.oldestCursor);
+      historyHasOlder = history.pageInfo?.hasOlder === true;
+      latestSequence = Number(result.latestSequence) || 0;
+      hostCapabilities = result.capabilities || {};
+      if (Array.isArray(result.connected?.availableModels)) hostModels.update(result.connected.availableModels);
+      if (Array.isArray(result.connected?.activeToolNames)) { activeTools.clear(); for (const name of result.connected.activeToolNames) activeTools.add(name); }
+      synchronizePresence(result.presence);
+      currentPresence = { ...currentPresence, latestSequence };
+      // Restore current config, never historical transcript events outside the
+      // bounded canonical page. Attention and live work have separate snapshots.
+      const config = normalizeRemoteChatConfig(asRecord(result.connected?.config) || result.connected);
+      dispatch({ type: 'session_config', ...config }, undefined, true);
+      if (result.queue) dispatch({ type: 'queue_update', ...normalizeTuiQueue(result.queue) }, undefined, true);
+      for (const item of queueSubmissions) if (item.uncertain) queueSubmissions.delete(item);
+      compacting = (result.pendingOperations || []).some(entry => entry.event?.type === 'compaction_start');
+      const events = tuiSnapshotEvents(result, historyEvents, coverage);
+      for (const listener of eventListeners) listener({ type: 'zyra_history_replaced', events });
+      if (Array.isArray(result.pendingAttention)) approvals.reconcile(result.pendingAttention);
+      for (const event of result.pendingAttention || []) dispatch(event, undefined, true);
+      const buffered = recoveryBuffer; recoveryBuffer = []; recoveryBufferBytes = 0;
+      remotelyAttached = true; recoveringSnapshot = false;
+      const overflow = recoveryOverflow; recoveryOverflow = false;
+      for (const entry of buffered.sort((a, b) => a.sequence - b.sequence)) {
+        if ((Number(entry.sequence) || 0) <= latestSequence) continue;
+        if (entry.sequence !== latestSequence + 1 || entry.event?.type === 'zyra_server_event_omitted') { recoveryOverflow = true; break; }
+        latestSequence = entry.sequence;
+        if (!isCoveredTuiEvent(entry.event, coverage)) dispatch(entry.event, entry.requestContext);
+      }
+      currentPresence = { ...currentPresence, latestSequence };
+      if (overflow || recoveryOverflow) {
+        remotelyAttached = false;
+        throw new Error('Live events exceeded the recovery window; refreshing the canonical snapshot again.');
+      }
+      queueMicrotask(() => { void approvals.flush(); void flushPendingUserInputResponses(); });
+    })().finally(() => { reattachPromise = null; recoveringSnapshot = false; });
+    return reattachPromise;
   };
 
   let reconnectPromise = null;
@@ -371,12 +459,12 @@ export async function createZyraTuiClientRuntime(options = {}) {
           maxAttempts: ZYRA_RETRY_MAX_ATTEMPTS,
           delayMs,
           errorMessage: lastError,
-          recoveryKind: "network"
+          recoveryKind: "network", transportOnly: true
         }, requestContext);
         try {
           await ensureAttached();
           const recoveredRequestContext = activeTurnFromPresence(currentPresence) ? requestContext : undefined;
-          dispatch({ type: "auto_retry_end", success: true, attempt, recoveryKind: "network" }, recoveredRequestContext);
+          dispatch({ type: "auto_retry_end", success: true, attempt, recoveryKind: "network", transportOnly: true }, recoveredRequestContext);
           captureCliEvent("zyra_v1_cli", { action: "recovery", outcome: "recovered", runtime: "client" });
           return;
         } catch (error) {
@@ -391,10 +479,13 @@ export async function createZyraTuiClientRuntime(options = {}) {
           success: false,
           attempt: ZYRA_RETRY_MAX_ATTEMPTS,
           finalError: lastError,
-          recoveryKind: "network"
+          recoveryKind: "network", transportOnly: true
         }, requestContext);
-        activeTurnId = null;
-        currentPresence = { ...(currentPresence || {}), state: "interrupted", activeTurnId: null };
+        // A dropped client connection cannot end server-owned work.
+        currentPresence = { ...(currentPresence || {}), connection: 'disconnected' };
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => { if (!disposed) void reconnectDetached(); }, 5_000);
+        reconnectTimer.unref?.();
         captureCliEvent("zyra_v1_cli", { action: "recovery", outcome: "failed", runtime: "client" });
       }
     })().finally(() => { reconnectPromise = null; });
@@ -482,6 +573,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
       ...(requestContext ? { requestContext } : {})
     });
     await ensureAttached();
+    if (type === 'prompt' && requestContext?.turnId) responseTimings.recorder.dispatch(requestContext.turnId);
     try {
       return await send();
     } catch (error) {
@@ -567,14 +659,55 @@ export async function createZyraTuiClientRuntime(options = {}) {
   };
 
   if (
-    (requestedChatConfig.thinking && requestedChatConfig.thinking !== connectedConfig.thinking)
+    (requestedChatConfig.codexServiceTier && requestedChatConfig.codexServiceTier !== connectedConfig.codexServiceTier)
+    || (requestedChatConfig.thinking && requestedChatConfig.thinking !== connectedConfig.thinking)
     || (requestedChatConfig.runtimeMode && requestedChatConfig.runtimeMode !== connectedPermissionMode)
   ) {
     await syncRemoteChatConfig({
       ...(requestedChatConfig.thinking ? { thinking: requestedChatConfig.thinking } : {}),
+      ...(requestedChatConfig.codexServiceTier ? { codexServiceTier: requestedChatConfig.codexServiceTier } : {}),
       ...(requestedChatConfig.runtimeMode ? { runtimeMode: requestedChatConfig.runtimeMode } : {}),
     });
   }
+
+  const displayedQueue = kind => {
+    const canonical = kind === 'steering' ? steering : followUp;
+    const displayed = [...canonical];
+    for (const item of queueSubmissions) {
+      if (item.kind !== kind) continue;
+      const count = canonical.filter(text => text === item.text).length;
+      if (queueRevision > item.revision && count >= item.targetCount) continue;
+      displayed.push(item.text);
+    }
+    return displayed;
+  };
+  const submitQueue = async (kind, method, prompt, images, fields = {}) => {
+    const canonical = kind === 'steering' ? steering : followUp;
+    const item = { kind, text: String(prompt || ''), revision: queueRevision, targetCount: canonical.filter(text => text === String(prompt || '')).length + [...queueSubmissions].filter(item => item.kind === kind && item.text === String(prompt || '')).length + 1 };
+    queueSubmissions.add(item);
+    try {
+      const result = await request(method, { prompt, images, ...fields });
+      item.accepted = true;
+      if (queueRevision > item.revision) queueSubmissions.delete(item);
+      return result;
+    } catch (error) {
+      if (isAgentServerTransportFailure(error)) item.uncertain = true;
+      else queueSubmissions.delete(item);
+      throw error;
+    }
+  };
+
+  let abortBashPromise;
+  const abortRemoteBash = () => {
+    if (!hostCapabilities.bashAbort) return Promise.reject(new Error('Update the background agent to cancel managed commands independently.'));
+    return abortBashPromise ||= request('bash.abort').finally(() => { abortBashPromise = null; });
+  };
+  let refreshingModels;
+  const refreshModels = () => refreshingModels ||= client.request('runtime.models', { skipAvailability: true }).then(result => {
+    if (!hostModels.update(result?.models)) throw new Error('The host model catalog is unavailable.');
+    currentModel = resolveModel(modelRegistry, `${currentModel.provider}/${currentModel.id}`);
+    return modelRegistry.getAvailable();
+  }).finally(() => { refreshingModels = null; });
 
   const session = {
     state,
@@ -585,10 +718,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     get thinkingLevel() { return thinkingLevel; },
     get isStreaming() { return Boolean(activeTurnId); },
     get isCompacting() { return compacting; },
-    agent: {
-      getSystemPrompt: () => systemPrompt,
-      setSystemPrompt: (value) => { systemPrompt = String(value || ""); }
-    },
+
     subscribe(listener) {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
@@ -596,6 +726,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
     async prompt(prompt, promptOptions = {}) {
       if (activeTurnId) throw new Error("This canonical chat already has an active turn.");
       const turnId = `turn:${randomUUID()}`;
+      responseTimings.recorder.start(turnId, `${currentModel.provider}/${currentModel.id}`, thinkingLevel);
       let preserveServerOwnedTurn = false;
       activeTurnId = turnId;
       try {
@@ -619,36 +750,24 @@ export async function createZyraTuiClientRuntime(options = {}) {
       }
     },
     abort: () => request("abort"),
-    abortBash: () => undefined,
+    abortBash: () => abortRemoteBash(),
     async steer(prompt, images) {
-      steering.push(String(prompt || ""));
-      try {
-        if (!activeTurnId) throw new Error('The turn has ended. Send this message as a new turn instead.');
-        return await request("steer", { prompt, images, targetTurnId: activeTurnId });
-      }
-      finally { steering.shift(); }
+      if (!activeTurnId) throw new Error('The turn has ended. Send this message as a new turn instead.');
+      return submitQueue('steering', 'steer', prompt, images, { targetTurnId: activeTurnId });
     },
-    async followUp(prompt, images) {
-      followUp.push(String(prompt || ""));
-      try { return await request("follow_up", { prompt, images }); }
-      finally { followUp.shift(); }
-    },
+    async followUp(prompt, images) { return submitQueue('followUp', 'follow_up', prompt, images); },
     compact: (instructions) => request("compact", { instructions }),
     reload: () => request("reload"),
-    clearQueue() {
-      const queued = { steering: [...steering], followUp: [...followUp] };
-      steering.length = 0;
-      followUp.length = 0;
-      void request("clear_queue").catch(() => undefined);
-      return queued;
+    async clearQueue() {
+      if (!hostCapabilities.queueReceipts) throw new Error('Update the background agent to restore queued messages safely.');
+      const cleared = await request("clear_queue");
+      if (!Array.isArray(cleared?.steering) || !Array.isArray(cleared?.followUp)) throw new Error('The host did not confirm which queued messages were cleared.');
+      // Only an acknowledged clear may change the UI or restore drafts.
+      return normalizeTuiQueue(cleared);
     },
-    getSteeringMessages: () => [...steering],
-    getFollowUpMessages: () => [...followUp],
+    getSteeringMessages: () => displayedQueue('steering'),
+    getFollowUpMessages: () => displayedQueue('followUp'),
     getActiveToolNames: () => [...activeTools],
-    setActiveToolsByName(names) {
-      activeTools.clear();
-      for (const name of names || []) activeTools.add(String(name));
-    },
     acceptsZyraThinkingLevels: true,
     getAvailableThinkingLevels: () => getZyraModelThinkingLevels(currentModel),
     setThinkingLevel(value) {
@@ -670,13 +789,14 @@ export async function createZyraTuiClientRuntime(options = {}) {
     dispose() {
       if (disposed) return;
       clearInterval(viewLeaseTimer);
+      clearTimeout(reconnectTimer);
       void client.request('session.view', { session: canonicalChatId, viewId: 'main', viewing: false }).catch(() => undefined);
       disposed = true;
       client.off("session-event", onServerEvent);
       client.off("disconnect", onDisconnect);
-      for (const controller of approvalAbortControllers.values()) controller.abort();
+      approvals.dispose();
       for (const controller of userInputAbortControllers.values()) controller.abort();
-      approvalAbortControllers.clear();
+
       userInputAbortControllers.clear();
       locallyResolvedUserInputRequestIds.clear();
       pendingUserInputEvents.clear();
@@ -684,7 +804,9 @@ export async function createZyraTuiClientRuntime(options = {}) {
       queuedUserInputContinuations.length = 0;
       eventListeners.clear();
       fleetListeners.clear();
+      managedBashListeners.clear();
       void client.detach(canonicalChatId).catch(() => undefined).finally(() => client.close());
+      return responseTimings.dispose();
     }
   };
 
@@ -724,6 +846,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
   const terminalTheme = resolveTerminalTheme(preferences.terminalTheme, { root: defaults.root, project });
   const runtime = {
     session,
+    responseTimings,
     root: defaults.root,
     get project() { return currentProject; },
     get sessions() { return getProjectSessionsDir(currentProject); },
@@ -758,9 +881,10 @@ export async function createZyraTuiClientRuntime(options = {}) {
     statusLine: preferences.statusLine,
     notifications: preferences.notifications,
     interruptMode: preferences.interruptMode,
-    codexServiceTier: preferences.codexServiceTier,
-    codexServiceTierState: { value: preferences.codexServiceTier },
-    managedBash: { abortAll: () => undefined, subscribe: () => () => undefined },
+    get codexServiceTier() { return currentServiceTier; },
+    set codexServiceTier(value) { currentServiceTier = normalizeCodexServiceTierPreference(value) || 'default'; queueRemoteChatConfigSync({ codexServiceTier: currentServiceTier }); },
+    codexServiceTierState: { get value() { return currentServiceTier; }, set value(value) { currentServiceTier = normalizeCodexServiceTierPreference(value) || 'default'; queueRemoteChatConfigSync({ codexServiceTier: currentServiceTier }); } },
+    managedBash: { abortAll: () => abortRemoteBash(), subscribe(listener) { managedBashListeners.add(listener); return () => managedBashListeners.delete(listener); } },
     modelAvailability: null,
     modelFallbackMessage: null,
     fleet,
@@ -788,6 +912,11 @@ export async function createZyraTuiClientRuntime(options = {}) {
     },
     agentServer: {
       client,
+      refreshModels,
+      async memoryPreferences() { const result = await request('preferences.get'); currentMemoryMode = result.memoryMode; return { mode: result.memoryMode }; },
+      async setMemoryMode(mode) { const result = await request('memory.configure', { enabled: mode === 'enabled' }); currentMemoryMode = result.memoryMode; return { mode: result.memoryMode }; },
+      memoryOverview: () => ['Chat memory', `  Contribution: ${currentMemoryMode || 'not read yet'}`],
+      consolidateMemory: () => request('memory.run'),
       setViewed(focused) {
         clearInterval(viewLeaseTimer);
         const report = () => { if (!disposed) void client.request('session.view', { session: canonicalChatId, viewId: 'main', viewing: focused === true }).catch(() => undefined); };
@@ -801,7 +930,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
       refreshPresence,
       openDesktopWorkspace,
       setApprovalHandler(handler) {
-        approvalHandler = typeof handler === "function" ? handler : null;
+        approvals.setHandler(handler);
       },
       setUserInputHandler(handler) {
         userInputHandler = typeof handler === "function" ? handler : null;
@@ -897,7 +1026,7 @@ function resolveModel(modelRegistry, selector) {
   const [provider, ...idParts] = String(selector || defaults.model).split("/");
   const id = idParts.join("/");
   return modelRegistry.find(provider, id)
-    || { provider: provider || "openai-codex", id: id || "gpt-5.6-sol", name: id || "GPT-5.6 Sol", reasoning: true, contextWindow: 400_000 };
+    || unknownTuiModel(selector);
 }
 
 function updateMessages(messages, event) {
@@ -949,6 +1078,7 @@ function normalizeRemoteChatConfig(value) {
     model: asString(source.model),
     thinking: normalizeReasoningChoice(thinking) ?? null,
     profile: asString(source.profile),
+    codexServiceTier: normalizeCodexServiceTierPreference(source.codexServiceTier),
     runtimeMode: normalizeZyraPermissionMode(source.runtimeMode),
     webSearch: typeof source.webSearch === "boolean" ? source.webSearch : undefined,
     webFetch: typeof source.webFetch === "boolean" ? source.webFetch : undefined,

@@ -30,3 +30,5 @@ export function isSafeBrowserNavigationUrl(value: string): boolean {
 export function registerBrowserPermissionTarget(_guest: WebContents, _owner: WebContents): void {}
 export function transferBrowserPermissionTargetOwner(_guest: WebContents, _owner: WebContents): void {}
 export function scheduleGlobalBrowserProfileFlush(): void {}
+
+export async function recordGlobalBrowserHistory(_entry: unknown): Promise<void> {}

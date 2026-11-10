@@ -16,6 +16,7 @@ export type BrowserRecordingSnapshot = {
     error: string | null
     artifact: DevScopeBrowserCaptureArtifact | null
     unsaved: boolean
+    captureDestination?: { sessionId: string | null; enabled: boolean }
 }
 type ActiveRecording = {
     target: DevScopeBrowserGuestTargetInput
@@ -43,7 +44,7 @@ type ActiveRecording = {
     stopping: Promise<DevScopeBrowserCaptureArtifact> | null
     mediaReleased: boolean
 }
-const EMPTY: BrowserRecordingSnapshot = { status: 'idle', tabId: null, guestWebContentsId: null, elapsedMs: 0, microphone: 'off', microphonePending: false, audioSource: 'off', audioPending: false, tabAudioSupported: false, systemAudioSupported: false, error: null, artifact: null, unsaved: false }
+const EMPTY: BrowserRecordingSnapshot = { status: 'idle', tabId: null, guestWebContentsId: null, elapsedMs: 0, microphone: 'off', microphonePending: false, audioSource: 'off', audioPending: false, tabAudioSupported: false, systemAudioSupported: false, error: null, artifact: null, unsaved: false, captureDestination: undefined }
 let snapshot = EMPTY
 let active: ActiveRecording | null = null
 let setup: { target: DevScopeBrowserGuestTargetInput; size: { width: number; height: number } } | null = null
@@ -57,13 +58,13 @@ export function readActiveAssistantBrowserRecordingTarget(): DevScopeBrowserGues
 export function readActiveAssistantBrowserRecordingTabId(): string | null { return active?.target.tabId || null }
 export function dismissAssistantBrowserRecording() { if (!active && !setupStart) { if (unsavedVideo && !window.confirm('Discard the unsaved recording?')) return; setup = null; unsavedVideo = null; snapshot = EMPTY; for (const listener of listeners) listener() } }
 /** Opening setup only selects a target. Media/permissions/timers begin on explicit Start. */
-export function prepareAssistantBrowserRecording(target: DevScopeBrowserGuestTargetInput, size: { width: number; height: number }): void {
+export function prepareAssistantBrowserRecording(target: DevScopeBrowserGuestTargetInput, size: { width: number; height: number }, captureDestination?: BrowserRecordingSnapshot['captureDestination']): void {
     if (active || setupStart || snapshot.status === 'starting') throw new Error('Another Browser tab is already recording.')
     if (unsavedVideo) throw new Error('Save or discard the previous recording before starting another.')
     if (snapshot.status === 'ready' && setup?.target.tabId === target.tabId && setup.target.guestWebContentsId === target.guestWebContentsId) return
     const prepared = setup = { target, size }
     const canCapture = typeof navigator.mediaDevices?.getDisplayMedia === 'function'
-    publish({ ...EMPTY, status: 'ready', tabId: target.tabId, guestWebContentsId: target.guestWebContentsId,
+    publish({ ...EMPTY, captureDestination, status: 'ready', tabId: target.tabId, guestWebContentsId: target.guestWebContentsId,
         tabAudioSupported: canCapture, systemAudioSupported: canCapture && /Windows/i.test(navigator.userAgent || '') })
     // Runtime metadata is read-only; a late reply cannot revive dismissed setup.
     void window.devscope.window?.getRuntimeInfo().then(runtime => {
@@ -236,7 +237,7 @@ export async function startAssistantBrowserRecording(target: DevScopeBrowserGues
     if (unsavedVideo) throw new Error('Save or discard the previous recording before starting another.')
     if (snapshot.status === 'starting') throw new Error('A recording is already starting.')
     const selected = snapshot.status === 'ready' && setup?.target.tabId === target.tabId && setup.target.guestWebContentsId === target.guestWebContentsId
-        ? { microphone: snapshot.microphone, audioSource: snapshot.audioSource } : { microphone: 'off', audioSource: 'off' as const }
+        ? { microphone: snapshot.microphone, audioSource: snapshot.audioSource, captureDestination: snapshot.captureDestination } : { microphone: 'off', audioSource: 'off' as const }
     setup = null
     publish({ ...EMPTY, ...selected, status: 'starting', tabId: target.tabId, guestWebContentsId: target.guestWebContentsId })
     let recording: ActiveRecording | null = null

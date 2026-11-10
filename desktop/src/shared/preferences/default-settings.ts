@@ -15,7 +15,7 @@ export const DEFAULT_DEVICE_SETTINGS = {
     filePreviewDefaultMode: 'preview', filePreviewPythonRunMode: 'terminal', filePreviewExplorerNameLayout: 'wrap', fileEditorWordWrap: 'on',
     fileEditorMinimapEnabled: true, fileEditorFontSize: 13, fileCsvDistinctColorsEnabled: true, fileDiffRenderMode: 'stacked', packageRuntimePreference: 'auto',
     filePreviewTerminalPanelHeight: 220, terminalFontSize: 12, terminalCursorBlink: true, terminalScrollback: 5000,
-    assistantBrowserRestoreTabs: true, assistantBrowserGoogleSuggestions: true, assistantBrowserAdBlockEnabled: false, assistantBrowserAdBlockPromptDismissed: false,
+    assistantBrowserStandaloneAiTools: true, assistantBrowserRestoreTabs: true, assistantBrowserGoogleSuggestions: true, assistantBrowserAdBlockEnabled: false, assistantBrowserAdBlockPromptDismissed: false,
     assistantBrowserNewTabBackgroundMode: 'built-in', assistantBrowserNewTabBackgroundCategory: 'all', assistantBrowserNewTabBackgroundRotation: 'every-tab', assistantBrowserNewTabBackgroundId: '',
     projectsFolder: '', additionalFolders: [], gitAutoRefreshOnProjectOpen: true, gitInitDefaultBranch: 'main', gitInitCreateGitignore: true,
     gitInitCreateInitialCommit: false, gitWarnOnAuthorMismatch: true, gitBulkActionScope: 'repo',

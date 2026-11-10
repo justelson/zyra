@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import {
     ArrowLeft,
     ArrowRight,
+    ArrowUpRight,
     Bookmark,
     Camera,
     ChevronDown,
@@ -94,7 +95,6 @@ import {
     type AssistantBrowserProfileReloadHistoryPhase
 } from './assistant-browser-history'
 import type { AssistantInspectorDeveloperToastInput } from './AssistantInspectorDeveloperToast'
-import { publishAssistantBrowserAnnotationAttachment } from './assistant-browser-annotation-composer'
 import {
     readAssistantBrowserRecording,
     subscribeAssistantBrowserRecording,
@@ -211,6 +211,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     onControllerChange,
     onDeveloperToast,
     onOpenPreview,
+    captureSessionId,
     chatIntegration = true,
     defaultSessionMode = 'normal',
     tabIdPrefix = 'browser',
@@ -233,12 +234,15 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     onControllerChange: (controller: AssistantBrowserWorkspaceController | null) => void
     onDeveloperToast: (toast: AssistantInspectorDeveloperToastInput) => void
     onOpenPreview: (file: { name: string; path: string }, ext: string, options?: PreviewOpenOptions) => Promise<void>
+    captureSessionId?: string | null
     chatIntegration?: boolean
     defaultSessionMode?: BrowserSessionMode
     tabIdPrefix?: string
     persistState?: boolean
 }) {
     const { settings } = useSettings()
+    const browserToolsEnabled = chatIntegration || settings.assistantBrowserStandaloneAiTools !== false
+    const captureChatId = chatIntegration ? (captureSessionId ?? workspaceKey) : null
     const shortcut = useShortcutLabel()
     const shortcutTitle = (label: string, id: CommandId) => `${label}${shortcut(id) ? ` (${shortcut(id)})` : ''}`
     const browserDownloadsApi = useMemo(() => ({
@@ -592,6 +596,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     }, [active, cancelAnnotation])
 
     useEffect(() => () => cancelAnnotation(), [cancelAnnotation])
+    useEffect(() => { if (!browserToolsEnabled) cancelAnnotation() }, [browserToolsEnabled, cancelAnnotation])
 
     useEffect(() => {
         if (!normalizedProjectPath) {
@@ -1011,7 +1016,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             return
         }
         const permissions = [...review.extension.permissions, ...review.extension.hostPermissions]
-        const approved = window.confirm(`Install ${review.extension.name} v${review.extension.version} in Zyra Browser?\n\n${permissions.length > 0 ? `Requested permissions:\n${permissions.join(', ')}` : 'This extension declares no permissions.'}\n\nOnly approve extensions you trust.`)
+        const approved = window.confirm(`Install ${review.extension.name} v${review.extension.version} in Zyra Browser?\n\n${permissions.length > 0 ? `Requested permissions:\n${permissions.join(', ')}` : 'This extension declares no permissions.'}\n\n${review.extension.warnings.length ? review.extension.warnings.join('\n') + '\n\n' : ''}Only approve extensions you trust. Some Chrome APIs may not work in Zyra.`)
         if (!approved) {
             await window.devscope.discardBrowserExtensionFromWebStore(review.extension.id).catch(() => undefined)
             onDeveloperToast({ message: `${review.extension.name} was not kept.` })
@@ -1623,15 +1628,16 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     }, [cancelAnnotation, getActiveDeveloperTarget, onDeveloperToast])
 
     const captureActiveScreenshot = useCallback(async () => {
+        if (!browserToolsEnabled) return
         try {
             const { target } = getActiveDeveloperTarget()
             const result = await window.devscope.captureBrowserPreviewScreenshot(target)
             if (!result.success) throw new Error(result.error || 'Could not capture the Browser tab.')
-            onDeveloperToast({ message: '', artifact: result.artifact })
+            onDeveloperToast({ message: '', artifact: result.artifact, captureSessionId: captureChatId })
         } catch (error) {
             onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not capture the Browser tab.' })
         }
-    }, [getActiveDeveloperTarget, onDeveloperToast])
+    }, [browserToolsEnabled, captureChatId, getActiveDeveloperTarget, onDeveloperToast])
     captureActiveScreenshotRef.current = captureActiveScreenshot
     useEffect(() => {
         if (!active) return
@@ -1648,6 +1654,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
     }, [active, captureActiveScreenshot, executeBrowserShortcut])
 
     const toggleAnnotation = useCallback(async () => {
+        if (!browserToolsEnabled) return
         if (annotationTabIdRef.current) {
             cancelAnnotation()
             return
@@ -1660,22 +1667,13 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             setAnnotationTabId(tabId)
             const result = await window.devscope.startBrowserPreviewAnnotation({
                 ...activeDeveloper.target,
-                theme: readBrowserAnnotationTheme()
+                theme: readBrowserAnnotationTheme(),
+                standalone: !chatIntegration
             })
             if (!result.success) throw new Error(result.error || 'Could not annotate the Browser tab.')
             if (result.annotation && result.artifact) {
-                if (!chatIntegration) {
-                    onDeveloperToast({ message: 'Annotation ready', artifact: result.artifact })
-                    return
-                }
-                const staged = await window.devscope.stageBrowserPreviewArtifactForAssistant(result.artifact.artifactId)
-                if (!staged.success) throw new Error(staged.error || 'Could not attach the Browser annotation to chat.')
-                publishAssistantBrowserAnnotationAttachment({
-                    sessionId: workspaceKey,
-                    reference: staged.reference,
-                    annotation: result.annotation,
-                    artifact: result.artifact
-                })
+                const attached = await window.devscope.attachBrowserCaptureToChat({ artifactId: result.artifact.artifactId, sessionId: captureChatId, annotation: result.annotation })
+                if (!attached.success) throw new Error(attached.error || 'Could not attach the Browser selection.')
             }
         } catch (error) {
             if (tabId && annotationTabIdRef.current !== tabId) return
@@ -1686,9 +1684,10 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                 setAnnotationTabId(null)
             }
         }
-    }, [cancelAnnotation, chatIntegration, getActiveDeveloperTarget, onDeveloperToast, workspaceKey])
+    }, [browserToolsEnabled, cancelAnnotation, captureChatId, chatIntegration, getActiveDeveloperTarget, onDeveloperToast])
 
     const toggleActiveRecording = useCallback(async () => {
+        if (!browserToolsEnabled && !recordingTabId) return
         try {
             setProfileMenuOpen(false)
             const { tabId, target, handle } = getActiveDeveloperTarget()
@@ -1698,13 +1697,13 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                 await stopAssistantBrowserRecording(target)
                 return
             }
-            prepareAssistantBrowserRecording(target, handle.getViewportSize())
+            prepareAssistantBrowserRecording(target, handle.getViewportSize(), { sessionId: captureChatId, enabled: browserToolsEnabled })
         } catch (error) {
             if (!readAssistantBrowserRecording().error) {
                 onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not change Browser recording state.' })
             }
         }
-    }, [cancelAnnotation, getActiveDeveloperTarget, onDeveloperToast, recordingTabId])
+    }, [browserToolsEnabled, cancelAnnotation, captureChatId, getActiveDeveloperTarget, onDeveloperToast, recordingTabId])
 
     const keepAdBlockingOff = useCallback(async () => {
         if (adBlockEnabling) return
@@ -1979,6 +1978,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 aria-controls={omniboxOpen ? BROWSER_HISTORY_LISTBOX_ID : undefined}
                                 aria-activedescendant={resolveAssistantBrowserOmniboxActiveDescendant(BROWSER_HISTORY_LISTBOX_ID, historyActiveIndex, omniboxSuggestions)}
                             />
+                            {activeTab?.url && !isBrowserLocalFileUrl(activeTab.url) ? <button type="button" onClick={() => void openExternal()} className={BROWSER_CHROME_BUTTON_CLASS} title="Open in default browser" aria-label="Open in default browser"><ArrowUpRight size={14} /></button> : null}
                         </div>
                         {omniboxOpen ? (
                             <AnchoredNativeOverlay anchorRef={addressContainerRef} autoFocus={false}><div ref={omniboxMenuRef} id={BROWSER_HISTORY_LISTBOX_ID} role="listbox" className="absolute inset-x-0 top-7 max-h-72 overflow-y-auto rounded-b-[13px] border border-[color-mix(in_srgb,var(--color-text)_12%,transparent)] bg-[color-mix(in_srgb,var(--color-card)_96%,var(--color-bg))] p-1 shadow-[0_18px_38px_rgba(0,0,0,0.34)]" aria-label="Address and search suggestions" aria-busy={omniboxLoading}>
@@ -2025,7 +2025,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                 />
                 <button type="button" onClick={() => void toggleActiveBookmark()} disabled={!bookmarkableUrl} className={cn(BROWSER_CHROME_BUTTON_CLASS, activeBookmarked && 'text-[var(--accent-primary)]')} title={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-label={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-pressed={activeBookmarked}><Star size={13} fill={activeBookmarked ? 'currentColor' : 'none'} /></button>
                 <>
-                    <button
+                    {browserToolsEnabled ? <button
                         type="button"
                         onClick={() => void toggleAnnotation()}
                         disabled={!activeTab?.url}
@@ -2034,8 +2034,8 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                         aria-pressed={annotationTabId === activeTab?.id}
                     >
                         <Crosshair size={13} />
-                    </button>
-                    <button type="button" onClick={() => void captureActiveScreenshot()} disabled={!activeTab?.url} className={BROWSER_CHROME_BUTTON_CLASS} title="Capture screenshot"><Camera size={13} /></button>
+                    </button> : null}
+                    {browserToolsEnabled ? <button type="button" onClick={() => void captureActiveScreenshot()} disabled={!activeTab?.url} className={BROWSER_CHROME_BUTTON_CLASS} title="Capture screenshot"><Camera size={13} /></button> : null}
                 </>
                 {activePendingGrant ? (
                     <div className="flex h-5 items-center gap-1 border border-sky-300/25 bg-sky-400/[0.08] px-1.5 text-[8px] text-sky-100" title="Review this Browser request in chat.">
@@ -2111,10 +2111,9 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                             </> : null}
                             {activeTab?.url ? <>
                                 <div className="my-1 h-px bg-[var(--surface-divider)]" />
-                                <button type="button" onClick={() => void toggleActiveRecording()} disabled={recordingState.status === 'starting' || recordingState.status === 'stopping' || Boolean(recordingTabId && recordingTabId !== activeTab.id)} className={cn(BROWSER_MENU_ROW_CLASS, recordingTabId === activeTab.id && 'text-red-300')}><Circle size={11} fill={recordingTabId === activeTab.id ? 'currentColor' : 'none'} /><span>{recordingTabId === activeTab.id ? 'Stop and save recording' : 'Record Browser tab'}</span></button>
+                                {browserToolsEnabled || recordingTabId ? <button type="button" onClick={() => void toggleActiveRecording()} disabled={recordingState.status === 'starting' || recordingState.status === 'stopping' || Boolean(recordingTabId && recordingTabId !== activeTab.id)} className={cn(BROWSER_MENU_ROW_CLASS, recordingTabId === activeTab.id && 'text-red-300')}><Circle size={11} fill={recordingTabId === activeTab.id ? 'currentColor' : 'none'} /><span>{recordingTabId === activeTab.id ? 'Stop and save recording' : 'Record Browser tab'}</span></button> : null}
                             </> : null}
                             {isChromeWebStoreUrl(activeTab?.url || '') ? <button type="button" onClick={() => { setProfileMenuOpen(false); void installActiveWebStoreExtension() }} className={BROWSER_MENU_ROW_CLASS}><Puzzle size={12} /><span>Install extension in Zyra</span></button> : null}
-                            {activeTab?.url && !isBrowserLocalFileUrl(activeTab.url) ? <button type="button" onClick={() => void openExternal()} className={BROWSER_MENU_ROW_CLASS}><ExternalLink size={12} /><span>Open in default browser</span></button> : null}
                             <div className="my-1 h-px bg-[var(--surface-divider)]" />
                             <button type="button" onClick={() => {
                                 setProfileMenuOpen(false)

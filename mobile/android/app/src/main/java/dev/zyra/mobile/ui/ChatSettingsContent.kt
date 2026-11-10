@@ -40,11 +40,11 @@ import dev.zyra.mobile.data.permissionLabel
     var advanced by remember { mutableStateOf(initiallyAdvanced) }
     val personalizing = connected && preferences.loaded && !preferences.saving
     ChatSettingsGroup {
-        ChatSettingControl("Model & thinking", config.model.substringAfter('/').ifBlank { "Choose a model" }, click = if (connected) models else null,
+        ChatSettingControl("Model & thinking", config.model.substringAfter('/').ifBlank { "Choose a model" }, click = if (connected && "model" in config.supportedFields) models else null,
             leading = { ThinkingGaugeIcon(config.thinking, Modifier.size(22.dp)) })
         ChatSettingsDivider()
         ChatSettingControl("Speaking style", preferences.profile.ifBlank { config.profile }.replaceFirstChar { it.uppercase() }.ifBlank { "From your PC" },
-            click = if (personalizing) ({ if (chooseProfile == null) profiles() else stylesExpanded = true }) else null,
+            click = if (personalizing && "profile" in config.supportedFields) ({ if (chooseProfile == null) profiles() else stylesExpanded = true }) else null,
             leading = { AppIcon(R.drawable.ic_text_cursor_input, modifier = Modifier.size(20.dp)) },
             trailing = { if (preferences.busy || preferences.saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else AppIcon(R.drawable.ic_chevron_right, "Speaking styles", Modifier.size(16.dp)) })
         if (preferences.loaded) {
@@ -83,10 +83,20 @@ import dev.zyra.mobile.data.permissionLabel
 
 @Composable internal fun AdvancedChatControls(config: ChatConfiguration, connected: Boolean, configure: (String, Any) -> Unit) {
         Column(Modifier.padding(bottom = 12.dp)) {
-            PermissionControls(config.runtimeMode, connected) { configure("runtimeMode", it) }
+            PermissionControls(config.runtimeMode, connected && "runtimeMode" in config.supportedFields) { configure("runtimeMode", it) }
             HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-            ZyraSettingRow(title = "Web search", trailing = { ZyraSwitch(config.webSearch, { configure("webSearch", it) }, enabled = connected) })
-            ZyraSettingRow(title = "Read web pages", trailing = { ZyraSwitch(config.webFetch, { configure("webFetch", it) }, enabled = connected) })
+            ZyraSettingRow(title = "Web search", subtitle = if ("webSearch" !in config.supportedFields) "Unavailable on this PC" else null, trailing = { ZyraSwitch(config.webSearch, { configure("webSearch", it) }, enabled = connected && "webSearch" in config.supportedFields) })
+            ZyraSettingRow(title = "Read web pages", subtitle = if ("webFetch" !in config.supportedFields) "Unavailable on this PC" else null, trailing = { ZyraSwitch(config.webFetch, { configure("webFetch", it) }, enabled = connected && "webFetch" in config.supportedFields) })
+            if (config.model.startsWith("openai-codex/")) {
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                Text("Response speed", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelMedium)
+                val available = "codexServiceTier" in config.supportedFields
+                if (!available) Text("Update Zyra on this PC to change response speed.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                for ((value, label) in listOf("default" to "Standard", "priority" to "Fast", "flex" to "Flex")) {
+                    ZyraSettingRow(title = label, click = if (connected && available) ({ configure("codexServiceTier", value) }) else null,
+                        trailing = { ZyraSelectionMark(config.codexServiceTier.ifBlank { "default" } == value) })
+                }
+            }
         }
 }
 

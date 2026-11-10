@@ -90,6 +90,8 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"ResourceExhausted",
 ]);
 
+const NON_RETRYABLE_REQUEST_ERROR_PATTERN = /\b(?:401|403)\b|unauthori[sz]ed|authentication|invalid api key|no api key|permission denied|access denied|invalid (?:request|argument)|(?:request|input|json) schema|unsupported (?:model|parameter|effort)|thinking must be one of|no (?:chatgpt )?account.*available|usage limit|context_length_exceeded|maximum context|content.?policy|websocket.*\b1008\b/i;
+
 /**
  * Retry policy: bounded attempts with exponential backoff (`baseDelayMs * 2^(attempt-1)`).
  * Matches `settings.retry` (`enabled`, `maxRetries`, `baseDelayMs`) in coding-agent; kept
@@ -187,7 +189,7 @@ export async function retryAssistantCall(
 		}
 
 		// Non-retryable, or budget exhausted: return the final error message.
-		if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {
+		if (attempt >= maxAttempts || !isRetryableAssistantError(response, attempt)) {
 			if (lastRetry) await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);
 			return response;
 		}
@@ -221,9 +223,12 @@ export async function retryAssistantCall(
  * overflow separately, then apply their own retry budget, backoff, and reporting
  * before restarting the assistant turn.
  */
-export function isRetryableAssistantError(message: AssistantMessage): boolean {
-	if (message.stopReason !== "error" || !message.errorMessage) return false;
-	const errorMessage = message.errorMessage;
-	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
-	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+export function isRetryableAssistantError(message: AssistantMessage, previousAttempts = 0): boolean {
+	if (message.stopReason !== "error" || message.errorRetryable === false) return false;
+	const errorMessage = message.errorMessage || "Unknown error";
+	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage) || NON_RETRYABLE_REQUEST_ERROR_PATTERN.test(errorMessage)) return false;
+	// An unfamiliar transient failure deserves one chance to recover, without
+	// turning an unknown permanent error into a long retry loop. Explicitly unsafe
+	// retries (for example, already-admitted native work) remain excluded above.
+	return message.errorRetryable === true || RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage) || previousAttempts === 0;
 }

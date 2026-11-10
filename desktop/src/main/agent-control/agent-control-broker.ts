@@ -983,7 +983,7 @@ export class AgentControlBroker extends EventEmitter {
         const isForeground = (targetId: string) => {
             try {
                 const kind = this.targets.get(targetId).target.kind
-                return kind !== 'zyra-browser' && !(kind === 'windows-window' && this.userWindowsTurn(principal))
+                return kind === 'windows-window' && !this.userWindowsTurn(principal)
             } catch { return true }
         }
         for (const grant of this.grants.listForPrincipal(principal)) {
@@ -1226,7 +1226,7 @@ export class AgentControlBroker extends EventEmitter {
     private toolOperationTarget(principal: ControlPrincipal, operation: AgentControlBridgeOperation): ControlTarget | undefined {
         if (operation.operation === 'plan_status') return undefined
         let targetId = 'targetId' in operation ? operation.targetId : undefined
-        if (!targetId && 'grantId' in operation) targetId = this.grants.requireActive(operation.grantId, principal).targetId
+        if (!targetId && 'grantId' in operation && operation.grantId) targetId = this.grants.requireActive(operation.grantId, principal).targetId
         if (!targetId && 'planId' in operation && operation.planId) targetId = this.requirePausedPlan(operation.planId, principal).request.targetId
         return targetId ? this.targets.get(targetId).target : undefined
     }
@@ -1239,13 +1239,18 @@ export class AgentControlBroker extends EventEmitter {
             : input
         switch (operation.operation) {
             case 'open_tab': {
+                const requestedTarget = this.toolOperationTarget(principal, operation)
+                const targetKind = operation.targetKind ?? requestedTarget?.kind ?? 'zyra-browser'
+                if (!['zyra-browser', 'chrome-tab'].includes(targetKind)) {
+                    throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Choose the in-app Browser or paired Chrome.')
+                }
+                if (requestedTarget && targetKind !== requestedTarget.kind) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The requested browser surface does not match its target.')
                 if (operation.reveal !== undefined && typeof operation.reveal !== 'boolean') {
                     throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Browser reveal must be a boolean.')
                 }
                 if (operation.sessionMode !== undefined && operation.sessionMode !== 'normal' && operation.sessionMode !== 'incognito') {
                     throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Browser session mode must be normal or incognito.')
                 }
-                if (!this.browserSurface) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'The in-app Browser workspace is unavailable.')
                 if (principal.type === 'agent' && operation.reveal) {
                     throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Child agents may create background Browser tabs but cannot reveal or take over the user interface.')
                 }
@@ -1255,6 +1260,27 @@ export class AgentControlBroker extends EventEmitter {
                 if (requestedUrl && (!normalizedOrigin(requestedUrl) || requestedUrl.length > CONTROL_BOUNDS.maxUrlLength)) {
                     throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Opening a Browser tab requires a bounded HTTP(S) URL.')
                 }
+                if (targetKind === 'chrome-tab') {
+                    if (principal.type !== 'root') throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Only the root chat can create paired Chrome tabs.')
+                    if (sessionMode !== 'normal' || revealed) throw new AgentControlError('CONTROL_CAPABILITY_DENIED', 'Paired Chrome tabs open without focus in the existing normal browser window.')
+                    if (!requestedUrl) throw new AgentControlError('CONTROL_VALIDATION_ERROR', 'Provide the HTTP(S) URL for the new Chrome tab.')
+                    const anchor = this.targets.get(assertControlIdentifier(requestedTarget?.targetId, 'targetId'))
+                    if (anchor.target.kind !== 'chrome-tab') throw new AgentControlError('CONTROL_SCOPE_DENIED', 'Choose an exact paired Chrome target for the new tab.')
+                    const grant = this.requireBrowserGrant(principal, anchor.target, operation.grantId, 'tab.manage')
+                    if (grant.allowedOrigins?.length && !grant.allowedOrigins.includes(normalizedOrigin(requestedUrl)!)) {
+                        throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The new Chrome tab URL is outside the grant origin scope.')
+                    }
+                    if (!anchor.driver.openTab) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'Update the paired Chrome extension to create tabs through Zyra.')
+                    this.grants.consume(grant.grantId)
+                    const openedId = await anchor.driver.openTab(anchor, requestedUrl, signal)
+                    const target = this.targets.get(openedId).target
+                    if (target.kind !== 'chrome-tab' || target.pairId !== anchor.target.pairId) throw new AgentControlError('CONTROL_SCOPE_DENIED', 'The new Chrome tab belongs to another browser connection.')
+                    this.audit.append({ eventType: 'action', principal, targetId: target.targetId, targetKind: target.kind,
+                        grantId: grant.grantId, outcome: 'completed', message: 'Inactive Chrome tab created in the granted browser window.', redactions: [] })
+                    this.changed()
+                    return { target, revealed: false, ...(requestedUrl ? { url: requestedUrl } : {}) }
+                }
+                if (!this.browserSurface) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'The in-app Browser workspace is unavailable.')
                 const target = await this.browserSurface.openTab(principal, revealed, sessionMode, signal)
                 this.assertBrowserTargetOwnedByPrincipal(principal, target)
                 if (requestedUrl) await this.browserSurface.commandTab(principal, target, 'navigate', requestedUrl, signal)
@@ -1757,7 +1783,7 @@ export class AgentControlBroker extends EventEmitter {
 
     private requireBrowserGrant(
         principal: ControlPrincipal,
-        target: Extract<ControlTarget, { kind: 'zyra-browser' }>,
+        target: Extract<ControlTarget, { kind: 'zyra-browser' | 'chrome-tab' }>,
         grantIdValue: unknown,
         capability: ControlCapability
     ): ControlGrant {

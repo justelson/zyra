@@ -18,7 +18,7 @@ const videoSource = 'https://example.test/clip.mp4'
 rememberMarkdownMediaGeometry(videoSource, 1280, 720)
 const video = renderToStaticMarkup(createElement(components.a as ComponentType<any>, { href: videoSource, children: 'Clip' }))
 assert.match(video, /width="1280" height="720"/, 'video metadata reserves aspect ratio on remount')
-assert.match(video, /height:auto/, 'video dimensions remain responsive')
+assert.match(video, /aspect-ratio:1280 \/ 720/, 'the responsive player stage reserves the decoded ratio')
 const oversized = 'data:image/png;base64,' + 'a'.repeat(5000)
 rememberMarkdownMediaGeometry(oversized, 100, 100)
 assert.equal(readMarkdownMediaGeometry(oversized), undefined, 'large inline media is not retained as cache keys')

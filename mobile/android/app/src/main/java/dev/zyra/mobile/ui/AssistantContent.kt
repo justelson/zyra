@@ -14,11 +14,11 @@ import dev.zyra.mobile.data.VisualizationBlocks
 import dev.zyra.mobile.data.VisualizationDocument
 import dev.zyra.mobile.data.VisualizationPart
 
-@Composable internal fun AssistantContent(text: String, streaming: Boolean = false) {
+@Composable internal fun AssistantContent(text: String, streaming: Boolean = false, turnId: String? = null) {
     val parts = remember(text) { VisualizationBlocks.parse(text) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (part in parts) key(part.start) {
-            if (part.state == "text") Markdown(part.text)
+            if (part.state == "text") ResponseTextDisplay(turnId) { Markdown(part.text) }
             else if (part.state == "complete") InlineVisualization(part)
             else Text(if (part.state == "too-large") "Visualization is too large" else "Preparing visualization…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

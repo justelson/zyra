@@ -8,6 +8,7 @@
     "license": "Apache-2.0",
     "type": "module",
     "scripts": {
+        "test:browser-captures": "bun scripts/test-browser-capture-library.ts && node scripts/test-browser-capture-ipc.mjs && node scripts/test-browser-capture-review.mjs",
         "test:attention-dock": "node scripts/test-attention-dock.mjs",
         "test:assistant-user-input-form": "bun scripts/test-assistant-sidebar-continuity.mjs --user-input-form",
         "test:compaction-replay": "bun scripts/test-compaction-reconciliation.ts && bun scripts/test-agent-server-attachment-recovery.ts && bun scripts/test-agent-server-worker.ts && bun scripts/test-pi-assistant-lifecycle.ts && bun scripts/test-assistant-compaction-restart.ts",
@@ -40,7 +41,7 @@
         "typecheck:watch:shared": "tsc --noEmit -p tsconfig.shared.json --watch --preserveWatchOutput",
         "typecheck:browser-runtime": "tsc --noEmit -p tsconfig.browser-runtime.json",
         "test:keybindings": "bun scripts/test-keybindings.ts && bun scripts/test-keybinding-preferences.ts && bun scripts/test-keybinding-search.ts && bun scripts/test-keybinding-navigation.ts",
-        "test:shortcut-focus": "bun scripts/test-shortcut-focus.ts && node scripts/test-shortcut-focus-renderer.mjs",
+        "test:shortcut-focus": "bun scripts/test-shortcut-focus.ts && node scripts/test-shortcut-focus-renderer.mjs && bun scripts/test-native-overlay-focus.ts && node scripts/test-assistant-focus-continuity.mjs",
         "test:timeline-working-startup": "bun scripts/test-timeline-working-startup.tsx",
         "test:activity-rail": "bun scripts/test-timeline-working-startup.tsx && bun scripts/test-activity-rail-contract.ts",
         "test:inspector-startup": "bun scripts/test-assistant-inspector-startup.ts",
@@ -92,6 +93,8 @@
         "test:plugin-settings": "bun scripts/test-plugin-settings.tsx && bun scripts/test-plugin-settings-detail.tsx",
         "test:settings-refinement": "bun scripts/test-settings-refinement.tsx && bun src/renderer/src/pages/settings/SensitiveSettingValue.test.tsx && bun src/renderer/src/pages/settings/appearance/font-manager-model.test.ts && bun src/renderer/src/pages/settings/appearance/AppearanceFontManagerSources.test.tsx && bun src/renderer/src/pages/settings/appearance/font-preview-queue.test.ts",
         "test:settings-appearance": "bun src/renderer/src/pages/settings/appearance/appearance-settings-model.test.ts",
+        "test:app-menu-runtime": "node scripts/test-app-menu-runtime.mjs && bun scripts/test-platform-window-chrome.ts",
+        "test:archived-chats-settings": "node scripts/test-archived-chats-settings.mjs && bun scripts/test-settings-archive-navigation.ts",
         "test:settings-redistribution": "bun scripts/test-settings-redistributed-pages.ts && bun scripts/test-settings-redistribution.ts",
         "test:analytics": "node ../scripts/test-product-analytics.mjs && bun --no-install scripts/test-product-analytics-contract.ts",
         "test:themes": "bun scripts/test-theme-contract.ts",
@@ -132,7 +135,7 @@
         "test:browser-new-tab-theme": "node scripts/test-browser-new-tab-theme.mjs",
         "test:browser-new-tab-layout": "node scripts/test-browser-new-tab-layout-renderer.mjs",
         "test:browser-page-capture": "bun scripts/test-browser-page-capture.ts",
-        "test:browser-web-store-install": "bun scripts/test-browser-web-store-install.ts && node scripts/test-browser-web-store-page.mjs",
+        "test:browser-web-store-install": "bun scripts/test-browser-extension-package.ts && bun scripts/test-browser-web-store-install.ts && node scripts/test-browser-web-store-page.mjs && node scripts/test-browser-extension-startup.mjs && node scripts/test-browser-extension-native.mjs",
         "test:assistant-inspector-browser": "bun run test:browser-page-capture && bun scripts/test-browser-workspace-persistence.ts && node scripts/test-browser-new-tab-theme.mjs && node scripts/test-browser-slot-geometry.mjs && node scripts/test-native-overlay.mjs && node scripts/test-native-overlay-renderer.mjs && node scripts/test-native-overlay-callers.mjs && node scripts/test-browser-webview-presentation.mjs && node scripts/test-browser-recording-overlay-document.mjs && node scripts/test-browser-recording-overlay.mjs && bun scripts/test-browser-live-transfer-contract.ts && node scripts/test-assistant-native-view-reparent.mjs && bun scripts/test-assistant-inspector-tab-browser-new-tab.tsx && bun scripts/test-browser-window-open-and-shortcuts.ts && bun scripts/test-browser-local-file-access.ts && bun scripts/test-running-local-servers.ts && bun scripts/test-browser-history-store.ts && bun scripts/test-browser-new-tab-service.ts && bun scripts/test-browser-adblock-policy.ts && node scripts/test-browser-threat-protection.mjs && node scripts/test-browser-background-catalog.mjs && node scripts/test-browser-background-panel.mjs && bun scripts/test-protected-media-contract.ts && bun scripts/test-external-browser-history.ts && node --experimental-strip-types scripts/test-external-browser-history-reader.mjs && bun scripts/test-browser-composer-popover.tsx",
         "benchmark:browser-threat-protection": "node --expose-gc scripts/benchmark-browser-threat-protection.mjs && bun scripts/benchmark-browser-threat-startup.ts",
         "test:agent-control-drag-sequence": "bun scripts/test-agent-control-drag-sequence.ts && bun scripts/test-windows-grant-reuse.ts",
@@ -313,6 +316,7 @@
         "test:timeline-interrupted-actions": "bun scripts/test-timeline-interrupted-actions.tsx",
         "test:voice-continuity": "bun scripts/test-voice-widget.ts && bun scripts/test-voice-work-lifetime.ts && bun scripts/test-voice-context-reconnection.ts && bun scripts/test-private-voice-task-continuity.ts && node scripts/test-voice-widget-renderer.mjs",
         "test:audio-player": "bun scripts/test-audio-player.tsx && node scripts/test-audio-player-renderer.mjs",
+        "test:chat-media-player": "node scripts/test-chat-media-player.mjs",
         "preview:audio": "vite --config scripts/audio-player-preview.config.ts",
         "test:assistant-read-media": "bun scripts/test-assistant-read-presentation.ts && bun scripts/test-assistant-read-media.tsx && node scripts/test-assistant-sidebar-continuity.mjs --tool-media",
         "test:assistant-video-paste": "bun scripts/test-assistant-video-paste.ts && bun scripts/test-assistant-clipboard-media-storage.ts && node scripts/test-assistant-sidebar-continuity.mjs --video-paste",
@@ -321,7 +325,8 @@
         "test:update-preflight": "bun scripts/test-update-install-retry.ts && node scripts/test-update-install-failure.mjs && bun scripts/test-manual-update-latency.ts && bun scripts/test-install-preflight.ts && bun scripts/test-installer-requests.ts && bun scripts/test-installer-presence.ts && bun scripts/test-manual-update-first-run.ts && node scripts/test-agent-update-nsis.mjs && node scripts/test-installer-directory-swap.mjs",
         "preview:agent-updates": "vite --config scripts/runtime-update-preview.config.ts",
         "test:agent-update-preview": "node scripts/test-agent-update-preview.mjs",
-        "test:voice-review": "bun scripts/test-voice-widget-capability.ts && bun scripts/test-voice-approval-ownership.ts && bun scripts/test-private-voice-update-admission.ts"
+        "test:voice-review": "bun scripts/test-voice-widget-capability.ts && bun scripts/test-voice-approval-ownership.ts && bun scripts/test-private-voice-update-admission.ts",
+        "test:chat-resource-recovery": "bun scripts/test-assistant-chat-resources.ts && bun scripts/test-assistant-midturn-recovery.ts && node ../scripts/test-midturn-recovery.mjs && node scripts/test-chat-resource-recovery-review.mjs"
     },
     "dependencies": {
         "@chenglou/pretext": "^0.0.5",

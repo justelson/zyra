@@ -16,10 +16,11 @@ const manager = new ChatNotifications({
     create: options => { const toast = new Toast(options); toasts.push(toast); return toast },
     openChat: async id => { opened.push(id) }, failed: error => { throw error }
 })
-const done: ChatAttentionNotice = { canonicalChatId: 'chat-one', token: 'done-one', kind: 'completed', turnId: 'turn-one' }
+const done: ChatAttentionNotice = { canonicalChatId: 'chat-one', token: 'done-one', kind: 'completed', turnId: 'turn-one', title: 'Preview build ready', body: 'Checks passed. Your installer is ready.' }
 await manager.receive(done); await manager.receive(done)
 assert.equal(toasts.length, 1); assert.equal(toasts[0].shown, true)
-assert.equal(toasts[0].options.title, 'Chat finished')
+assert.equal(toasts[0].options.title, 'Preview build ready')
+assert.equal(toasts[0].options.body, 'Checks passed. Your installer is ready.\nTest chat')
 toasts[0].emit('click'); await Promise.resolve()
 assert.deepEqual(opened, ['chat-one']); assert.equal(toasts[0].closed, true)
 chat.presence.viewers = [{ surface: 'mobile' }]
@@ -27,11 +28,15 @@ await manager.receive({ ...done, token: 'seen-elsewhere' }); assert.equal(toasts
 chat.presence.viewers = []; chat.lastSeenCompletedTurnId = 'turn-one'
 await manager.receive({ ...done, token: 'already-read' }); assert.equal(toasts.length, 1)
 chat.presence.attention = 'user-input'
-await manager.receive({ ...done, token: 'input-one', kind: 'input' }); assert.equal(toasts.at(-1)?.options.title, 'Input needed')
+await manager.receive({ ...done, title: undefined, body: undefined, token: 'input-one', kind: 'input' }); assert.equal(toasts.at(-1)?.options.title, 'Input needed')
 chat.presence.attention = null; await manager.refresh('chat-one'); assert.equal(toasts.at(-1)?.closed, true)
 chat.presence.attention = 'approval'
-await manager.receive({ ...done, token: 'approval-one', kind: 'approval' }); assert.equal(toasts.at(-1)?.options.title, 'Approval needed')
+await manager.receive({ ...done, title: undefined, body: undefined, token: 'approval-one', kind: 'approval' }); assert.equal(toasts.at(-1)?.options.title, 'Approval needed')
 chat.presence.viewers = [{ surface: 'browser' }]; await manager.refresh(); assert.equal(toasts.at(-1)?.closed, true)
 chat = null; await manager.receive({ ...done, token: 'gone' }); assert.equal(toasts.length, 3)
+chat = { title: 'Test chat', presence: { viewers: [], attention: null, latestTurn: { id: 'turn-two', state: 'running' } } }
+await manager.receive({ ...done, token: 'stale-update', kind: 'update' }); assert.equal(toasts.length, 3)
+await manager.receive({ ...done, token: 'active-update', kind: 'update', turnId: 'turn-two' }); assert.equal(toasts.length, 4)
+chat.presence.latestTurn.state = 'completed'; await manager.refresh(); assert.equal(toasts.at(-1)?.closed, true)
 manager.dispose()
 console.log('PASS: notification deduplication, canonical visibility/read suppression, dismissal and exact-chat click routing')

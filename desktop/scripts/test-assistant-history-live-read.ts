@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { AssistantStore } from '../src/renderer/src/lib/assistant/assistant-store-core'
 import { createAssistantDevelopmentChatFixtures } from '../src/main/assistant/development-chat-fixtures'
 import { AssistantHistoryReadJournal, replayAssistantHistoryRead } from '../src/renderer/src/lib/assistant/assistant-history-live-read'
+import { getAssistantThreadHydrationRevision } from '../src/renderer/src/lib/assistant/assistant-thread-hydration-revision'
+import { hasAssistantWarmSelection } from '../src/renderer/src/lib/assistant/assistant-warm-selection'
+import { hasUsableAssistantTimelineHistory } from '../src/renderer/src/lib/assistant/assistant-history-readiness'
 
 const fixture = createAssistantDevelopmentChatFixtures({ cwd: 'C:/fixture', now: Date.parse('2026-11-05T00:00:00Z') })
 const session = fixture.sessions[0]!
@@ -127,3 +130,58 @@ const beforeNonProgress = store.getState().historyByThreadId[shell.id]!
     pageInfo: { ...beforeNonProgress.pageInfo, hasOlder: true, oldestCursor: 'repeated-cursor' } } })
 assert.equal(await store.loadOlderHistory(shell.id), false, 'a repeated frontier stops initial fill without an arbitrary page-count cap')
 assert.ok(store.getState().historyByThreadId[shell.id]?.loadOlderError, 'a genuinely non-progressing page exposes retry rather than claiming the whole chat loaded')
+
+// Settings can release Chat's event stream after the final-answer placeholder
+// exists, before its text/completion events arrive. The returning shell may
+// have the same history timestamp/counts, but now advertises a finished answer.
+for (const cachedAnswer of ['missing', 'empty', 'empty-settled', 'streaming', 'complete'] as const) {
+    const final = { ...live, id: 'navigation-final', text: 'Finished background work.', streaming: false, phase: 'final_answer' as const }
+    const prior = fullThread.messages.filter(message => message.id !== final.id)
+    const cachedMessages = [...prior, ...(cachedAnswer === 'missing' ? [] : [{ ...final,
+        text: cachedAnswer.startsWith('empty') ? '' : cachedAnswer === 'streaming' ? 'Finished' : final.text,
+        streaming: cachedAnswer === 'empty' || cachedAnswer === 'streaming' }])]
+    const completed = { ...shell, messages: cachedMessages, state: 'ready' as const, messageCount: prior.length + 1,
+        latestTurn: { id: final.turnId || 'navigation-turn', state: 'completed' as const, requestedAt: final.createdAt,
+            startedAt: final.createdAt, completedAt: final.updatedAt, assistantMessageId: final.id } }
+    const history = { ...beforeNonProgress, messages: cachedMessages, activities: [], proposedPlans: [],
+        pageInfo: { oldestCursor: 'navigation-start', newestCursor: null, hasOlder: false, hasNewer: false, turnCount: 1 },
+        fullyLoaded: true, lastUsedAt: Date.now(), shellRevision: getAssistantThreadHydrationRevision(completed) }
+    const snapshot = { ...store.getState().snapshot, selectedSessionId: session.id, sessions: [{ ...session, threads: [completed] }] }
+    const warm = hasAssistantWarmSelection({ snapshot, sessionId: session.id, threadId: shell.id,
+        historyByThreadId: { [shell.id]: history }, hydratedThreadCache: new Map() })
+    assert.equal(warm, cachedAnswer === 'complete', `${cachedAnswer}: a current shell cannot validate an absent or unfinished final answer`)
+    assert.equal(hasUsableAssistantTimelineHistory({ ...history, pageInfo: { hasNewer: true } }, completed), true,
+        'a deliberate older page remains usable without the newest answer')
+    assert.equal(hasUsableAssistantTimelineHistory(history, { ...completed, latestTurn: { ...completed.latestTurn, state: 'running' } }), true,
+        'ongoing work may retain its unfinished answer without forcing reloads')
+    assert.equal(hasUsableAssistantTimelineHistory(history, { ...completed, latestTurn: { ...completed.latestTurn, assistantMessageId: null } }), true,
+        'a completed tool-only turn need not invent an answer')
+    assert.equal(hasUsableAssistantTimelineHistory({ ...history, messages: [{ ...final, providerItemId: 'zyra-message:assistant:123' }] },
+        { ...completed, latestTurn: { ...completed.latestTurn, assistantMessageId: 'pi-message:assistant:123' } }), true,
+        'canonical/provider/legacy answer references use the existing identity resolver')
+    const cachedThread = { ...completed, messages: [] }
+    const cachedSnapshot = { ...snapshot, sessions: [{ ...session, threads: [cachedThread] }] }
+    const hydratedThreadCache = new Map([[shell.id, { ...completed, sessionId: session.id, threadId: shell.id,
+        revision: getAssistantThreadHydrationRevision(completed) }]])
+    assert.equal(hasAssistantWarmSelection({ snapshot: cachedSnapshot, sessionId: session.id, threadId: shell.id,
+        historyByThreadId: {}, hydratedThreadCache }), cachedAnswer === 'complete', 'the synchronous preview cache must apply the same completeness check')
+    const returned = new AssistantStore()
+    const beforeNavigation = { ...completed, state: 'running' as const, latestTurn: { ...completed.latestTurn, state: 'running' as const, completedAt: null } }
+    assert.equal(getAssistantThreadHydrationRevision(beforeNavigation), history.shellRevision,
+        'the completion edge really can keep the same timestamp/count cache revision')
+    ;(returned as any).state = { ...returned.getState(), hydrated: true,
+        snapshot: { ...snapshot, sessions: [{ ...session, threads: [beforeNavigation] }] }, historyByThreadId: { [shell.id]: history } }
+    let reads = 0
+    window.devscope.assistant.bootstrap = async () => ({ status: returned.getState().status,
+        snapshot: { ...snapshot, sessions: [{ ...session, threads: [{ ...completed, messages: [], activities: [], proposedPlans: [] }] }] } })
+    window.devscope.assistant.getThreadDetailBootstrap = async () => {
+        reads++
+        return { success: true, detail: { threadId: shell.id, activePlan: null, pendingApprovals: [], pendingUserInputs: [],
+            history: { ...history, messages: [...prior, final] } } }
+    }
+    await returned.hydrate()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(reads, cachedAnswer === 'complete' ? 0 : 1, `${cachedAnswer}: recover incomplete background completion once; keep complete warm history instant`)
+    assert.equal(returned.getState().snapshot.sessions[0]!.threads[0]!.messages.at(-1)!.text, final.text)
+}
+console.log('Background completion navigation: incomplete warm answers rehydrate; complete warm answers stay immediate: ok')

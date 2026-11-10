@@ -10,7 +10,7 @@ import { reconcileAssistantMessageReplays } from '@shared/assistant/message-reco
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import { useFilePreview } from '@/components/ui/file-preview/useFilePreview'
 import { AssistantPreviewResourceNavigator } from './AssistantPreviewResourceNavigator'
-import { buildAssistantResourceIndex } from './assistant-resource-index'
+import { buildAssistantChatResourceTurns, buildAssistantPreviewResources } from './assistant-chat-resources'
 import { assistantResourceForPath } from './assistant-resource-labels'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import { getActiveAssistantThread, getSelectedAssistantSession } from '@/lib/assistant/selectors'
@@ -541,9 +541,12 @@ export default function AssistantPage() {
         setRightPanelMode('none')
     }, [setRightPanelMode])
     const noop = useCallback(() => undefined, [])
-    const previewResources = useMemo(() => preview.previewFile
-        ? buildAssistantResourceIndex({ turns: diffTurns, projectPath: diffSource.projectRootPath }).resources
-        : [], [diffSource.projectRootPath, diffTurns, Boolean(preview.previewFile)])
+    const previewResourceTurns = useMemo(() => preview.previewFile ? buildAssistantChatResourceTurns({
+        messages: reviewDiffSource.messages, activities: reviewDiffSource.activities, projectPath: diffSource.projectRootPath
+    }) : [], [reviewDiffSource.messages, reviewDiffSource.activities, diffSource.projectRootPath, Boolean(preview.previewFile)])
+    const previewResources = useMemo(() => buildAssistantPreviewResources({ turns: previewResourceTurns,
+        projectPath: diffSource.projectRootPath, activeFile: preview.previewFile
+    }), [diffSource.projectRootPath, previewResourceTurns, preview.previewFile])
     const previewDisplayFile = preview.previewFile ? {
         ...preview.previewFile,
         displayName: assistantResourceForPath(previewResources, preview.previewFile.path)?.title || preview.previewFile.displayName
@@ -652,9 +655,11 @@ export default function AssistantPage() {
                         projectPath={diffSource.projectRootPath || undefined}
                         chromeContext="peek"
                         mediaItems={preview.previewMediaItems}
+                        navigationSidebarInitiallyOpen={preview.previewFile.type === 'image' ? previewResources.length > 1 : undefined}
                         navigationSidebar={preview.previewFile.type === 'image' ? (
                             <AssistantPreviewResourceNavigator
-                                turns={diffTurns}
+                                turns={previewResourceTurns}
+                                resources={previewResources}
                                 projectPath={diffSource.projectRootPath}
                                 activeFilePath={preview.previewFile.path}
                                 onOpenPreview={preview.openPreview}

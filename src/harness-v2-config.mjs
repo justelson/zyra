@@ -17,6 +17,9 @@ export function managedV2Config(inline = process.env.OPENCODE_CONFIG_CONTENT) {
   const plugin = process.env.ZYRA_STANDALONE === '1' && process.env.ZYRA_ROOT
     ? path.join(process.env.ZYRA_ROOT, 'src', 'harness-v2-plugin') : fileURLToPath(new URL('./harness-v2-plugin', import.meta.url));
   return { ...existing, permissions: [{ action: '*', resource: '*', effect: 'ask' }, ...rules],
+    // Zyra owns canonical history and safe-point compaction. A second native
+    // summary would add model calls and cannot replace the canonical context.
+    compaction: { ...existing.compaction, auto: false },
     plugins: [...(Array.isArray(existing.plugins) ? existing.plugins : []), plugin],
     agents: { ...existing.agents, 'zyra-managed': { ...agent, mode: 'primary',
       permissions: [{ action: '*', resource: '*', effect: 'deny' }, ...actions.map(action => ({ action, resource: '*', effect: 'ask' })), ...denies] } },

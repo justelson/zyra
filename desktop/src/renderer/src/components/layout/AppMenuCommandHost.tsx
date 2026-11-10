@@ -1,3 +1,4 @@
+import { BrowserCaptureDraftHost } from '@/pages/assistant/BrowserCaptureDraftHost'
 import { isAppNavigationCommand } from '@shared/keybindings'
 import { dispatchAppNavigation } from '@/lib/app-navigation'
 import { useEffect } from 'react'
@@ -22,12 +23,12 @@ export function AppMenuCommandHost() {
         window.addEventListener('zyra:new-project', handler)
         return () => window.removeEventListener('zyra:new-project', handler)
     }, [createProject])
-    useEffect(() => window.devscope.window.onAppMenuCommand(command => dispatchAppMenuCommand(command, {
+    useEffect(() => window.devscope.window.onAppMenuCommand(command => { if (command === 'browser-capture') { window.dispatchEvent(new Event('zyra:browser-capture-draft')); return } dispatchAppMenuCommand(command, {
         navigate,
         search: open,
         reload: () => window.location.reload(),
         newChat: () => { void createAssistantChatAndNavigate(actions, navigate) }
-    })), [actions, navigate, open])
+    }) }), [actions, navigate, open])
     useEffect(() => window.zyraKeybindings?.onCommand?.(command => dispatchAppNavigation(command, navigate, pathname)), [navigate, pathname])
     useEffect(() => {
         if (window.zyraKeybindings) return
@@ -45,5 +46,5 @@ export function AppMenuCommandHost() {
             newChat: () => { void createAssistantChatAndNavigate(actions, navigate) }
         })
     }), [actions, navigate, open, pathname])
-    return null
+    return <BrowserCaptureDraftHost />
 }

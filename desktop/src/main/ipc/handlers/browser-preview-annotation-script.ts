@@ -4,7 +4,7 @@ import type { DevScopeBrowserAnnotationTheme } from '../../../shared/contracts/d
  * Runs in an Electron isolated world inside the owned Browser guest. It has DOM
  * access for direct annotation, but no preload, Node, Electron, or Zyra bridge.
  */
-async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme) {
+async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme, standalone = false) {
     type Point = { x: number; y: number }
     type Rect = { x: number; y: number; width: number; height: number }
     type Selected = { id: string; element: Element; outline: HTMLDivElement; label: HTMLDivElement }
@@ -123,10 +123,10 @@ async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme
         editor.setAttribute(UI_ATTRIBUTE, '')
         const comment = document.createElement('textarea')
         comment.rows = 1
-        comment.placeholder = 'Describe the change…'
+        comment.placeholder = standalone ? 'Ask about this selection…' : 'Describe the change…'
         const attach = document.createElement('button')
         attach.className = 'attach'
-        attach.textContent = 'Attach'
+        attach.textContent = standalone ? 'Start chat' : 'Attach'
         editor.append(comment, attach)
         shadow.append(toolbar, editor)
 
@@ -467,8 +467,8 @@ async function runBrowserPreviewAnnotation(theme: DevScopeBrowserAnnotationTheme
     })
 }
 
-export function browserPreviewAnnotationSource(theme: DevScopeBrowserAnnotationTheme): string {
-    return `(${runBrowserPreviewAnnotation.toString()})(${JSON.stringify(theme)})`
+export function browserPreviewAnnotationSource(theme: DevScopeBrowserAnnotationTheme, standalone = false): string {
+    return `(${runBrowserPreviewAnnotation.toString()})(${JSON.stringify(theme)},${JSON.stringify(standalone)})`
 }
 
 export const BROWSER_PREVIEW_ANNOTATION_CANCEL_SOURCE = `globalThis.__zyraBrowserAnnotationSessionV1?.cancel?.()`

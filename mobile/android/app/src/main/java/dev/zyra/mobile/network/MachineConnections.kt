@@ -2,6 +2,8 @@ package dev.zyra.mobile.network
 
 import dev.zyra.mobile.data.ConnectionState
 import dev.zyra.mobile.data.Machine
+import dev.zyra.mobile.data.ConnectionFailure
+import dev.zyra.mobile.data.connectionFailure
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,7 +12,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 
-data class MachineLink(val connection: HostConnection? = null, val status: ConnectionState = ConnectionState.Offline, val projects: List<String> = emptyList())
+data class MachineLink(val connection: HostConnection? = null, val status: ConnectionState = ConnectionState.Offline, val projects: List<String> = emptyList(), val failure: ConnectionFailure? = null)
 
 /** One authenticated connection per paired PC. Switching the visible chat never
  * re-pairs or tears down the catalogs of the other computers. */
@@ -24,6 +26,12 @@ class MachineConnections(private val scope: CoroutineScope, private val event: (
     private var foreground = true
     private var pauseJob: Job? = null
     private var retained: String? = null
+    fun retry(id: String) {
+        if (id !in machines) return
+        jobs.remove(id)?.cancel(); sockets.remove(id)?.close()
+        mutable.update { it + (id to MachineLink(status = ConnectionState.Connecting)) }
+        configure(machines.values.toList())
+    }
     fun keepConnected(machineId: String?) {
         retained = machineId
         if (!foreground) { pauseUnused(); configure(machines.values.toList()) }
@@ -58,9 +66,10 @@ class MachineConnections(private val scope: CoroutineScope, private val event: (
             jobs[machine.id] = scope.launch {
                 var attempt = 0
                 while (isActive) {
-                    val connection = HostConnection(machine); sockets[machine.id] = connection
-                    mutable.update { it + (machine.id to MachineLink(status = if (attempt == 0) ConnectionState.Connecting else ConnectionState.Reconnecting)) }
+                    var opened: HostConnection? = null
+                    mutable.update { it + (machine.id to MachineLink(status = if (attempt == 0) ConnectionState.Connecting else ConnectionState.Reconnecting, failure = it[machine.id]?.failure)) }
                     try {
+                        val connection = HostConnection(machine); opened = connection; sockets[machine.id] = connection
                         val hello = handshakes.withPermit { connection.connect() }
                         ensureActive()
                         val projects = hello.optJSONArray("projects")
@@ -72,11 +81,10 @@ class MachineConnections(private val scope: CoroutineScope, private val event: (
                         }
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) {
-                        if (e is HostFailure && e.code == "DEVICE_REVOKED") {
-                            mutable.update { it + (machine.id to MachineLink(status = ConnectionState.Offline)) }; break
-                        }
-                    } finally { connection.close(); if (sockets[machine.id] === connection) sockets.remove(machine.id) }
-                    mutable.update { it + (machine.id to MachineLink(status = ConnectionState.Reconnecting)) }
+                        val failure = connectionFailure(e, (e as? HostFailure)?.code)
+                        mutable.update { it + (machine.id to MachineLink(status = if (failure.retryAutomatically) ConnectionState.Reconnecting else ConnectionState.Offline, failure = failure)) }
+                        if (!failure.retryAutomatically) break
+                    } finally { opened?.close(); if (sockets[machine.id] === opened) sockets.remove(machine.id) }
                     delay((1000L shl attempt.coerceAtMost(5)).coerceAtMost(30000) + (0..500).random()); attempt++
                 }
             }

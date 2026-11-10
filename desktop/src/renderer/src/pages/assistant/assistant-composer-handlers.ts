@@ -114,9 +114,14 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
     }
 
     const restoreComposerFocus = () => {
+        const textarea = textareaRef.current
+        if (!textarea || !textarea.ownerDocument.hasFocus() || textarea.ownerDocument.activeElement === textarea) return
+        const previousFocus = textarea.ownerDocument.activeElement
         window.requestAnimationFrame(() => {
-            const textarea = textareaRef.current
-            if (!textarea || textarea.disabled) return
+            if (textareaRef.current !== textarea || !textarea.isConnected || textarea.disabled
+                || !textarea.ownerDocument.hasFocus()
+                || textarea.ownerDocument.activeElement !== previousFocus
+                || args.isAttachmentOwnerCurrent?.() === false) return
             const cursor = textarea.value.length
             textarea.focus()
             textarea.setSelectionRange(cursor, cursor)
@@ -405,12 +410,10 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
                 setContextFiles(prevFiles)
                 onRestoreFailedSendDraft?.(prevText)
             }
-            restoreComposerFocus()
             return
         }
         if (awaitAcceptance && (args.canClearAcceptedDraft?.(draftText, prevFiles) ?? true)) clearSubmittedDraft()
         if (prompt) setSentPromptHistory((prev) => prev[prev.length - 1] === prompt ? prev : [...prev.slice(-49), prompt])
-        restoreComposerFocus()
     }
 
     const handleSend = async () => {

@@ -1,8 +1,10 @@
 export type ChatAttentionNotice = {
     canonicalChatId: string
     token: string
-    kind: 'completed' | 'input' | 'approval'
+    kind: 'completed' | 'input' | 'approval' | 'update'
     turnId?: string | null
+    title?: string
+    body?: string
 }
 type Toast = { show(): void; close(): void; on(event: string, listener: (...args: any[]) => void): unknown }
 type NotificationChat = {
@@ -33,8 +35,8 @@ export class ChatNotifications {
             if (this.disposed || !chat || !this.actionable(notice, chat)) return
             this.close(notice.canonicalChatId)
             const toast = this.dependencies.create({
-                title: notice.kind === 'completed' ? 'Chat finished' : notice.kind === 'input' ? 'Input needed' : 'Approval needed',
-                body: chat.title || 'Chat'
+                title: notice.title?.trim().slice(0, 80) || (notice.kind === 'completed' ? 'Chat finished' : notice.kind === 'input' ? 'Input needed' : notice.kind === 'approval' ? 'Approval needed' : 'Work update'),
+                body: notice.body?.trim() ? `${notice.body.trim().slice(0, 400)}\n${chat.title || 'Chat'}` : chat.title || 'Chat'
             })
             if (!toast) return
             if (this.active.size >= 32) this.close(this.active.keys().next().value!)
@@ -58,8 +60,9 @@ export class ChatNotifications {
     private close(id: string): void { const entry = this.active.get(id); this.active.delete(id); entry?.toast.close() }
     private actionable(notice: ChatAttentionNotice, chat: NotificationChat): boolean {
         if (chat.archived || chat.presence?.viewers?.length) return false
+        if (notice.kind === 'update') return chat.presence?.latestTurn?.id === notice.turnId && chat.presence?.latestTurn?.state === 'running'
         if (notice.kind === 'completed') return chat.lastSeenCompletedTurnId !== notice.turnId
-            && chat.presence?.latestTurn?.id === notice.turnId && chat.presence?.latestTurn?.state === 'completed'
+            && !chat.presence?.attention && chat.presence?.latestTurn?.id === notice.turnId && chat.presence?.latestTurn?.state === 'completed'
         return notice.kind === 'input' ? ['input', 'user-input'].includes(chat.presence?.attention || '') : chat.presence?.attention === 'approval'
     }
 }

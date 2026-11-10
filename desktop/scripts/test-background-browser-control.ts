@@ -50,7 +50,38 @@ try {
     assert(clicked.observation.revision > observed.observation.revision, 'background chats retain and use target-local Browser authority')
     const list = await broker.handleToolOperation(principal, { operation: 'list_targets' }, undefined, { backgrounded: true }) as any
     assert(list.targets.every((entry: any) => entry.kind === 'zyra-browser'))
-    for (const operation of [{ operation: 'open_tab', reveal: true }, { operation: 'open_app', application: 'Notepad' }, { operation: 'list_targets', targetKind: 'chrome-tab' }, { operation: 'reveal_tab', targetId }]) {
+    const chromeDriver = new FakeControlDriver('chrome-tab')
+    const chromeId = broker.targets.createTargetId('chrome-tab')
+    const chrome = { kind: 'chrome-tab' as const, targetId: chromeId, pairId: 'pair:fixture', tabToken: 'tab:fixture', origin: 'https://example.test', accessMode: 'control' as const }
+    broker.registerTarget({ target: chrome, driver: chromeDriver, trustedIdentity: {} })
+    const chromeGrantRequest = broker.requestGrant({ principal, targetId: chromeId, capabilities: ['observe.structure', 'pointer.click', 'tab.manage'], maxActions: 10 })
+    const chromeGrant = broker.approvePendingGrant({ pendingRequestId: chromeGrantRequest.requestId, targetId: chromeId, capabilities: chromeGrantRequest.capabilities, durationMs: 60000, maxActions: 10 })
+    broker.revokeForegroundPrincipal(principal)
+    assert.equal(chromeGrant.state, 'active', 'switching chats retains exact paired Chrome grants')
+    const chromeList = await broker.handleToolOperation(principal, { operation: 'list_targets', targetKind: 'chrome-tab' }, undefined, { backgrounded: true }) as any
+    assert.equal(chromeList.targets[0].targetId, chromeId)
+    const chromeObservation = await broker.handleToolOperation(principal, { operation: 'observe', targetId: chromeId, grantId: chromeGrant.grantId }, undefined, { backgrounded: true }) as any
+    await broker.handleToolOperation(principal, { operation: 'act', version: 1, requestId: 'click:chrome', targetId: chromeId, grantId: chromeGrant.grantId,
+        observationRevision: chromeObservation.observation.revision, action: { type: 'click', elementRef: 'fixture:button' } }, undefined, { backgrounded: true })
+    let chromeOpens = 0
+    Object.assign(chromeDriver, { openTab: async (_anchor: unknown, url: string) => {
+        chromeOpens++; assert.equal(url, 'https://example.test/new')
+        const newId = broker.targets.createTargetId('chrome-tab')
+        broker.registerTarget({ target: { ...chrome, targetId: newId, tabToken: 'tab:new' }, driver: chromeDriver, trustedIdentity: {} })
+        return newId
+    } })
+    const openedChrome = await broker.handleToolOperation(principal, { operation: 'open_tab', targetKind: 'chrome-tab', targetId: chromeId, grantId: chromeGrant.grantId, url: 'https://example.test/new' }, undefined, { backgrounded: true }) as any
+    assert.equal(openedChrome.target.kind, 'chrome-tab', 'Chrome requests never substitute an in-app Browser tab')
+    assert.equal(openedChrome.revealed, false)
+    await assert.rejects(() => broker.handleToolOperation(principal, { operation: 'open_tab', targetKind: 'chrome-tab', targetId: chromeId, grantId: chromeGrant.grantId, url: 'https://outside.test/' }, undefined, { backgrounded: true }), { code: 'CONTROL_SCOPE_DENIED' })
+    await assert.rejects(() => broker.handleToolOperation({ type: 'agent', fleetId: 'fleet:test', agentRunId: 'agent:test', parentThreadId: principal.threadId }, { operation: 'open_tab', targetKind: 'chrome-tab', targetId: chromeId, grantId: chromeGrant.grantId, url: 'https://example.test/new' }, undefined, { backgrounded: true }))
+    await assert.rejects(() => broker.handleToolOperation({ ...principal, threadId: 'thread:other' }, { operation: 'open_tab', targetKind: 'chrome-tab', targetId: chromeId, grantId: chromeGrant.grantId, url: 'https://example.test/new' }, undefined, { backgrounded: true }))
+    assert.equal(chromeOpens, 1, 'a foreign chat cannot use another chat’s grant')
+    const inferred = await broker.handleToolOperation(principal, { operation: 'open_tab', grantId: chromeGrant.grantId, url: 'https://example.test/new' }, undefined, { backgrounded: true }) as any
+    assert.equal(inferred.target.kind, 'chrome-tab', 'an exact Chrome grant cannot fall through to the in-app browser when targetKind is omitted')
+    broker.revokePrincipal(principal)
+    await assert.rejects(() => broker.handleToolOperation(principal, { operation: 'observe', targetId: chromeId, grantId: chromeGrant.grantId }, undefined, { backgrounded: true }), { code: 'CONTROL_GRANT_INACTIVE' })
+    for (const operation of [{ operation: 'open_tab', reveal: true }, { operation: 'open_app', application: 'Notepad' }, { operation: 'reveal_tab', targetId }]) {
         await assert.rejects(() => broker.handleToolOperation(principal, operation, undefined, { backgrounded: true }), { code: 'CONTROL_FOREGROUND_REQUIRED' })
     }
     await assert.rejects(() => broker.handleToolOperation({ ...principal, threadId: 'thread:another' }, { operation: 'observe', targetId, grantId: grant.grantId }, undefined, { backgrounded: true }), { code: 'CONTROL_FOREGROUND_REQUIRED' })

@@ -536,16 +536,25 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         responding,
     ])
 
+    const focusedQuestionRef = useRef<string | null>(null)
     useLayoutEffect(() => {
-        if (!progress?.activeQuestion || !activePrompt || activePrompt.mode === 'async') return
+        if (!progress?.activeQuestion || !activePrompt || activePrompt.mode === 'async') {
+            focusedQuestionRef.current = null
+            return
+        }
         const activeCustomQuestionId = customQuestionIdByRequestId[activePrompt.requestId] || null
         const shouldFocusCustomComposer =
             progress.activeQuestion.type === 'text' ||
             activeCustomQuestionId === progress.activeQuestion.id ||
             progress.isCustomAnswer
-        if (!shouldFocusCustomComposer) return
+        if (!shouldFocusCustomComposer) { focusedQuestionRef.current = null; return }
+        const focusKey = JSON.stringify([activePrompt.requestId, progress.activeQuestion.id])
+        if (focusedQuestionRef.current === focusKey) return
         const textarea = customTextareaRef.current
-        if (!textarea || document.activeElement === textarea) return
+        if (!textarea) return
+        // Snapshot/object refreshes do not represent opening another question.
+        focusedQuestionRef.current = focusKey
+        if (textarea.ownerDocument.activeElement === textarea) return
         textarea.focus()
         const cursor = textarea.value.length
         textarea.setSelectionRange(cursor, cursor)

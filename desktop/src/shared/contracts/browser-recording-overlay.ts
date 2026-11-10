@@ -18,7 +18,7 @@ export type BrowserRecordingOverlayPresentation = {
 }
 
 export type BrowserRecordingOverlayCommand =
-    | { kind: 'start' | 'pause' | 'resume' | 'stop' | 'dismiss' | 'save-copy' | 'show-artifact' | 'show-tab' | 'refresh-devices' }
+    | { kind: 'start' | 'pause' | 'resume' | 'stop' | 'dismiss' | 'save-copy' | 'show-artifact' | 'show-tab' | 'refresh-devices' | 'attach-chat' }
     | { kind: 'microphone'; deviceId: string }
     | { kind: 'audio'; source: 'off' | 'tab' | 'system' }
 
@@ -37,7 +37,8 @@ export type BrowserRecordingOverlayState = {
     error: string | null
     unsaved: boolean
     hasArtifact: boolean
-    theme: { background: string; foreground: string; muted: string; accent: string; border: string; dark: boolean }
+    canAttachToChat?: boolean
+    theme: { background: string; foreground: string; muted: string; accent: string; border: string; dark: boolean; fontFamily?: string; fontCss?: string }
 }
 
 export type BrowserRecordingOverlayApi = {
@@ -52,5 +53,5 @@ export function isBrowserRecordingOverlayCommand(value: unknown): value is Brows
     const command = value as Record<string, unknown>
     if (command.kind === 'microphone') return typeof command.deviceId === 'string' && command.deviceId.length <= 256
     if (command.kind === 'audio') return ['off', 'tab', 'system'].includes(String(command.source))
-    return ['start', 'pause', 'resume', 'stop', 'dismiss', 'save-copy', 'show-artifact', 'show-tab', 'refresh-devices'].includes(String(command.kind))
+    return ['start', 'pause', 'resume', 'stop', 'dismiss', 'save-copy', 'show-artifact', 'show-tab', 'refresh-devices', 'attach-chat'].includes(String(command.kind))
 }

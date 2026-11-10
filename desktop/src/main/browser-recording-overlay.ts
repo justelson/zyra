@@ -88,6 +88,8 @@ export class BrowserRecordingOverlayManager {
         if (!state.target || !['ready', 'starting', 'recording', 'paused', 'stopping', 'saved', 'error'].includes(state.status)) {
             throw new Error('Invalid recording controls state.')
         }
+        const fontChanged = state.theme.fontCss !== undefined && state.theme.fontCss !== overlay?.state.theme.fontCss
+        if (state.theme.fontCss === undefined && overlay?.state.theme.fontCss !== undefined) state = { ...state, theme: { ...state.theme, fontCss: overlay.state.theme.fontCss } }
         const sameTarget = overlay?.state.target.guestWebContentsId === state.target.guestWebContentsId
             && overlay.state.target.tabId === state.target.tabId
         // Once bound, recording controls may follow a transferred tab or finish saving
@@ -135,7 +137,7 @@ export class BrowserRecordingOverlayManager {
             overlay = current
         }
         overlay.state = state
-        if (overlay.loaded && !overlay.contents.isDestroyed()) overlay.contents.send(IPC.state, state)
+        if (overlay.loaded && !overlay.contents.isDestroyed()) overlay.contents.send(IPC.state, { ...state, theme: { ...state.theme, fontCss: fontChanged ? state.theme.fontCss : undefined } })
         this.present(overlay)
     }
 

@@ -762,9 +762,11 @@ export class BrowserViewManager implements BrowserViewTransferHost {
             record.stoppedNavigationGeneration = ++record.navigationGeneration
             page.stop()
         } else if (command.type === 'focus') {
-            page.focus()
+            // Background tab/agent updates must not ask Windows to activate or
+            // flash the app. Native focus transfers belong to its active owner.
+            if (window.isFocused() && window.isVisible() && !window.isMinimized()) page.focus()
         } else if (command.type === 'blur') {
-            record.ownerWindow.webContents.focus()
+            if (window.isFocused() && window.isVisible() && !window.isMinimized() && page.isFocused()) window.webContents.focus()
         } else if (command.type === 'capture') {
             snapshotDataUrl = await captureBrowserTabPreview(page)
         } else if (command.type === 'control-overlay') {

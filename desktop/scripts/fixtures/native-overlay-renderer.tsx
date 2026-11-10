@@ -10,7 +10,7 @@ import { dispatchZyraThemeChanged } from '../../src/renderer/src/lib/theme-event
 type Kind = 'interactive' | 'passive'
 const assert = (value: unknown, message: string) => { if (!value) throw Error(message) }
 const checks: string[] = []
-const calls: Array<{kind:Kind;visible:boolean;revision:number;focus:boolean}> = []
+const calls: Array<{kind:Kind;visible:boolean;revision:number;focus:boolean;bounds?:{width:number}|null}> = []
 const children: Array<{kind:Kind; frameName:string; document:Document; closed:boolean; close:()=>void}> = []
 const preparations: Kind[] = []
 let nextPreparation: (()=>Promise<{success:boolean;frameName?:string}>) | undefined
@@ -202,6 +202,9 @@ const fontMetrics=(owner:Document)=>{
  render({a:true,focusOnPresent:true})
  await until(()=>calls.some(call=>call.kind==='interactive'&&call.visible&&call.focus),'requested interactive focus')
  assert(calls.at(-1)?.focus===true,'focus request reaches the native bridge')
+ render({a:true,focusOnPresent:true,bounds:{x:12,y:18,width:360,height:240}})
+ await until(()=>calls.at(-1)?.bounds?.width===360,'focused overlay bounds update')
+ assert(calls.at(-1)?.focus===false,'layout changes must not replay the overlay opening focus request')
  render({})
  await until(()=>!shown('interactive'),'focused surface release')
  checks.push('opt-in interactive focus for searchable overlays')

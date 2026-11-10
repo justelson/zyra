@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, realpathSync, existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SessionManager } from '../../../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js';
+import { SessionManager } from '../../../src/runtime/engine/src/core/session-manager.js';
 import { getProjectSessionsDir } from '../../../src/project-paths.mjs';
 import { CanonicalChatCatalog } from '../../../src/agent-server/catalog.mjs';
 import { ZyraAgentServer } from '../../../src/agent-server/server.mjs';

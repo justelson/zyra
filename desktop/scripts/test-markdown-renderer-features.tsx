@@ -165,7 +165,8 @@ const finalMediaMarkup = renderToStaticMarkup(createElement(Fragment, null, prep
     filePath: 'C:/workspace/README.md',
     mediaMode: 'images-and-videos'
 })))
-assert.match(finalMediaMarkup, /<video[^>]*controls=""[^>]*preload="metadata"/, 'intentional final-response video links render as controlled inline players')
+assert.match(finalMediaMarkup, /data-video-player=""/, 'intentional final-response video links render the custom inline player')
+assert.match(finalMediaMarkup, /<video[^>]*preload="metadata"/, 'video metadata remains lazy and autoplay stays off')
 assert.match(finalMediaMarkup, /data-markdown-video-target="\.\/demo\.mp4"/, 'the player preserves its authored target for inspection')
 assert.doesNotMatch(finalMediaMarkup, /autoplay/i, 'final-response videos never autoplay')
 const unsafeMediaMarkup = renderToStaticMarkup(createElement(Fragment, null, prepareMarkdownRender({

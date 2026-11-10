@@ -12,13 +12,16 @@ export function assistantImageDisplayName(name: string, turnNumber: number, sour
 
 function normalizedPath(value: string): string {
     const normalized = String(value || '').trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (/^https?:\/\//i.test(normalized)) {
+        try { const url = new URL(normalized); url.hash = ''; return url.toString() } catch { return normalized }
+    }
     return /^[a-z]:\//i.test(normalized) || normalized.startsWith('//') ? normalized.toLowerCase() : normalized
 }
 
 export function assistantResourceForPath(resources: readonly AssistantResource[], filePath: string): AssistantResource | undefined {
     const target = normalizedPath(filePath)
     if (!target) return undefined
-    return resources.find(resource => [resource.path, resource.attachment?.path].some(path => path && normalizedPath(path) === target))
+    return resources.find(resource => [resource.path, resource.attachment?.path, resource.kind === 'image' ? resource.url : null].some(path => path && normalizedPath(path) === target))
 }
 
 export function assistantResourceCaption(resource: AssistantResource): string {

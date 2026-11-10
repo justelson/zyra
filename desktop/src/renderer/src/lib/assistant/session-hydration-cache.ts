@@ -226,6 +226,7 @@ export function applyCachedSessionSelection(
         && targetThread
         && resolvedCandidate.sessionId === sessionId
         && resolvedCandidate.revision === getAssistantThreadHydrationRevision(targetThread)
+        && hasUsableAssistantTimelineHistory(resolvedCandidate, targetThread)
         ? resolvedCandidate
         : null
     if (targetThreadId && candidate && !cached) cache.delete(targetThreadId)

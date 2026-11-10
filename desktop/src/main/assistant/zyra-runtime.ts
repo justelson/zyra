@@ -3819,6 +3819,16 @@ export class ZyraRuntime extends EventEmitter {
                 : `zyra-connection-recovery-${retryTurnId || context.providerThreadId}`
             context.activeRetry = { activityId, turnId: retryTurnId, recoveryKind, attempt, maxAttempts }
             this.emitRuntime({
+                eventId: randomUUID(), type: 'activity', createdAt: metadata?.occurredAt || nowIso(),
+                threadId: context.localThreadId, providerThreadId: context.providerThreadId,
+                turnId: retryTurnId || undefined,
+                payload: {
+                    activityId: `${activityId}:error`, kind: 'runtime.retry-error',
+                    summary: 'Errored out', detail: errorMessage, tone: 'error',
+                    data: { category: 'retry-error', status: 'failed', attempt, recoveryKind }
+                }
+            })
+            this.emitRuntime({
                 eventId: randomUUID(),
                 type: 'activity',
                 createdAt: nowIso(),
@@ -3855,7 +3865,7 @@ export class ZyraRuntime extends EventEmitter {
             const maxAttempts = Math.max(attempt, lifecycle?.maxAttempts || attempt)
             const activityId = lifecycle?.activityId || `zyra-connection-recovery-${retryTurnId || context.providerThreadId}`
             const summary = success
-                ? (recoveryKind === 'network' ? 'Reconnected' : 'Provider available')
+                ? (recoveryKind === 'network' ? 'Reconnected' : 'Retry succeeded')
                 : (recoveryKind === 'network' ? 'Paused · Network issue' : 'Paused · Provider unavailable')
             this.emitRuntime({
                 eventId: randomUUID(),

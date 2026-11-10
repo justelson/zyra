@@ -3,6 +3,7 @@ import { BROWSER_EXTENSIONS_IPC } from '../../shared/browser-extensions'
 import type {
     DevScopeBrowserAdDetection,
     DevScopeBrowserAnnotationInput,
+    DevScopeBrowserAnnotationPayload,
     DevScopeBrowserBackgroundCategory,
     DevScopeBrowserGuestTargetInput,
     DevScopeBrowserHistoryRecordInput,
@@ -357,6 +358,11 @@ export function createProjectsAdapter() {
             ipcRenderer.invoke('devscope:browserPreview:openDevTools', input),
         captureBrowserPreviewScreenshot: (input: DevScopeBrowserGuestTargetInput) =>
             ipcRenderer.invoke('devscope:browserPreview:captureScreenshot', input),
+        attachBrowserCaptureToChat: (input: { artifactId: string; sessionId?: string | null; annotation?: DevScopeBrowserAnnotationPayload }) => ipcRenderer.invoke('devscope:browserPreview:attachToChat', input),
+        readBrowserCaptureDraft: () => ipcRenderer.invoke('devscope:browserPreview:readChatDraft'),
+        acknowledgeBrowserCaptureDraft: (id: string) => ipcRenderer.invoke('devscope:browserPreview:acknowledgeChatDraft', id),
+        listBrowserCaptures: (input?: { offset?: number; limit?: number; kind?: 'screenshot' | 'recording' }) => ipcRenderer.invoke('devscope:browserPreview:listCaptures', input),
+        deleteBrowserCapture: (artifactId: string) => ipcRenderer.invoke('devscope:browserPreview:deleteCapture', artifactId),
         stageBrowserPreviewArtifactForAssistant: (artifactId: string) =>
             ipcRenderer.invoke('devscope:browserPreview:stageArtifactForAssistant', artifactId),
         openBrowserPreviewArtifact: (artifactId: string) =>

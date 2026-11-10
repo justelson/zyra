@@ -7,6 +7,7 @@ import android.media.RingtoneManager
 import dev.zyra.mobile.MainActivity
 import dev.zyra.mobile.R
 import dev.zyra.mobile.data.Chat
+import dev.zyra.mobile.data.currentNotification
 import dev.zyra.mobile.ui.MobileSession
 import kotlinx.coroutines.CoroutineScope
 import org.json.JSONObject
@@ -37,8 +38,9 @@ class AndroidChatAlerts(private val context: Context, scope: CoroutineScope, own
             .putExtra("machine", chat.machineId).putExtra("chat", chat.id)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val open = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val alert = Notification.Builder(context, ALERTS).setSmallIcon(R.drawable.ic_bell).setContentTitle(chat.title)
-            .setContentText(message).setContentIntent(open).setAutoCancel(true).setVisibility(Notification.VISIBILITY_PRIVATE)
+        val alert = Notification.Builder(context, ALERTS).setSmallIcon(R.drawable.ic_bell).setContentTitle(chat.currentNotification()?.title?.takeIf(String::isNotBlank) ?: chat.title)
+            .setContentText(message).setStyle(Notification.BigTextStyle().bigText(message).setSummaryText(chat.title))
+            .setPublicVersion(Notification.Builder(context, ALERTS).setSmallIcon(R.drawable.ic_bell).setContentTitle("Zyra").setContentText("A chat has an update").build()).setContentIntent(open).setAutoCancel(true).setVisibility(Notification.VISIBILITY_PRIVATE)
             .setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
             .setCategory(if (chat.attention != null) Notification.CATEGORY_REMINDER else Notification.CATEGORY_MESSAGE).build()
         manager.notify(chat.key, 1202, alert)

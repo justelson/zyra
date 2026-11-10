@@ -1,6 +1,6 @@
 import type { Components } from 'react-markdown'
 import { Children, Fragment, cloneElement, isValidElement, useEffect, useState, type HTMLAttributes, type ImgHTMLAttributes, type ReactNode } from 'react'
-import { AlertTriangle, ImageOff, Info, Lightbulb, Link2, ShieldAlert, Siren, VideoOff, VolumeX } from 'lucide-react'
+import { AlertTriangle, ImageOff, Info, Lightbulb, Link2, ShieldAlert, Siren } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CodeBlock, InlineCode } from './CodeElements'
 import { renderColorAwareChildren } from './colorTokens'
@@ -12,6 +12,7 @@ import { resolveMarkdownLinkTarget } from './linkNavigation'
 import { renderMarkdownLinkLabel } from './linkLabels'
 import { SkillReferenceChip } from '../SkillReferenceChip'
 import AudioPlayer from '../AudioPlayer'
+import VideoPlayer from '../VideoPlayer'
 import { isMarkdownAudioHref } from './audioEmbeds'
 import { readMarkdownMediaGeometry, rememberMarkdownMediaGeometry } from './markdown-media-geometry'
 
@@ -147,52 +148,11 @@ function MarkdownPlayableMedia(props: {
     kind: 'audio' | 'video'
 }) {
     const resolvedSource = resolveImageSrc(props.href, props.filePath)
-    const geometry = readMarkdownMediaGeometry(resolvedSource)
-    const [failedSource, setFailedSource] = useState<string | null>(null)
-
-    useEffect(() => {
-        setFailedSource((current) => current === resolvedSource ? current : null)
-    }, [resolvedSource])
-
-    const label = props.kind === 'audio' ? 'Audio' : 'Video'
-    const ErrorIcon = props.kind === 'audio' ? VolumeX : VideoOff
-    if (failedSource === resolvedSource) {
-        return (
-            <span className={`markdown-${props.kind}-unavailable`} data-markdown-copy={`[${props.label}](${props.href})`}>
-                <ErrorIcon size={17} aria-hidden="true" />
-                <span>{label} unavailable.</span>
-                <a href={props.href} data-markdown-file-link={resolveMarkdownLinkTarget(props.href, props.filePath) ? '' : undefined}>Open {props.label || label.toLowerCase()}</a>
-            </span>
-        )
-    }
-
+    const sourceControl = <a href={props.href} data-markdown-file-link={resolveMarkdownLinkTarget(props.href, props.filePath) ? '' : undefined}>Open file</a>
     return (
         <span className={`markdown-${props.kind}-frame`} data-markdown-copy={`[${props.label}](${props.href})`}>
-            {props.kind === 'audio' ? (
-                <AudioPlayer
-                    src={resolvedSource}
-                    markdownTarget={props.href}
-                    label={props.label || 'Audio'}
-                    onError={() => setFailedSource(resolvedSource)}
-                />
-            ) : (
-                <video
-                    controls
-                    preload="metadata"
-                    playsInline
-                    src={resolvedSource}
-                    width={geometry?.width}
-                    height={geometry?.height}
-                    style={{ height: 'auto' }}
-                    onLoadedMetadata={event => rememberMarkdownMediaGeometry(resolvedSource, event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
-                    data-markdown-video-target={props.href}
-                    aria-label={props.label || 'Video'}
-                    onError={() => setFailedSource(resolvedSource)}
-                >
-                    <a href={resolvedSource}>Open video</a>
-                </video>
-            )}
-            {props.label && props.kind === 'video' ? <span className="markdown-video-caption">{props.label}</span> : null}
+            {props.kind === 'audio' ? <AudioPlayer src={resolvedSource} markdownTarget={props.href} label={props.label || 'Audio'} sourceControl={sourceControl} />
+                : <VideoPlayer src={resolvedSource} markdownTarget={props.href} label={props.label || 'Video'} sourceControl={sourceControl} />}
         </span>
     )
 }

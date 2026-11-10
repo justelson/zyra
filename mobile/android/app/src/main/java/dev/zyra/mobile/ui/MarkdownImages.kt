@@ -39,6 +39,9 @@ val LocalMarkdownImage = staticCompositionLocalOf<@Composable (Image) -> Unit> {
 private data class InlineImage(val ref: JSONObject? = null, val file: File? = null, val error: String? = null, val loading: Boolean = true)
 
 @Composable fun SessionMarkdownImage(image: Image, state: MobileState, vm: MobileSession, rootId: String? = null, basePath: String? = null) {
+    if (isPlaybackDestination(image.destination) && !image.destination.startsWith("https://", true) && !image.destination.startsWith("http://", true)) {
+        ChatMediaCard(image.destination, MarkdownDocument.imageAlt(image), state, vm, rootId, basePath); return
+    }
     if (image.destination.startsWith("https://", ignoreCase = true) || image.destination.startsWith("http://", ignoreCase = true)) {
         RemoteMarkdownImage(image.destination, MarkdownDocument.imageAlt(image), "${state.machine?.id}:${state.session.id}:${state.page}:${rootId.orEmpty()}:${basePath.orEmpty()}"); return
     }

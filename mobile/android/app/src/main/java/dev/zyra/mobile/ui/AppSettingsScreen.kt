@@ -31,6 +31,8 @@ import dev.zyra.mobile.data.*
         item { notifications() }
         item { ZyraSettingRow(R.drawable.ic_camera, "Optimize new photos", "Smaller uploads on slower connections", trailing = { ZyraSwitch(optimizePhotos, changeOptimizePhotos) }) }
         item { SettingsLink(R.drawable.ic_folder, "Storage", "Saved history and downloads") { page("storage") } }
+        item { SettingsLink(R.drawable.ic_camera, "Browser captures", "Saved screenshots and recordings") { page("captures") } }
+        item { SettingsLink(R.drawable.ic_terminal, "Diagnostics", "Response timings") { page("diagnostics") } }
         item { SettingsLink(R.drawable.ic_info, "About Zyra", "Version and licenses") { page("about") } }
     }
 }
@@ -49,8 +51,9 @@ import dev.zyra.mobile.data.*
             var menu by remember { mutableStateOf(false) }
             Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 val connection = state.machineStatus[machine.id] ?: ConnectionState.Offline
-                ZyraSettingRow(icon = null, title = machine.name, subtitle = connectionLabel(connection), click = { vm.selectMachineFilter(machine.id) }, leading = { MachineStatusIcon(connection) }, trailing = {
+                ZyraSettingRow(icon = null, title = machine.name, subtitle = state.machineFailures[machine.id]?.message ?: connectionLabel(connection), click = { vm.selectMachineFilter(machine.id) }, leading = { MachineStatusIcon(connection) }, trailing = {
                     Box { IconButton(onClick = { menu = true }) { AppIcon(R.drawable.ic_ellipsis, "Computer options") }; DropdownMenu(menu, { menu = false }, shape = MaterialTheme.shapes.medium, containerColor = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
+                        if (connection != ConnectionState.Connected) DropdownMenuItem(text = { Text(if (state.machineFailures[machine.id]?.recovery == ConnectionRecovery.PairAgain) "Pair again" else if (state.machineFailures[machine.id]?.recovery == ConnectionRecovery.Update) "Retry after updating" else "Retry connection") }, onClick = { menu = false; if (state.machineFailures[machine.id]?.recovery == ConnectionRecovery.PairAgain) pair() else vm.retryConnection(machine.id) })
                         DropdownMenuItem(text = { Text("Forget this computer") }, leadingIcon = { AppIcon(R.drawable.ic_x) }, onClick = { forgetting = machine; menu = false })
                     } }
                 })

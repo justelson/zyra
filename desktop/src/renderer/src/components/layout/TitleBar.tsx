@@ -9,7 +9,7 @@ import { addOverlayEventListener, addOverlayWindowBlurListener } from '@/compone
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AudioLines, ChevronDown, Copy, Info, Minus, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Puzzle, RotateCw, Search, Settings2, Square, SquarePen, X } from 'lucide-react'
+import { AudioLines, ChevronDown, Copy, Minus, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Puzzle, RotateCw, Search, Settings2, Square, SquarePen, X } from 'lucide-react'
 import { useAssistantStoreActions, useAssistantStoreSelector } from '@/lib/assistant/store'
 import { useAssistantTitleBarContent, useAssistantTitleBarEndRegion } from '@/lib/assistant/assistant-title-bar'
 import { useLoadingScreenActive } from '@/components/ui/LoadingState'
@@ -19,6 +19,7 @@ import { TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
 import { getSettingsLocationTrail } from '@/pages/settings/settings-navigation-context'
 import { AccessoriesMenu } from './AccessoriesMenu'
 import { AppSubmenu } from './AppSubmenu'
+import { AppMenuRuntimeStatus } from './AppMenuRuntimeStatus'
 import { openAccessory } from '@/lib/accessories'
 import {
     ASSISTANT_LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -358,16 +359,7 @@ export default function TitleBar() {
                     </button>
                     {appMenuOpen ? (
                         <AnchoredNativeOverlay><div className="absolute left-0 top-full z-[190] mt-1 w-[208px] overflow-visible rounded-xl border border-[var(--surface-divider)] bg-[var(--surface-floating)] p-1 text-[13px] shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-xl" role="menu">
-                            <button
-                                type="button"
-                                role="menuitem"
-                                aria-label="Agent status and updates"
-                                onClick={() => runAppMenuAction(() => navigate('/settings/about'))}
-                                className="flex w-full items-center gap-2 border-b border-[var(--surface-divider)] px-2.5 py-2 text-left text-[11px] text-sparkle-text-muted hover:bg-[var(--surface-hover)]"
-                            >
-                                <Info size={12} className="shrink-0" />
-                                <span>{runtimeConnection.label} · {runtimeConnection.detail}<span className="block text-sparkle-text-secondary">Agent status and updates</span></span>
-                            </button>
+                            <AppMenuRuntimeStatus connection={runtimeConnection} onSelect={() => runAppMenuAction(() => navigate('/settings/about'))} />
                             {appMenuGroups.map((group, groupIndex) => (
                                 <div key={group[0]?.id || groupIndex} className={cn(groupIndex > 0 && 'mt-1 border-t border-[var(--surface-divider)] pt-1')}>
                                     {group.map((item) => (

@@ -32,7 +32,7 @@ async function fixture(t) {
     sendControlResponse() {}
   }
   const worker = new Worker();
-  const catalog = { registerProject: () => directory, find: async () => chat, resolveAlias: v => v || '', recordAttachment() {}, updateChat: async () => chat, list: async () => [chat], snapshot: () => ({ projects: [{ path: directory }] }) };
+  const catalog = { record: { metadata: {} }, history: async () => ({ entries: [] }), registerProject: () => directory, find: async () => chat, resolveAlias: v => v || '', recordAttachment() {}, updateChat: async () => chat, list: async () => [chat], snapshot: () => ({ projects: [{ path: directory }] }) };
   const server = new ZyraAgentServer({ stateDirectory: directory, root: process.cwd(), endpoint: 0, catalog, createWorker: () => worker });
   const clients = [];
   t.after(async () => { clients.forEach(c => c.close()); await server.stop(); const relative = path.relative(realpathSync(os.tmpdir()), realpathSync(directory)); assert.ok(relative.startsWith('zyra-question-continuation-') && !relative.includes(path.sep)); rmSync(directory, { recursive: true, force: true }); });

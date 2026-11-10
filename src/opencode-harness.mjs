@@ -9,6 +9,7 @@ import { requestV2, v2CatalogPayload, prepareV2, listV2Models } from './harness-
 import { managedV2Config } from './harness-v2-config.mjs';
 import { runHarnessV2Turn } from './harness-v2-turn.mjs';
 import { nativeReasoningValue, isNativeReasoningId, reasoningChoiceForNativeId } from './reasoning-choices.mjs';
+import { HarnessToolConversation } from './harness-tool-turn.mjs';
 
 /**
  * Local OpenCode harness provider.
@@ -488,7 +489,7 @@ export function mapProviderCatalog(payload) {
         baseUrl: HARNESS_BASE_URL_SENTINEL,
         reasoning: capabilities.reasoning === true,
         toolUse: capabilities.toolcall === true,
-        input: ["text"],
+        input: ["text", ...(capabilities.input?.image === true ? ['image'] : [])],
         cost: { input: toNumber(cost.input), output: toNumber(cost.output), cacheRead: toNumber(cache.read), cacheWrite: toNumber(cache.write) },
         contextWindow: contextWindow > 0 ? contextWindow : 128000,
         maxTokens: maxTokens > 0 ? maxTokens : 16384,
@@ -850,7 +851,7 @@ function watchHarnessReply(client, sessionId, { onProgress, onPermission, fetchI
 /* Pi event-stream contract (no SDK import; duck-typed by Pi)            */
 /* ------------------------------------------------------------------ */
 
-function baseAssistantMessage({ modelId, usage, stopReason, content, errorMessage, responseModel }) {
+function baseAssistantMessage({ modelId, usage, stopReason, content, errorMessage, responseModel, errorRetryable }) {
   return {
     role: "assistant",
     content,
@@ -861,6 +862,7 @@ function baseAssistantMessage({ modelId, usage, stopReason, content, errorMessag
     stopReason,
     ...(responseModel ? { responseModel } : {}),
     ...(errorMessage ? { errorMessage } : {}),
+    ...(errorRetryable === false ? { errorRetryable: false } : {}),
     timestamp: Date.now(),
   };
 }
@@ -921,6 +923,7 @@ function abortHarnessSession(client, sessionId, fetchImpl) {
  * and translates them into Pi stream events. Owns a serve lease for the turn.
  */
 export function createHarnessStreamSimple({ executable, detect = detectHarness, fetchImpl = fetch, spawnImpl = spawnHarnessProcess, resolveCwd, ensureServe = ensureHarnessServe, onPermission, onActivity, conversation, onMetric } = {}) {
+  const toolConversation = conversation?.tools ?? new HarnessToolConversation();
   let cachedExecutable = executable;
   const resolveExecutable = async () => {
     if (cachedExecutable) return cachedExecutable;
@@ -939,6 +942,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
       const cwd = typeof resolveCwd === "function" ? resolveCwd() : (resolveCwd ?? process.cwd());
       const sessionIdRef = { current: null };
       const leaseRef = { current: null };
+      let partialContent = [];
       const onAbort = () => { void abortHarnessSession(leaseRef.current?.client, sessionIdRef.current, fetchImpl); };
       try {
         const variant = resolveHarnessVariant(model, reasoning);
@@ -950,9 +954,10 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
         stream.push({ type: "start", partial: partial([]) });
         const liveClient = { ...lease.client, fetch: fetchImpl, cwd };
         const content = [];
+        partialContent = content;
         const contentIndexByType = new Map();
         const toolStates = new Map();
-        const emitProgress = ({ type, text, part }) => {
+        const emitProgress = ({ type, text, delta: incremental, part }) => {
           if (type === "tool" && part?.callID && typeof onActivity === "function") {
             const state = part.state ?? {};
             const status = state.status;
@@ -970,7 +975,7 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
             }
             return;
           }
-          if (!text || !["reasoning", "text"].includes(type)) return;
+          if (!(text || incremental) || !["reasoning", "text"].includes(type)) return;
           const eventPrefix = type === "reasoning" ? "thinking" : "text";
           let index = contentIndexByType.get(type);
           if (index === undefined) {
@@ -980,28 +985,60 @@ export function createHarnessStreamSimple({ executable, detect = detectHarness, 
             stream.push({ type: `${eventPrefix}_start`, contentIndex: index, partial: partial([...content]) });
           }
           const previous = type === "reasoning" ? content[index].thinking : content[index].text;
-          if (!text.startsWith(previous) || text.length === previous.length) return;
-          const delta = text.slice(previous.length);
+          if (incremental === undefined && (!text.startsWith(previous) || text.length === previous.length)) return;
+          const delta = incremental ?? text.slice(previous.length);
+          if (incremental !== undefined) text = previous + incremental;
           if (type === "reasoning") content[index] = { type: "thinking", thinking: text };
           else content[index] = { type: "text", text };
           stream.push({ type: `${eventPrefix}_delta`, contentIndex: index, delta, partial: partial([...content]) });
         };
+        const emitContentProgress = parts => {
+          for (const [type, field] of [['text', 'text'], ['thinking', 'thinking']]) {
+            emitProgress({ type: type === 'thinking' ? 'reasoning' : 'text', text: parts.filter(part => part.type === type).map(part => part[field]).join('') });
+          }
+        };
+        const finishProgress = () => {
+          for (const [type, index] of contentIndexByType) {
+            stream.push({ type: `${type === 'reasoning' ? 'thinking' : 'text'}_end`, contentIndex: index,
+              content: type === 'reasoning' ? content[index].thinking : content[index].text, partial: partial([...content]) });
+          }
+        };
+        if (liveClient.apiVersion !== 2 && context.tools?.length) throw fail('Update the installed OpenCode CLI to version 2 to use Zyra tools.');
+        const hasImages = (context.messages ?? []).some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image'));
+        if (liveClient.apiVersion === 2 && (context.tools?.length || hasImages || toolConversation.record?.active)) {
+          const effectiveContext = model.harness?.toolcall === false ? { ...context, tools: [] } : context;
+          const reply = await toolConversation.step({ client: liveClient, modelId, variant: normalizeHarnessVariant(variant), context: effectiveContext, signal, onMetric,
+            onProgress: emitContentProgress, onDelta: (type, delta) => emitProgress({ type, delta }) });
+          emitContentProgress(reply.content);
+          for (const part of reply.content) {
+            if (part.type === 'toolCall') {
+              const index = content.length; content.push(part);
+              stream.push({ type: 'toolcall_start', contentIndex: index, partial: partial([...content]) });
+              stream.push({ type: 'toolcall_end', contentIndex: index, toolCall: part, partial: partial([...content]) });
+            }
+          }
+          const { calculateCost } = await import('./runtime/providers/src/models.js');
+          if (model.cost) calculateCost(model, reply.usage);
+          reply.usage.cost.source = model.harness?.free === true || Object.values(model.cost ?? {}).some(value => typeof value === 'number' && value > 0) ? 'model-catalog' : 'unpriced';
+          finishProgress();
+          stream.push({ type: 'done', reason: reply.stopReason, message: baseAssistantMessage({ modelId, content, stopReason: reply.stopReason, usage: reply.usage }) });
+          return;
+        }
         const reply = await runHarnessTextTurn({ client: liveClient, modelId, context, signal, variant, fetchImpl, sessionIdRef,
           onProgress: emitProgress, onPermission, conversation, onMetric });
         emitProgress({ type: "reasoning", text: reply.thinking });
         emitProgress({ type: "text", text: reply.text });
-        for (const [type, index] of contentIndexByType) {
-          const eventPrefix = type === "reasoning" ? "thinking" : "text";
-          stream.push({ type: `${eventPrefix}_end`, contentIndex: index, content: type === "reasoning" ? content[index].thinking : content[index].text, partial: partial([...content]) });
-        }
+        finishProgress();
         const doneReason = reply.stopReason === "length" ? "length" : "stop";
         stream.push({ type: "done", reason: doneReason, message: baseAssistantMessage({ modelId, content, stopReason: doneReason, usage: reply.usage, responseModel: reply.responseModel }) });
       } catch (error) {
-        const aborted = signal?.aborted === true || /abort/i.test(error?.message ?? "");
+        // Transport timeouts may say "aborted" too. Only the caller's signal
+        // proves the user stopped this turn.
+        const aborted = signal?.aborted === true;
         stream.push({
           type: "error",
           reason: aborted ? "aborted" : "error",
-          error: baseAssistantMessage({ modelId, content: [], stopReason: aborted ? "aborted" : "error", errorMessage: error?.message ?? String(error) }),
+          error: baseAssistantMessage({ modelId, content: [...partialContent], stopReason: aborted ? "aborted" : "error", errorMessage: error?.message ?? String(error), errorRetryable: error?.retryable }),
         });
       } finally {
         signal?.removeEventListener?.("abort", onAbort);

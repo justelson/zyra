@@ -10,7 +10,8 @@ const pending = new Map<string, AssistantBrowserAnnotationAttachment[]>()
 export type AssistantBrowserAnnotationAttachment = {
     sessionId: string
     reference: string
-    annotation: DevScopeBrowserAnnotationPayload
+    annotation?: DevScopeBrowserAnnotationPayload
+    text?: string
     artifact: DevScopeBrowserCaptureArtifact
 }
 
@@ -21,7 +22,8 @@ export function publishAssistantBrowserAnnotationAttachment(attachment: Assistan
         return
     }
     const queued = pending.get(attachment.sessionId) || []
-    pending.set(attachment.sessionId, [...queued.slice(-3), attachment])
+    if (queued.length >= 16) throw new Error('Open this chat before attaching more captures.')
+    pending.set(attachment.sessionId, [...queued, attachment])
 }
 
 export function subscribeAssistantBrowserAnnotationAttachments(

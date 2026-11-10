@@ -10,7 +10,7 @@ import { createZyraTuiClientRuntime } from '../src/agent-server/tui-runtime.mjs'
 const dir = mkdtempSync(path.join(os.tmpdir(), 'zyra-tui-config-'));
 const canonical = 'chat:tui-config';
 const chat = { canonicalChatId: canonical, project: dir, cwd: dir, title: 'Synthetic settings sync' };
-const catalog = { registerProject: () => dir, find: async () => chat, resolveAlias: v => v || '', recordAttachment() {},
+const catalog = { record: { metadata: {} }, history: async () => ({ entries: [] }), registerProject: () => dir, find: async () => chat, resolveAlias: v => v || '', recordAttachment() {},
   updateChat: async () => chat, list: async () => [chat], snapshot: () => ({ projects: [{ path: dir }] }) };
 class Worker extends EventEmitter {
   config = { model: 'openai-codex/gpt-5.6-sol', thinking: 'high', runtimeMode: 'approval-required', profile: 'default', webSearch: false, webFetch: false };
@@ -114,6 +114,6 @@ try {
   await until(() => tui.permissionMode === 'edits-only');
   console.log('TUI canonical permissions/model/thinking propagation and stale-field isolation: passed');
 } finally {
-  tui?.session.dispose(); phone?.close(); desktop?.close(); await server.stop();
+  await tui?.session.dispose(); phone?.close(); desktop?.close(); await server.stop();
   rmSync(dir, { recursive: true, force: true });
 }

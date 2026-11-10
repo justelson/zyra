@@ -2,7 +2,7 @@ import { app, dialog, type BrowserWindow, type Extension, type Session } from 'e
 import { createHash, randomUUID } from 'node:crypto'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import log from 'electron-log'
 import { getGlobalBrowserSession } from './ipc/handlers/browser-preview-handlers'
 import type { BrowserExtensionRecord } from '../shared/browser-extensions'
@@ -81,7 +81,11 @@ function extensionWarnings(manifest: ExtensionManifest): string[] {
     const warnings: string[] = []
     if (permissions.includes('<all_urls>') || permissions.includes('*://*/*')) warnings.push('Can read or modify most websites.')
     if (permissions.some(permission => ['cookies', 'history', 'downloads', 'management', 'nativeMessaging', 'debugger'].includes(permission))) warnings.push('Requests access to sensitive browser capabilities.')
-    if (asStringArray(manifest.optional_permissions).length > 0) warnings.push('May request additional permissions while running.')
+    const optional = asStringArray(manifest.optional_permissions)
+    if (optional.length > 0) warnings.push('Optional permission prompts are not supported in Zyra Browser.')
+    // Confirmed missing in the bundled Electron host. Unlisted APIs can be provisional.
+    const unsupported = [...new Set([...permissions, ...optional].filter(permission => ['contextMenus', 'fontSettings'].includes(permission)))]
+    if (unsupported.length > 0) warnings.push(`Some features may not work. Unsupported browser APIs: ${unsupported.join(', ')}.`)
     return [...new Set(warnings)]
 }
 
@@ -201,7 +205,8 @@ export class BrowserExtensionManager {
             await rm(destination, { recursive: true, force: true })
             throw new Error(`Electron could not load this extension: ${error instanceof Error ? error.message : 'unknown loading error'}`)
         }
-        const entries = (await readStored()).filter(entry => entry.id !== extension.id && entry.path !== destination)
+        const stored = await readStored()
+        const entries = stored.filter(entry => entry.id !== extension.id && entry.path !== destination)
         const record: StoredExtension = {
             id: extension.id,
             name: manifest.name.trim().slice(0, 256),
@@ -217,6 +222,11 @@ export class BrowserExtensionManager {
         entries.push(record)
         await writeStored(entries)
         this.loaded.set(extension.id, extension)
+        // Retire only our old package after the new version is loaded and saved.
+        for (const previous of stored) {
+            if (previous.id !== extension.id || previous.path === destination || dirname(resolve(previous.path)) !== resolve(extensionStorageRoot())) continue
+            await rm(previous.path, { recursive: true, force: true }).catch(error => log.warn('[BrowserExtensions] Could not retire previous package', error))
+        }
         return displayRecord(record)
     }
 

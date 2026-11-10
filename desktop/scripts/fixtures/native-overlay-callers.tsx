@@ -103,6 +103,11 @@ function ToastFixture() {
     useEffect(() => { showDeveloperToast({ message: 'Page appearance is light.' }) }, [showDeveloperToast])
     return <AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} />
 }
+function ScreenshotToastFixture() {
+    const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
+    useEffect(() => { showDeveloperToast({ message: '', captureSessionId: 'session:original', artifact: { artifactId: 'browser-screenshot:fixture', tabId: 'browser:1', kind: 'screenshot', mimeType: 'image/png', sizeBytes: 50, width: 200, height: 120, createdAt: new Date().toISOString(), thumbnailDataUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120"><rect width="200" height="120" fill="purple"/></svg>' } }) }, [showDeveloperToast])
+    return <div style={{ transform: 'translateX(80px)', width: 190, height: 160, overflow: 'hidden' }}><AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} /></div>
+}
 Object.assign(window, { nativeOverlayCallerCheck: (async () => {
     if ((globalThis as any).nativeOverlayVisibilityOnly) {
         prepared()
@@ -231,6 +236,17 @@ Object.assign(window, { nativeOverlayCallerCheck: (async () => {
     await settle(() => !childDocument.querySelector('[role="status"]'), 'swiping the text toast dismisses it')
     await act(async () => root.render(null))
     results.push('Browser toast: scoped input, icon, outside dismissal, and swipe')
+    let attached: any = null
+    ;(window.devscope as any).attachBrowserCaptureToChat = async (input: any) => { attached = input; return { success: true } }
+    await act(async () => root.render(<ScreenshotToastFixture />))
+    await settle(() => Boolean(childDocument.querySelector('img')) && Boolean(nativeBounds && nativeBounds.height > 120), 'screenshot preview mounts above the native page')
+    check(Math.abs(nativeBounds!.x + nativeBounds!.width - (innerWidth - 12)) < 2, 'transformed inspector cannot move screenshot away from viewport right edge')
+    check(Math.abs(nativeBounds!.y + nativeBounds!.height - (innerHeight - 12)) < 2, 'screenshot preview stays anchored to viewport bottom')
+    await click([...childDocument.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Attach to chat')!)
+    check(attached?.sessionId === 'session:original' && attached?.artifactId === 'browser-screenshot:fixture', 'native preview Attach routes to original chat')
+    await act(async () => root.render(null))
+    results.push('Screenshot native overlay: transformed inspector bounds, preview and original-chat attachment')
+
 
     let selected = 0
     await act(async () => root.render(<FileActionsMenu title="Add fixture tab" items={[{ id: 'first', label: 'First action', onSelect: () => { selected++ } }]} />))

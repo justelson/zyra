@@ -33,6 +33,7 @@ data class MobileState(
     val machines: List<Machine> = emptyList(), val machine: Machine? = null,
     val searchMatches: List<ChatSearchMatch> = emptyList(), val searchIndexing: Boolean = false, val searchSelection: ChatSearchMatch? = null, val searchContext: List<TimelineItem> = emptyList(), val searchContextBusy: Boolean = false,
     val machineFilter: String? = null, val machineStatus: Map<String, ConnectionState> = emptyMap(),
+    val machineFailures: Map<String, ConnectionFailure> = emptyMap(), val connectionFailure: ConnectionFailure? = null,
     val machineProjects: Map<String, List<String>> = emptyMap(),
     val projectArtwork: Map<String, ProjectMark> = emptyMap(),
     val connection: ConnectionState = ConnectionState.Offline, val runtimeStatus: RuntimeStatus = RuntimeStatus.Unknown, val chats: List<Chat> = emptyList(),
@@ -92,6 +93,56 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         }
     }
     val media = MediaController(app, scope)
+    private val timingOwners = linkedMapOf<String, String>()
+    val responseTimings: ResponseTimingStore = ResponseTimingStore(java.io.File(app.filesDir, "diagnostics"), scope, share = { turnId, summary ->
+        val machine = timingOwners.remove(turnId)
+        if (preferences.shareTimings.value && machine != null) {
+            val connection = pool.links.value[machine]?.connection
+            if (connection != null && "timing-summaries" in connection.capabilities) connection.request("diagnostics.summary", summary)
+        }
+    })
+    suspend fun captureOperation(machineId: String, method: String, params: JSONObject = JSONObject()): JSONObject {
+        check(method in setOf("captures.list", "captures.get", "captures.chunk", "captures.delete", "captures.reference")) { "Unknown capture action." }
+        val connection = pool.links.value[machineId]?.connection ?: error("Connect to this PC to view captures.")
+        check("browser-captures" in connection.capabilities) { "Browser captures require an updated PC sharing all folders with this phone." }
+        val result = resolved(connection, connection.request(method, params))
+        check(pool.links.value[machineId]?.connection === connection) { "The PC connection changed. Refresh captures." }
+        return result
+    }
+    suspend fun loadCapture(machineId: String, id: String): java.io.File {
+        val ref = captureOperation(machineId, "captures.get", JSONObject().put("artifactId", id)).getJSONObject("mediaRef")
+        return media.playback(machineId, "", ref, { method, params -> captureOperation(machineId, method, params) }) { _, _ -> }
+    }
+    fun attachCapture(machineId: String, artifactId: String, project: String? = null) {
+        val origin = mutable.value; val epoch = navigation
+        scope.launch {
+            try {
+                val reference = captureOperation(machineId, "captures.reference", JSONObject().put("artifactId", artifactId))
+                // Resolve only a selected, managed PC capture. It remains on that PC;
+                // the agent receives the same local media reference as Desktop.
+                val destination = reference.getString("destination").replace("<", "%3C").replace(">", "%3E").replace("\n", "").replace("\r", "")
+                val markdown = "![${reference.getString("title")}](<$destination>)"
+                val current = mutable.value
+                if (epoch != navigation || current.session.id != origin.session.id || current.page != origin.page) return@launch
+                if (project == null && current.machine?.id == machineId && current.session.id.isNotBlank()) {
+                    setDraft(listOf(current.draft, markdown).filter { it.isNotBlank() }.joinToString("\n\n")); page("chat")
+                } else if (project != null) createFromDraft(machineId, project, markdown, "none")
+                else error(IllegalStateException("Choose a project for this capture."))
+            } catch (failure: Exception) { if (failure is CancellationException) throw failure; error(failure) }
+        }
+    }
+    suspend fun playbackMedia(destination: String, rootId: String? = null, basePath: String? = null, progress: (Long, Long) -> Unit): Pair<JSONObject, java.io.File> {
+        val current = mutable.value
+        val machine = current.machine ?: error("Connect to this PC to load media.")
+        check("media-playback" in host?.capabilities.orEmpty()) { "Update Zyra on this PC to play audio and video." }
+        val request = workspaceRequest() ?: error("Reconnect to load media.")
+        val ref = request("workspace.media", JSONObject().put("destination", destination).apply {
+            rootId?.let { put("rootId", it) }; basePath?.let { put("basePath", it) }
+        }).getJSONObject("mediaRef")
+        val file = media.playback(machine.id, current.session.id, ref, request, progress)
+        check(mutable.value.machine?.id == machine.id && mutable.value.session.id == current.session.id) { "The open chat changed." }
+        return ref to file
+    }
     suspend fun markdownImage(destination: String, rootId: String? = null, basePath: String? = null): Pair<JSONObject, java.io.File?> {
         val current = mutable.value
         val machine = current.machine ?: error("Connect to this computer to load images.")
@@ -166,7 +217,10 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
             "catalog.changed" -> { notificationChanges.tryEmit(Unit); refreshMachineCatalog(machine, connection) }
             "host.runtime-status" -> if (host === connection) mutable.update { it.copy(runtimeStatus = connection.runtimeStatus.value) }
             "plugins.changed" -> if (host === connection) pluginInvalidations.changed { host === connection }
-            "session.event" -> if (host === connection) onEvent(message)
+            "session.event" -> {
+                if (timingOwners[TimelineStatus.turnId(message)] == machine.id) responseTimings.recorder.observe(message)
+                if (host === connection) onEvent(message)
+            }
             "terminal.event" -> if (host === connection) terminal.event(message)
             "voice.event" -> if (host === connection) voice.event(message)
         }
@@ -214,7 +268,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
                 launch {
                     var prior = emptyMap<String, dev.zyra.mobile.network.MachineLink>()
                     pool.links.collect { links ->
-                        mutable.update { it.copy(machineStatus = links.mapValues { entry -> entry.value.status }, machineProjects = links.mapValues { entry -> entry.value.projects }) }
+                        mutable.update { it.copy(machineStatus = links.mapValues { entry -> entry.value.status }, machineFailures = links.mapNotNull { (id, link) -> link.failure?.let { id to it } }.toMap(), machineProjects = links.mapValues { entry -> entry.value.projects }) }
                         for ((id, link) in links) if (link.connection != null && prior[id]?.connection !== link.connection) {
                             notificationChanges.tryEmit(Unit)
                             machinesFor(id)?.let { refreshMachineCatalog(it, link.connection) }
@@ -316,6 +370,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
             mutable.value.page == "terminal" -> if (!terminal.back()) backPage("chat")
             mutable.value.page == "chat-models" -> backPage("chat-settings")
             mutable.value.page == "chat-settings" -> backPage("chat")
+            mutable.value.page in setOf("captures", "diagnostics") -> backPage("settings")
             mutable.value.page == "chat" -> backPage("chats")
             else -> backPage(if (mutable.value.machine != null) "chats" else "machines") }
     }
@@ -397,13 +452,13 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         terminal.connection(false); attachments.detached(); media.close()
         generation++; navigation++; openJob?.cancel(); val epoch = generation
         connectionJob?.cancel(); host = pool.links.value[machine.id]?.connection
-        mutable.update { it.copy(machine = machine, connection = pool.links.value[machine.id]?.status ?: ConnectionState.Connecting, runtimeStatus = pool.links.value[machine.id]?.connection?.runtimeStatus?.value ?: RuntimeStatus.Unknown, page = "chats", navigationBack = false, session = SessionView(), projects = pool.links.value[machine.id]?.projects.orEmpty(), busy = false, draft = "", pendingSends = emptyList(), error = null) }
+        mutable.update { it.copy(machine = machine, connection = pool.links.value[machine.id]?.status ?: ConnectionState.Connecting, connectionFailure = pool.links.value[machine.id]?.failure, runtimeStatus = pool.links.value[machine.id]?.connection?.runtimeStatus?.value ?: RuntimeStatus.Unknown, page = "chats", navigationBack = false, session = SessionView(), projects = pool.links.value[machine.id]?.projects.orEmpty(), busy = false, draft = "", pendingSends = emptyList(), error = null) }
         connectionJob = scope.launch {
             pool.links.map { it[machine.id] }.distinctUntilChanged().collectLatest { link ->
                 if (epoch != generation) return@collectLatest
                 if (host !== link?.connection) { modelPicker.close(clearCache = true); pluginDetails.disconnect(); pluginStore.disconnect(); plugins.disconnect(); voice.stop("Connection to the PC changed. Voice has ended.") }
                 host = link?.connection
-                mutable.update { it.copy(connection = link?.status ?: ConnectionState.Offline, runtimeStatus = link?.connection?.runtimeStatus?.value ?: RuntimeStatus.Unknown, projects = link?.projects.orEmpty()) }
+                mutable.update { it.copy(connection = link?.status ?: ConnectionState.Offline, connectionFailure = link?.failure, runtimeStatus = link?.connection?.runtimeStatus?.value ?: RuntimeStatus.Unknown, projects = link?.projects.orEmpty()) }
                 terminal.connection(link?.connection != null)
                 if (link?.connection != null) {
                     if (link.status == ConnectionState.Connected) modelPicker.prefetch(link.connection) { fetchModels(link.connection) }
@@ -414,6 +469,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
             }
         }
     }
+    fun retryConnection(id: String) { pool.retry(id) }
     private suspend fun resolved(connection: HostConnection, result: JSONObject) = dev.zyra.mobile.network.BodyTransfer.resolve(connection, result)
     private fun parseChats(result: JSONObject, machineId: String): List<Chat> {
         val array = result.optJSONArray("chats") ?: JSONArray()
@@ -688,9 +744,14 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
                 preview = { history -> if (id != null && epoch == navigation && host === connection) mutable.update { it.copy(session = TimelineReducer.history(id, history)) } },
                 visibleStart = cached?.items?.mapNotNull { it.historyIndex }?.minOrNull(), needsContext = TimelineWindow.needsContext(cached))
             val canonical = attached.getString("canonicalChatId")
+            attached.optJSONObject("presence")?.let { presence ->
+                if (timingOwners[presence.optJSONObject("latestTurn")?.optString("id")] == machineId) responseTimings.recorder.reconcile(presence)
+            }
             if (creationId != null && pendingCreation?.second == creationId) pendingCreation = null
             var view = if (history != null) TimelineReducer.history(canonical, history) else SessionView(canonical)
+            view = view.copy(activeTurnId = attached.optJSONObject("activeRequestContext")?.optString("turnId")?.takeIf(String::isNotBlank))
             attached.optJSONObject("connected")?.let { view = view.copy(config = view.config.merge(resolved(connection, it))) }
+            attached.optJSONObject("capabilities")?.let { view = view.copy(config = view.config.merge(it), canonicalTurnCompletion = it.optBoolean("canonicalTurnCompletion")) }
             // The transcript does not yet contain accepted prompts or live maintenance.
             // Restore projected operational envelopes before the attachment watermark.
             val operations = attached.optJSONArray("pendingOperations") ?: JSONArray()
@@ -809,6 +870,12 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
         val sessionId = current.session.id
         if ((text.isEmpty() && imageIds.isEmpty()) || sessionId.isBlank() || current.connection != ConnectionState.Connected) return
         val operationId = System.currentTimeMillis().toString() + ":" + UUID.randomUUID().toString()
+        if (mode == "prompt") {
+            val timingId = "mobile:$operationId"
+            timingOwners[timingId] = machineId
+            while (timingOwners.size > 200) timingOwners.remove(timingOwners.keys.first())
+            responseTimings.recorder.start(timingId, current.session.config.model, current.session.config.thinking)
+        }
         if (text.isNotBlank() && current.title in listOf("", "New chat", "Untitled chat")) {
             val preview = ChatTitles.initial(current.title, text)
             mutable.update { it.copy(title = preview) }
@@ -826,6 +893,7 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
                 reloadOutbox(machineId, sessionId)
                 if (mode == "prompt") mutable.update { if (it.machine?.id == machineId && it.session.id == sessionId) it.copy(session = it.session.copy(running = true)) else it }
                 if (preparingSend == operationId) preparingSend = null
+                if (mode == "prompt") responseTimings.recorder.dispatch("mobile:$operationId")
                 connection.request("session.request", JSONObject().put("sessionKey", sessionId).put("type", mode).put("payload", JSONObject().put("prompt", text).put("imageUploads", JSONArray(imageUploads)).put("fileUploads", JSONArray(fileUploads))), id = operationId, timeoutMs = if (mode == "prompt") 86400000L else 65000)
                 withContext(Dispatchers.IO) { cache.settleSend(operationId, "completed") }; attachments.completed(operationId)
             } catch (e: Exception) {
@@ -1003,7 +1071,10 @@ class MobileSession(private val app: ZyraApplication) : AutoCloseable {
     fun stop() = action("abort")
     fun respond(id: String, decision: String) = action("approval.respond", JSONObject().put("requestId", id).put("decision", decision))
     fun answer(id: String, answers: JSONObject, cancelled: Boolean = false) = action("user_input.respond", JSONObject().put("requestId", id).put("answers", answers).put("cancelled", cancelled), longRunning = !cancelled)
-    fun configure(field: String, value: Any) = action("configure", JSONObject().put(field, value))
+    fun configure(field: String, value: Any) {
+        if (field !in mutable.value.session.config.supportedFields) { error(IllegalStateException("Update Zyra on this PC to change this setting.")); return }
+        action("configure", JSONObject().put(field, value))
+    }
     fun action(type: String, payload: JSONObject = JSONObject(), longRunning: Boolean = false, success: (() -> Unit)? = null) {
         val connection = host ?: return
         val sessionId = mutable.value.session.id

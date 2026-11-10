@@ -1,18 +1,25 @@
 package dev.zyra.mobile.notifications
 
 import dev.zyra.mobile.data.Chat
+import dev.zyra.mobile.data.currentNotification
 
 /** One receipt per state transition, shared across reconnects and service restarts. */
 class ChatAlertPolicy(private val seen: MutableMap<String, String>, private val startedAt: Long) {
     var revision = 0L
         private set
     fun observe(chat: Chat, visibleKey: String?): String? {
-        val token = "${chat.lastTurnId}:${chat.lastTurnState}:${chat.lastTurnCompletedAt}:${chat.attention.orEmpty()}"
+        val authored = chat.currentNotification()
+        val token = "${chat.lastTurnId}:${chat.lastTurnState}:${chat.lastTurnCompletedAt}:${authored?.token.orEmpty()}:${chat.attention.orEmpty()}"
         val old = seen.put(chat.key, token)
         var evicted = false
         while (seen.size > 1024) { seen.remove(seen.keys.first()); evicted = true }
         if (old != token || evicted) revision++
         if (old == token || chat.key == visibleKey || chat.archived || chat.viewed) return null
+        if (authored?.kind == "completed" && chat.lastTurnId == chat.lastSeenCompletedTurnId) return null
+        if (authored != null) {
+            val recent = runCatching { java.time.Instant.parse(authored.occurredAt).toEpochMilli() >= startedAt }.getOrDefault(false)
+            if (old != null || recent) return authored.body.ifBlank { authored.title }.ifBlank { "Chat updated" }
+        }
         if (chat.attention != null) return if (chat.attention.contains("approval", true)) "Approval needed" else "Your response is needed"
         if (chat.working) return null
         if (chat.lastTurnId.isNotBlank() && chat.lastTurnId == chat.lastSeenCompletedTurnId) return null

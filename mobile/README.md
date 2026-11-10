@@ -25,10 +25,22 @@ The network listener is opt-in and binds one chosen address. A machine must be a
 - Fetch larger output in 48 KiB chunks, on demand; use a 16 MiB expiring host body cache.
 - Slow terminal receivers request fresh screen snapshots; text is batched briefly and control requests retain reserved capacity. Sustained overflow closes the connection for a bounded resynchronization.
 - Image history transfers references first. Opening an image downloads verified 48 KiB chunks; interrupted transfers resume from durable offsets. Photos can be optimized before upload.
-- Images are limited to 20 MiB each, 12 per message and 40 MiB total. Pending host uploads reserve at most 128 MiB and expire after 24 hours; the decoded host image cache is 32 MiB. Android keeps at most 64 MiB of downloaded images, separately from durable unsent attachments.
+- Images are limited to 20 MiB each, 12 per message and 40 MiB total. Pending host uploads reserve at most 128 MiB and expire after 24 hours; the decoded host image cache is 32 MiB. Android keeps at most 128 MiB of downloaded media, separately from durable unsent attachments.
 - Bulk image chunks are paced at about 2 MiB/s per phone within bounded request slots; they do not consume the ordinary interaction quota.
 - Bound concurrent requests, paired devices and unauthenticated handshake time.
 - On resource-constrained PCs, Android builds use one worker and a capped heap; no persistent Gradle daemon or emulator is required for native screenshot previews.
+
+## Client recovery and diagnostics
+
+The terminal and Android consume the canonical host's model, reasoning and tool capabilities. Unknown models use explicit unknown metadata. A disconnect preserves server-owned work; reattachment restores history, live tools, queue and pending attention. Only the canonical completion boundary settles an owned turn, including post-response compaction and steering. Successful completion preserves unanswered questions.
+
+Terminal `/memory` and `/consolidate` operate on the attached worker. `/diagnostics` summarizes recent local timings; `/diagnostics json` shows the recorded stages. Android exposes Response timings in Settings, with turn history hidden until opened and optional newest/slowest sorting. Each client keeps at most 200 records within 2 MiB. Local recording is independent of analytics consent. Terminal sharing follows `/analytics`; phone sharing requires its own opt-in and the PC's existing analytics consent.
+
+Provider timings use only host timestamps relative to host acceptance. Receipt and display use the client's monotonic clock. Terminal display means text was written, and phone display means a focused, visible layout reached a paint opportunity. These do not measure physical pixels or human attention. Missing observations remain null. Completion recovered from a snapshot has an outcome and no invented completion timestamp. Loop-stall stages are currently unobserved on these clients. Diagnostics contain no prompts, responses, tool arguments, credentials, paths or provider request IDs; only local records retain a turn ID.
+
+Android plays supported local audio/video through an explicit checked download, up to 64 MiB, using native decoding. Playback never autostarts, pauses when backgrounded and shares one playback owner. Fullscreen keeps the same decoder. The Settings Browser captures library provides scoped listing, verified download, copy, save and confirmed deletion. Attaching a selected capture opens an editable media-reference draft in the current chat or a selected project's new chat; nothing is sent automatically. Managed IDs are the only library selectors. Paths are disclosed only for explicit attachments. This machine-wide library follows unrestricted-device authority; devices sharing selected folders cannot browse it.
+
+Host features negotiate capabilities. Owned turn completion is explicitly advertised; older hosts keep their legacy agent-end behavior. Older hosts retain their supported settings and show update-required states for new functionality. Native codecs, clipboard receivers, notifications under Doze and physical network/keyboard behavior still require device acceptance.
 
 ## Validation
 

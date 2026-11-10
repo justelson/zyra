@@ -25,6 +25,8 @@ export class DeviceStore {
 }
 export function createGateway(options: { tls: ServerOptions; directory: string; projects: string[]; allProjects?: boolean; hiddenProjects?: string[]; name?: string;
   runtimeStatus?: () => unknown;
+  timingSummary?: (properties: Record<string, unknown>) => void;
+  captures?: { reference(id: string): unknown; list(input: { offset?: number; limit?: number }): unknown; get(id: string): Promise<unknown>; chunk(ref: any, offset: number): Promise<unknown>; delete(id: string): unknown };
   searchChats?: (input: { query: string; limit: number }) => Promise<{ matches: any[]; indexingOlderChats: boolean }>;
   searchContext?: (input: { session: string; threadId: string; messageId: string }) => Promise<unknown>;
   projectPresentation?: (project: string) => Promise<unknown>;

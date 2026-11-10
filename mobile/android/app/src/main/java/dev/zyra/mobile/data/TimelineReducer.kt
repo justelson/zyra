@@ -69,6 +69,7 @@ object TimelineReducer {
         }
         var items = state.items
         var running = state.running
+        var activeTurnId = state.activeTurnId
         val turnId = TimelineStatus.turnId(envelope)
         val stamp = WorkActions.time(envelope.opt("occurredAt"))
         val raw = JSONObject(event.toString()).apply { if (turnId.isNotBlank()) put("_mobileTurnId", turnId); stamp?.let { put("_mobileCreatedAt", it); put("_mobileUpdatedAt", it) } }.toString()
@@ -82,21 +83,35 @@ object TimelineReducer {
                     // Replayed acceptance must never replace an already canonical turn.
                     val canonical = items.any { it.role == "user" && it.id != id && runCatching { JSONObject(it.raw).optString("_mobileTurnId") }.getOrNull() == turnId }
                     if (!canonical && items.none { it.id == id }) items = items + TimelineItem(id, "user", text(message.opt("content")), "message", raw, pending = true)
-                    if (!canonical) running = true
+                    if (!canonical) { running = true; activeTurnId = turnId }
                 }
             }
             "compaction_start", "compaction_end", "auto_retry_start", "auto_retry_end" -> {
                 items = TimelineStatus.apply(items, type, event, raw, eventId, turnId)
-                if (type == "auto_retry_end" && !event.optBoolean("success")) running = false
+                if (type == "auto_retry_end" && !event.optBoolean("success") && activeTurnId == null) running = false
             }
-            "agent_start" -> running = true
+            "zyra_agent_interruption" -> {
+                if (event.optJSONObject("interruption")?.optString("kind") == "stopped" && (turnId.isBlank() || activeTurnId == null || activeTurnId == turnId))
+                    items = TimelineStatus.apply(items, type, event, raw, "stop:" + turnId.ifBlank { "current" }, turnId)
+            }
+            "agent_start" -> { running = true; activeTurnId = turnId.takeIf(String::isNotBlank) ?: activeTurnId }
             "agent_end", "zyra_server_turn_completed" -> {
                 if (type == "agent_end" && event.optBoolean("willRetry")) return state.copy(sequence = maxOf(sequence, state.sequence), running = true)
+                // A provider's intermediate end cannot settle a canonical turn.
+                // Older hosts retain agent_end completion until they advertise the owned boundary.
+                if (type == "agent_end" && turnId.isNotBlank() && state.canonicalTurnCompletion) {
+                    if (event.optString("outcome") == "interrupted") items = items.filterNot { it.id == "outcome:$turnId" } + TimelineItem("outcome:$turnId", "system", "", "turn_outcome", raw)
+                    return state.copy(sequence = maxOf(sequence, state.sequence), items = items)
+                }
+                if (activeTurnId != null && turnId.isNotBlank() && activeTurnId != turnId) return state.copy(sequence = maxOf(sequence, state.sequence))
                 running = false
-                items = items.map { if (it.kind == "stream") it.copy(kind = "message") else if (turnId.isNotBlank() && it.id == "accepted:$turnId") it.copy(pending = false) else it }
+                activeTurnId = null
+                items = items.map { if (it.pending && it.kind in setOf("tool", "deferred")) it.copy(pending = false) else if (it.kind == "stream") it.copy(kind = "message") else if (turnId.isNotBlank() && it.id == "accepted:$turnId") it.copy(pending = false) else it }
                 items = TimelineStatus.finish(items, turnId)
-                if (event.optString("outcome") == "interrupted" && items.none { it.kind == "turn_outcome" && it.raw == raw })
-                    items = items + TimelineItem(eventId, "system", "", "turn_outcome", raw)
+                if (event.optString("outcome") == "interrupted") {
+                    val outcomeId = turnId.takeIf(String::isNotBlank)?.let { "outcome:$it" } ?: eventId
+                    items = items.filterNot { it.id == outcomeId } + TimelineItem(outcomeId, "system", "", "turn_outcome", raw)
+                }
                 if (event.optString("outcome") == "failed") items = TimelineStatus.apply(items, type, event, raw, eventId, turnId)
             }
             "message_start" -> {
@@ -184,7 +199,7 @@ object TimelineReducer {
         val previousLocators = state.items.mapNotNull { item -> item.historyIndex?.let { item.id to it } }.toMap()
         return state.copy(sequence = maxOf(sequence, state.sequence), items = items.map { item ->
             if (item.historyIndex == null && previousLocators.containsKey(item.id)) item.copy(historyIndex = previousLocators[item.id]) else item
-        }, running = running)
+        }, running = running, activeTurnId = activeTurnId)
     }
     private fun retainActionStart(raw: String, previous: TimelineItem?): String {
         if (previous == null || previous.raw.isBlank()) return raw
@@ -194,7 +209,7 @@ object TimelineReducer {
             for (key in listOf("args", "toolName")) if (!has(key) && old.has(key)) put(key, old.get(key))
         }.toString()
     }
-    fun encode(state: SessionView): String = JSONObject().put("id", state.id).put("sequence", state.sequence).put("running", state.running).put("older", state.olderCursor).put("config", state.config.encode())
+    fun encode(state: SessionView): String = JSONObject().put("id", state.id).put("sequence", state.sequence).put("running", state.running).put("activeTurnId", state.activeTurnId).put("canonicalTurnCompletion", state.canonicalTurnCompletion).put("older", state.olderCursor).put("config", state.config.encode())
         .put("items", JSONArray().apply { state.items.forEach { put(JSONObject().put("id", it.id).put("role", it.role).put("text", it.text).put("kind", it.kind).put("raw", it.raw).put("pending", it.pending).put("reasoning", it.reasoning).put("tools", JSONArray(it.toolNames)).put("historyIndex", it.historyIndex)) } }).toString()
     fun decode(body: String): SessionView {
         val value = JSONObject(body); val array = value.getJSONArray("items")
@@ -217,6 +232,6 @@ object TimelineReducer {
             val historyIndex = (item.opt("historyIndex") as? Number)?.toLong()
                 ?: runCatching { (JSONObject(restored.raw).opt("historyEntryIndex") as? Number)?.toLong() }.getOrNull()
             restored.copy(historyIndex = historyIndex?.takeIf { it >= 0 })
-        }.asReversed().distinctBy { it.id }.asReversed(), value.optBoolean("running"), value.optString("older").takeUnless { it.isBlank() || it == "null" }, ChatConfiguration().merge(value.optJSONObject("config") ?: JSONObject()))
+        }.asReversed().distinctBy { it.id }.asReversed(), value.optBoolean("running"), value.optString("older").takeUnless { it.isBlank() || it == "null" }, ChatConfiguration().merge(value.optJSONObject("config") ?: JSONObject()), activeTurnId = value.optString("activeTurnId").takeUnless { it.isBlank() || it == "null" }, canonicalTurnCompletion = value.optBoolean("canonicalTurnCompletion"))
     }
 }

@@ -38,9 +38,7 @@ class NativeOverlayHost {
     private revision = Date.now() * 1000
     private visibility = false
     private boundsKey = ''
-    private focusRequested = false
     private leaseBounds = new Map<symbol, NativeOverlayBounds | null>()
-    private leaseFocus = new Map<symbol, boolean>()
     private visibilityPending: Promise<void> | null = null
     private hideFrame = 0
     private restoreFocus: HTMLElement | null = null
@@ -70,11 +68,10 @@ class NativeOverlayHost {
     private async setVisible(visible: boolean, requestFocus = false): Promise<void> {
         const bounds = this.kind === 'interactive' && visible ? this.presentationBounds() : null
         const boundsKey = JSON.stringify(bounds)
-        const focus = visible && [...this.presented].some(id => !this.suspended.has(id) && this.leaseFocus.get(id))
-        if (!requestFocus && this.visibility === visible && this.boundsKey === boundsKey && this.focusRequested === focus) { await this.visibilityPending; return }
+        const focus = this.kind === 'interactive' && visible && requestFocus
+        if (!focus && this.visibility === visible && this.boundsKey === boundsKey) { await this.visibilityPending; return }
         this.visibility = visible
         this.boundsKey = boundsKey
-        this.focusRequested = focus
         const api = bridge()
         const frameName = this.surface?.frameName
         if (api && frameName) {
@@ -180,7 +177,6 @@ class NativeOverlayHost {
         const id = Symbol('native-overlay')
         this.leases.add(id)
         this.leaseBounds.set(id, bounds)
-        this.leaseFocus.set(id, focusOnPresent)
         cancelAnimationFrame(this.hideFrame)
         if (this.leases.size === 1 && this.kind === 'interactive') this.restoreFocus = getOverlayActiveElement()
         return {
@@ -193,11 +189,12 @@ class NativeOverlayHost {
             present: async () => {
                 if (!this.leases.has(id) || !this.surface) return false
                 const presentingFrameName = this.surface.frameName
+                const firstPresentation = !this.presented.has(id)
                 this.presented.add(id)
                 notifyActivity()
                 if (this.suspended.has(id)) return true
                 cancelAnimationFrame(this.hideFrame)
-                try { await this.setVisible(true, focusOnPresent); return true }
+                try { await this.setVisible(true, firstPresentation && focusOnPresent); return true }
                 catch (error) {
                     const api = bridge()
                     if (!api?.recoverNativeOverlay) throw error
@@ -213,7 +210,6 @@ class NativeOverlayHost {
                 if (!this.leases.delete(id)) return
                 this.presented.delete(id)
                 this.leaseBounds.delete(id)
-                this.leaseFocus.delete(id)
                 this.suspended.delete(id)
                 notifyActivity()
                 if (this.hasPresented()) {
@@ -259,7 +255,6 @@ class NativeOverlayHost {
         cancelAnimationFrame(this.hideFrame)
         this.leases.clear()
         this.leaseBounds.clear()
-        this.leaseFocus.clear()
         this.presented.clear()
         const child = this.surface?.window
         this.surface?.unregister()

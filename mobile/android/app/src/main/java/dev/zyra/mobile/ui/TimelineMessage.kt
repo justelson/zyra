@@ -70,7 +70,7 @@ import kotlinx.coroutines.delay
                     }
                 }
             }
-            if (item.text.isNotBlank()) AssistantContent(item.text, item.kind == "stream")
+            if (item.text.isNotBlank()) AssistantContent(item.text, item.kind == "stream", responseTimingTurnId(item.raw))
             else if (item.kind == "stream" && item.reasoning.isBlank() && item.toolNames.isEmpty()) Text("Working…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             media()
             if (item.toolNames.any { it !in setOf("request_user_input", "begin_action_batch") }) TextButton(onClick = inspect, contentPadding = PaddingValues(0.dp)) {

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { NativeOverlayPortal, addOverlayEventListener } from '@/components/ui/native-overlay-portal'
 import { supportsNativeOverlay } from '@/components/ui/native-overlay-host'
 import { TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
@@ -14,6 +15,7 @@ export type AssistantInspectorDeveloperToastInput = {
     tone?: 'info' | 'error'
     message: string
     artifact?: DevScopeBrowserCaptureArtifact | null
+    captureSessionId?: string | null
     annotation?: DevScopeBrowserAnnotationPayload | null
 }
 
@@ -85,7 +87,7 @@ function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDi
     }, [onDismiss])
 
     return <>
-        <div ref={mirrorRef} aria-hidden="true" className="pointer-events-none invisible fixed bottom-3 right-3 w-max max-w-[calc(100vw-24px)]">{children}</div>
+        {createPortal(<div ref={mirrorRef} aria-hidden="true" className="pointer-events-none invisible fixed bottom-3 right-3 w-max max-w-[calc(100vw-24px)]">{children}</div>, document.body)}
         {bounds ? <NativeOverlayPortal bounds={bounds} autoFocus={false}>
             <div ref={contentRef} style={{ position: 'fixed', left: supportsNativeOverlay() ? 0 : bounds.x, top: supportsNativeOverlay() ? 0 : bounds.y, width: bounds.width, height: bounds.height }}>{children}</div>
         </NativeOverlayPortal> : null}
@@ -94,17 +96,23 @@ function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDi
 
 export function AssistantInspectorDeveloperToast({
     toast,
-    onDismiss
+    onDismiss,
+    allowChatAttachment = true
 }: {
     toast: ToastState | null
+    allowChatAttachment?: boolean
     onDismiss: () => void
 }) {
     const dragStartXRef = useRef<number | null>(null)
     const [dragX, setDragX] = useState(0)
     const [dragging, setDragging] = useState(false)
+    const [attaching, setAttaching] = useState(false)
+    const [attachError, setAttachError] = useState<string | null>(null)
 
     useEffect(() => {
         setDragX(0)
+        setAttaching(false)
+        setAttachError(null)
         setDragging(false)
         dragStartXRef.current = null
     }, [toast?.id])
@@ -124,6 +132,18 @@ export function AssistantInspectorDeveloperToast({
     const artifact = toast.artifact || null
     const annotation = toast.annotation || null
     const hasImage = artifact?.kind === 'screenshot' && Boolean(artifact.thumbnailDataUrl)
+    const attach = async () => {
+        if (!artifact || attaching) return
+        setAttaching(true); setAttachError(null)
+        try {
+            const result = await window.devscope.attachBrowserCaptureToChat({ artifactId: artifact.artifactId, sessionId: toast.captureSessionId, annotation: toast.annotation || undefined })
+            if (!result.success) throw new Error(result.error || 'Could not attach capture.')
+            onDismiss()
+        } catch (error) { setAttachError(error instanceof Error ? error.message : 'Could not attach capture.') }
+        finally { setAttaching(false) }
+    }
+    const attachButton = allowChatAttachment && artifact && toast.captureSessionId !== undefined ? <button type="button" disabled={attaching} onClick={() => void attach()} className={ACTION_CLASS}>{attaching ? 'Attaching…' : 'Attach to chat'}</button> : null
+
 
     if (hasImage && artifact?.thumbnailDataUrl) {
         return (
@@ -152,7 +172,7 @@ export function AssistantInspectorDeveloperToast({
                 onPointerUp={finishDrag}
                 onPointerCancel={finishDrag}
             >
-                <div key={toast.id} className="assistant-screenshot-preview-arrive">
+                <div key={toast.id} className="assistant-screenshot-preview-arrive relative">
                     <img
                         src={artifact.thumbnailDataUrl}
                         alt={annotation ? 'Browser annotation preview' : 'Browser screenshot preview'}
@@ -161,14 +181,17 @@ export function AssistantInspectorDeveloperToast({
                         className="block h-auto max-h-[min(46vh,320px)] w-full rounded-lg border border-[var(--surface-divider)] bg-media-black object-contain shadow-[0_14px_36px_rgba(0,0,0,0.34)]"
                         draggable={false}
                     />
+                    <button type="button" onClick={onDismiss} className={cn(ACTION_CLASS, 'absolute right-1 top-1 w-7 justify-center px-0')} aria-label="Close preview"><X size={11} /></button>
                     <div className="mt-1.5 flex flex-wrap justify-end gap-1">
+                        {attachButton}
                         <button type="button" onClick={() => void window.devscope.copyBrowserPreviewArtifact({ artifactId: artifact.artifactId, mode: 'image' })} className={ACTION_CLASS}><Copy size={10} />Copy</button>
                         <button type="button" onClick={() => void window.devscope.openBrowserPreviewArtifact(artifact.artifactId)} className={ACTION_CLASS}><ExternalLink size={10} />Open</button>
                         <button type="button" onClick={() => void window.devscope.revealBrowserPreviewArtifact(artifact.artifactId)} className={ACTION_CLASS}><FolderOpen size={10} />Reveal</button>
-                        <button type="button" onClick={() => void window.devscope.copyBrowserPreviewArtifact({ artifactId: artifact.artifactId, mode: 'path' })} className={ACTION_CLASS}><Copy size={10} />Path</button>
+                        <button type="button" onClick={() => void window.devscope.copyBrowserPreviewArtifact({ artifactId: artifact.artifactId, mode: 'path' })} className={cn(ACTION_CLASS, 'w-7 justify-center px-0')} title="Copy capture path" aria-label="Copy capture path"><Copy size={10} /></button>
                         {annotation ? <button type="button" onClick={() => void window.devscope.copyToClipboard(JSON.stringify(annotation, null, 2))} className={ACTION_CLASS}><MousePointer2 size={10} />Annotation</button> : null}
-                        <button type="button" onClick={onDismiss} className={cn(ACTION_CLASS, 'w-7 justify-center px-0')} aria-label="Close preview"><X size={11} /></button>
+
                     </div>
+                    {attachError ? <p role="alert" className="mt-1 text-xs text-sparkle-text-secondary">{attachError}</p> : null}
                 </div>
             </div></ToastNativeSurface>
         )
@@ -202,6 +225,8 @@ export function AssistantInspectorDeveloperToast({
         >
             {toast.tone === 'error' ? <CircleAlert size={14} className="shrink-0 text-red-300" aria-hidden="true" /> : <Info size={14} className="shrink-0 text-[var(--accent-primary)]" aria-hidden="true" />}
             <span className="min-w-0 flex-1">{toast.message || (artifact ? 'Capture ready' : 'Done')}</span>
+            {attachButton}
+            {attachError ? <span role="alert">{attachError}</span> : null}
             {artifact ? <button type="button" onClick={() => void window.devscope.openBrowserPreviewArtifact(artifact.artifactId)} className={ACTION_CLASS}>Open</button> : null}
             <button type="button" onClick={onDismiss} className="inline-flex size-6 items-center justify-center rounded bg-[var(--surface-floating)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-card)_82%,var(--accent-primary)_18%)]" aria-label="Dismiss"><X size={11} /></button>
         </div></ToastNativeSurface>

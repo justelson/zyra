@@ -23,6 +23,7 @@ export const REQUIRED_RUNTIME_FILES = Object.freeze([
     'src/development-launcher.mjs',
     'src/harness-config-plugin.mjs',
     'src/harness-v2-plugin/index.js',
+    'src/harness-v2-plugin/tool-mailbox.js',
     'src/runtime/schema/preload.mjs',
     'src/runtime/schema/bundled/manifest.json',
     'src/runtime/provenance.json',

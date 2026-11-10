@@ -28,6 +28,7 @@ export async function currentV2Messages(client, sessionId, inputId, options) {
     const payload = await requestV2(client, `/session/${encoded(sessionId)}/message?${query}`, options);
     if (!Array.isArray(payload?.data)) throw new Error('OpenCode 2 returned an invalid message page.');
     for (const message of payload.data) {
+      if (message.id === options.includeBoundaryId) return { found: true, messages: [message, ...messages.reverse()] };
       if (message.id === inputId) return { found: true, messages: messages.reverse() };
       messages.push(message);
     }

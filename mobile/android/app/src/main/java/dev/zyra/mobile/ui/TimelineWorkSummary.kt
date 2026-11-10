@@ -32,7 +32,7 @@ internal val LocalWorkDisclosure = staticCompositionLocalOf<() -> Unit> { {} }
 
 @Composable fun TimelineWorkSummary(group: ChatRailRow.Work, inspect: (WorkAction) -> Unit,
     question: @Composable (TimelineItem) -> Unit = {}, media: @Composable (TimelineItem) -> Unit = {}) {
-    val reading = LocalWorkDisclosure.current
+    val parentReading = LocalWorkDisclosure.current
     val activeStatus = group.entries.lastOrNull { it.kind == "work_status" && it.pending }
     val latestStatus = group.entries.lastOrNull { it.kind == "work_status" }
     val headerStatus = activeStatus ?: latestStatus?.takeIf { TimelineStatus.failed(it) }
@@ -40,13 +40,12 @@ internal val LocalWorkDisclosure = staticCompositionLocalOf<() -> Unit> { {} }
     val working = group.running || activeStatus != null
     val allowActiveCollapse = LocalCollapseActiveWork.current
     var expanded by rememberSaveable(group.id) { mutableStateOf(working) }
+    var explicitReading by rememberSaveable(group.id) { mutableStateOf(false) }
+    val reading: () -> Unit = { explicitReading = true; parentReading() }
     val shown = (working && !allowActiveCollapse) || expanded
     var previouslyWorking by rememberSaveable(group.id) { mutableStateOf(working) }
     LaunchedEffect(working) {
-        if (!previouslyWorking && working) expanded = true
-        // Collapse on completion, preserving a manually expanded finished turn
-        // when returning from another page or restoring the app.
-        if (previouslyWorking && !working) expanded = false
+        expanded = workDisclosureAfterUpdate(previouslyWorking, working, expanded, explicitReading)
         previouslyWorking = working
     }
     val duration = if (LocalReduceMotion.current) 0 else 260
@@ -57,6 +56,7 @@ internal val LocalWorkDisclosure = staticCompositionLocalOf<() -> Unit> { {} }
     val showThoughts = LocalThoughtProcesses.current
     val segments = remember(group.entries, group.actions, showThoughts, headerStatus) { workSegments(group, showThoughtProcesses = showThoughts, showQuestions = false).filterNot { it is WorkSegment.Content && it.item.id == headerStatus?.id } }
     val canCollapse = segments.isNotEmpty() && (!working || allowActiveCollapse)
+    CompositionLocalProvider(LocalWorkDisclosure provides reading) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(MaterialTheme.shapes.small).clickable(enabled = canCollapse, role = Role.Button) { reading(); expanded = !shown }
             .semantics { if (segments.isNotEmpty()) stateDescription = if (shown) "Work expanded" else "Work collapsed" },
@@ -81,12 +81,13 @@ internal val LocalWorkDisclosure = staticCompositionLocalOf<() -> Unit> { {} }
                         else if (item.kind == "user_input_requested") question(item)
                         else if (item.kind != "resolved") {
                             if (LocalThoughtProcesses.current && item.reasoning.isNotBlank()) WorkThought(item)
-                            if (item.text.isNotBlank()) AssistantContent(item.text, group.running && item.kind == "stream")
+                            if (item.text.isNotBlank()) AssistantContent(item.text, group.running && item.kind == "stream", responseTimingTurnId(item.raw))
                         }
                     }
                 }
             }
         }
+    }
     }
 }
 

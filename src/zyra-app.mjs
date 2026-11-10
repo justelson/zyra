@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { copyFileSync, rmSync } from "node:fs";
+import { TerminalTimingDisplay } from './diagnostics/terminal-timing-display.mjs';
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
@@ -295,19 +296,23 @@ async function runMain() {
   };
 
   const subscribeRuntimeEvents = (runtime, handler = (event) => ui.event(event)) => {
-    runtime.agentServer?.setApprovalHandler?.((request, options) => ui.requestApproval?.(request, options) || "decline");
+    const timingDisplay = runtime.responseTimings ? new TerminalTimingDisplay(id => runtime.responseTimings.recorder.displayed(id)) : null;
+    const unsubscribeTimingDisplay = timingDisplay ? ui.onRendered?.(lines => timingDisplay.written(lines)) : null;
+    runtime.agentServer?.setApprovalHandler?.(typeof ui.requestApproval === "function" ? (request, options) => ui.requestApproval(request, options) : null);
     runtime.agentServer?.setUserInputHandler?.((request, options) => ui.requestUserInput?.(request, options) || { answers: {}, cancelled: true });
     const forward = (event) => {
+      timingDisplay?.observe(event);
       handler(event);
       terminalTitle.fromEvent(event, runtime);
     };
     const unsubscribeSession = runtime.session.subscribe(forward);
-    const unsubscribeManagedBash = runtime.managedBash?.subscribe?.((update) => {
+    const unsubscribeManagedBash = runtime.surface === "tui-client" ? undefined : runtime.managedBash?.subscribe?.((update) => {
       forward({ type: "managed_bash_job_update", ...update });
     });
     const unsubscribeFleet = runtime.fleet?.subscribe?.(({ event, snapshot }) => ui.fleet?.(event, snapshot));
     return () => {
       unsubscribeSession?.();
+      unsubscribeTimingDisplay?.();
       unsubscribeManagedBash?.();
       unsubscribeFleet?.();
     };
@@ -460,7 +465,7 @@ async function runMain() {
     ui = createZyraUi({ openingTheme: runtime.theme, terminalTheme: runtime.terminalTheme });
 
     if (parsed.printMode) {
-      runtime.agentServer?.setApprovalHandler?.((request, options) => ui.requestApproval?.(request, options) || "decline");
+      runtime.agentServer?.setApprovalHandler?.(typeof ui.requestApproval === "function" ? (request, options) => ui.requestApproval(request, options) : null);
       runtime.agentServer?.setUserInputHandler?.((request, options) => ui.requestUserInput?.(request, options) || { answers: {}, cancelled: true });
       if (runtime.modelFallbackMessage) {
         console.error(runtime.modelFallbackMessage);
@@ -517,9 +522,9 @@ async function runMain() {
   let previewingThemeSuggestion = false;
 
   const abortActiveRuntime = async () => {
-    runtime.managedBash?.abortAll?.();
-    runtime.session.abortBash?.();
     await Promise.allSettled([
+      runtime.managedBash?.abortAll?.(),
+      runtime.session.abortBash?.(),
       runtime.fleet?.cancelAll?.("root turn cancelled"),
       runtime.session.abort?.(),
     ]);
@@ -663,8 +668,8 @@ async function runMain() {
     isRunActive: () => activeRun || runtime.session.isStreaming,
     shouldEchoUserMessage: () => !activeRun,
     getQueuedMessages: () => getQueuedMessages(runtime),
-    onRestoreQueued: (currentText) => {
-      const restored = restoreQueuedMessagesToEditorText(runtime, currentText);
+    onRestoreQueued: async (currentText) => {
+      const restored = await restoreQueuedMessagesToEditorText(runtime, currentText);
       ui.info(restored.count > 0 ? `Restored ${restored.count} queued message${restored.count === 1 ? "" : "s"}.` : "No queued messages to restore.");
       ui.refreshInput?.();
       return restored.text;
@@ -672,11 +677,13 @@ async function runMain() {
     onAbortQueued: async (currentText) => {
       suppressNextAbortError = true;
       setTerminalTitleState("stopped", runtime);
-      const restored = restoreQueuedMessagesToEditorText(runtime, currentText);
-      ui.info(restored.count > 0 ? `Stopping this run. Restored ${restored.count} queued message${restored.count === 1 ? "" : "s"}.` : "Stopping this run.");
-      await abortActiveRuntime();
-      ui.refreshInput?.();
-      return restored.text;
+      const stopping = abortActiveRuntime();
+      try {
+        const restored = await restoreQueuedMessagesToEditorText(runtime, currentText);
+        ui.info(restored.count > 0 ? `Stopping this run. Restored ${restored.count} queued message${restored.count === 1 ? "" : "s"}.` : "Stopping this run.");
+        ui.refreshInput?.();
+        return restored.text;
+      } finally { await stopping; }
     },
     starterRecommendations: onboardingResult?.starterPrompt ? [{ prompt: onboardingResult.starterPrompt }] : [],
     project: runtime.project,
@@ -786,9 +793,9 @@ function getQueuedMessages(runtime) {
   };
 }
 
-function restoreQueuedMessagesToEditorText(runtime, currentText = "") {
+async function restoreQueuedMessagesToEditorText(runtime, currentText = "") {
   const cleared = typeof runtime?.session?.clearQueue === "function"
-    ? runtime.session.clearQueue()
+    ? await runtime.session.clearQueue()
     : { steering: [], followUp: [] };
   const queued = [...(cleared.steering ?? []), ...(cleared.followUp ?? [])]
     .map((value) => String(value ?? "").trim())

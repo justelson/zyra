@@ -12,42 +12,66 @@ export function renderWebStoreInstall(presentation: WebStoreInstallPresentation 
     let value = presentation
     const host = document.createElement('span')
     host.dataset.zyraWebStoreInstall = ''
-    host.style.cssText = 'display:inline-flex;vertical-align:middle;margin-left:8px;'
+    host.style.cssText = 'display:inline-flex;vertical-align:middle;'
     const shadow = host.attachShadow({ mode: 'closed' })
     const style = document.createElement('style')
     style.textContent = `
         :host{all:initial}
-        button{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:0 16px;border:1px solid color-mix(in srgb,var(--zyra-accent) 62%,var(--zyra-background));border-radius:7px;background:color-mix(in srgb,var(--zyra-accent) 13%,var(--zyra-background));color:var(--zyra-accent);font:600 13px/1.2 var(--zyra-font);cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 color-mix(in srgb,var(--zyra-accent) 18%,transparent),0 1px 2px color-mix(in srgb,var(--zyra-accent) 12%,transparent);transition:background-color 120ms ease,border-color 120ms ease,box-shadow 120ms ease}
-        button:hover:enabled{border-color:color-mix(in srgb,var(--zyra-accent) 82%,var(--zyra-background));background:color-mix(in srgb,var(--zyra-accent) 20%,var(--zyra-background));box-shadow:0 0 0 2px color-mix(in srgb,var(--zyra-accent) 12%,transparent),inset 0 1px 0 color-mix(in srgb,var(--zyra-accent) 22%,transparent)}
-        button:active:enabled{background:color-mix(in srgb,var(--zyra-accent) 26%,var(--zyra-background));box-shadow:inset 0 1px 2px color-mix(in srgb,var(--zyra-background) 35%,transparent)}
-        button:focus-visible{outline:2px solid var(--zyra-accent);outline-offset:3px}
-        button:disabled{cursor:default;opacity:.8}svg{width:17px;height:17px;flex-shrink:0}
+        button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 24px;border:0;border-radius:20px;background:var(--gm3-sys-color-primary,#0b57d0);color:var(--gm3-sys-color-on-primary,#fff);font:500 14px/20px var(--zyra-font);cursor:pointer;white-space:nowrap;transition:background-color 120ms ease,opacity 120ms ease}
+        button:hover:enabled{background:color-mix(in srgb,var(--gm3-sys-color-on-primary,#fff) 8%,var(--gm3-sys-color-primary,#0b57d0))}
+        button:active:enabled{background:color-mix(in srgb,var(--gm3-sys-color-on-primary,#fff) 12%,var(--gm3-sys-color-primary,#0b57d0))}
+        button:focus-visible{outline:2px solid var(--gm3-sys-color-primary,#0b57d0);outline-offset:3px}
+        button:disabled{cursor:default;opacity:.65}
         @media(prefers-reduced-motion:reduce){button{transition:none}}
     `
     const button = document.createElement('button')
     button.type = 'button'
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none')
-    icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '2'); icon.setAttribute('aria-hidden', 'true')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', 'M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5')
-    icon.append(path)
     const label = document.createElement('span')
     label.setAttribute('aria-live', 'polite')
-    button.append(icon, label); shadow.append(style, button)
+    button.append(label); shadow.append(style, button)
+    const hidden = new Map<HTMLElement, { display: string; priority: string }>()
+    const hide = (element: HTMLElement) => {
+        if (!hidden.has(element)) hidden.set(element, { display: element.style.getPropertyValue('display'), priority: element.style.getPropertyPriority('display') })
+        element.style.setProperty('display', 'none', 'important')
+    }
+    const restoreHidden = () => {
+        for (const [element, previous] of hidden) {
+            if (previous.display) element.style.setProperty('display', previous.display, previous.priority)
+            else element.style.removeProperty('display')
+        }
+        hidden.clear()
+    }
     let scheduled = 0
     const position = () => {
         cancelAnimationFrame(scheduled)
         scheduled = 0
         if (listingId(location.href) !== value.id) { state.dispose(); return }
         const nativeButton = Array.from(document.querySelectorAll<HTMLElement>('button, a[role="button"]'))
-            .find(element => /^(Add to Chrome|Remove from Chrome)$/i.test(element.textContent?.trim() || ''))
+            .find(element => /^(Add to Chrome|Add to Desktop|Remove from Chrome)$/i.test(element.textContent?.trim() || ''))
+        const heading = document.querySelector<HTMLElement>('h1, [role="heading"][aria-level="1"]')
         observer.disconnect()
+        restoreHidden()
+        for (const dialog of document.querySelectorAll<HTMLElement>('[role="dialog"][aria-labelledby="promo-header"]')) {
+            if (dialog.querySelector('a[href^="https://www.google.com/chrome/"]')) hide(dialog)
+        }
+        // Hide only the Chrome install prompt, never a listing, review or navigation area.
+        for (const action of document.querySelectorAll<HTMLElement>('button, a')) {
+            if (!/^(Install Chrome|Open Chrome|Download Chrome)$/i.test(action.textContent?.trim() || '')) continue
+            let banner = action.parentElement
+            for (let depth = 0; banner && depth < 5 && !banner.matches('body, main, header, nav') && !banner.querySelector('h1, [role="heading"][aria-level="1"]'); depth++, banner = banner.parentElement) {
+                if (/switch to chrome to install extensions and themes/i.test(banner.textContent || '')) { hide(banner); break }
+            }
+        }
         if (nativeButton?.parentElement) {
-            host.style.cssText = 'display:inline-flex;vertical-align:middle;margin-left:8px;'
+            host.style.cssText = 'display:inline-flex;vertical-align:middle;'
+            button.style.setProperty('--zyra-font', getComputedStyle(nativeButton).fontFamily)
+            hide(nativeButton)
             if (nativeButton.nextElementSibling !== host) nativeButton.after(host)
+        } else if (heading?.parentElement) {
+            // Store labels are localized and its Chrome-only action can be absent.
+            host.style.cssText = 'display:flex;width:max-content;margin:12px 0;'
+            if (heading.nextElementSibling !== host) heading.after(host)
         } else {
-            // Wait for the store's install row rather than floating over unrelated controls.
             host.remove()
         }
         observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true })
@@ -57,8 +81,6 @@ export function renderWebStoreInstall(presentation: WebStoreInstallPresentation 
     const state: State = {
         update(next, colors) {
             value = next
-            button.style.setProperty('--zyra-accent', colors.accent)
-            button.style.setProperty('--zyra-background', colors.background)
             button.style.setProperty('--zyra-font', colors.fontFamily)
             button.style.colorScheme = colors.colorScheme
             const labels = { ready: 'Add to Zyra', downloading: 'Downloading…', reviewing: 'Review permissions…', installed: 'Added to Zyra', error: 'Try again' }
@@ -69,7 +91,7 @@ export function renderWebStoreInstall(presentation: WebStoreInstallPresentation 
             position()
         },
         dispose() {
-            observer.disconnect(); cancelAnimationFrame(scheduled); events.abort(); host.remove()
+            observer.disconnect(); cancelAnimationFrame(scheduled); events.abort(); host.remove(); restoreHidden()
             if (scope.__zyraWebStoreInstall === state) delete scope.__zyraWebStoreInstall
         }
     }

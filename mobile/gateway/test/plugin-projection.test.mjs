@@ -26,7 +26,7 @@ test('only selected project defaults and frozen chat identities are projected, w
   assert.deepEqual(view.scope,{revision:3,plugins:[{id:'Beta',releaseId:'old-beta',name:'Beta',version:'0.9',state:'active'}]});
   assert.equal(view.manageMachine,false);assert.equal(view.manageDefaults,true);
   assert.deepEqual(view.plugins.map(p=>p.name),['Alpha','Beta','Gamma']);
-  assert.deepEqual(view.plugins[0].contributions,[{kind:'skills',support:'supported'},{kind:'mcp',support:'planned'}]);
+  assert.deepEqual(view.plugins[0].contributions,[{kind:'skills',support:'supported'},{kind:'mcp',support:'supported'}]);
   assert.doesNotMatch(JSON.stringify(view),/private|Secret|hidden|must not leave PC/);
 });
 test('pagination rejects a changed catalog instead of combining incompatible pages', () => {

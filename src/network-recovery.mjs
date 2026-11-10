@@ -8,7 +8,8 @@ export function isNetworkRecoveryError(value) {
   const code = value && typeof value === "object" && "code" in value
     ? String(value.code || "")
     : "";
-  return NETWORK_RECOVERY_ERROR_PATTERN.test(`${code} ${message}`);
+  return NETWORK_RECOVERY_ERROR_PATTERN.test(`${code} ${message}`)
+    || /\bwebsocket(?: stream)? closed(?:\s*[:(]?\s*(?:1006|1011|1012|1013)\b| before response\.completed\b)/i.test(message);
 }
 
 export function classifyRecoveryError(value) {

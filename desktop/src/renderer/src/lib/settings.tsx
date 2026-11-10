@@ -266,6 +266,7 @@ export interface Settings {
     terminalFontSize: number
     terminalCursorBlink: boolean
     terminalScrollback: number
+    assistantBrowserStandaloneAiTools: boolean
     assistantBrowserRestoreTabs: boolean
     assistantBrowserGoogleSuggestions: boolean
     assistantBrowserAdBlockEnabled: boolean
@@ -636,6 +637,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 terminalScrollback: Number.isFinite(Number(candidate.terminalScrollback))
                     ? Math.max(1_000, Math.min(50_000, Math.round(Number(candidate.terminalScrollback))))
                     : 5_000,
+                assistantBrowserStandaloneAiTools: candidate.assistantBrowserStandaloneAiTools !== false,
                 assistantBrowserRestoreTabs: candidate.assistantBrowserRestoreTabs !== false,
                 assistantBrowserGoogleSuggestions: candidate.assistantBrowserGoogleSuggestions !== false,
                 assistantBrowserAdBlockEnabled: candidate.assistantBrowserAdBlockEnabled === true,

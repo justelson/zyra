@@ -59,6 +59,8 @@ export function projectEvent(event, owner, cache, chat) {
   const message = event.message;
   const preview = message && typeof message === 'object' ? {
     role: message.role, id: message.id, timestamp: message.timestamp, toolCallId: message.toolCallId,
+    ...(message.zyraUserTurn?.version === 1 && typeof message.zyraUserTurn.rootMessageId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/.test(message.zyraUserTurn.rootMessageId)
+      ? { zyraUserTurn: { version: 1, rootMessageId: message.zyraUserTurn.rootMessageId } } : {}),
     toolName: message.toolName, isError: message.isError, display: message.display, customType: message.customType,
     content: typeof message.content === 'string' ? message.content.slice(0, 4096) : Array.isArray(message.content)
       ? message.content.slice(0, 24).map(part => part?.type === 'image' && part.mediaRef ? part
@@ -71,6 +73,8 @@ export function projectEvent(event, owner, cache, chat) {
     command: typeof event.command === 'string' ? event.command.slice(0, 1000) : undefined,
     description: typeof event.description === 'string' ? event.description.slice(0, 1000) : undefined,
     outcome: event.outcome, willRetry: event.willRetry,
+    timingStartedAt: Number.isFinite(event.timingStartedAt) ? event.timingStartedAt : undefined,
+    ...(event.interruption?.kind === 'stopped' ? { interruption: { kind: 'stopped', source: 'user' } } : {}),
     // Oversized failure details stay deferred; retain lifecycle fields so the
     // activity row still settles without fetching or rendering the raw output.
     reason: typeof event.reason === 'string' ? event.reason.slice(0, 256) : undefined,

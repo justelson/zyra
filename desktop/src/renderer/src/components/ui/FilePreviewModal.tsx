@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     DndContext,
     DragOverlay,
@@ -56,11 +56,13 @@ export function FilePreviewModal({
     previewBody,
     mediaItems = EMPTY_PREVIEW_MEDIA_ITEMS,
     navigationSidebar,
+    navigationSidebarInitiallyOpen,
     onSaved,
     onShowToast,
     onClose
 }: FilePreviewModalProps) {
     const { settings } = useSettings()
+    const sidebarInitialPreference = useRef(navigationSidebarInitiallyOpen)
     const chromePolicy = resolveFilePreviewChromePolicy(chromeContext)
     const isDirectory = file.type === 'directory'
     const isCsv = file.type === 'csv'
@@ -103,7 +105,7 @@ export function FilePreviewModal({
         })
     }, [])
     const defaultLeftPanelOpen = navigatorInitiallyAvailable
-        && (hasNavigationSidebarOverride || navigatorRequested || settings.filePreviewFullscreenShowLeftPanel)
+        && (navigationSidebarInitiallyOpen ?? (hasNavigationSidebarOverride || navigatorRequested || settings.filePreviewFullscreenShowLeftPanel))
     const defaultRightPanelOpen = initialMode === 'edit' && settings.filePreviewFullscreenShowRightPanel
     const resolvedPreviewTabs = useMemo(
         () => (previewTabs && previewTabs.length > 0 ? previewTabs : [{ id: file.path || file.name, file }]),
@@ -229,7 +231,7 @@ export function FilePreviewModal({
     useEffect(() => {
         if (hasNavigationSidebarOverride) {
             setWindowedNavigatorEnabled(true)
-            setLeftPanelOpen(true)
+            if (sidebarInitialPreference.current !== false) setLeftPanelOpen(true)
             return
         }
         if (chromePolicy.navigator === 'none') {

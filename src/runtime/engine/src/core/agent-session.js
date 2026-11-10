@@ -2247,7 +2247,7 @@ ${args}` : skillBlock;
    */
   _isRetryableError(message) {
     if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
-    return isRetryableAssistantError(message);
+    return isRetryableAssistantError(message, this._retryAttempt);
   }
   /**
    * Retry policy + callbacks shared by compaction and branch-summary summarization calls.

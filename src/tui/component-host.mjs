@@ -20,6 +20,7 @@ export class ZyraComponentHost {
   constructor(options = {}) {
     this.output = options.output ?? defaultOutput;
     this.components = [];
+    this.renderListeners = new Set();
     this.hasTranscript = false;
     this.inputComponent = null;
     this.footerComponent = null;
@@ -50,6 +51,7 @@ export class ZyraComponentHost {
   width() {
     return terminalRenderWidth(this.output, 1);
   }
+  onRendered(listener) { this.renderListeners.add(listener); return () => this.renderListeners.delete(listener); }
 
   height() {
     return terminalRenderHeight(this.output);
@@ -267,6 +269,7 @@ export class ZyraComponentHost {
       fixedOutput,
       output,
       replaceContent: true,
+      wroteContent: true,
     });
   }
 
@@ -498,6 +501,7 @@ export class ZyraComponentHost {
     if (options.contentOutput !== undefined) this.lastContentOutput = options.contentOutput;
     if (options.fixedOutput !== undefined) this.lastFixedOutput = options.fixedOutput;
     if (options.output !== undefined) this.lastOutput = options.output;
+    if (options.wroteContent) for (const listener of this.renderListeners) { try { listener(this.renderedLines.slice(-this.height())); } catch {} }
   }
 
   clearRendered(width = this.width()) {

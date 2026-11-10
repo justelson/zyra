@@ -444,7 +444,7 @@ try {
   restoreHarnessProvider(harnessRuntime.modelRegistry, { config: { models: defs } }, { executable: '/bin/opencode' });
   const piModels = harnessRuntime.modelRegistry.getAll().filter((model) => model.provider === HARNESS_PROVIDER_ID);
   assert.ok(piModels.length === defs.length, 'Every stored harness model registers with Pi');
-  assert.equal(piModels.find((model) => model.id === 'opencode/big-pickle')?.toolUse, false, 'Contexts without an approval and activity bridge stay text-only');
+  assert.equal(piModels.find((model) => model.id === 'opencode/big-pickle')?.toolUse, true, 'Tool-capable models use the ordinary Zyra tool executor');
   restoreHarnessProvider(harnessRuntime.modelRegistry, { config: { models: defs } }, {
     executable: '/bin/opencode', onPermission: async () => true, onActivity: () => {},
   });

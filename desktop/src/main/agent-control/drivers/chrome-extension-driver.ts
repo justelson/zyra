@@ -78,6 +78,16 @@ export class ChromeExtensionDriver implements AgentControlDriver {
         }
     }
 
+    async openTab(anchor: RegisteredControlTarget, url: string, signal?: AbortSignal): Promise<string> {
+        const trusted = anchor.trustedIdentity as ChromeTrustedTab
+        const result = await this.pairing.request(trusted.pairId, {
+            type: 'open-tab', tabId: trusted.tabId, documentId: trusted.documentId, url
+        }, 15_000, signal) as { tabId?: number }
+        const id = typeof result.tabId === 'number' && this.getTargetId(trusted.pairId, result.tabId)
+        if (!id) throw new AgentControlError('CONTROL_DRIVER_UNAVAILABLE', 'The extension did not register the new Chrome tab. Update the extension and observe before retrying.')
+        return id
+    }
+
     async act(target: RegisteredControlTarget, action: ControlAction, context: DriverActionContext): Promise<{ changed: boolean }> {
         const trusted = target.trustedIdentity as ChromeTrustedTab
         const result = await this.pairing.request(trusted.pairId, {

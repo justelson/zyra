@@ -1,3 +1,4 @@
+import { normalizeCodexServiceTierPreference } from './codex-service-tier-preference.mjs';
 import { installSessionReasoningOptions, reasoningStateReader, applySessionReasoningPayload } from './session-reasoning-options.mjs';
 import { runtimeModelCost } from './model-pricing/index.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
@@ -74,6 +75,7 @@ import { WorkflowRuntime } from "./workflows/runtime.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
 import { removeZyraTitleGenerationMessages } from "./title-generation.mjs";
 import { createChatTitleController } from './chat-title-tool.mjs';
+import { createUserNotificationTool } from './user-notification-tool.mjs';
 import { createWorkContextController } from './work-context-tool.mjs';
 import {
   checkModelAvailability,
@@ -735,6 +737,7 @@ function injectSurfaceGuide(session, surface) {
 }
 
 function refreshZyraPromptContext(runtime, options = {}) {
+  if (runtime.surface === "tui-client") return;
   injectZyraGuide(runtime.session, readPrompt(defaults.prompt));
   injectSurfaceGuide(runtime.session, runtime.surface);
   runtime.session._zyraMemoryEnabled = runtime.memoryEnabled !== false;
@@ -828,7 +831,8 @@ export function prepareZyraBrowserToolsForPrompt(runtime, promptValue) {
   if (!runtime?.browserToolsAvailable || !isDirectBrowserControlPrompt(promptValue) || !session?.getActiveToolNames || !session?.setActiveToolsByName) return false;
   const active = new Set(session.getActiveToolNames());
   active.delete("browser_control");
-  active.add(runtime.browserLoaderToolName || "browser_use");
+  // The real tools are already loaded; avoid a redundant model loader step.
+  active.delete(runtime.browserLoaderToolName || "browser_use");
   for (const name of names) active.add(name);
   session.setActiveToolsByName([...active]);
   return true;
@@ -1076,6 +1080,7 @@ export async function createZyraSession(options = {}) {
         },
       })]),
       ...(chatTitle ? [chatTitle.tool] : []),
+      ...(typeof options.onNotification === 'function' && options.surface !== 'memory-worker' ? [createUserNotificationTool(options.onNotification)] : []),
       ...(workContext ? [workContext.tool] : []),
       createZyraWebSearchTool(),
       createZyraWebFetchTool(),
@@ -1752,15 +1757,6 @@ function normalizeThinkingPreference(value) {
   return normalizeZyraThinkingLevel(value);
 }
 
-function normalizeCodexServiceTierPreference(value) {
-  const mode = String(value ?? "").trim().toLowerCase();
-  if (!mode) return undefined;
-  if (["normal", "default", "standard", "off", "none"].includes(mode)) return "default";
-  if (["fast", "priority"].includes(mode)) return "priority";
-  if (["cheap", "flex", "slow", "economy"].includes(mode)) return "flex";
-  if (mode === "auto") return "auto";
-  return undefined;
-}
 
 function codexServiceTierForPayload(value) {
   const tier = normalizeCodexServiceTierPreference(value);
@@ -1927,6 +1923,9 @@ export async function runZyraPrompt(runtime, prompt, options = {}) {
     await compactZyraContextAfterTurn(runtime, lastMessage);
   } finally {
     runtime.chatTitle?.prepare(null);
+    // A stopped turn or structured question can end at a native tool boundary.
+    // Never leave the private native executor waiting after Zyra has settled.
+    if (runtime.harnessHooks?.conversation?.tools?.record?.active) await runtime.harnessHooks.conversation.tools.clear();
     removeSystemPromptBlock(runtime.session, 'ZYRA_CHAT_TITLE');
     removeSystemPromptBlock(runtime.session, 'ZYRA_NEW_WORKTREE');
   }
@@ -2152,7 +2151,7 @@ export function describeRuntime(runtime) {
     usage,
     contextUsage,
     projectMemory: runtime.projectMemory ?? [],
-    memoryOverview: createZyraMemoryController(runtime).overview(),
+    memoryOverview: runtime.agentServer?.memoryOverview?.() ?? createZyraMemoryController(runtime).overview(),
     recommendedPrompts: buildRecommendedPrompts(defaults.dataRoot),
     customCommands: listCustomCommands(runtime),
     terminalTheme: runtime.terminalTheme?.name ?? DEFAULT_TERMINAL_THEME,
@@ -2198,6 +2197,7 @@ export function setProfile(runtime, profile) {
     throw new Error("Choose concise, friendly, direct, thoughtful, playful, or a local speaking style.");
   }
   const requested = next === "auto" ? detectDefaultProfile() : next;
+  if (runtime.surface === "tui-client") { runtime.profile = next; return next; }
   if (!hasProfilePrompt(requested, runtime.project)) {
     throw new Error(`Profile not found: ${requested}. Create .zyra/profiles/${requested}.md or choose a built-in speaking style.`);
   }
@@ -2241,6 +2241,7 @@ export function setWebTools(runtime, options = {}) {
   runtime.webFetch = webFetch;
   writeProjectWebSearchPreference(runtime.project, webSearch);
   writeProjectWebFetchPreference(runtime.project, webFetch);
+  if (runtime.surface === "tui-client") return { webSearch, webFetch };
   applyWebToolState(runtime.session, { webSearch, webFetch });
   refreshZyraPromptContext(runtime);
 
@@ -2954,6 +2955,20 @@ export async function setModel(runtime, selector, options = {}) {
     throw new Error("Choose a model from /models.");
   }
 
+  if (runtime.surface === 'tui-client') {
+    let available = runtime.session.modelRegistry.getAvailable();
+    const find = models => models.find(model => [`${model.provider}/${model.id}`, `${model.provider}:${model.id}`, model.id].some(value => value.toLowerCase() === query))
+      || models.find(model => `${model.provider}/${model.id} ${model.name || ''}`.toLowerCase().includes(query));
+    let selected = find(available);
+    if (!selected) {
+      await runtime.agentServer.refreshModels();
+      available = runtime.session.modelRegistry.getAvailable();
+      selected = find(available);
+    }
+    if (!selected) throw new Error(describeModelLookupFailure(selector, available));
+    await runtime.session.setModel(selected);
+    return selected;
+  }
   const currentModel = runtime.session?.model;
   if (currentModel) {
     const currentSelectors = new Set([

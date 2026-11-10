@@ -60,7 +60,7 @@ assert.doesNotMatch(prompt, /data:image\/png/)
 let received = 0
 const unsubscribe = subscribeAssistantBrowserAnnotationAttachments('session:test', (attachment) => {
     received += 1
-    assert.equal(attachment.annotation.id, annotation.id)
+    assert.equal(attachment.annotation?.id, annotation.id)
 })
 publishAssistantBrowserAnnotationAttachment({
     sessionId: 'session:test',

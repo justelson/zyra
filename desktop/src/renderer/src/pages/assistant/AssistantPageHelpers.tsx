@@ -190,6 +190,7 @@ export function getIssueActivityBrief(activity: AssistantActivity, maxLength = 1
 }
 
 export function getIssueDisplayTitle(activity: AssistantActivity): string {
+    if (activity.payload?.category === 'retry-error') return 'Errored out'
     const combined = `${activity.summary || ''} ${activity.detail || ''}`
     if (/connectionrefused|actively refused|tcp connect error/i.test(combined)) return 'Local service unavailable'
     if (/timed out|timeout/i.test(combined)) return 'Operation timed out'

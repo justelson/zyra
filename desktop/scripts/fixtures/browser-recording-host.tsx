@@ -1,3 +1,4 @@
+import { addAppearanceManagedFontFaces } from '../../src/renderer/src/lib/appearance-font-faces'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -40,6 +41,7 @@ function action(name:string){actions.push(name)}
     setBrowserRecordingOverlay:async(value:BrowserRecordingOverlayState|null)=>{updates.push(value);return{success:true}},
     onBrowserRecordingOverlayCommand:(listener:(command:BrowserRecordingOverlayCommand)=>void)=>{commands.add(listener);return()=>commands.delete(listener)},
     onBrowserRecordingOverlayPresentation:(listener:(value:BrowserRecordingOverlayPresentation)=>void)=>{presentations.add(listener);return()=>presentations.delete(listener)},
+    attachBrowserCaptureToChat:async(input:any)=>{action('attach:'+input.sessionId);return{success:true}},
     openBrowserPreviewArtifact:async(id:string)=>{artifacts.push(id);return{success:true}}
 }
 const deviceList=()=>[
@@ -106,8 +108,16 @@ const latest=()=>updates.at(-1)
     await waitFor(()=>state.status==='saved','recovery stop forwards to recorder')
     patch({artifact:{artifactId:'latest-artifact',kind:'recording'} as any,unsaved:true})
     await pause();emit({kind:'show-artifact'});await waitFor(()=>artifacts[0]==='latest-artifact','artifact command must read current store, not its subscription snapshot')
+    document.documentElement.style.setProperty('--surface-floating','#163042')
+    document.documentElement.style.setProperty('--surface-divider','#345678')
+    document.documentElement.style.fontFamily='Fixture UI, sans-serif'
+    addAppearanceManagedFontFaces(document,[],{family:'Fixture UI',css:'@font-face{font-family:"Fixture UI";src:url(data:font/woff2;base64,AA==)}'})
+    await waitFor(()=>latest()?.theme.fontFamily?.includes('Fixture UI')&&latest()?.theme.fontCss?.includes('data:font/woff2'),'app font registration propagates to isolated recording overlay')
+    patch({elapsedMs:4000});await pause();check(latest()?.theme.fontCss===undefined,'timer updates do not resend font data')
+    check(latest()?.theme.background==='#163042'&&latest()?.theme.border==='#345678','recording surface uses current app surface and divider tokens')
     results.push('theme changes propagate; target-close recovery uses current recording/artifact')
-    emit({kind:'dismiss'});await waitFor(()=>commands.size===0&&presentations.size===0&&latest()===null,'idle must unsubscribe channels and remove native overlay')
+    patch({captureDestination:{sessionId:'session:original',enabled:true},unsaved:false});await waitFor(()=>latest()?.canAttachToChat===true,'original chat attachment becomes available');emit({kind:'attach-chat'});emit({kind:'attach-chat'});emit({kind:'attach-chat'});await waitFor(()=>actions.includes('attach:session:original'),'recording attaches to its original chat');check(actions.filter(a=>a==='attach:session:original').length===1,'double attachment shares one handoff');
+    await waitFor(()=>commands.size===0&&presentations.size===0&&latest()===null,'successful attachment dismisses saved controls')
     check(devicesChanged.size===0&&container.innerHTML==='','idle must release device listeners and recovery UI')
     patch({status:'ready',tabId:'tab:closed-setup',guestWebContentsId:10})
     await waitFor(()=>latest()?.status==='ready','closed-target setup attached')

@@ -36,6 +36,7 @@ import {
     loadArchivedChatsSettings,
     loadAssistantSettings,
     loadBrowserControlSettings,
+    loadBrowserCapturesSettings,
     loadConnectionsSettings,
     loadDataPrivacySettings,
     loadDiagnosticsSettings,
@@ -68,6 +69,7 @@ const KeyboardShortcutsSettings = lazy(loadKeyboardShortcutsSettings)
 const AppearanceSettings = lazy(loadAppearanceSettings)
 const VoiceSettings = lazy(loadVoiceSettings)
 const ConnectionsSettings = lazy(loadConnectionsSettings)
+const BrowserCapturesSettings = lazy(loadBrowserCapturesSettings)
 const BrowserControlSettings = lazy(loadBrowserControlSettings)
 const FilesEditorSettings = lazy(loadFilesEditorSettings)
 const TerminalRuntimeSettings = lazy(loadTerminalRuntimeSettings)
@@ -202,6 +204,7 @@ function MainContent() {
                         <Route path="assistant/memory" element={<MemorySettings />} />
                         <Route path="assistant/memory/inspect" element={<MemorySettings view="inspect" />} />
                         <Route path="workspace/browser" element={<BrowserControlSettings />} />
+                        <Route path="workspace/browser/captures" element={<BrowserCapturesSettings />} />
                         <Route path="workspace/browser/privacy" element={<BrowserControlSettings view="privacy" />} />
                         <Route path="workspace/browser/data" element={<BrowserControlSettings view="data" />} />
                         <Route path="workspace/browser/extensions" element={<BrowserControlSettings view="extensions" />} />

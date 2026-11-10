@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createServer } from 'node:http'
 import { app, BrowserWindow } from 'electron'
+import { BrowserPopupManager } from '../../src/main/browser-popup-manager'
 import { BrowserViewManager } from '../../src/main/browser-view-manager'
 import { BrowserSurfaceHost } from '../../src/main/agent-control/browser-surface-host'
 import { getAgentControlBroker } from '../../src/main/agent-control'
@@ -42,6 +43,79 @@ app.whenReady().then(async () => {
     trace('Hidden tab opened')
     const entry = trustedBrowserGuests.findByIdentity(target.guestIdentity)!
     const guest = entry.guest
+    // Tab transitions send blur even when the app is in the background. Spy on
+    // the real command boundary without activating any desktop window.
+    let shellFocusRequests = 0, pageFocusRequests = 0
+    const originalShellFocus = owner.webContents.focus
+    const originalPageFocus = guest.focus
+    const originalWindowFocused = owner.isFocused
+    const originalWindowVisible = owner.isVisible
+    const originalPageFocused = guest.isFocused
+    owner.webContents.focus = () => { shellFocusRequests++ }
+    guest.focus = () => { pageFocusRequests++ }
+    try {
+        guest.isFocused = () => true
+        await (manager as any).command({ sender: owner.webContents }, { tabId: target.tabId, type: 'blur' })
+        await (manager as any).command({ sender: owner.webContents }, { tabId: target.tabId, type: 'focus' })
+        assert.equal(shellFocusRequests, 0, 'background tab transitions must not request OS app attention through renderer focus')
+        assert.equal(pageFocusRequests, 0, 'background focus commands must not activate the Browser owner')
+        owner.isFocused = () => true
+        owner.isVisible = () => true
+        guest.isFocused = () => false
+        await (manager as any).command({ sender: owner.webContents }, { tabId: target.tabId, type: 'blur' })
+        assert.equal(shellFocusRequests, 0, 'tab updates preserve another input already focused inside Zyra')
+        guest.isFocused = () => true
+        await (manager as any).command({ sender: owner.webContents }, { tabId: target.tabId, type: 'blur' })
+        await (manager as any).command({ sender: owner.webContents }, { tabId: target.tabId, type: 'focus' })
+        assert.equal(shellFocusRequests, 1, 'an actual foreground Browser blur can hand focus back')
+        assert.equal(pageFocusRequests, 1, 'explicit foreground Browser focus still works')
+    } finally {
+        owner.webContents.focus = originalShellFocus
+        guest.focus = originalPageFocus
+        owner.isFocused = originalWindowFocused
+        owner.isVisible = originalWindowVisible
+        guest.isFocused = originalPageFocused
+    }
+    console.log('PASS: Browser shell command preserves inactive app and existing input ownership')
+    // Exercise the actual popup creation + ready lifecycle while spying on
+    // activation methods so this regression check never flashes the desktop.
+    const popupManager = new BrowserPopupManager({
+        createShellWindow: () => new BrowserWindow({ show: false }), requestTab() {}
+    })
+    try {
+        for (const [initialFocus, readyFocus, sourceFocus, disposition, expectedActive] of [
+            [false, false, true, 'new-window', 0],
+            [true, false, true, 'new-window', 0],
+            [true, true, false, 'new-window', 0],
+            [true, true, true, 'new-window', 1],
+            [true, true, true, 'background-tab', 0]
+        ] as const) {
+            owner.isFocused = () => initialFocus
+            owner.isVisible = () => true
+            guest.isFocused = () => sourceFocus
+            const popup = (popupManager as any).createPopup(owner, guest, guest.id, {
+                url: 'about:blank', disposition, referrer: { url: '', policy: 'default' }, features: ''
+            }, {}, Symbol('fixture'))
+            if (popup.pageContents.isLoading()) await new Promise<void>(resolve => popup.pageContents.once('did-stop-loading', () => resolve()))
+            let active = 0, inactive = 0, focused = 0
+            popup.shellWindow.show = () => { active++ }
+            popup.shellWindow.showInactive = () => { inactive++ }
+            popup.pageContents.focus = () => { focused++ }
+            owner.isFocused = () => readyFocus
+            popup.shellWindow.webContents.emit('did-finish-load')
+            assert.equal(active, expectedActive, `popup activation: ${initialFocus}/${readyFocus}/${sourceFocus}/${disposition}`)
+            assert.equal(focused, expectedActive)
+            assert.equal(inactive, 1 - expectedActive)
+            ;(popupManager as any).disposePopup(popup, true)
+            popup.shellWindow.destroy()
+        }
+    } finally {
+        owner.isFocused = originalWindowFocused
+        owner.isVisible = originalWindowVisible
+        guest.isFocused = originalPageFocused
+    }
+    console.log('PASS: Browser popups preserve background attention and explicit foreground behavior')
+
     if (!blankFirst) assert.equal(guest.getURL(), url)
     assert.equal(owner.isVisible(), false, 'background control does not reveal the user window')
     const access = await broker.handleToolOperation(principal, {

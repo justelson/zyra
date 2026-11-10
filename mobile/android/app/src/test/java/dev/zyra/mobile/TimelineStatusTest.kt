@@ -16,7 +16,7 @@ class TimelineStatusTest {
         TimelineReducer.apply(state, event(sequence, type, turn, extra))
 
     @Test fun acceptedPromptIsVisibleBeforeCompactionAndCanonicalUserKeepsItsPosition() {
-        var state = apply(SessionView("chat"), 1, "zyra_server_prompt_accepted", JSONObject().put("message", user()))
+        var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "zyra_server_prompt_accepted", JSONObject().put("message", user()))
         assertEquals("accepted:turn-1", state.items.single().id); assertTrue(state.running)
         state = apply(state, 2, "compaction_start", JSONObject().put("reason", "threshold"))
         val projector = TimelineWork()
@@ -36,7 +36,7 @@ class TimelineStatusTest {
 
     @Test fun acceptedReconciliationIsTurnScopedAndWorksForEveryCanonicalMessagePhase() {
         for (phase in listOf("message_start", "message_update", "message_end")) {
-            var state = apply(SessionView("chat"), 1, "zyra_server_prompt_accepted", JSONObject().put("message", user()), "first")
+            var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "zyra_server_prompt_accepted", JSONObject().put("message", user()), "first")
             state = apply(state, 2, "zyra_server_prompt_accepted", JSONObject().put("message", user()), "second")
             state = apply(state, 3, phase, JSONObject().put("message", user()), "second")
             assertEquals(listOf("accepted:first", "message:canonical-user"), state.items.map { it.id })
@@ -65,7 +65,7 @@ class TimelineStatusTest {
 
     @Test fun imageOnlyAcceptedPromptRetainsProjectedMediaAndCanonicalWithoutIdentityConverges() {
         val message = JSONObject().put("role", "user").put("content", JSONArray().put(JSONObject().put("type", "image").put("mediaRef", JSONObject().put("sha256", "safe-ref"))))
-        var state = apply(SessionView("chat"), 1, "zyra_server_prompt_accepted", JSONObject().put("message", message))
+        var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "zyra_server_prompt_accepted", JSONObject().put("message", message))
         assertEquals("", state.items.single().text)
         assertTrue(JSONObject(state.items.single().raw).getJSONObject("message").getJSONArray("content").getJSONObject(0).has("mediaRef"))
         state = apply(state, 2, "message_end", JSONObject().put("message", message))
@@ -74,7 +74,7 @@ class TimelineStatusTest {
     }
 
     @Test fun postTurnCompactionDoesNotRestartCompletedTurnOrHideFinalAnswer() {
-        var state = apply(SessionView("chat"), 1, "message_start", JSONObject().put("message", user()))
+        var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "message_start", JSONObject().put("message", user()))
         state = apply(state, 2, "message_end", JSONObject().put("message", JSONObject().put("id", "answer").put("role", "assistant").put("content", "Finished")))
         state = apply(state, 3, "agent_end")
         state = apply(state, 4, "compaction_start")
@@ -88,19 +88,21 @@ class TimelineStatusTest {
     }
 
     @Test fun recoveryAndFailureStayInWorkBlockWithoutRenderingRawServerError() {
-        var state = apply(SessionView("chat"), 1, "message_start", JSONObject().put("message", user()))
+        var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "message_start", JSONObject().put("message", user()))
         state = apply(state, 2, "agent_start")
         state = apply(state, 3, "auto_retry_start", JSONObject().put("recoveryKind", "network").put("attempt", 2).put("maxAttempts", 5).put("errorMessage", "private endpoint detail"))
         state = apply(state, 4, "agent_end", JSONObject().put("willRetry", true))
         assertTrue(state.running)
         assertEquals("Reconnecting · 2 of 5", state.items.last().text)
         state = apply(state, 5, "auto_retry_end", JSONObject().put("success", false).put("finalError", "private endpoint detail"))
-        assertFalse(state.running)
+        assertTrue(state.running)
         assertEquals("Connection interrupted", state.items.last().text)
         val rows = TimelineWork().rows(state)
         assertEquals(1, rows.filterIsInstance<ChatRailRow.Message>().size)
         assertTrue(TimelineStatus.failed(rows.filterIsInstance<ChatRailRow.Work>().single().entries.single()))
         assertEquals("private endpoint detail", JSONObject(state.items.last().raw).getString("finalError"))
+        state = apply(state, 6, "zyra_server_turn_completed")
+        assertFalse(state.running)
         val restored = TimelineReducer.decode(TimelineReducer.encode(state))
         assertEquals(state, restored)
     }
@@ -109,7 +111,7 @@ class TimelineStatusTest {
         for (type in listOf("compaction_start", "compaction_end", "auto_retry_start", "auto_retry_end", "zyra_server_turn_completed")) {
             val extra = JSONObject().put("deferred", JSONObject().put("sha256", "safe-large-ref"))
                 .put("outcome", "failed").put("success", false)
-            val initial = apply(SessionView("chat"), 1, "message_start", JSONObject().put("message", user()))
+            val initial = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "message_start", JSONObject().put("message", user()))
             val state = apply(initial, 2, type, extra)
             val work = TimelineWork().rows(state).filterIsInstance<ChatRailRow.Work>().single()
             assertEquals(1, work.entries.size)
@@ -121,7 +123,7 @@ class TimelineStatusTest {
     }
 
     @Test fun terminalFailureRetainsMetadataInsideWorkAndFinishesPendingStatuses() {
-        var state = apply(SessionView("chat"), 1, "message_start", JSONObject().put("message", user()))
+        var state = apply(SessionView("chat", canonicalTurnCompletion = true), 1, "message_start", JSONObject().put("message", user()))
         state = apply(state, 2, "compaction_start")
         state = apply(state, 3, "zyra_server_turn_completed", JSONObject().put("outcome", "failed").put("errorMessage", "sensitive provider payload"))
         val work = TimelineWork().rows(state).filterIsInstance<ChatRailRow.Work>().single()

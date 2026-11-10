@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import AudioPlayer from '../AudioPlayer'
 import { resolveImageSrc } from './paths'
 import type { MarkdownAudioSource } from './audioEmbeds'
+import { resolveMarkdownLinkTarget } from './linkNavigation'
 
 export function MarkdownAudioPlaylist({ sources, copy, filePath }: { sources: MarkdownAudioSource[]; copy: string; filePath?: string }) {
     const [selected, setSelected] = useState(0)
@@ -19,6 +20,7 @@ export function MarkdownAudioPlaylist({ sources, copy, filePath }: { sources: Ma
             src={resolveImageSrc(source.href, filePath)}
             label={source.label}
             markdownTarget={source.href}
+            sourceControl={<a href={source.href} data-markdown-file-link={resolveMarkdownLinkTarget(source.href, filePath) ? '' : undefined}>Open file</a>}
             titleControl={sources.length > 1 ? <select ref={pickerRef} className="audio-player-source" aria-label="Audio file" value={selected} onChange={event => {
                 restorePickerFocus.current = event.currentTarget.ownerDocument.activeElement === event.currentTarget
                 setSelected(Number(event.target.value))

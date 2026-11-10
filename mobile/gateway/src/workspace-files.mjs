@@ -21,7 +21,7 @@ async function smallFile(target) {
     return buffer.subarray(0, length);
   } finally { await handle.close(); }
 }
-export const WORKSPACE_READS = new Set(['workspace.roots', 'workspace.files.list', 'workspace.file.read', 'workspace.file.chunk', 'workspace.git.status', 'workspace.git.diff', 'workspace.image', 'workspace.image.chunk', 'workspace.link']);
+export const WORKSPACE_READS = new Set(['workspace.roots', 'workspace.files.list', 'workspace.file.read', 'workspace.file.chunk', 'workspace.git.status', 'workspace.git.diff', 'workspace.image', 'workspace.image.chunk', 'workspace.media', 'workspace.media.chunk', 'workspace.link']);
 export const WORKSPACE_METHODS = new Set([...WORKSPACE_READS, 'workspace.file.write', 'workspace.move']);
 export class WorkspaceFiles {
   constructor({ projects, resolveScope, allProjects = false, allowsProject, hiddenProjects = [] }) { this.allProjects = allProjects; this.allowsProject = allowsProject; this.projects = projects; this.resolveScope = resolveScope; this.hiddenProjects = hiddenProjects; this.writes = sharedWrites; }
@@ -64,7 +64,7 @@ export class WorkspaceFiles {
   async dispatch(method, params, chat) {
     if (method === 'workspace.move') return moveWorkspaceFile(this, params, chat);
     if (method === 'workspace.link') return resolveWorkspaceLink(this, chat, params.destination, params);
-    if (method === 'workspace.image' || method === 'workspace.image.chunk') return readWorkspaceImage(this, method, params, chat);
+    if (['workspace.image', 'workspace.image.chunk', 'workspace.media', 'workspace.media.chunk'].includes(method)) return readWorkspaceImage(this, method, params, chat);
     if (method === 'workspace.roots') return { roots: (await this.roots(chat)).map(({ path: _path, ...root }) => root) };
     if (method === 'workspace.git.status' || method === 'workspace.git.diff') {
       const {root}=await this.target(chat,{...params,path:''});

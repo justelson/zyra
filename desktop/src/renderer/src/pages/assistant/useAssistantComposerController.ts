@@ -414,27 +414,27 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     }, [draftWarmKey, onDraftStarted, text])
 
     useEffect(() => {
-        if (!acceptBrowserAnnotations || !normalizedSessionId) return
-        return subscribeAssistantBrowserAnnotationAttachments(normalizedSessionId, ({ annotation, artifact, reference }) => {
+        if (!acceptBrowserAnnotations || !normalizedSessionId || loadedSessionId !== normalizedSessionId) return
+        return subscribeAssistantBrowserAnnotationAttachments(normalizedSessionId, ({ annotation, artifact, reference, text: draftText }) => {
+            const id = annotation?.id || artifact.artifactId
             setContextFiles((current) => {
-                if (current.some((file) => file.id === annotation.id)) return current
+                if (current.some((file) => file.id === id)) return current
                 return [...current, {
-                    id: annotation.id,
-                    path: reference,
-                    name: `preview-annotation-${annotation.id.replace(/[^a-z0-9_-]/gi, '-').slice(0, 80)}.png`,
-                    content: serializeAssistantBrowserAnnotation(annotation),
+                    id, path: reference,
+                    name: annotation ? `preview-annotation-${id.replace(/[^a-z0-9_-]/gi, '-').slice(0, 80)}.png` : `browser-capture.${artifact.kind === 'screenshot' ? 'png' : artifact.mimeType.startsWith('video/mp4') ? 'mp4' : 'webm'}`,
+                    content: annotation ? serializeAssistantBrowserAnnotation(annotation) : '',
                     mimeType: artifact.mimeType,
-                    kind: 'image',
+                    kind: artifact.kind === 'recording' ? 'video' : 'image',
                     sizeBytes: artifact.sizeBytes,
-                    previewText: annotation.comment || 'Browser annotation',
+                    previewText: annotation?.comment || (artifact.kind === 'recording' ? 'Browser recording' : 'Browser screenshot'),
                     previewDataUrl: artifact.thumbnailDataUrl,
-                    source: 'paste',
-                    animateIn: true
+                    source: 'paste', animateIn: true
                 }]
             })
+            if (draftText?.trim()) setText(current => current.trim() ? `${current}\n${draftText}` : draftText)
             window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
         })
-    }, [acceptBrowserAnnotations, normalizedSessionId])
+    }, [acceptBrowserAnnotations, loadedSessionId, normalizedSessionId])
 
     const persistComposerSessionStateImmediately = (nextState: AssistantComposerSessionState) =>
         persistAssistantComposerSessionStateImmediately({ sessionId: normalizedSessionId, nextState, persistedSessionStateRef, persistTimeoutRef })

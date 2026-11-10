@@ -363,6 +363,35 @@ async function run() {
     }
     results.push('Late completed and working history both open at the latest content')
 
+    const completionStyle = document.createElement('style')
+    completionStyle.textContent = '[data-state]{display:grid;transition:grid-template-rows .26s ease}[data-state="open"]{grid-template-rows:1fr}[data-state="closed"]{grid-template-rows:0fr}[data-state]>div{min-height:0;overflow:hidden}'
+    document.head.append(completionStyle)
+    const finishedRows: TimelineDisplayRow[] = [rows('background-completion')[0]!, {
+        kind: 'turn-work-summary', id: 'background-completion-work', createdAt: '2026-01-01T00:00:00Z',
+        turnId: 'background-completion', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:13:57Z',
+        running: false, outcome: 'completed', rows: []
+    }, rows('background-completion')[1]!]
+    const finishedRenderer = (row: TimelineDisplayRow) => row.kind === 'turn-work-summary'
+        ? <TimelineTurnWorkSummary key={row.id} startedAt={row.startedAt} completedAt={row.completedAt} running={row.running}
+            hasWork outcome={row.outcome} renderChildren={() => <div style={{height: 6000}}>Working tool output</div>} />
+        : <div style={{height: 80}}>{row.kind === 'message' ? row.message.text : ''}</div>
+    for (let attempt = 0; attempt < 12; attempt++) {
+        render('background-completion', { rows: finishedRows.slice(0, 2).map(row => row.kind === 'turn-work-summary' ? {...row, running: true, completedAt: null, outcome: null} : row), isWorking: true, renderRow: finishedRenderer, coldStart: false })
+        await pause()
+        // Settings unmounts Chat while its server work continues.
+        if (attempt % 2 === 0) flushSync(() => root.render(<div>Settings</div>))
+        else render('intervening-chat', { coldStart: false })
+        render('background-completion', { rows: finishedRows, renderRow: finishedRenderer, coldStart: false })
+        await waitFor(() => {
+            const answer = container.querySelector<HTMLElement>('[data-assistant-timeline-row-id="background-completion-assistant"]')
+            const viewport = scrollContainerRef.current
+            return Boolean(answer && viewport && answer.getBoundingClientRect().bottom <= viewport.getBoundingClientRect().bottom + 2
+                && answer.getBoundingClientRect().top >= viewport.getBoundingClientRect().top && distanceFromEnd() < 2)
+        }, 'Returning after background completion reveals the final answer beside collapsed work')
+    }
+    completionStyle.remove()
+    results.push('Settings/chat navigation across background completion retains the visible final answer without blank virtual space')
+
     const messageId = 'reopened-response'
     const ingest = (type: string, payload: Record<string, unknown>) => flushSync(() => assistantStreamPresentation.ingestEvent({
         type, payload: { messageId, ...payload }

@@ -46,6 +46,8 @@ export interface AgentControlDriver {
     health?(): { state: 'ready' | 'degraded' | 'disconnected' | 'unavailable'; lastDisconnectReason?: string }
     isTargetCurrent?(target: RegisteredControlTarget): boolean
     refreshTargets?(signal?: AbortSignal): Promise<void>
+    /** Create an inactive tab in the exact granted Chrome connection/window. */
+    openTab?(anchor: RegisteredControlTarget, url: string, signal?: AbortSignal): Promise<string>
     listWindows?(signal?: AbortSignal): Promise<ControlWindowCandidate[]>
     openApp?(application: string, signal?: AbortSignal): Promise<{ applicationName: string }>
     selectWindow?(windowToken: string, signal?: AbortSignal): Promise<{ trustedIdentity: unknown; target: Omit<Extract<ControlTarget, { kind: 'windows-window' }>, 'targetId'> }>

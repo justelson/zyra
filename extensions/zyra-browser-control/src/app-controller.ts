@@ -4,7 +4,7 @@ import { pageUrl, safeUrl, safeText } from './shared/safety'
 import { sendEvent } from './pairing'
 import { redactExtensionObservation } from './redaction'
 
-type Request = { type: string; tabId: number; documentId?: string; observationRevision?: number; includeScreenshot?: boolean; allowWindowFocus?: boolean; bounds?: { maxElements?: number }; action?: Record<string, any> }
+type Request = { type: string; tabId: number; documentId?: string; url?: string; observationRevision?: number; includeScreenshot?: boolean; allowWindowFocus?: boolean; bounds?: { maxElements?: number }; action?: Record<string, any> }
 type Binding = { discovered?: boolean; browserName?: string; targetId?: string; documentId: string; mode: Grant['mode'] }
 
 /** Adapt the app's scoped broker protocol to the trusted Chrome controller. */
@@ -73,6 +73,28 @@ export class AppController {
     if (request.type === 'revoke-tab') { await this.release(request.tabId); return { revoked: true } }
     const binding = this.bindings.get(request.tabId)
     if (!binding || binding.documentId !== request.documentId) throw new Error('This Chrome tab is no longer shared with Zyra. Share it again from the extension.')
+    if (request.type === 'open-tab') {
+      if (binding.mode !== 'control') throw new Error('This browser target has read-only access.')
+      const url = pageUrl(request.url || '').href
+      const anchor = await chrome.tabs.get(request.tabId)
+      if (anchor.incognito) throw new Error('Private browsing is unavailable.')
+      signal.throwIfAborted()
+      const created = await chrome.tabs.create({ windowId: anchor.windowId, url, active: false })
+      if (created.id === undefined) throw new Error('Chrome did not create the requested tab.')
+      try {
+        signal.throwIfAborted()
+        const documentId = crypto.randomUUID()
+        const registration = await sendEvent({ type: 'tab.register', browserName: this.browserName(), tabId: created.id, documentId,
+          mode: 'control', url: safeUrl(url), title: safeText(created.title || '', 256) })
+        this.bindings.set(created.id, { discovered: true, browserName: this.browserName(), documentId, mode: 'control', targetId: registration.targetId })
+        signal.throwIfAborted()
+        return { tabId: created.id }
+      } catch (error) {
+        await this.release(created.id).catch(() => undefined)
+        await chrome.tabs.remove(created.id).catch(() => undefined)
+        throw error
+      }
+    }
     const run = (method: string, params: object = {}) => this.control.execute(parseOperation({ method, params: { tabId: request.tabId, ...params } }), signal)
     if (request.type === 'observe') {
       // Discovery exposes metadata only. The desktop broker has checked the

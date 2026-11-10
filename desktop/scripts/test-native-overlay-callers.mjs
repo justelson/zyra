@@ -34,7 +34,7 @@ try {
         } }]
     })
     const html = join(directory, 'index.html')
-    await writeFile(html, `<!doctype html><head><style>body{margin:0}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}button{font:12px sans-serif}section[aria-label="Browser downloads"]{top:32px;right:0;width:306px} [role=menu]{background:white}</style></head><body><script>${bundle.outputFiles[0].text}</script>`)
+    await writeFile(html, `<!doctype html><head><style>body{margin:0}.relative{position:relative}.absolute{position:absolute}.fixed{position:fixed}.bottom-3{bottom:12px}.right-3{right:12px}button{font:12px sans-serif}section[aria-label="Browser downloads"]{top:32px;right:0;width:306px} [role=menu]{background:white}</style></head><body><script>${bundle.outputFiles[0].text}</script>`)
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});let owner;const timer=setTimeout(()=>{console.error('Native overlay callers timed out');app.exit(1)},20000);app.whenReady().then(async()=>{owner=new BrowserWindow({show:false,width:840,height:640,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});await owner.loadFile(${JSON.stringify(html)});const results=await owner.webContents.executeJavaScript('window.nativeOverlayCallerCheck');for(const result of results)console.log('PASS: '+result);clearTimeout(timer);owner.destroy();app.quit()}).catch(error=>{console.error(error);if(owner&&!owner.isDestroyed())owner.destroy();app.exit(1)});`)
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE

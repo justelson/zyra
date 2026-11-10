@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatConfigurationTest {
+    @Test fun optionalSettingsRequireHostCapabilitiesAndSurviveReload() {
+        assertFalse("codexServiceTier" in ChatConfiguration().supportedFields)
+        val config = ChatConfiguration().merge(JSONObject("""{"configurationFields":["model","codexServiceTier"],"codexServiceTier":"priority"}"""))
+        assertEquals(setOf("model", "codexServiceTier"), config.supportedFields)
+        assertEquals("priority", config.codexServiceTier)
+        assertEquals(config, ChatConfiguration().merge(config.encode()))
+        assertEquals("flex", config.merge(JSONObject().put("codexServiceTier", "flex")).codexServiceTier)
+    }
     @Test fun hostChangesReplaceOnlySuppliedFieldsAndSurviveCache() {
         val initial = SessionView("chat", config = ChatConfiguration().merge(JSONObject("""{"config":{"model":{"id":"test-model"},"thinking":"high","runtimeMode":"auto-review","webSearch":true}}""")))
         val changed = TimelineReducer.apply(initial, JSONObject("""{"sequence":1,"event":{"type":"session_config","thinking":"low","webSearch":false}}"""))

@@ -30,6 +30,15 @@ try {
     await post(first,'/v1/respond',{requestId:polls[0].requests[0].requestId,ok:true,result:{count:1}})
     await post(second,'/v1/respond',{requestId:polls[1].requests[0].requestId,ok:true,result:{count:0}})
     await refresh
+    const anchor: any = { target: { kind: 'chrome-tab' }, trustedIdentity: (targets.get(registration.targets[0].targetId) as any).trustedIdentity }
+    const opening = driver.openTab(anchor, 'https://example.test/new')
+    const pendingOpen = await post(first, '/v1/poll')
+    assert.equal(pendingOpen.requests[0].operation.type, 'open-tab')
+    assert.equal(pendingOpen.requests[0].operation.tabId, 41)
+    await post(first, '/v1/event', { type: 'tab.register', tabId: 42, url: 'https://example.test/new', title: 'New', browserName: 'Chrome Review', documentId: 'doc-42', mode: 'control' })
+    await post(first, '/v1/respond', { requestId: pendingOpen.requests[0].requestId, ok: true, result: { tabId: 42 } })
+    assert.equal(await opening, driver.getTargetId(first.pairId, 42), 'the driver resolves only the new target in the same authenticated browser connection')
+    await post(first,'/v1/event',{type:'tab.closed',tabId:42})
     await post(first,'/v1/event',{type:'tab.closed',tabId:41})
     assert.equal(targets.size,0)
     console.log('Chrome catalog: broker identity mapping, profile isolation, release: ok')

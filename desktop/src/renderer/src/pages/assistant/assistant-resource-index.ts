@@ -291,6 +291,7 @@ function reconcileMaterializedImageAttachments(attachments: ParsedUserAttachment
 }
 
 function attachmentIdentity(attachment: ParsedUserAttachment): string {
+    if (attachment.path?.startsWith('clipboard://')) return `ref:${attachment.path}`
     const content = String(attachment.content || attachment.preview || '').trim()
     let hash = 2166136261
     for (let index = 0; index < content.length; index += 1) {
@@ -388,8 +389,13 @@ export function buildAssistantResourceIndex(input: {
     }
 
     const addLink = (turn: AssistantDiffTurn, rawUrl: string, originKind: AssistantResourceOriginKind, title?: string, image = false, position = 1) => {
-        const url = normalizeWebUrl(rawUrl)
+        let url = normalizeWebUrl(rawUrl)
         if (!url) return
+        if (image || looksLikeImageTarget(url)) {
+            const identity = new URL(url)
+            identity.hash = ''
+            url = identity.toString()
+        }
         let hostname = url
         let imageTitle = ''
         try {

@@ -58,7 +58,7 @@ const BOOLEAN_KEYS = new Set<string>([
     'gitAutoCreateBranchWhenTargetMatches', 'assistantDefaultFastMode', 'assistantTitleAutoRegenerate', 'assistantDefaultWebSearch',
     'assistantDefaultWebFetch', 'sidebarCollapsed', 'sidebarHoverPreviewEnabled', 'assistantAgentInboxSidebarEnabled',
     'filePreviewFullscreenShowLeftPanel', 'filePreviewFullscreenShowRightPanel',
-    'assistantBrowserRestoreTabs', 'assistantBrowserGoogleSuggestions', 'assistantBrowserAdBlockEnabled',
+    'assistantBrowserStandaloneAiTools', 'assistantBrowserRestoreTabs', 'assistantBrowserGoogleSuggestions', 'assistantBrowserAdBlockEnabled',
     'assistantBrowserAdBlockPromptDismissed', 'assistantAutoReconnect', 'assistantHistoryPrefetch',
     'assistantAllowCollapseWhileWorking', 'assistantShowActionStats', 'assistantShowStatusDetails', 'assistantShowDiagnostics', 'assistantTranscriptionEnabled'
 ])

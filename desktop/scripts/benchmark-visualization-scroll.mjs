@@ -34,7 +34,7 @@ try {
         const timer=setTimeout(()=>{console.error('Visualization scroll fixture timed out');app.exit(1)},60000);
         app.whenReady().then(async()=>{
             const window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
-            window.webContents.on('console-message',event=>{if(event.message.startsWith('[visual-scroll]'))console.log(event.message)});
+            window.webContents.on('console-message',event=>{if(event.message.startsWith('[visual-scroll]')||event.message.startsWith('[DEBUG-media-anchor]'))console.log(event.message)});
             await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
             // CDP dispatch reaches an offscreen Chromium surface without OS focus.
             // These are trusted compositor inputs, not synthetic DOM wheel events.

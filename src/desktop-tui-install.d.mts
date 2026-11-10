@@ -8,3 +8,4 @@ export function desktopTuiNeedsUpdate(directory: string, options: TerminalOption
 export function installDesktopTui(options: TerminalOptions & { directory: string; publishCommand?: boolean; namespace?: TerminalNamespace }): Promise<({ installed: true; path: string } & TerminalRegistration) | { installed: false; reason: string; path: string }>;
 export function removeDesktopTui(options: TerminalOptions): Promise<{ removed: boolean }>;
 export function readDesktopTuiPackage(directory: string, options: Partial<TerminalOptions>): Promise<{ manifest: { schemaVersion: number; channel: TerminalChannel; version: string }; entry: { file: string; size: number; sha256: string }; file: string }>;
+export function inspectDesktopTuiLauncher(paths: ReturnType<typeof desktopTuiPaths>): Promise<{ exists: boolean; kind: ReturnType<typeof desktopTuiLauncherOwner>; contents: string | null; symlinkTarget?: string }>;

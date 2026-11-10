@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -21,12 +20,12 @@ export type TerminalCommandStatus = {
 
 export async function getTerminalCommandStatus(): Promise<TerminalCommandStatus> {
     const target = launcherPath()
-    let contents = ''
-    try { contents = await readFile(target, 'utf8') } catch {}
+    const tools = await installer()
+    const owned = await tools.inspectDesktopTuiLauncher(tools.desktopTuiPaths({ channel: terminalChannel() }))
     return {
         path: target,
-        installed: Boolean(contents),
-        managed: Boolean((await installer()).desktopTuiLauncherOwner(contents, terminalChannel())),
+        installed: owned.exists,
+        managed: Boolean(owned.kind),
         pathConfigured: pathEntries().includes(path.dirname(target).toLowerCase()),
         canManage: app.isPackaged
     }

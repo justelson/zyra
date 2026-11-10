@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -24,6 +24,33 @@ export function desktopTuiLauncherOwner(contents, channel) {
   if (channel === 'stable' && markers.includes('zyra-desktop-managed-launcher:v1')) return 'desktop';
   if (channel === 'stable' && markers.some(marker => ['zyra-managed-launcher:v1', 'zyra-standalone-launcher:v2'].includes(marker))) return 'standalone';
   return null;
+}
+/** Recognize only our historical default Unix installation layout. Never read
+ * an arbitrary symlink target (which can be a large binary or special file). */
+export async function inspectDesktopTuiLauncher(paths) {
+  let info;
+  try { info = await lstat(paths.command); } catch (error) { if (error.code === 'ENOENT') return { exists: false, kind: null, contents: null }; throw error; }
+  if (info.isSymbolicLink()) {
+    if (paths.platform !== 'win32' && paths.channel === 'stable') {
+      const target = await readlink(paths.command);
+      const resolved = path.resolve(path.dirname(paths.command), target);
+      const root = path.join(paths.home, '.local', 'share', 'zyra');
+      const versionDirectory = path.dirname(resolved);
+      if (path.dirname(versionDirectory) === root && VERSION.test(path.basename(versionDirectory)) && path.basename(resolved) === 'zyra') {
+        try {
+          if ((await lstat(root)).isDirectory() && !(await lstat(root)).isSymbolicLink()
+            && (await lstat(versionDirectory)).isDirectory() && !(await lstat(versionDirectory)).isSymbolicLink()) {
+            await plain(resolved);
+            return { exists: true, kind: 'standalone', contents: null, symlinkTarget: target };
+          }
+        } catch { /* Missing or customized targets remain user-owned. */ }
+      }
+    }
+    return { exists: true, kind: null, contents: null };
+  }
+  if (!info.isFile() || info.size > 65536) return { exists: true, kind: null, contents: null };
+  const contents = await readFile(paths.command, 'utf8');
+  return { exists: true, kind: desktopTuiLauncherOwner(contents, paths.channel), contents };
 }
 async function text(file) { try { return await readFile(file, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } }
 async function plain(file) { const info = await lstat(file); if (!info.isFile() || info.isSymbolicLink()) throw new Error('Expected a regular terminal payload file.'); return info; }
@@ -85,9 +112,8 @@ export function desktopTuiLauncher(paths, registration) {
 }
 export async function installDesktopTui({ directory, publishCommand = true, namespace: explicitNamespace, ...options }) {
   const paths = desktopTuiPaths(options);
-  const current = await text(paths.command), kind = current === null ? null : desktopTuiLauncherOwner(current, paths.channel);
-  if (current !== null && (await lstat(paths.command)).isSymbolicLink()) return { installed: false, reason: 'unmanaged', path: paths.command };
-  if (publishCommand && current !== null && !kind) return { installed: false, reason: 'unmanaged', path: paths.command };
+  const existing = await inspectDesktopTuiLauncher(paths), current = existing.contents, kind = existing.kind;
+  if (publishCommand && existing.exists && !kind) return { installed: false, reason: 'unmanaged', path: paths.command };
   const verified = await readDesktopTuiPackage(directory, options);
   const registrationFile = path.join(paths.cache, 'installed.json');
   let previous;
@@ -120,7 +146,13 @@ export async function installDesktopTui({ directory, publishCommand = true, name
     if (await text(source) === null) { await atomic(source, current); if (paths.platform !== 'win32') await chmod(source, 0o755); }
   }
   if (kind === 'source' || kind === 'standalone') {
-    await atomic(path.join(paths.cache, 'previous-launcher'), current);
+    if (existing.symlinkTarget) {
+      await atomic(path.join(paths.cache, 'previous-symlink.json'), JSON.stringify({ target: existing.symlinkTarget }));
+      await rm(path.join(paths.cache, 'previous-launcher'), { force: true });
+    } else {
+      await atomic(path.join(paths.cache, 'previous-launcher'), current);
+      await rm(path.join(paths.cache, 'previous-symlink.json'), { force: true });
+    }
   }
   // Publish the new command only after its complete, verified payload exists.
   await atomic(registrationFile, JSON.stringify(registration));
@@ -148,16 +180,23 @@ export async function pruneDesktopTui(paths, currentVersion) {
   }
 }
 export async function removeDesktopTui(options) {
-  const paths = desktopTuiPaths(options), current = await text(paths.command);
-  if (current === null || desktopTuiLauncherOwner(current, paths.channel) !== 'current') return { removed: false };
+  const paths = desktopTuiPaths(options), existing = await inspectDesktopTuiLauncher(paths);
+  if (existing.kind !== 'current') return { removed: false };
   // A later installation at a different location must retain its command.
   const registrationFile = path.join(paths.cache, 'installed.json');
   const registration = JSON.parse(await readFile(registrationFile, 'utf8'));
   if (options.version && registration.version !== options.version) return { removed: false };
   const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
   if (options.directory && (!registration.ownerDirectory || normalize(options.directory) !== normalize(registration.ownerDirectory))) return { removed: false };
+  const previousLink = await text(path.join(paths.cache, 'previous-symlink.json'));
   const previous = await text(path.join(paths.cache, 'previous-launcher'));
-  if (previous) { await atomic(paths.command, previous); if (paths.platform !== 'win32') await chmod(paths.command, 0o755); }
+  if (previousLink && paths.platform !== 'win32') {
+    const target = JSON.parse(previousLink).target;
+    if (typeof target !== 'string' || !target) throw new Error('Invalid previous terminal link.');
+    const temporary = `${paths.command}.next-${randomUUID()}`;
+    try { await symlink(target, temporary); await rename(temporary, paths.command); }
+    finally { await rm(temporary, { force: true }); }
+  } else if (previous) { await atomic(paths.command, previous); if (paths.platform !== 'win32') await chmod(paths.command, 0o755); }
   else await rm(paths.command, { force: true });
   await rm(registrationFile, { force: true });
   await pruneDesktopTui(paths, null);

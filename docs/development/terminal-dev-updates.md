@@ -6,7 +6,7 @@ The Windows installer updates the managed command during installation. On macOS 
 
 ## Existing systems
 
-Stable owns `zyra`; Preview owns `zyra-dev`. Each has an independent immutable payload cache outside the replaceable Desktop folder. Only recognized Zyra-owned launchers are migrated. Custom files and symlinks are preserved.
+Stable owns `zyra`; Preview owns `zyra-dev`. Each has an independent immutable payload cache outside the replaceable Desktop folder. Only recognized Zyra-owned launchers are migrated. Custom files and symlinks are preserved. The historical Unix installer's symlink under `~/.local/share/zyra/<version>/zyra` is recognized and restored on uninstall; its original binary is retained.
 
 The installer preserves the former data namespace. A source `zyra-dev` launcher keeps `Zyra-dev`, including its instance-suffix behavior. An existing standalone command keeps its `.zyra` namespace. A Desktop-owned command keeps its explicit namespace. Fresh Preview commands use the installed Preview profile. No chat, credential, project preference or model-speed setting is migrated or reset.
 

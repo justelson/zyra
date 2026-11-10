@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile, rm, lstat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, lstat, symlink, readlink } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import os from 'node:os';
@@ -78,6 +78,27 @@ try {
   await assert.rejects(lstat(tampered.paths.command), { code: 'ENOENT' });
   metadata.binaries[0].file = '../escape'; await writeFile(path.join(tampered.directory, 'manifest.json'), JSON.stringify(metadata));
   await assert.rejects(readDesktopTuiPackage(tampered.directory, tampered.options), /missing/);
+  if (process.platform !== 'win32') {
+    const linked = await fixture('unix-default-link');
+    const opts = { ...linked.options, channel: 'stable' };
+    const paths = desktopTuiPaths(opts);
+    const manifestFile = path.join(linked.directory, 'manifest.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8')); manifest.channel = 'stable';
+    await writeFile(manifestFile, JSON.stringify(manifest));
+    const original = path.join(linked.home, '.local', 'share', 'zyra', '0.7.0', 'zyra');
+    await mkdir(path.dirname(original), { recursive: true }); await writeFile(original, 'previous native binary');
+    await mkdir(path.dirname(paths.command), { recursive: true }); await symlink(original, paths.command);
+    const updated = await installDesktopTui({ ...opts, directory: linked.directory });
+    assert(updated.installed); assert.equal(updated.namespace.channel, 'default');
+    assert.equal((await lstat(paths.command)).isSymbolicLink(), false);
+    assert.equal(await readFile(original, 'utf8'), 'previous native binary');
+    await removeDesktopTui({ ...opts, directory: linked.directory });
+    assert.equal(await readlink(paths.command), original, 'uninstall restores the original installed link');
+    await rm(paths.command); const customTarget = path.join(linked.home, 'custom-binary');
+    await writeFile(customTarget, 'custom binary'); await symlink(customTarget, paths.command);
+    assert.equal((await installDesktopTui({ ...opts, directory: linked.directory })).reason, 'unmanaged');
+    assert.equal(await readlink(paths.command), customTarget);
+  }
   const live = await fixture('live');
   const old = await installDesktopTui({ ...live.options, directory: live.directory });
   running = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', windowsHide: true });

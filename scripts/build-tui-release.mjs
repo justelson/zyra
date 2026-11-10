@@ -11,12 +11,12 @@ const root = path.resolve(import.meta.dirname, "..");
 const args = parseArgs(process.argv.slice(2));
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = String(args.version || packageJson.version);
-if (!/^\d+\.\d+\.\d+(?:-(?:alpha|beta)(?:[.-]?\d+)?)?$/.test(version)) {
+if (!/^\d+\.\d+\.\d+(?:-(?:alpha|beta|dev)(?:[.-]?\d+)?)?$/.test(version)) {
   throw new Error(`Invalid Zyra release version: ${version}`);
 }
 const targets = resolveTargets(args);
 assertBunVersion();
-const windowsIcon = path.join(root, "desktop", "resources", "icon.ico");
+const windowsIcon = path.join(root, "desktop", "resources", "branding", "tui", "icon.ico");
 if (!existsSync(windowsIcon)) {
   throw new Error(`The shared Zyra release icon is missing: ${windowsIcon}`);
 }

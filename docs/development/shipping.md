@@ -74,7 +74,7 @@ Those metadata changes do not change the source commit. The compiled app retains
 
 Token-bearing requests use the run title `Preview <source_sha> request:<request_id>`. Direct/legacy requests without a token retain `Preview <source_sha>`. The request token separates an explicit same-commit retry from a previous run; it does not change the PR/target cancellation scope.
 
-The installer creates **Zyra Preview**, with a separate application identifier, fixed per-user installation directory, settings/history profile, Chromium session storage and runtime namespace. It does not replace stable's Explorer actions, global `zyra` command or installed-Desktop locator. It cannot use stable's automatic update feed. Install the next explicitly requested preview manually.
+The installer creates **Zyra Preview**, with a separate application identifier, fixed per-user installation directory, settings/history profile, Chromium session storage and runtime namespace. It does not replace stable's Explorer actions, global `zyra` command or installed-Desktop locator. It owns the separate `zyra-dev` command and updates its matching standalone payload; recognized legacy launchers retain their data namespace. It cannot use stable's automatic update feed. Install the next explicitly requested preview manually.
 
 The public channel is **Dev**; `preview` remains the internal distribution identity for compatibility. Setup shows “Dev channel” and its package version before installation, identifies the unsigned test build, and explains the separate profile and manual updates. The existing application ID, product/executable name, one-click/per-user installer layout and Preview profile are unchanged, so existing Preview installations keep their state. All PR previews still share that profile; they are not separate installations per PR. An older preview is not guaranteed to read data migrated by a newer one; preserve a backup before testing a downgrade.
 
@@ -119,3 +119,5 @@ Enable required external checks only after live reporting is verified. Do not ma
 Keep one active stable candidate. If its source changes, build and validate a new candidate. Never combine files from different candidates or runs, replace a published installer, or reuse a prior unsigned exception without fresh approval.
 
 Use published release assets for durable product distributions. Keep review screenshots and disposable preview installers out of stable release assets. Keep Actions artifact retention short; public standard-runner compute and artifact storage have different billing rules.
+
+Desktop now ships its matching standalone terminal client. See [Desktop-managed terminal updates](terminal-dev-updates.md) for one-time migration, immutable payloads, live-terminal retention, signing and the exact-source cloud checks.

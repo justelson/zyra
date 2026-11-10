@@ -413,6 +413,7 @@
             "!dist/**",
             "!.release/**",
             "!resources/branding/icons/*-source.png",
+            "!resources/branding/tui/**/*",
             "!node_modules/@pierre/diffs{,/**/*}",
             "!node_modules/@silurus/ooxml{,/**/*}",
             "!node_modules/mermaid{,/**/*}",
@@ -459,6 +460,10 @@
                     "**/*",
                     "!**/*.d.{ts,mts,cts}"
                 ]
+            },
+            {
+                "from": ".release/zyra-tui",
+                "to": "zyra-tui"
             },
             {
                 "from": ".release/zyra-node",
@@ -641,6 +646,7 @@
             }
         ],
         "win": {
+            "signExts": ["!zyra-windows-x64.exe"],
             "target": [
                 {
                     "target": "nsis",
@@ -670,6 +676,7 @@
             "differentialPackage": true
         },
         "mac": {
+            "signIgnore": ["zyra-tui/zyra-macos-(arm64|x64)$"],
             "extraResources": [
                 {
                     "from": "node_modules/electron/dist/LICENSE",
@@ -695,7 +702,7 @@
                 }
             ],
             "artifactName": "Zyra-Desktop-${version}-macOS-${arch}.${ext}",
-            "x64ArchFiles": "Contents/Resources/{zyra-runtime/node_modules/**,zyra-runtime/src/runtime/terminal/native/darwin/prebuilds,app.asar.unpacked/node_modules/node-pty/prebuilds}/*darwin-{arm64,x64}*/**/*",
+            "x64ArchFiles": "{Contents/Resources/{zyra-runtime/node_modules/**,zyra-runtime/src/runtime/terminal/native/darwin/prebuilds,app.asar.unpacked/node_modules/node-pty/prebuilds}/*darwin-{arm64,x64}*/**/*,Contents/Resources/zyra-tui/zyra-macos-{arm64,x64}}",
             "icon": "resources/icon.icns",
             "category": "public.app-category.developer-tools",
             "hardenedRuntime": true,

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses'
 import { normalizeReleasePlatform } from './release-contract.mjs'
+import { readDesktopTuiPackage } from '../../../src/desktop-tui-install.mjs'
 import { validateRuntimeStage } from './runtime-contract.mjs'
 import { validateRendererPayload } from './renderer-payload-contract.mjs'
 
@@ -182,6 +183,9 @@ if (platform === 'macos') {
 const runtimeRoot = path.join(resources, 'zyra-runtime')
 validateRendererPayload(path.join(resources, 'app.asar'))
 await validateRuntimeStage(runtimeRoot, { expectedVersion: version, requireDependencies: true })
+for (const arch of platform === 'macos' ? ['arm64', 'x64'] : ['x64']) {
+    await readDesktopTuiPackage(path.join(resources, 'zyra-tui'), { version, platform: platform === 'windows' ? 'win32' : platform === 'macos' ? 'darwin' : 'linux', arch, channel: arg('expected-distribution', 'stable') === 'preview' ? 'preview' : 'stable' })
+}
 await requireNonempty(path.join(resources, 'zyra-browser-control-extension', 'manifest.json'), 'Packaged browser extension')
 
 const sidecar = path.join(resources, 'zyra-computer-use')

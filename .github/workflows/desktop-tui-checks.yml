@@ -1,0 +1,110 @@
+name: Desktop TUI updates
+run-name: Desktop TUI updates ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        type: string
+        required: true
+        default: justelson/zyra
+      source_sha:
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: desktop-tui-${{ inputs.source_sha }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2025
+          - platform: macos
+            os: macos-15
+          - platform: linux
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      ZYRA_BUILD_SOURCE_SHA: ${{ inputs.source_sha }}
+      ZYRA_BUILD_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+      ZYRA_EXPECT_SIGNED: '0'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      NODE_OPTIONS: --max-old-space-size=4096
+      ZYRA_TEST_SOFTWARE_RENDERING: '1'
+    steps:
+      - name: Validate exact-source request
+        env:
+          ALLOWED_SOURCE: ${{ vars.ZYRA_SOURCE_REPOSITORY || 'justelson/zyra' }}
+        run: |
+          test "$ZYRA_BUILD_SOURCE_REPOSITORY" = "$ALLOWED_SOURCE"
+          test "$GITHUB_REPOSITORY" != "$ALLOWED_SOURCE"
+          [[ "$ZYRA_BUILD_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Verify source identity
+        run: test "$(git rev-parse HEAD)" = "$ZYRA_BUILD_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        if: matrix.platform == 'windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install build dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix desktop ci --no-audit --no-fund
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Verify migration and source-development contracts
+        run: |
+          node scripts/test-desktop-tui-install.mjs
+          node scripts/test-dev-command.mjs
+          bun desktop/scripts/test-preview-identity.ts
+          bun desktop/scripts/test-preview-terminal-isolation.ts
+          bun desktop/scripts/test-terminal-instance-isolation.ts
+          npm --prefix desktop run typecheck
+          npm run privacy-check
+      - name: Build and verify actual native Desktop resources
+        run: |
+          if [[ "${{ matrix.platform }}" == linux ]]; then
+            dbus-run-session -- xvfb-run -a --server-args="-screen 0 1920x1080x24" bash desktop/scripts/release/linux-native-test-session.sh npm --prefix desktop run release:package -- --platform=linux --dir=true
+          else
+            npm --prefix desktop run release:package -- --platform=${{ matrix.platform }} --dir=true
+          fi
+      - name: Exercise compiled terminal and measure launcher startup
+        env:
+          ZYRA_TUI_TIMING_OUTPUT: tui-startup.json
+        run: node scripts/test-desktop-tui-native.mjs desktop/.release/zyra-tui
+      - name: Verify actual Windows installer and uninstaller syntax
+        if: matrix.platform == 'windows'
+        run: node desktop/scripts/test-agent-update-nsis.mjs
+      - name: Save bounded timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tui-${{ matrix.platform }}-${{ github.run_id }}
+          path: tui-startup.json
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Report exact build identity
+        if: always()
+        run: |
+          echo "Source: $ZYRA_BUILD_SOURCE_REPOSITORY@$ZYRA_BUILD_SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Native ${{ matrix.platform }} compilation, unpacked Desktop validation, terminal migration and startup measurement. No installer publication or user installation." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,10 @@
+export type TerminalChannel = 'stable' | 'preview';
+export type TerminalOptions = { channel: TerminalChannel; platform?: NodeJS.Platform; arch?: string; home?: string; env?: NodeJS.ProcessEnv; version?: string; directory?: string };
+export type TerminalNamespace = { stateDirectory: string; channel: string };
+export type TerminalRegistration = { schemaVersion: number; channel: TerminalChannel; version: string; sha256: string; executable: string; namespace: TerminalNamespace; ownerDirectory: string; sourceNamespace: boolean };
+export function desktopTuiPaths(options: TerminalOptions): { channel: TerminalChannel; platform: NodeJS.Platform; home: string; appData: string; cache: string; command: string };
+export function desktopTuiLauncherOwner(contents: string, channel: TerminalChannel): 'current' | 'source' | 'desktop' | 'standalone' | null;
+export function desktopTuiNeedsUpdate(directory: string, options: TerminalOptions): Promise<boolean>;
+export function installDesktopTui(options: TerminalOptions & { directory: string; publishCommand?: boolean; namespace?: TerminalNamespace }): Promise<({ installed: true; path: string } & TerminalRegistration) | { installed: false; reason: string; path: string }>;
+export function removeDesktopTui(options: TerminalOptions): Promise<{ removed: boolean }>;
+export function readDesktopTuiPackage(directory: string, options: Partial<TerminalOptions>): Promise<{ manifest: { schemaVersion: number; channel: TerminalChannel; version: string }; entry: { file: string; size: number; sha256: string }; file: string }>;

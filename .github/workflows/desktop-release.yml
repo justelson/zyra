@@ -206,6 +206,8 @@ jobs:
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          ZYRA_WINDOWS_EXPECTED_THUMBPRINT: ${{ matrix.platform == 'windows' && secrets.ZYRA_WINDOWS_CERTIFICATE_THUMBPRINT || '' }}
+          ZYRA_MACOS_EXPECTED_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.ZYRA_MACOS_TEAM_ID || '' }}
           CSC_LINK: ${{ needs.preflight.outputs.require_signing == 'true' && matrix.platform == 'windows' && secrets.ZYRA_WINDOWS_CERTIFICATE || needs.preflight.outputs.require_signing == 'true' && matrix.platform == 'macos' && secrets.ZYRA_MACOS_CERTIFICATE || '' }}
           CSC_KEY_PASSWORD: ${{ needs.preflight.outputs.require_signing == 'true' && matrix.platform == 'windows' && secrets.ZYRA_WINDOWS_CERTIFICATE_PASSWORD || needs.preflight.outputs.require_signing == 'true' && matrix.platform == 'macos' && secrets.ZYRA_MACOS_CERTIFICATE_PASSWORD || '' }}
           APPLE_API_KEY_CONTENT: ${{ needs.preflight.outputs.require_signing == 'true' && matrix.platform == 'macos' && secrets.ZYRA_MACOS_NOTARIZATION_API_KEY || '' }}

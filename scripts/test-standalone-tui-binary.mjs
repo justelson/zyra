@@ -47,7 +47,7 @@ try {
   }
   const metadata = JSON.parse(run(["--version"], { ZYRA_INSTALL_METADATA: "1" }).stdout);
   if (metadata.format !== 1 || metadata.version !== expectedVersion) throw new Error("Standalone installer metadata is invalid.");
-  const sharedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/icon.ico"));
+  const sharedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/branding/tui/icon.ico"));
   if (!Buffer.from(metadata.windowsIconBase64, "base64").equals(sharedIcon)) throw new Error("Standalone icon differs from the Desktop icon.");
   writeBundledOAuthFixture();
   assertEmbeddedResources();
@@ -149,12 +149,12 @@ function smokeUpdate() {
     if (launcherVersion.status !== 0 || launcherVersion.stdout.trim() !== `zyra ${expectedVersion}`) {
       throw new Error(`Updated standalone launcher failed validation: ${launcherVersion.stderr || launcherVersion.stdout}`);
     }
-    const expectedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/icon.ico"));
+    const expectedIcon = readFileSync(path.resolve(import.meta.dirname, "../desktop/resources/branding/tui/icon.ico"));
     const iconFile = path.join(environment.LOCALAPPDATA, "Zyra", "bin", "zyra.ico");
     const fragmentDirectory = path.join(environment.LOCALAPPDATA, "Microsoft", "Windows Terminal", "Fragments", "Zyra");
     const fragment = JSON.parse(readFileSync(path.join(fragmentDirectory, "zyra.json"), "utf8").replace(/^\uFEFF/, ""));
     if (!readFileSync(iconFile).equals(expectedIcon) || !readFileSync(path.join(fragmentDirectory, "zyra.ico")).equals(expectedIcon)) {
-      throw new Error("Installed terminal integration did not retain the exact Desktop icon.");
+      throw new Error("Installed terminal integration did not retain the terminal icon.");
     }
     if (fragment.profiles?.length !== 1 || fragment.profiles[0].icon !== "zyra.ico") throw new Error("Installed Terminal profile is invalid.");
     if (!existsSync(path.join(environment.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Zyra Terminal.lnk"))) {

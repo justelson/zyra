@@ -13,7 +13,7 @@ export async function installDevCommand({ root = checkoutRoot, directory, config
   const binDirectory = directory || (platform === "win32"
     ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Zyra", "bin")
     : path.join(os.homedir(), ".local", "bin"));
-  const target = path.join(binDirectory, platform === "win32" ? "zyra-dev.cmd" : "zyra-dev");
+  const target = path.join(binDirectory, platform === "win32" ? "zyra-dev-source.cmd" : "zyra-dev-source");
   let current;
   try { current = await readFile(target, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
   if (current !== undefined && !current.includes(marker)) throw new Error(`Refusing to replace an unmanaged command at ${target}.`);
@@ -41,6 +41,6 @@ export async function installDevCommand({ root = checkoutRoot, directory, config
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = await installDevCommand();
-  console.log(`Registered zyra-dev: ${result.path}`);
-  if (!result.pathConfigured) console.log(`Add ${path.dirname(result.path)} to PATH to run zyra-dev from any folder.`);
+  console.log(`Registered zyra-dev-source: ${result.path}`);
+  if (!result.pathConfigured) console.log(`Add ${path.dirname(result.path)} to PATH to run zyra-dev-source from any folder.`);
 }

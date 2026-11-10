@@ -41,6 +41,7 @@ SectionEnd
     // as errors. Never execute either generated fixture installer.
     await writeFile(path.join(directory, 'uninstaller.nsi'), `Unicode true
 !define BUILD_UNINSTALLER
+!define isUpdated "0 = 1"
 !include "LogicLib.nsh"
 !define PROJECT_DIR "${root}"
 !define APP_FILENAME "Zyra Syntax Fixture"

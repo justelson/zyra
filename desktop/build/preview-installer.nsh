@@ -1,9 +1,10 @@
 ; Personal previews intentionally do not register file associations, Explorer
-; actions, a global terminal command, or the stable installation locator.
+; actions, the stable terminal command, or the stable installation locator.
 ; NSIS still manages the separately identified Preview app and its own shortcut.
 ; Keep oneClick/perMachine/APP_FILENAME unchanged: existing Preview installs must
 ; upgrade in place without moving their install directory or profile.
 !include "${PROJECT_DIR}\build\agent-update-handoff.nsh"
+!include "${PROJECT_DIR}\build\terminal-command.nsh"
 !macro customHeader
   Caption "Zyra Preview - Dev channel ${VERSION}"
 !macroend
@@ -18,8 +19,12 @@
 !macroend
 
 !macro customInstall
+  !insertmacro ZyraInstallTerminal "preview"
   !insertmacro ZyraRecordAgentUpdateSuccess
 !macroend
 
 !macro customUnInstall
+  ${ifNot} ${isUpdated}
+    !insertmacro ZyraRemoveTerminal "preview"
+  ${endIf}
 !macroend

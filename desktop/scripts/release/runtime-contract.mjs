@@ -17,6 +17,10 @@ export const RUNTIME_MANIFEST_FILE = 'zyra-runtime-manifest.json'
 
 export const REQUIRED_RUNTIME_FILES = Object.freeze([
     'src/zyra-runtime.mjs',
+    'src/desktop-tui-install.mjs',
+    'src/desktop-tui-install-cli.mjs',
+    'src/desktop-tui-lease.mjs',
+    'src/development-launcher.mjs',
     'src/harness-config-plugin.mjs',
     'src/harness-v2-plugin/index.js',
     'src/runtime/schema/preload.mjs',

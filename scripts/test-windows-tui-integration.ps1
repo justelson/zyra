@@ -13,7 +13,7 @@ try {
   $Command = Join-Path $CommandDirectory 'zyra.cmd'
   Set-Content -LiteralPath $Command -Value '@exit /b 0' -Encoding Ascii
   $script:ResolvedVersion = '0.6.1'
-  $script:SharedIcon = [IO.File]::ReadAllBytes((Join-Path $Root 'desktop\resources\icon.ico'))
+  $script:SharedIcon = [IO.File]::ReadAllBytes((Join-Path $Root 'desktop\resources\branding\tui\icon.ico'))
   $script:FixtureMetadata = @{format=1;version=$ResolvedVersion;windowsIconBase64=[Convert]::ToBase64String($SharedIcon)} | ConvertTo-Json -Compress
   function Read-FixtureBinary {
     Assert (($args -join ' ') -eq '--version') 'Installer did not use a legacy-safe version-only probe.'
@@ -47,8 +47,8 @@ try {
   Assert ($Fragment.profiles[0].commandline.Contains($Command)) 'Profile must launch the stable TUI command.'
   Assert ($Fragment.profiles[0].startingDirectory -eq $env:USERPROFILE) 'Profile must not start inside the installation.'
   $SharedBytes = [Convert]::ToBase64String($script:SharedIcon)
-  Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $FragmentRoot 'zyra.ico'))) -eq $SharedBytes) 'Fragment icon differs from Desktop.'
-  Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $CommandDirectory 'zyra.ico'))) -eq $SharedBytes) 'Shortcut icon differs from Desktop.'
+  Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $FragmentRoot 'zyra.ico'))) -eq $SharedBytes) 'Fragment icon differs from the packaged terminal icon.'
+  Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $CommandDirectory 'zyra.ico'))) -eq $SharedBytes) 'Shortcut icon differs from the packaged terminal icon.'
   $Link = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Zyra Terminal.lnk'
   $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Link)
   Assert ($Shortcut.TargetPath -eq $script:Terminal) 'Shortcut must use Windows Terminal when available.'
@@ -62,7 +62,7 @@ try {
   $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Link)
   Assert ($Shortcut.TargetPath -eq $env:ComSpec) 'A machine without Terminal needs a console fallback.'
   Assert ($Shortcut.IconLocation -eq ((Join-Path $CommandDirectory 'zyra.ico') + ',0')) 'Console fallback lost the shared icon.'
-  Write-Output 'Windows TUI integration: exact Desktop icon, owned fragment/shortcut, idempotence, fallback and untouched user settings: ok'
+  Write-Output 'Windows TUI integration: terminal icon, owned fragment/shortcut, idempotence, fallback and untouched user settings: ok'
 } finally {
   foreach ($Name in $Previous.Keys) { Set-Item "Env:$Name" $Previous[$Name] }
   if (Test-Path -LiteralPath $Temporary) { Remove-Item -LiteralPath $Temporary -Recurse -Force }

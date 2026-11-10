@@ -112,6 +112,7 @@
     "test:agent-tooling": "node scripts/test-external-tools.mjs && node scripts/test-external-tools-catalog.mjs && node scripts/test-pi-tool-adapter.mjs && node scripts/test-full-send-task-state.mjs && bun desktop/scripts/test-canonical-chat-availability.ts && bun desktop/scripts/test-external-tools-broker.ts",
     "test:model-pricing": "node scripts/test-model-pricing.mjs && bun desktop/scripts/test-model-pricing.ts && node scripts/test-owned-codex-transport.mjs",
     "zyra-dev": "node bin/zyra-dev.mjs",
+    "zyra-dev-source": "node bin/zyra-dev.mjs",
     "ui:dev": "bun run --cwd desktop dev",
     "ui:build": "bun run --cwd desktop build",
     "ui:build:fast": "bun run --cwd desktop build:fast",

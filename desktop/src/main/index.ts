@@ -61,6 +61,7 @@ import { initializeDesktopStartup } from './setup/startup-initialization'
 import { resolveZyraRoot } from './zyra/zyra-root'
 import { configurePreviewDataEnvironment } from './zyra/zyra-data-root'
 import { registerInstalledDesktop } from './desktop-install-registration'
+import { syncInstalledTerminalCommand } from './terminal-command-service'
 import { dispatchDesktopTui, isDesktopTuiDispatch } from './desktop-tui-dispatcher'
 import { createRendererHangRecorder } from './diagnostics/renderer-hang-recorder'
 import { reportHangIncident } from './diagnostics/hang-analytics'
@@ -1221,6 +1222,7 @@ app.whenReady().then(async () => {
         return
     }
     void initializeProtectedMedia()
+    void syncInstalledTerminalCommand().catch(error => log.warn('[TerminalCommand] update repair deferred', error))
     if (!isPreviewDistribution()) {
         void registerInstalledDesktop().catch((error) => log.warn('[DesktopInstall] could not register this installation', error))
     }

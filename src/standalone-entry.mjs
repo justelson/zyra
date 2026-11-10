@@ -1,3 +1,5 @@
+import { developmentEnvironment } from './development-launcher.mjs';
+import { registerDesktopTuiLease } from './desktop-tui-lease.mjs';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,9 +19,15 @@ export async function runZyraStandalone(distribution) {
     return;
   }
 
+  registerDesktopTuiLease();
   const home = os.homedir();
   const runtimeRoot = path.join(home, ".zyra", "runtime", `${version}-${hash.slice(0, 12)}`);
   materializeResources(runtimeRoot, hash, resources);
+  if (process.env.ZYRA_DESKTOP_TUI_SOURCE_NAMESPACE === '1') {
+    const namespace = developmentEnvironment({ root: runtimeRoot });
+    process.env.ZYRA_STATE_DIR = namespace.ZYRA_STATE_DIR;
+    process.env.ZYRA_AGENT_SERVER_CHANNEL = namespace.ZYRA_AGENT_SERVER_CHANNEL;
+  }
 
   process.env.ZYRA_STANDALONE = "1";
   process.env.ZYRA_VERSION = version;

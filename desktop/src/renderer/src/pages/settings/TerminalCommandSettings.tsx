@@ -46,7 +46,7 @@ export function TerminalCommandSettings() {
         <SettingsSection title="Command-line access" searchSection="Terminal">
             {terminalCommandError ? <SettingsNotice tone="error">{terminalCommandError}</SettingsNotice> : null}
             <SettingsRow
-                title="zyra command"
+                title={isPreviewDistribution() ? 'zyra-dev command' : 'zyra command'}
                 description={terminalCommand?.canManage === false
                     ? isPreviewDistribution()
                         ? 'Preview cannot change the global zyra command. Terminals opened here use this isolated Preview.'

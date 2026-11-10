@@ -60,6 +60,8 @@ if (platform !== hostPlatform) {
     throw new Error(`Release resources for ${platform} must be prepared on a native ${platform} host (current: ${hostPlatform}).`)
 }
 
+await run(process.execPath, [path.join(scriptDirectory, 'stage-desktop-tui.mjs'), `--platform=${platform}`], repositoryRoot)
+
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const extensionRoot = path.join(repositoryRoot, 'extensions', 'zyra-browser-control')
 await run(npm, ['--prefix', extensionRoot, 'ci', '--no-audit', '--no-fund'], repositoryRoot)

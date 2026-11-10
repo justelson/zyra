@@ -99,6 +99,13 @@ jobs:
         env:
           ZYRA_TUI_TIMING_OUTPUT: tui-startup.json
         run: node scripts/test-desktop-tui-native.mjs desktop/.release/zyra-tui
+      - name: Verify compiled Preview terminal identity
+        if: matrix.platform == 'windows'
+        env:
+          ZYRA_TUI_TIMING_OUTPUT: tui-startup-preview.json
+        run: |
+          node --input-type=module -e "import { stageDesktopTui } from './desktop/scripts/release/stage-desktop-tui.mjs'; import { readFile } from 'node:fs/promises'; const pkg=JSON.parse(await readFile('desktop/package.json','utf8')); await stageDesktopTui({platform:'windows',version:pkg.version.split('-')[0]+'-dev.'+process.env.GITHUB_RUN_NUMBER,channel:'preview',output:'desktop/.release/zyra-tui-preview'});"
+          node scripts/test-desktop-tui-native.mjs desktop/.release/zyra-tui-preview
       - name: Verify actual Windows installer and uninstaller syntax
         if: matrix.platform == 'windows'
         run: node desktop/scripts/test-agent-update-nsis.mjs
@@ -107,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-tui-${{ matrix.platform }}-${{ github.run_id }}
-          path: tui-startup.json
+          path: tui-startup*.json
           if-no-files-found: ignore
           retention-days: 3
       - name: Report exact build identity

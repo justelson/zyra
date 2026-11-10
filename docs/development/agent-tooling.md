@@ -6,7 +6,7 @@
 
 Run `node scripts/install-agent-tooling.mjs` from this checkout. It links both skills into the shared Agent Skills folder and the personal Codex, Pi and Zyra skill directories. Existing unmanaged files are preserved. The Pi extension is installed in its normal extension discovery directory; no Pi package is added to Zyra.
 
-The default Pi connection matches `zyra-dev` and Desktop's development profile. Use `--state-directory <path> --channel <name>` to connect a different Zyra instance. Connection configuration contains no credential. The adapter reads the existing local server discovery descriptor through Zyra's client and never receives the Desktop authority proof.
+The default Pi connection matches `zyra-dev-source` and Desktop's source development profile. Use `--state-directory <path> --channel <name>` to connect a different Zyra instance. Connection configuration contains no credential. The adapter reads the existing local server discovery descriptor through Zyra's client and never receives the Desktop authority proof.
 
 Pi `/reload` discovers the extension and skills. A fresh Codex session discovers new skills. Zyra exposes them through its usual skill resource discovery/reload. A running older server must be activated to expose the new gateway methods; installation never restarts user apps or upgrades a live service automatically.
 

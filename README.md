@@ -115,12 +115,14 @@ node scripts/build-tui-release.mjs --target=linux-x64
 
 Desktop development:
 
-`bun dev` in `desktop/` registers `zyra-dev` for the terminal. Run `zyra-dev`
-from any project folder to open a new chat against the development Desktop
-profile, or `zyra-dev resume` to pick an existing dev chat. It uses the current
-checkout's source and selects the dev namespace automatically. A suffixed dev
-profile uses the same `ZYRA_DEV_INSTANCE_SUFFIX` in both terminals.
+`bun dev` in `desktop/` registers `zyra-dev-source` for the terminal. Run
+`zyra-dev-source` from any project folder to open a new chat against the source
+Desktop development profile, or `zyra-dev-source resume` to pick an existing dev
+chat. It uses the current checkout and selects the dev namespace automatically.
+A suffixed dev profile uses the same `ZYRA_DEV_INSTANCE_SUFFIX` in both terminals.
 To register it without starting Desktop, run `bun run install:dev` at the repo root.
+Installed Preview manages `zyra-dev`; Stable manages `zyra`. See
+[Desktop-managed terminal updates](docs/development/terminal-dev-updates.md).
 
 ```bash
 npm --prefix desktop ci

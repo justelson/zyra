@@ -10,23 +10,21 @@ on:
       source_sha:
         type: string
         required: true
+      macos_only:
+        description: Recheck the native Mac package without rebuilding Windows/Linux
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: desktop-tui-${{ inputs.source_sha }}
+  group: desktop-tui-${{ inputs.source_sha }}-${{ inputs.macos_only }}
   cancel-in-progress: true
 jobs:
   native:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: windows
-            os: windows-2025
-          - platform: macos
-            os: macos-15
-          - platform: linux
-            os: ubuntu-24.04
+        include: ${{ fromJSON(inputs.macos_only && '[{"platform":"macos","os":"macos-15-intel"}]' || '[{"platform":"windows","os":"windows-2025"},{"platform":"macos","os":"macos-15-intel"},{"platform":"linux","os":"ubuntu-24.04"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:

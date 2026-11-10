@@ -144,7 +144,7 @@ async function makeVideo(width: number, height: number) {
     return URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }))
 }
 async function checkMixedMediaScroll() {
-    shortVideo = await makeVideo(320, 180)
+    shortVideo = await makeVideo(320, 90)
     tallVideo = await makeVideo(180, 480)
     render(mixedRows)
     await pause(350)
@@ -169,19 +169,17 @@ async function checkMixedMediaScroll() {
     const stable = async (label: string, action: () => void | Promise<void>, row = 1, paragraph = 0) => {
         const node = probe(row, paragraph)
         const before = node.getBoundingClientRect().top
-        const debugAnchor = () => {
-            const anchor = captureAssistantTimelineMediaAnchor(scroller, 'visual-scroll')
-            const stage = node.closest('[data-assistant-timeline-row-id]')?.querySelector('.video-player-stage')
-            return { text: anchor?.textValue, row: anchor?.rowId, offset: anchor?.offsetWithinRow,
-                proseTop: node.getBoundingClientRect().top, scrollTop: scroller.scrollTop,
-                stageDisplay: stage ? getComputedStyle(stage).display : null, stageHeight: stage?.getBoundingClientRect().height }
-        }
-        const debugBefore = debugAnchor()
+        const readingAnchor = captureAssistantTimelineMediaAnchor(scroller, 'visual-scroll')
+        if (!readingAnchor?.text.parentElement?.closest('[data-reading-probe]')) throw new Error(`${label}: the reading anchor must belong to prose, never player labels/timers`)
+        const stage = node.closest('[data-assistant-timeline-row-id]')?.querySelector('.video-player-stage')
+        const beforeMediaHeight = stage?.getBoundingClientRect().height || 0
+        if (stage && getComputedStyle(stage).display !== 'grid') throw new Error('The scroll fixture must load the real custom player styles')
         await action()
         await pause(420)
         const driftPx = Math.abs(node.getBoundingClientRect().top - before)
         stability.push({ label, driftPx })
-        if (!node.isConnected || driftPx > 2) { console.log('[DEBUG-media-anchor] ' + JSON.stringify({ label, before: debugBefore, after: debugAnchor(), driftPx })); throw new Error(`${label}: visible prose moved ${driftPx}px`) }
+        if (!node.isConnected || driftPx > 2) throw new Error(`${label}: visible prose moved ${driftPx}px`)
+        if (label === 'same-row video metadata' && Math.abs((node.closest('[data-assistant-timeline-row-id]')?.querySelector('.video-player-stage')?.getBoundingClientRect().height || 0) - beforeMediaHeight) < 32) throw new Error('The video metadata regression must actually change the player footprint')
     }
     await read(1)
     if (!mediaReleases.has('previous')) throw new Error('Previous row must still be mounted for growth test')

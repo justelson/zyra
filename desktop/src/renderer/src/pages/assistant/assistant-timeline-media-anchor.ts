@@ -21,8 +21,9 @@ function anchorAtRange(scroller: HTMLElement, windowKey: string, range: Range): 
     const text = range.startContainer
     if (text.nodeType !== Node.TEXT_NODE || !text.textContent?.trim()) return null
     const parent = text.parentElement
-    // Interactive controls, hidden copy text and sandbox documents are not reading anchors.
-    if (!parent || parent.closest('button, summary, [aria-hidden="true"], .sr-only')) return null
+    // Player labels/timers can remount or change while prose stays connected.
+    // Controls, hidden copy text and sandbox documents are not reading anchors.
+    if (!parent || parent.closest('button, summary, [aria-hidden="true"], .sr-only, [data-audio-player], [data-video-player]')) return null
     const row = parent.closest<HTMLElement>(ROW_SELECTOR)
     if (!row || !scroller.contains(row)) return null
     const character = range.cloneRange()

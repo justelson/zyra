@@ -39,6 +39,7 @@ try {
     assert.equal(await readFile(source, 'utf8'), legacy, 'source command remains explicitly usable');
     const launcher = await readFile(f.paths.command, 'utf8');
     assert(!launcher.includes('node.exe') && !launcher.includes('--tui') && !launcher.includes('powershell'), 'steady-state launch does not start Desktop or a secondary runtime');
+    assert(launcher.includes(platform === 'win32' ? 'if defined ZYRA_STATE_DIR' : 'if [ -z "${ZYRA_STATE_DIR:-}" ]'), 'explicit namespace overrides remain honored');
     if (platform === 'win32') { assert(launcher.includes('%~dp0')); assert(!launcher.includes('Ω')); }
     assert.equal((await installDesktopTui({ ...f.options, directory: f.directory })).executable, first.executable);
     await f.pack('0.7.1-dev.2');

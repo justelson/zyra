@@ -121,7 +121,7 @@ const renderRow = (row: TimelineDisplayRow) => {
         <div data-media-burst={row.id} />
         {Array.from({ length: 36 }, (_, i) => <p key={i} data-reading-probe={`${row.id}-${i}`}>Visible prose {i}. This text must remain in place while media above it finishes loading.</p>)}
         <VisualizationMessage content={chart(Number(row.id.slice(6)))} streaming={false} renderMarkdown={markdown} />
-        {row.id === 'mixed-11' ? <><button data-space-control onClick={() => { (window as any).spaceControlClicks = ((window as any).spaceControlClicks || 0) + 1 }}>Inspect details</button><textarea data-space-editor rows={1} defaultValue="" /></> : null}
+        {row.id === mixedRows.at(-1)?.id ? <><button data-space-control onClick={() => { (window as any).spaceControlClicks = ((window as any).spaceControlClicks || 0) + 1 }}>Inspect details</button><textarea data-space-editor rows={1} defaultValue="" /></> : null}
     </>
 }
 const render = (data: TimelineDisplayRow[], thread = 'visual-scroll') => flushSync(() => root.render(<VisualizationThreadContext.Provider value={thread}><AssistantVirtualTimeline
@@ -214,7 +214,7 @@ async function checkMixedMediaScroll() {
     })
     await stable('same-row video error fallback', async () => {
         mediaFailures.get('video-mixed-1')!()
-        await until(() => document.querySelector('[data-assistant-timeline-row-id="mixed-1"] .markdown-video-unavailable'), 'Broken media must reach the real unavailable state')
+        await until(() => document.querySelector('[data-assistant-timeline-row-id="mixed-1"] [data-video-player][data-media-state="error"] [role="alert"]'), 'Broken media must reach the real unavailable state')
     })
     await stable('media contracts before compensation scroll delivery', async () => {
         const burst = document.querySelector<HTMLElement>('[data-media-burst="mixed-1"]')!
@@ -453,7 +453,7 @@ async function checkFrameReuse() {
     // The measured scroll can finish with the last row outside the lazy-load
     // viewport. Exercise that case explicitly, then mount the target before
     // testing same-row invalidation rather than timing its offscreen loading.
-    const lastChart = () => document.querySelector<HTMLIFrameElement>('iframe[title="Chart 39"]')
+    const lastChart = () => activeFrames().find(frame => frame.title === 'Chart 39')
     scrollRef.current!.dispatchEvent(new WheelEvent('wheel', { deltaY: -10000, bubbles: true }))
     await listRef.current!.scrollToIndex({ index: 0, animated: false })
     await until(() => !lastChart(), 'Source-change setup must virtualize the target away')
@@ -463,7 +463,7 @@ async function checkFrameReuse() {
     // Same-row content updates must still change the rendered document.
     const changed = rows.map((row, i) => i === 19 && row.kind === 'message' ? { ...row, message: { ...row.message, text: row.message.text.replace('Synthetic chart 39', 'Changed chart 39') } } : row)
     render(changed)
-    await until(() => { const current = activeFrames().find(node => node.title === 'Chart 39'); return current && !bottomFrames.includes(current) && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
+    await until(() => { const current = lastChart(); return current && current !== beforeChange && current.dataset.visualizationReady === 'true' }, 'Changed source must not reuse stale content')
     if ([...document.querySelectorAll('iframe')].some(node => node.getAttribute('sandbox') !== 'allow-scripts')) throw new Error('Sandbox permissions changed')
     const mixedMedia = await checkMixedMediaScroll()
     const frameReuse = __VERIFY_FRAME_REUSE__ && moveBefore ? await checkFrameReuse() : null

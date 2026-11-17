@@ -435,7 +435,7 @@ async function checkRowHoverMotion(id: string) {
         reading.forEach((element, index) => {
             const bounds = element.getBoundingClientRect()
             const yieldsActionSpace = Boolean(movingPresence?.contains(element))
-            check(Math.abs(bounds.width - before[index].width) < .5 && (yieldsActionSpace || Math.abs(bounds.x - before[index].x) < .5), 'Hover preserves title, status-slot and artwork geometry; only presence yields the action slot')
+            check(Math.abs(bounds.width - before[index].width) < .5 && (yieldsActionSpace || Math.abs(bounds.x - before[index].x) < .5), `Hover preserves title, status-slot and artwork geometry: ${id} ${index} ${element.outerHTML.slice(0,90)}, before ${before[index].x}/${before[index].width}, after ${bounds.x}/${bounds.width}`)
             if (yieldsActionSpace) check(bounds.x >= before[index].x - hidden.width - .5 && bounds.x <= before[index].x + .5, 'Presence moves only within the existing action slot')
         })
         const button = target.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!

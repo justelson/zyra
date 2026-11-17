@@ -433,12 +433,13 @@ export function boundAssistantActiveHistoryWindow(
     loadedDirection: 'older' | 'newer'
 ): AssistantRetainedHistory {
     let bounded = history
+    const minimumTurns = loadedDirection === 'newer' ? ACTIVE_ASSISTANT_HISTORY_MIN_TURNS : 1
     while (
         bounded.messages.length + bounded.activities.length + bounded.proposedPlans.length > ACTIVE_ASSISTANT_HISTORY_MAX_RECORDS
         || estimateAssistantTimelineCollectionsCharacters(bounded, ACTIVE_ASSISTANT_HISTORY_MAX_CHARACTERS + 1) > ACTIVE_ASSISTANT_HISTORY_MAX_CHARACTERS
     ) {
         const userMessages = bounded.messages.filter((message) => message.role === 'user')
-        if (userMessages.length <= ACTIVE_ASSISTANT_HISTORY_MIN_TURNS) break
+        if (userMessages.length <= minimumTurns) break
         const boundaryMessage = loadedDirection === 'older'
             ? userMessages[userMessages.length - 1]!
             : userMessages[1]!

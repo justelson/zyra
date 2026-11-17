@@ -184,7 +184,7 @@ async function checkExplicitOrderControls() {
             check(selected === selectedBefore, 'only the drag-generated click is suppressed')
             check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'release restores the normal cursor')
         }
-        return dropPoint
+        return { ...dropPoint, pointerId }
     }
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
     const storageBeforePointerMove = localStorage.getItem(key)
@@ -217,10 +217,8 @@ async function checkExplicitOrderControls() {
     await assertCancelled('window blur')
     cancelPoint = await move(dragged, target, 'before', false)
     const viewport = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
-    let realPointerId = -1
-    viewport.addEventListener('pointermove', event => { realPointerId = event.pointerId }, { once: true })
-    await movePointer(cancelPoint.x + 1, cancelPoint.y)
-    viewport.dispatchEvent(new PointerEvent('pointercancel', { pointerId: realPointerId, bubbles: true }))
+    check(viewport.hasPointerCapture(cancelPoint.pointerId), 'cancel the actual captured pointer')
+    viewport.dispatchEvent(new PointerEvent('pointercancel', { pointerId: cancelPoint.pointerId, bubbles: true }))
     await movePointer(cancelPoint.x, cancelPoint.y, false, 'mouseUp')
     await assertCancelled('pointercancel after real mouse gesture')
     await move(dragged, target, 'before', false)

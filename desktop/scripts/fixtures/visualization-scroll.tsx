@@ -9,6 +9,7 @@ import { captureAssistantTimelineMediaAnchor } from '../../src/renderer/src/page
 import { VisualizationMessage } from '../../src/renderer/src/components/ui/visualization/VisualizationMessage'
 import { getVisualizationDocumentCacheStats } from '../../src/renderer/src/components/ui/visualization/visualization-document'
 import { visualizationFramePool } from '../../src/renderer/src/components/ui/visualization/visualization-frame-pool'
+import { VisualizationFrame } from '../../src/renderer/src/components/ui/visualization/VisualizationFrame'
 import { VisualizationThreadContext } from '../../src/renderer/src/components/ui/visualization/visualization-thread-context'
 import { captureAssistantTimelineMediaAnchor, measureAssistantTimelineMediaAnchorDelta } from '../../src/renderer/src/pages/assistant/assistant-timeline-media-anchor'
 import type { TimelineDisplayRow } from '../../src/renderer/src/pages/assistant/assistant-timeline-helpers'
@@ -353,7 +354,33 @@ function checkBoundedAnchorFallback() {
     }
 }
 
+async function checkLoadWhileParked() {
+    const container = document.createElement('div')
+    container.dataset.assistantTimelineRowId = 'pending-frame'
+    Object.assign(container.style, { position: 'fixed', top: '0', left: '0', width: '320px' })
+    document.body.append(container)
+    const host = createRoot(container)
+    let measured = false, loaded = false
+    const draw = () => flushSync(() => host.render(<VisualizationThreadContext.Provider value="pending-chart">
+        <VisualizationFrame source='<main class="zyra-viz-content"><p>Parked chart</p></main>' title="Parked chart" identity={1} fill={false}
+            height={96} ready={false} reducedMotion onHeight={() => { measured = true }} onReset={() => {}} onWheel={() => {}} />
+    </VisualizationThreadContext.Provider>))
+    try {
+        draw()
+        const iframe = container.querySelector('iframe')!
+        iframe.loading = 'eager'
+        iframe.addEventListener('load', () => { loaded = true }, { once: true })
+        flushSync(() => host.render(null))
+        if (!iframe.isConnected || iframe.dataset.visualizationActive !== 'false') throw new Error('The pending frame must park before its first load')
+        await until(() => loaded, 'The original frame document must load while parked')
+        draw()
+        if (container.querySelector('iframe') !== iframe) throw new Error('Reattachment must use the parked document')
+        await until(() => measured, 'A frame that loaded offscreen must complete initialization on reattachment')
+    } finally { host.unmount(); container.remove() }
+}
+
 async function checkFrameReuse() {
+    await checkLoadWhileParked()
     const stateRow: TimelineDisplayRow = { id: 'state-row', kind: 'message', createdAt: date, message: { id: 'state-row', role: 'assistant', text: chart(999), streaming: false, createdAt: date, updatedAt: date } }
     const input = document.createElement('input')
     input.setAttribute('aria-label', 'Synthetic composer')

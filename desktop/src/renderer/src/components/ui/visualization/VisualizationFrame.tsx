@@ -38,7 +38,9 @@ export function VisualizationFrame(props: VisualizationFrameProps) {
         const initialize = () => {
             if (entry.owner !== lease.token) return
             if (entry.initialized) frame.contentWindow?.postMessage({ type: 'zyra:visualization-resume', channel: entry.channel }, '*')
-            else {
+            // The ready/height callback may have arrived while this pooled frame had no owner.
+            // The frame accepts its document once and ignores duplicate initialization.
+            if (!entry.ready) {
                 entry.initialized = true
                 frame.contentWindow?.postMessage({ type: 'zyra:visualization-init', channel: entry.channel, document: props.source, fitContent: !props.fill }, '*')
             }
@@ -59,12 +61,13 @@ export function VisualizationFrame(props: VisualizationFrameProps) {
             if (typeof width === 'number' && Number.isFinite(width) && width > 0 && width <= 100_000) entry.width = width
             callbacks.current.onHeight(height)
         }
+        const wasParked = frame.isConnected
         frame.addEventListener('load', initialize)
         attachVisualizationFrame(element, frame)
         const unsubscribe = subscribeVisualizationFrameMessages(view, frame.contentWindow!, receive)
         if (entry.ready) callbacks.current.onHeight(entry.height)
         else callbacks.current.onReset()
-        if (entry.initialized) initialize()
+        if (wasParked) initialize()
         return () => {
             unsubscribe()
             frame.removeEventListener('load', initialize)

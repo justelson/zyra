@@ -26,6 +26,17 @@ assert.equal(store.getState().historyByThreadId[thread.id]!.pageInfo.hasNewer, f
 assert.equal(await store.loadLatestHistory(thread.id), true)
 assert.equal(requests.length, 1, 'a resident true tail needs no fetch')
 const defer = <T,>() => { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
+const streamingStore = setup(), streamingPage = defer<any>()
+readPage = () => streamingPage.promise
+const liveRead = streamingStore.loadLatestHistory(thread.id)
+const assistantReply = newest.messages.at(-1)!
+const watermark = snapshot.snapshotSequence + 1
+;(streamingStore as any).queueAssistantEvent({ type: 'thread.message.assistant.delta', sequence: watermark + 1,
+    eventId: 'detached-reply-update', occurredAt: new Date(Date.parse(assistantReply.updatedAt) + 1000).toISOString(),
+    sessionId: snapshot.sessions[0]!.id, threadId: thread.id, payload: { threadId: thread.id, messageId: assistantReply.id, delta: ' live suffix' } })
+streamingPage.resolve({ success: true, page: { ...newest, snapshotSequence: watermark } })
+assert.equal(await liveRead, true)
+assert.equal(streamingStore.getState().historyByThreadId[thread.id]!.messages.at(-1)!.text, assistantReply.text + ' live suffix', 'Latest replays the in-flight delta for a nonresident reply exactly once')
 for (const rejectOlder of [false, true]) {
     const racing = setup(), older = defer<any>()
     readPage = input => input.before ? older.promise : Promise.resolve({ success: true, page: newest })

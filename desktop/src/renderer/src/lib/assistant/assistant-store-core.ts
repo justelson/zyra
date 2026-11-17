@@ -512,6 +512,7 @@ export class AssistantStore {
     }
 
     async loadLatestHistory(threadId: string): Promise<boolean> {
+        this.flushPendingAssistantEvents()
         const pending = this.pendingLatestHistoryLoads.get(threadId)
         if (pending) return pending
         const history = this.state.historyByThreadId[threadId]
@@ -521,6 +522,7 @@ export class AssistantStore {
         this.historyNavigationRevisions.set(threadId, navigation)
         this.pendingHistoryLoads.delete(threadId)
         this.setState(current => ({ historyByThreadId: { ...current.historyByThreadId, [threadId]: { ...history, loadingOlder: false, loadingNewer: true, loadNewerError: null } } }))
+        const historyRead = this.historyReads.begin(threadId)
         const promise = (async () => {
             try {
                 // No forward cursor: one bounded read reaches the real tail,
@@ -528,11 +530,16 @@ export class AssistantStore {
                 const result = await window.devscope.assistant.getHistoryPage({ threadId, turnLimit: 3 })
                 if (!result.success) throw new Error(result.error)
                 if (result.page.pageInfo.hasNewer) throw new Error('Latest messages are not available yet. Try again.')
+                this.flushPendingAssistantEvents()
                 if (this.historyNavigationRevisions.get(threadId) !== navigation) return false
                 this.setState(current => {
                     const resident = current.historyByThreadId[threadId]
                     if (!resident) return {}
-                    const applied = applyAssistantLatestHistoryPage(current.snapshot, resident, result.page)
+                    if (historyRead.overflow || (historyRead.events.length && !canReplayAssistantHistoryRead(historyRead, result.page))) {
+                        throw new Error('History changed while loading the latest messages. Try again.')
+                    }
+                    const page = replayAssistantHistoryRead(current.snapshot, result.page, historyRead)
+                    const applied = applyAssistantLatestHistoryPage(current.snapshot, resident, page)
                     return {
                         snapshot: dematerializeAssistantHistories(applied.snapshot, getAssistantMaterializedThreadIds(applied.snapshot)),
                         historyByThreadId: { ...current.historyByThreadId, [threadId]: applied.history }
@@ -549,6 +556,7 @@ export class AssistantStore {
                 return false
             }
         })().finally(() => {
+            this.historyReads.finish(historyRead)
             if (this.pendingLatestHistoryLoads.get(threadId) === promise) this.pendingLatestHistoryLoads.delete(threadId)
         })
         this.pendingLatestHistoryLoads.set(threadId, promise)

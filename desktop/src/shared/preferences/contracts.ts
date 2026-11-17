@@ -82,6 +82,7 @@ export const SURFACE_DEVICE_PREFERENCE_KEYS = [
     'filePreviewFullscreenShowRightPanel',
     'filePreviewTerminalPanelHeight',
     'assistantBrowserStandaloneAiTools',
+    'assistantBrowserVerticalTabs',
     'assistantBrowserRestoreTabs',
     'assistantBrowserGoogleSuggestions',
     'assistantBrowserAdBlockEnabled',

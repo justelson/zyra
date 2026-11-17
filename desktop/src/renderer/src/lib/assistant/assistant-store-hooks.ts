@@ -97,6 +97,7 @@ const assistantStoreActions = {
     deleteMessageResult: (messageId: string, sessionId?: string) => assistantStore.deleteMessage({ messageId, sessionId }),
     loadOlderHistory: (threadId?: string, turnLimit?: number) => assistantStore.loadOlderHistory(threadId, turnLimit),
     loadNewerHistory: (threadId?: string, turnLimit?: number) => assistantStore.loadNewerHistory(threadId, turnLimit),
+    loadLatestHistory: (threadId: string) => assistantStore.loadLatestHistory(threadId),
     loadHistoryAroundMessage: (threadId: string, messageId: string) => assistantStore.loadHistoryAroundMessage(threadId, messageId),
     clearLogs: (sessionId?: string) => assistantStore.clearLogs(sessionId ? { sessionId } : undefined).then(() => undefined),
     clearLogsResult: (sessionId?: string) => assistantStore.clearLogs(sessionId ? { sessionId } : undefined),

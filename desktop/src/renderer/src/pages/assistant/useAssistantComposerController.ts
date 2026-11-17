@@ -216,7 +216,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     ), [])
     const publishConfiguration = useCallback((patch: Pick<AssistantUpdateSessionConfigurationInput, 'model' | 'runtimeMode' | 'effort'>) => {
         // New/unconnected chats retain their local launch choices until Send.
-        if (isThinking || useSettingsDefaults || !normalizedSessionId || !configurationThreadId || !isConnected) return
+        if (isThinking || useSettingsDefaults || !normalizedSessionId || !configurationThreadId) return
         void configurationPublisher({ sessionId: normalizedSessionId, threadId: configurationThreadId, ...patch })
             .catch(error => {
                 const canonical = canonicalConfigurationRef.current

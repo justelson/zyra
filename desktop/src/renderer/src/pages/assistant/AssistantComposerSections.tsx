@@ -563,13 +563,71 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
 
     return (
         <div className={cn('flex min-w-0 flex-1 flex-nowrap items-center justify-start text-[14px]', forceSingleRow ? 'gap-1' : 'gap-1.5 max-[520px]:gap-1', isCompactFooter ? 'overflow-visible' : 'overflow-visible')}>
-            <div className="relative min-w-0 flex-[1_1_0%] max-w-full" ref={traitsDropdownRef}>
+            <div ref={accessMenuRef} className="relative shrink-0">
+                {showAccessMenu ? (
+                    <AnchoredNativeOverlay enabled={true} browserZIndex={180}><div
+                        role="menu"
+                        aria-label="Permission mode"
+                        className={cn(
+                            'absolute left-0 z-[180] w-[226px] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[12px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-xl animate-in fade-in duration-150',
+                            traitsMenuOpensDown ? 'top-[36px] slide-in-from-top-1' : 'bottom-[36px] slide-in-from-bottom-1'
+                        )}
+                    >
+                        {ASSISTANT_ACCESS_OPTIONS.map((option) => {
+                            const Icon = option.icon
+                            const selected = option.mode === selectedRuntimeMode
+                            return (
+                                <button
+                                    key={option.mode}
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked={selected}
+                                    onClick={() => {
+                                        setShowAccessMenu(false)
+                                        setSelectedRuntimeMode(option.mode)
+                                    }}
+                                    className={cn(
+                                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]',
+                                        selected && option.selectedMenuClass
+                                    )}
+                                >
+                                    <Icon size={14} className={cn('shrink-0', option.accentClass)} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block font-medium text-sparkle-text">{option.label}</span>
+                                        <span className="block truncate text-[10px] text-sparkle-text-dark">{option.description}</span>
+                                    </span>
+                                    {selected ? <Check size={14} className={cn('shrink-0', option.accentClass)} /> : null}
+                                </button>
+                            )
+                        })}
+                    </div></AnchoredNativeOverlay>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={controlsLocked}
+                    aria-haspopup="menu"
+                    aria-expanded={showAccessMenu}
+                    onClick={() => setShowAccessMenu((open) => !open)}
+                    aria-label={`${selectedAccess.label} permission mode`}
+                    style={{ '--assistant-access-expanded-width': selectedAccess.pillWidth } as CSSProperties}
+                    className={cn(
+                        'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
+                        selectedAccess.pillClass,
+                        controlsLocked && 'cursor-not-allowed opacity-45'
+                    )}
+                    title={selectedAccess.label}
+                >
+                    <SelectedAccessIcon className="assistant-composer-footer-access-icon" />
+                    <span className="assistant-composer-footer-access-label">{selectedAccess.shortLabel}</span>
+                </button>
+            </div>
+            <div className="relative ml-auto flex min-w-0 max-w-full justify-end" ref={traitsDropdownRef}>
                 {controlsMotion.present ? <AnchoredNativeOverlay browserZIndex={170} autoFocus={showTraitsDropdown} onReady={handleControlsReady}><div
                     data-composer-controls-motion
                     aria-hidden={!showTraitsDropdown}
                     inert={!showTraitsDropdown}
                     className={cn(
-                        traitsMenuOpensDown ? 'absolute left-0 top-[36px] z-[170]' : 'absolute bottom-[36px] left-0 z-[170]',
+                        traitsMenuOpensDown ? 'absolute right-0 top-[36px] z-[170]' : 'absolute bottom-[36px] right-0 z-[170]',
                         'transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none motion-reduce:transform-none',
                         controlsVisible ? 'pointer-events-auto translate-y-0 opacity-100' : cn('pointer-events-none opacity-0', traitsMenuOpensDown ? '-translate-y-1' : 'translate-y-1')
                     )}
@@ -799,64 +857,6 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                         {canChooseEffort ? <span className={cn('shrink-0', selectedEffortTone.textClass)}>{selectedEffortText}</span> : null}
                         <ChevronDown size={12} className="-mr-0.5 ml-0.5 shrink-0 text-sparkle-text-muted" />
                     </span>
-                </button>
-            </div>
-            <div ref={accessMenuRef} className="relative shrink-0">
-                {showAccessMenu ? (
-                    <AnchoredNativeOverlay enabled={true} browserZIndex={180}><div
-                        role="menu"
-                        aria-label="Permission mode"
-                        className={cn(
-                            'absolute right-0 z-[180] w-[226px] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[12px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-xl animate-in fade-in duration-150',
-                            traitsMenuOpensDown ? 'top-[36px] slide-in-from-top-1' : 'bottom-[36px] slide-in-from-bottom-1'
-                        )}
-                    >
-                        {ASSISTANT_ACCESS_OPTIONS.map((option) => {
-                            const Icon = option.icon
-                            const selected = option.mode === selectedRuntimeMode
-                            return (
-                                <button
-                                    key={option.mode}
-                                    type="button"
-                                    role="menuitemradio"
-                                    aria-checked={selected}
-                                    onClick={() => {
-                                        setShowAccessMenu(false)
-                                        setSelectedRuntimeMode(option.mode)
-                                    }}
-                                    className={cn(
-                                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]',
-                                        selected && option.selectedMenuClass
-                                    )}
-                                >
-                                    <Icon size={14} className={cn('shrink-0', option.accentClass)} />
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block font-medium text-sparkle-text">{option.label}</span>
-                                        <span className="block truncate text-[10px] text-sparkle-text-dark">{option.description}</span>
-                                    </span>
-                                    {selected ? <Check size={14} className={cn('shrink-0', option.accentClass)} /> : null}
-                                </button>
-                            )
-                        })}
-                    </div></AnchoredNativeOverlay>
-                ) : null}
-                <button
-                    type="button"
-                    disabled={controlsLocked}
-                    aria-haspopup="menu"
-                    aria-expanded={showAccessMenu}
-                    onClick={() => setShowAccessMenu((open) => !open)}
-                    aria-label={`${selectedAccess.label} permission mode`}
-                    style={{ '--assistant-access-expanded-width': selectedAccess.pillWidth } as CSSProperties}
-                    className={cn(
-                        'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
-                        selectedAccess.pillClass,
-                        controlsLocked && 'cursor-not-allowed opacity-45'
-                    )}
-                    title={selectedAccess.label}
-                >
-                    <SelectedAccessIcon className="assistant-composer-footer-access-icon" />
-                    <span className="assistant-composer-footer-access-label">{selectedAccess.shortLabel}</span>
                 </button>
             </div>
             {connectionPillState ? (

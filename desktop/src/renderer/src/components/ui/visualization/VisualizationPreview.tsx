@@ -7,11 +7,10 @@ import { VisualizationInfo } from './VisualizationInfo'
 import { copyTextToClipboard } from '@/lib/copy-text'
 import { APPEARANCE_FONT_FACES_CHANGED_EVENT, getAppearanceFontResource } from '@/lib/appearance-font-faces'
 import { ArtifactCreationState } from '../ArtifactCreationState'
+import { VisualizationFrame } from './VisualizationFrame'
 
 export const VisualizationPreview = memo(function VisualizationPreview({ block, streaming, timestamp, hideHeader = false, fill = false }: { block: VisualizationBlock; streaming: boolean; timestamp?: ReactNode; hideHeader?: boolean; fill?: boolean }) {
     const root = useRef<HTMLElement>(null)
-    const frame = useRef<HTMLIFrameElement>(null)
-    const [channel] = useState(() => crypto.randomUUID())
     const [measurement, setMeasurement] = useState<{ source: string; height: number } | null>(null)
     const [theme, setTheme] = useState<VisualizationTheme>(DEFAULT_VISUALIZATION_THEME)
     const [mounted, setMounted] = useState(false)
@@ -51,36 +50,19 @@ export const VisualizationPreview = memo(function VisualizationPreview({ block, 
         return () => { view.removeEventListener(ZYRA_THEME_CHANGED_EVENT, update); view.removeEventListener(APPEARANCE_FONT_FACES_CHANGED_EVENT, update); observer.disconnect() }
     }, [])
     const source = useMemo(() => mounted && block.state === 'complete' ? buildVisualizationDocument(block.html, block.title, theme, { inline: true, fitContent: !fill, viewportHeight: block.height }) : '', [mounted, block.html, block.title, block.state, block.height, theme, fill])
-    const initializeFrame = () => frame.current?.contentWindow?.postMessage({ type: 'zyra:visualization-init', channel, document: source, fitContent: !fill }, '*')
-    useEffect(() => {
+    const scrollFromFrame = (delta: number) => {
         const view = root.current?.ownerDocument.defaultView
-        if (!view || !source) return
-        const receive = (event: MessageEvent) => {
-            if (event.source !== frame.current?.contentWindow || event.origin !== 'null') return
-            if (event.data?.type === 'zyra:visualization-ready') { initializeFrame(); return }
-            if (event.data?.channel !== channel) return
-            if (event.data.type === 'zyra:visualization-wheel' && !fill) {
-                const delta = event.data.deltaY
-                if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10_000) return
-                const element = root.current
-                if (!element) return
-                // Record user intent before scrolling across the opaque frame boundary.
-                const wheel = new WheelEvent('wheel', { deltaY: delta, bubbles: true, cancelable: true })
-                if (!element.dispatchEvent(wheel)) return
-                let scroller = element.parentElement
-                while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(view.getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement
-                if (scroller) scroller.scrollBy({ top: delta, behavior: 'instant' })
-                else view.scrollBy({ top: delta, behavior: 'instant' })
-                return
-            }
-            if (event.data?.type !== 'zyra:visualization-height') return
-            const height = event.data.height
-            if (typeof height !== 'number' || !Number.isFinite(height) || height < 0 || height > 100_000) return
-            setMeasurement(previous => previous?.source === source && previous.height === height ? previous : { source, height })
-        }
-        view.addEventListener('message', receive)
-        return () => view.removeEventListener('message', receive)
-    }, [source, channel, fill])
+        if (!view || fill) return
+        const element = root.current
+        if (!element) return
+        // Record user intent before scrolling across the opaque document boundary.
+        const wheel = new WheelEvent('wheel', { deltaY: delta, bubbles: true, cancelable: true })
+        if (!element.dispatchEvent(wheel)) return
+        let scroller = element.parentElement
+        while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(view.getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement
+        if (scroller) scroller.scrollBy({ top: delta, behavior: 'instant' })
+        else view.scrollBy({ top: delta, behavior: 'instant' })
+    }
     const pending = block.state === 'incomplete' && streaming
     const previewHeight = measurement?.source === source ? Math.max(32, measurement.height) : block.height
     const copy = async () => {
@@ -108,7 +90,7 @@ export const VisualizationPreview = memo(function VisualizationPreview({ block, 
         </header>}
         {notice ? <p role="status" className="mb-1 text-[11px] text-sparkle-text-muted">{notice}</p> : null}
         {pending ? <div className={fill ? 'min-h-0 flex-1' : undefined} style={fill ? undefined : { height: block.height }}><ArtifactCreationState kind="visualization" phase="creating" className="h-full !min-h-0 !rounded-none !border-0"/></div> : block.state === 'complete' ? source ? <div className={fill ? 'relative min-h-0 flex-1' : 'relative'} style={fill ? undefined : { height: previewHeight }}>
-            <iframe key={source} ref={frame} title={block.title} aria-description={block.summary || undefined} aria-hidden={measurement?.source !== source || undefined} src="./visualization-frame.html" onLoad={initializeFrame} data-visualization-ready={measurement?.source === source || undefined} sandbox="allow-scripts" referrerPolicy="no-referrer" loading="lazy" className="block w-full border-0 bg-transparent" style={{ height: fill ? '100%' : previewHeight, colorScheme: 'normal', opacity: measurement?.source === source ? 1 : 0, transition: reduced ? 'none' : 'opacity 220ms ease-out' }} />
+            <VisualizationFrame source={source} identity={block.start} title={block.title} summary={block.summary || undefined} height={fill ? '100%' : previewHeight} ready={measurement?.source === source} reducedMotion={reduced} fill={fill} onWheel={scrollFromFrame} onReset={() => setMeasurement(null)} onHeight={height => setMeasurement(previous => previous?.source === source && previous.height === height ? previous : { source, height })} />
             {measurement?.source !== source ? <div className="absolute inset-0"><ArtifactCreationState kind="visualization" phase="loading" className="h-full !min-h-0 !rounded-none !border-0"/></div> : null}
         </div> : <div className={fill ? 'min-h-0 flex-1' : undefined} style={fill ? undefined : { height: block.height }}><ArtifactCreationState kind="visualization" phase="loading" className="h-full !min-h-0 !rounded-none !border-0"/></div>
             : <p role="status" className="text-[12px] text-sparkle-text-muted">{block.state === 'too-large' ? 'Visualization exceeds the preview size limit.' : 'Visualization incomplete.'}</p>}

@@ -86,6 +86,19 @@ export default function AssistantAttachmentPreviewModal({
     const iconTheme = settings.appearanceResolvedMode
     const [copied, setCopied] = useState(false)
     const [videoError, setVideoError] = useState(false)
+    const [resolvedVideo, setResolvedVideo] = useState<{ reference: string; path: string } | null>(null)
+    const videoPath = file?.path || ''
+    const stagedVideo = videoPath.startsWith('clipboard://') && meta?.category === 'video'
+    useEffect(() => {
+        if (!stagedVideo) return
+        let active = true
+        void window.devscope.assistant.resolveClipboardAttachment({ reference: videoPath }).then(result => {
+            if (!active) return
+            if (result.success && result.path) setResolvedVideo({ reference: videoPath, path: result.path })
+            else setVideoError(true)
+        }).catch(() => { if (active) setVideoError(true) })
+        return () => { active = false }
+    }, [stagedVideo, videoPath])
     useEffect(() => setVideoError(false), [file?.id, file?.path])
 
     useEffect(() => {
@@ -196,7 +209,7 @@ export default function AssistantAttachmentPreviewModal({
                         <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-black/35">
                             {videoError ? <p role="alert" className="px-4 text-center text-sm text-sparkle-text-muted">Video unavailable or this format is not supported. The original file is still attached.</p> : <video
                                 key={file.path}
-                                src={getFileUrl(file.path)}
+                                src={stagedVideo ? resolvedVideo?.reference === videoPath ? getFileUrl(resolvedVideo.path) : undefined : getFileUrl(videoPath)}
                                 aria-label={meta.name}
                                 controls
                                 playsInline

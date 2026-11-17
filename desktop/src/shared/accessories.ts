@@ -9,6 +9,7 @@ export const ACCESSORIES_IPC = {
     beginBrowserTabTearOff: 'devscope:accessories:beginBrowserTabTearOff',
     finishBrowserTabTearOff: 'devscope:accessories:finishBrowserTabTearOff',
     cancelBrowserTabTearOff: 'devscope:accessories:cancelBrowserTabTearOff',
+    tabLayout: 'devscope:accessories:tabLayout',
     changed: 'devscope:accessories:changed'
 } as const
 
@@ -43,7 +44,8 @@ export type AccessoryBrowserTabsInput = {
 export type AccessoryBrowserDropZoneInput = {
     workspaceId: string
     rect: { x: number; y: number; width: number; height: number }
-    tabSlots: Array<{ tabId: string; index: number; left: number; right: number }>
+    vertical?: boolean
+    tabSlots: Array<{ tabId: string; index: number; left: number; right: number; top?: number; bottom?: number }>
 }
 
 export type AccessoryBrowserTearOffBeginInput = {
@@ -82,5 +84,6 @@ export type AccessoriesApi = {
     beginBrowserTabTearOff(input: AccessoryBrowserTearOffBeginInput): Promise<AccessoryResult<{ sessionId: string; targetWorkspaceId: string }>>
     finishBrowserTabTearOff(input: AccessoryBrowserTearOffFinishInput): Promise<AccessoryResult<{ committed: boolean; targetWorkspaceId: string }>>
     cancelBrowserTabTearOff(sessionId: string): Promise<AccessoryResult<{ cancelled: true }>>
+    onTabLayout?(callback: (vertical: boolean) => void): () => void
     onChanged(callback: (state: AccessoryWindowState) => void): () => void
 }

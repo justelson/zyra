@@ -13,6 +13,7 @@ import { AssistantQuestionTransition } from './AssistantQuestionTransition'
 import type { AssistantComposerController } from './useAssistantComposerController'
 
 export function AssistantPendingUserInputStage(props: {
+    titleActions?: React.ReactNode
     questionShellOpen: boolean
     questionShellMinimized: boolean
     motionKey: string
@@ -75,9 +76,9 @@ export function AssistantPendingUserInputStage(props: {
                     }} />
                     {!isReviewStep && activeQuestion?.required === false ? <span>· Optional</span> : null}
                     {pendingUserInputsLength > 1 ? <span>· {pendingUserInputsLength} requests</span> : null}
-                    <button type="button" onClick={onToggleQuestionShellMinimized} className="inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/5 hover:text-sparkle-text" title={questionShellMinimized ? 'Expand question' : 'Minimize question'} aria-label={questionShellMinimized ? 'Expand guided question' : 'Minimize guided question'} aria-expanded={!questionShellMinimized}>
+                    {props.titleActions ?? <button type="button" onClick={onToggleQuestionShellMinimized} className="inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/5 hover:text-sparkle-text" title={questionShellMinimized ? 'Expand question' : 'Minimize question'} aria-label={questionShellMinimized ? 'Expand guided question' : 'Minimize guided question'} aria-expanded={!questionShellMinimized}>
                         {questionShellMinimized ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                    </button>
+                    </button>}
                 </div>
                 <AnimatedHeight isOpen={!questionShellMinimized} duration={220} crispContent contentClassName="transition-opacity duration-[220ms] motion-reduce:transition-none">
                 <AssistantQuestionTransition sectionKey={motionKey}>

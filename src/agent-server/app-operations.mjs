@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { forkCanonicalChat, preflightCanonicalChatFork } from './chat-fork.mjs';
-import { isAppAreaOperation, isAppChatRead } from '../app-area-operations.mjs';
+import { isAppAreaOperation, isAppChatRead, isRoutineChatConfiguration } from '../app-area-operations.mjs';
 
 const READS = new Set(['list', 'get', 'inspect', 'search', 'read', 'preview', 'history', 'refresh']);
 const DOMAINS = new Set(['settings', 'settings_action', 'app', 'usage']);
@@ -26,12 +26,16 @@ export function appOperationPolicy(input, mode = 'approval-required', child = fa
   const mutation = MUTATIONS.has(input.operation);
   if (mutation && mode === 'read-only') throw new Error('This agent cannot change app state in read-only mode.');
   if (mutation && child) throw new Error('Supporting agents cannot mutate installation-wide app state. Ask the parent to perform this user-directed change.');
+  // Inspect setting names and selectors. Literal values (including chat titles)
+  // can contain words such as "permissions" without changing access.
+  const sensitiveFields = JSON.stringify([Object.keys(params.patch || {}), params.keys, params.key, params.area, Object.keys(params.input || {})]);
   const protectedChange = input.domain === 'settings' && input.operation === 'undo'
     || input.domain === 'settings_action' && input.operation === 'run'
-    || mutation && /(?:permission|runtimeMode|MemoryEnabled|WebSearch|WebFetch|GoogleSuggestions|startWithWindows|analytics|consent|additionalFolders|projectsFolder|explorerHomePath|Skill|endpoint|baseUrl)/i.test(encoded)
+    || mutation && /(?:permission|runtimeMode|MemoryEnabled|WebSearch|WebFetch|GoogleSuggestions|startWithWindows|analytics|consent|additionalFolders|projectsFolder|explorerHomePath|Skill|endpoint|baseUrl)/i.test(sensitiveFields)
     || mutation && ['plugins', 'connections', 'devices', 'skills', 'runtime', 'privacy', 'providers', 'memory', 'project_folders', 'projects', 'chat'].includes(String(params.area || ''))
     || ['remove', 'fork', 'stop', 'resume', 'rename', 'refresh_title'].includes(input.operation)
     || input.domain === 'app' && input.operation === 'update';
+  if (input.domain === 'settings' && input.operation === 'apply' && isRoutineChatConfiguration(params, mode, child)) return { mutation, needsApproval: false };
   return { mutation, needsApproval: scopeIntent === 'installation' && !chatRead || mutation && (mode !== 'full-access' || protectedChange) };
 }
 

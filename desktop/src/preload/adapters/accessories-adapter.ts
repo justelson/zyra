@@ -21,6 +21,11 @@ export function createAccessoriesAdapter(): { accessories: AccessoriesApi } {
             beginBrowserTabTearOff: (input: AccessoryBrowserTearOffBeginInput) => ipcRenderer.invoke(ACCESSORIES_IPC.beginBrowserTabTearOff, input),
             finishBrowserTabTearOff: (input: AccessoryBrowserTearOffFinishInput) => ipcRenderer.invoke(ACCESSORIES_IPC.finishBrowserTabTearOff, input),
             cancelBrowserTabTearOff: (sessionId: string) => ipcRenderer.invoke(ACCESSORIES_IPC.cancelBrowserTabTearOff, sessionId),
+            onTabLayout: (callback: (vertical: boolean) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, vertical: boolean) => callback(vertical)
+                ipcRenderer.on(ACCESSORIES_IPC.tabLayout, listener)
+                return () => ipcRenderer.removeListener(ACCESSORIES_IPC.tabLayout, listener)
+            },
             onChanged: (callback: (state: AccessoryWindowState) => void) => {
                 const listener = (_event: Electron.IpcRendererEvent, state: AccessoryWindowState) => callback(state)
                 ipcRenderer.on(ACCESSORIES_IPC.changed, listener)

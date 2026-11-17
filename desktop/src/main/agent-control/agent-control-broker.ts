@@ -688,7 +688,7 @@ export class AgentControlBroker extends EventEmitter {
             const startedAt = Date.now()
             try {
                 const result = await registered.driver.act(registered, request.action, {
-                    allowWindowFocus: currentGrant.capabilities.includes('window.focus'),
+                    allowWindowFocus: false,
                     revision: request.observationRevision,
                     previousObservation,
                     signal,
@@ -857,7 +857,7 @@ export class AgentControlBroker extends EventEmitter {
                     assertSafeObservedElementAction(previousObservation, action, permissionMode)
                     assertVisualActionInsideObservation(previousObservation, action)
                     const actionResult = await registered.driver.act(registered, action, {
-                        allowWindowFocus: currentGrant.capabilities.includes('window.focus'),
+                        allowWindowFocus: false,
                         revision: request.observationRevision,
                         previousObservation,
                         signal: bounded.signal,

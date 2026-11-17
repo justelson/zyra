@@ -28,10 +28,10 @@ export function useAssistantPageTimelineScroll(_args: UseAssistantPageTimelineSc
 
     const onScrollTimeline = useCallback((_element: HTMLDivElement) => {}, [])
 
-    const onScrollToBottom = useCallback(() => {
+    const onScrollToBottom = useCallback((animated = false) => {
         const element = timelineScrollRef.current
         if (!element) return
-        element.dispatchEvent(new CustomEvent(ASSISTANT_TIMELINE_FOLLOW_END_EVENT, { detail: { animated: true } }))
+        element.dispatchEvent(new CustomEvent(ASSISTANT_TIMELINE_FOLLOW_END_EVENT, { detail: { animated } }))
     }, [])
 
     return {

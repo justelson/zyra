@@ -23,7 +23,13 @@ import {
     updateAssistantHistoryScrollVelocity
 } from '../src/renderer/src/pages/assistant/assistant-history-streaming-policy'
 import { replaceAssistantTimelineActivityEntry } from '../src/renderer/src/pages/assistant/useAssistantTimelineEntries'
+import { getAssistantTimelineItemType } from '../src/renderer/src/pages/assistant/assistant-timeline-layout-policy'
 import { resolveAssistantTimelineCompletionAnchor } from '../src/renderer/src/pages/assistant/assistant-timeline-scroll-events'
+
+const layoutMessage = { id: 'layout', kind: 'message' as const, createdAt: '', message: { id: 'layout', role: 'user' as const, text: 'Short prompt', streaming: false, createdAt: '', updatedAt: '' } }
+assert.notEqual(getAssistantTimelineItemType(layoutMessage), getAssistantTimelineItemType({ ...layoutMessage, message: { ...layoutMessage.message, role: 'assistant' } }), 'user bubbles and assistant replies must not share measured height averages')
+assert.equal(getAssistantTimelineItemType({ ...layoutMessage, message: { ...layoutMessage.message, text: 'x'.repeat(100_000), streaming: true } }), getAssistantTimelineItemType(layoutMessage), 'streaming/content growth cannot change a row type')
+assert.equal(getAssistantTimelineItemType({ kind: 'working', id: 'working', createdAt: null }), 'working', 'existing non-message layout types stay stable')
 
 let focus = resolveAssistantTimelineFocusAfterFollow(null, { windowKey: 'chat-a', followLatestRequestKey: null, focusMessageId: 'older-prompt' })
 assert.equal(focus.focusMessageId, 'older-prompt', 'explicit history search owns the viewport before a send')
@@ -109,7 +115,8 @@ assert.equal(resolveAssistantInitialHistoryBackfill({
     requestPending: false,
     contentLength: 200,
     viewportSize: 829,
-    }).shouldRequest, true, 'an actively streaming chat still fills its missing historical viewport context')
+    pagesRequested: 0
+}).shouldRequest, true, 'an underfilled working chat restores nearby context without waiting for an upward scroll')
 assert.equal(resolveAssistantInitialHistoryBackfill({
     initialLayoutReady: true,
     selectionSettled: true,

@@ -13,7 +13,7 @@ export type AssistantTimelineMediaAnchor = {
     offsetWithinRow: number
 }
 
-type CaretDocument = Document & {
+type CaretDocument = Omit<Document, 'caretRangeFromPoint'> & {
     caretRangeFromPoint?: (x: number, y: number) => Range | null
 }
 
@@ -40,40 +40,57 @@ function anchorAtRange(scroller: HTMLElement, windowKey: string, range: Range): 
     }
 }
 
-/** Bounded hit testing avoids walking every text node in a long assistant reply on scroll. */
+/** Find visible prose before doing a native caret hit test. Media-only viewports
+ * need no caret queries; long replies still have a bounded fallback. */
 export function captureAssistantTimelineMediaAnchor(scroller: HTMLElement, windowKey: string): AssistantTimelineMediaAnchor | null {
     if (!scroller.isConnected || scroller.clientHeight <= 0) return null
     const doc = scroller.ownerDocument as CaretDocument
     const viewport = scroller.getBoundingClientRect()
-    if (doc.caretRangeFromPoint) {
-        for (const yOffset of [8, 28, 56, 96, 160, 240, 360]) {
-            if (yOffset >= viewport.height) break
-            for (const fraction of [0.25, 0.5, 0.75]) {
-                const range = doc.caretRangeFromPoint(viewport.left + viewport.width * fraction, viewport.top + yOffset)
-                if (!range) continue
-                const anchor = anchorAtRange(scroller, windowKey, range)
-                // caretRangeFromPoint can return distant prose when the pointer is over media.
-                if (anchor && Math.abs(anchor.range.getBoundingClientRect().top - viewport.top - yOffset) < 32) return anchor
-            }
-        }
+    const atPoint = (x: number, y: number) => {
+        const range = doc.caretRangeFromPoint?.(x, y)
+        if (!range) return null
+        const anchor = anchorAtRange(scroller, windowKey, range)
+        return anchor && Math.abs(anchor.range.getBoundingClientRect().top - y) < 32 ? anchor : null
     }
     // Also works without Chromium's caret API. Only inspect mounted semantic blocks.
     const blocks = doc.createTreeWalker(scroller, NodeFilter.SHOW_ELEMENT, {
-        acceptNode: node => (node as Element).matches('p, li, pre, h1, h2, h3, h4, h5, h6, td, th, blockquote')
+        acceptNode: node => (node as Element).matches('p, li, pre, h1, h2, h3, h4, h5, h6, td, th, blockquote, header, .whitespace-pre-wrap')
             ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
     })
-    for (let i = 0; i < 256; i++) {
+    let inspected = 0
+    for (; inspected < 256; inspected++) {
         const block = blocks.nextNode() as Element | null
         if (!block) break
         const rect = block.getBoundingClientRect()
-        if (rect.top < viewport.top || rect.top >= viewport.bottom || !rect.height) continue
+        if (rect.bottom <= viewport.top || rect.top >= viewport.bottom || !rect.height) continue
         const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT)
-        const text = walker.nextNode()
+        let text: Node | null = null
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const candidate = walker.nextNode()
+            if (!candidate) break
+            if (candidate.textContent?.trim() && candidate.parentElement && !candidate.parentElement.closest('button, summary, [aria-hidden="true"], .sr-only')) { text = candidate; break }
+        }
         if (!text) continue
+        if (doc.caretRangeFromPoint) {
+            const y = Math.max(rect.top, viewport.top) + Math.min(8, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) - 1)
+            for (const fraction of [.25, .5, .75]) {
+                const left = Math.max(rect.left, viewport.left), right = Math.min(rect.right, viewport.right)
+                const anchor = atPoint(left + (right - left) * fraction, y)
+                if (anchor) return anchor
+            }
+        }
         const range = doc.createRange()
         range.setStart(text, 0)
         const anchor = anchorAtRange(scroller, windowKey, range)
         if (anchor) return anchor
+    }
+    // The visible paragraph can lie beyond the bounded block scan in a single
+    // unusually long row. Use one scanline instead of probing 21 media points.
+    if (inspected >= 256 && doc.caretRangeFromPoint) {
+        for (const fraction of [.25, .5, .75]) {
+            const anchor = atPoint(viewport.left + viewport.width * fraction, viewport.top + viewport.height / 2)
+            if (anchor) return anchor
+        }
     }
     return null
 }

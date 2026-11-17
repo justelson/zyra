@@ -503,7 +503,7 @@ export class AssistantService {
         this.runtime.setPluginMcpConnections(this.pluginMcpConnections)
         this.runtime.setPluginAppViewSettingsResolver(async (pluginId) => {
             const catalog = await this.pluginRegistry.getCatalog()
-            const enabled = catalog.appViews.enabled
+            const enabled = catalog.pluginsEnabled !== false && catalog.appViews.enabled
                 && catalog.appViews.pluginIds.includes(pluginId)
                 && catalog.plugins.some((plugin) => plugin.id === pluginId && plugin.state === 'active')
             return { enabled, displayMode: catalog.appViews.displayMode }
@@ -935,7 +935,21 @@ export class AssistantService {
 
     async setPluginAppViewSettings(input: AssistantSetPluginAppViewSettingsInput) {
         await this.ensureReady()
-        return this.pluginRegistry.setAppViewSettings(input)
+        if (input.pluginsEnabled === undefined) return this.pluginRegistry.setAppViewSettings(input)
+        const catalog = await this.pluginRegistry.getCatalog()
+        const affected = catalog.chatScopes.map(scope => scope.sessionId)
+        return this.pluginAuthorityMutations.run(affected, async () => {
+            await this.runtime.updatePluginAuthority({ chats: [] })
+            const result = await this.pluginRegistry.setAppViewSettings(input)
+            const threadIds = this.state.snapshot.sessions.filter(session => affected.includes(session.id))
+                .flatMap(session => session.threads.map(getAssistantCanonicalThreadId))
+            for (const plugin of result.catalog.plugins) {
+                await this.runtime.updatePluginAuthority({
+                    pluginId: plugin.id, state: input.pluginsEnabled && plugin.state === 'active' ? 'active' : 'disabled', chats: []
+                }, input.pluginsEnabled ? [] : threadIds)
+            }
+            return result
+        })
     }
 
     async readPluginAppView(input: { threadId: string; pluginId: string; server: string; tool: string; uri: string }) {
@@ -1788,7 +1802,10 @@ export class AssistantService {
         const record = findThreadRecord(this.state.snapshot, input.threadId)
         if (!record || record.session.id !== input.sessionId) throw new Error('This chat configuration belongs to a stale selection.')
         const runtimeId = record.thread.providerThreadId || record.thread.id
-        if (!this.runtime.hasSession(runtimeId)) throw new Error('Connect this chat before changing its configuration.')
+        if (!this.runtime.hasSession(runtimeId)) {
+            if (!record.thread.providerThreadId || record.thread.source === 'subagent') throw new Error('Choose a canonical root chat before changing its configuration.')
+            await this.connectSessionRuntime(record.session, record.thread)
+        }
         const { sessionId: _sessionId, threadId: _threadId, ...patch } = input
         await this.runtime.configureSession(runtimeId, patch)
         return { success: true as const }

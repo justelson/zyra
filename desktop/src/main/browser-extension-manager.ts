@@ -18,6 +18,7 @@ type ExtensionManifest = {
     permissions?: unknown
     host_permissions?: unknown
     optional_permissions?: unknown
+    default_locale?: string
     key?: string
 }
 
@@ -49,6 +50,15 @@ async function readManifest(root: string): Promise<ExtensionManifest & { name: s
     if (manifest.manifest_version !== 3) throw new Error('Only Manifest V3 extensions are supported in Zyra Browser.')
     if (typeof manifest.name !== 'string' || !manifest.name.trim()) throw new Error('The extension manifest has no valid name.')
     if (typeof manifest.version !== 'string' || !manifest.version.trim()) throw new Error('The extension manifest has no valid version.')
+    if (typeof manifest.default_locale === 'string' && /^[a-z0-9_-]+$/i.test(manifest.default_locale)) {
+        try {
+            const messages = JSON.parse(await readFile(join(root, '_locales', manifest.default_locale, 'messages.json'), 'utf8'))
+            for (const field of ['name', 'description'] as const) {
+                const key = /^__MSG_([a-z0-9_@]+)__$/i.exec(manifest[field] || '')?.[1]
+                if (key && typeof messages[key]?.message === 'string') manifest[field] = messages[key].message
+            }
+        } catch { /* Malformed translations leave the manifest fallback intact. */ }
+    }
     return manifest as ExtensionManifest & { name: string; version: string }
 }
 
@@ -104,7 +114,25 @@ export class BrowserExtensionManager {
     }
 
     async list(): Promise<BrowserExtensionRecord[]> {
-        return (await readStored()).map(displayRecord)
+        return Promise.all((await readStored()).map(async entry => {
+            const record = displayRecord(entry)
+            if (record.name?.startsWith('__MSG_') || record.description?.startsWith('__MSG_')) {
+                const manifest = await readManifest(entry.path).catch(() => null)
+                if (manifest) Object.assign(record, { name: manifest.name, description: manifest.description || '' })
+            }
+            return { ...record, hasPopup: Boolean(this.actionPopup(entry.id)) }
+        }))
+    }
+
+    actionPopup(id: string): { url: URL; session: Session } | null {
+        const extension = this.loaded.get(id)
+        const path = extension?.manifest?.action?.default_popup
+        if (!extension || typeof path !== 'string' || !path) return null
+        try {
+            const url = new URL(path, extension.url)
+            if (url.protocol === 'chrome-extension:' && url.host === extension.id) return { url, session: this.session }
+        } catch { /* Invalid action path. */ }
+        return null
     }
 
     async loadEnabled(): Promise<void> {

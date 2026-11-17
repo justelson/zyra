@@ -92,6 +92,9 @@ export function hasActiveTextSelection(): boolean {
 
 export function looksLikeMarkdownFileReference(value: string): boolean {
     const trimmed = String(value || '').trim()
+    // Every accepted path has a separator, extension/dotfile marker or URL
+    // escape. Most prose tokens have none; avoid decoding and path parsing.
+    if (!/[.%\/\\]/.test(trimmed)) return false
     if (!trimmed || trimmed.includes('\n') || /\s/.test(trimmed) || trimmed.startsWith('#')) return false
     if (resolveMarkdownPackageReference(trimmed)) return false
     const decodedTrimmed = safeDecode(trimmed)

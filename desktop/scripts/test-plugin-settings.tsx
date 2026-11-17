@@ -25,6 +25,10 @@ const render = (route = '/settings/assistant/plugins') => renderToStaticMarkup(<
 
 catalog.appViews.enabled = false
 let html = render()
+assert.match(html, /aria-label="Enable plugins"/)
+assert.doesNotMatch(html, /Show app views in Chat|Browse store/)
+directory.catalog!.pluginsEnabled = true
+html = render()
 assert.match(html, /zyra-settings-row/, 'app views uses the shared settings row')
 assert.match(html, /<h3[^>]*text-\[13px\][^>]*>Show app views in Chat<\/h3>/, 'labels use the settings typography')
 assert.match(html, /<p[^>]*text-\[var\(--settings-text-secondary\)\][^>]*>Interactive views/, 'helper copy uses settings colors without plugin wrapper variables')

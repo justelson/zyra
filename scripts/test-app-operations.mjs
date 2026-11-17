@@ -11,6 +11,11 @@ const request = (domain, operation, params = {}) => ({ domain, operation, params
 assert.deepEqual(appOperationPolicy(request('settings', 'get', { keys: ['accentColor'] }), 'read-only'), { mutation: false, needsApproval: false });
 assert.deepEqual(appOperationPolicy(request('usage', 'refresh'), 'read-only'), { mutation: false, needsApproval: false });
 assert.equal(appOperationPolicy(request('settings', 'apply', { patch: { accentColor: '#f00' } }), 'full-access').needsApproval, false);
+assert.equal(appOperationPolicy(request('app', 'pin', { area: 'chats', target: 'permission-discussion' }), 'full-access').needsApproval, false, 'a chat identifier is not a permission setting');
+for (const [patch, expected] of [[{runtimeMode:'read-only'}, false], [{model:'catalog-id'}, false], [{runtimeMode:'full-access'}, true], [{runtimeMode:'approval-required'}, true]]) {
+  assert.equal(appOperationPolicy(request('settings', 'apply', { area: 'chat', patch }), 'full-access').needsApproval, expected);
+  assert.equal(appOperationPolicy(request('settings', 'apply', { area: 'chat', patch, input: { appScope: 'installation' } }), 'full-access').needsApproval, true);
+}
 for (const value of [request('settings', 'apply', { patch: { assistantMemoryEnabled: true } }), request('settings', 'apply', { patch: { assistantCustomSkillDirectories: ['/x'] } }), request('settings_action', 'run', { area: 'runtime.activate' }), request('app', 'fork', { area: 'chats' }), request('app', 'rename', { area: 'chats' }), request('settings', 'undo')]) {
   assert.equal(appOperationPolicy(value, 'full-access').needsApproval, true);
 }

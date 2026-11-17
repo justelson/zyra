@@ -707,7 +707,7 @@ const paste = () => {
     restoredOrdinary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await wait(() => ordinarySends.length === 1, 'Enter in the restored ordinary composer sends its draft while the async question remains pending')
     check(responses.length === answerCount, 'Normal Enter cannot accidentally submit the async question')
-    button('Dismiss').click()
+    button('Skip').click()
     await wait(() => dismissed.length === 1, 'Dismiss reaches the async request without sending an answer')
     check(responses.length === answerCount && dismissed[0] === 'async-card', 'Dismiss sends no invented answer')
     results.push('Async questions preserve normal drafts/focus, open explicitly, never hijack Enter and dismiss without an answer')

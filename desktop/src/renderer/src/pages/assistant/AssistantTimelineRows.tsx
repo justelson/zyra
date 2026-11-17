@@ -778,13 +778,15 @@ export const TimelineMessage = memo(({
         )
     }
 
+    const sentDuringCompaction = message.id.includes(':compaction-steer-')
     return (
         <div className={cn('group/user-message ml-auto flex flex-col items-end', minimal ? 'max-w-[80%] py-0.5' : 'py-1')} data-assistant-message-surface={displayMode}>
             <div className={cn('group relative', questionResponse ? 'w-[26rem] max-w-full' : minimal ? 'max-w-full' : 'max-w-[36rem]')}>
                 <div className={cn(
                     questionResponse ? 'min-w-0' : minimal
                         ? 'rounded-2xl bg-[var(--surface-hover)] px-3.5 py-2.5'
-                        : 'rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-2.5'
+                        : 'rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-2.5',
+                    sentDuringCompaction && 'ring-1 ring-inset ring-[var(--accent-primary)]/30'
                 )}>
                     {parsedUserMessage.attachments.length > 0 ? (
                         <div
@@ -909,7 +911,7 @@ export const TimelineMessage = memo(({
                     'mt-2 flex items-center justify-between gap-3 px-1 transition-opacity',
                     minimal ? 'opacity-0 focus-within:opacity-100 group-hover/user-message:opacity-100' : 'opacity-100'
                 )}>
-                    <p className="text-[10px] text-sparkle-text-muted">{formatAssistantDateTime(message.updatedAt)}</p>
+                    <time dateTime={message.updatedAt} title={sentDuringCompaction ? "Sent during compaction. The agent reads this when it resumes." : undefined} className="text-[10px] text-sparkle-text-muted">{formatAssistantDateTime(message.updatedAt)}</time>
                     <div className="flex items-center gap-1">
                         <button type="button" onClick={async () => { try { await copyTextToClipboard(copyValue); setCopied(true); window.setTimeout(() => setCopied(false), 1600) } catch {} }} className={cn('rounded-md border p-1 transition-all', copied ? 'border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-300' : 'border-white/10 bg-white/[0.03] text-sparkle-text-muted hover:border-white/20 hover:text-sparkle-text')} title={copied ? 'Copied' : 'Copy message'}>{copied ? <Check size={12} /> : <Copy size={12} />}</button>
                         {onRequestDelete ? <button type="button" onClick={() => onRequestDelete(message)} disabled={deleting} className={cn('rounded-md border p-1 transition-all', deleting ? 'cursor-not-allowed border-red-400/20 bg-red-500/[0.08] text-red-200/70' : 'border-white/10 bg-white/[0.03] text-sparkle-text-muted hover:border-red-400/20 hover:bg-red-500/[0.08] hover:text-red-200')} title="Delete message from history"><Trash2 size={12} /></button> : null}

@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
         assert.equal(installed.id, id, 'runtime identity matches the requested store extension');
         await writeFile(join(profile, 'fixture-receipt.json'), JSON.stringify({ id }));
         if ('repack' in pack)
-            pack.bytes = pack.repack({ 'manifest.json': JSON.stringify({ manifest_version: 3, name: 'Zyra install check', version: '2.0.0', content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'] }] }), 'content.js': 'document.documentElement.dataset.zyraInstalled=chrome.runtime.id;document.documentElement.dataset.zyraVersion="2";' }).bytes;
+            pack.bytes = pack.repack({ 'manifest.json': JSON.stringify({ manifest_version: 3, name: 'Zyra install check', version: '2.0.0', action: { default_popup: 'action.html' }, content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'] }] }), 'action.html': '<button>Fixture action</button>', 'content.js': 'document.documentElement.dataset.zyraInstalled=chrome.runtime.id;document.documentElement.dataset.zyraVersion="2";' }).bytes;
         const previousPath = installed.path;
         const again = await manager.inspectWebStore(id);
         const reinstalled = await manager.approveWebStore(again.id);
@@ -74,8 +74,19 @@ app.whenReady().then(async () => {
         await new Promise(resolve => setTimeout(resolve, 1500));
     }
     assert.equal(await applied(), true, 'installed extension actually operates on the Browser page');
+    if (!live) {
+        const action = manager.actionPopup(id)
+        assert.ok(action && action.session === browserSession)
+        assert.equal(action.url.href, `chrome-extension://${id}/action.html`)
+        const popup = new BrowserWindow({ show: false, webPreferences: { session: action.session, sandbox: true, contextIsolation: true } })
+        try {
+            await popup.loadURL(action.url.href)
+            assert.equal(await popup.webContents.executeJavaScript("document.querySelector('button').textContent"), 'Fixture action')
+        } finally { popup.destroy() }
+    }
     if (!restart) {
         await manager.setEnabled(id, false);
+        assert.equal(manager.actionPopup(id), null);
         await window.webContents.reload();
         await new Promise(resolve => setTimeout(resolve, 150));
         if (!live)

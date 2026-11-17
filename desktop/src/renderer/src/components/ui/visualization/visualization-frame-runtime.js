@@ -5,11 +5,29 @@ import { consumeVisualizationWheelDelta } from './visualization-wheel-runtime.js
 (() => {
     if (window === window.top) return
     let initialized = false
+    let activeChannel
+    let reportCurrent
+    let hidePresentation
+    let pausedAnimations = []
     addEventListener('message', event => {
+    if (initialized && event.source === parent && event.data?.channel === activeChannel) {
+        if (event.data.type === 'zyra:visualization-park') {
+            hidePresentation?.()
+            pausedAnimations = document.getAnimations().filter(animation => animation.playState === 'running')
+            pausedAnimations.forEach(animation => animation.pause())
+            return
+        }
+        if (event.data.type === 'zyra:visualization-resume') {
+            pausedAnimations.forEach(animation => animation.play()); pausedAnimations = []
+            reportCurrent?.()
+            return
+        }
+    }
     if (initialized || event.source !== parent || event.data?.type !== 'zyra:visualization-init') return
     const { channel, document: source } = event.data
     if (typeof channel !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(channel) || typeof source !== 'string') return
     initialized = true
+    activeChannel = channel
     // Only the parent supplies DOMPurify-cleaned markup. The frame's immutable
     // hash CSP additionally blocks authored scripts, handlers and remote assets.
     const parsed = new DOMParser().parseFromString(source, 'text/html')
@@ -30,9 +48,10 @@ import { consumeVisualizationWheelDelta } from './visualization-wheel-runtime.js
             refreshViewport()
             const contentHeight = Math.max(mountedContent.getBoundingClientRect().height, mountedContent.scrollHeight)
             const horizontalGutter = Math.max(0, innerHeight - document.documentElement.clientHeight)
-            parent.postMessage({ type: 'zyra:visualization-height', channel, height: Math.ceil(contentHeight + horizontalGutter) }, '*')
+            parent.postMessage({ type: 'zyra:visualization-height', channel, height: Math.ceil(contentHeight + horizontalGutter), width: innerWidth }, '*')
         })
     }
+    reportCurrent = report
     new ResizeObserver(report).observe(mountedContent)
     addEventListener('resize', () => { refreshViewport(); report() })
     if (event.data.fitContent === true) {
@@ -86,6 +105,7 @@ import { consumeVisualizationWheelDelta } from './visualization-wheel-runtime.js
     let pointerFrame = 0
     let pointer
     const hide = () => { pointer = null; cancelAnimationFrame(pointerFrame); pointerFrame = 0; tip.hidden = true }
+    hidePresentation = hide
     const show = (element, x, y) => {
         const text = label(element)
         if (!text) { hide(); return }

@@ -277,6 +277,7 @@ export function createProjectsAdapter() {
         discardBrowserExtensionFromWebStore: (id: string) => ipcRenderer.invoke(BROWSER_EXTENSIONS_IPC.discardWebStore, id),
         setBrowserExtensionEnabled: (input: { id: string; enabled: boolean }) => ipcRenderer.invoke(BROWSER_EXTENSIONS_IPC.setEnabled, input),
         removeBrowserExtension: (id: string) => ipcRenderer.invoke(BROWSER_EXTENSIONS_IPC.remove, id),
+        openBrowserExtensionPopup: (id: string) => ipcRenderer.invoke(BROWSER_EXTENSIONS_IPC.openPopup, id),
         reloadBrowserExtension: (id: string) => ipcRenderer.invoke(BROWSER_EXTENSIONS_IPC.reload, id),
         getBrowserPageIcon: (pageUrl: string) => ipcRenderer.invoke(BROWSER_PAGE_ICON_CHANNEL, pageUrl),
         listBrowserDownloads: () => ipcRenderer.invoke(BROWSER_DOWNLOADS_LIST_CHANNEL),

@@ -8,7 +8,7 @@ import { AppOperationReceipts } from './app-operation-receipts'
 import { desktopNamespaceId } from './agent-server-namespace'
 import { validateAgentAppActionInput } from './agent-app-action-inputs'
 import { resolveModelCompactionPolicy } from '../../shared/assistant/runtime-policy'
-import { APP_AREA_OPERATIONS, isAppAreaOperation, isAppChatRead } from '../../../../src/app-area-operations.mjs'
+import { APP_AREA_OPERATIONS, isAppAreaOperation, isAppChatRead, isRoutineChatConfiguration } from '../../../../src/app-area-operations.mjs'
 
 export type AppActor = { canonicalChatId: string; parentChatId: string; project: string; permissionMode: string; child: boolean; turnId: string | null; namespaceId: string; approved: boolean; appScope?: 'project' | 'installation' }
 export type AppRequest = { domain: string; operation: string; operationId: string; params: Record<string, unknown>; actor: AppActor }
@@ -114,6 +114,9 @@ export class AgentAppService {
         request.params = asRecord(request.params)
         if (request.domain === 'app' && !['fork_source', 'fork_prepare', 'fork_attach', 'fork_rollback'].includes(request.operation) && !isAppAreaOperation(text(request.params.area, 80), request.operation)) throw new Error('Unsupported operation for this app area. Reads never change ordering or queues.')
         const chatRead = isAppChatRead(request)
+        if (request.domain === 'settings' && request.params.area === 'chat' && typeof request.params.target === 'string' && request.params.target !== 'current') {
+            await this.deps.getAssistant().ensureCanonicalChatAvailable(request.params.target)
+        }
         const admission = await this.context(request.actor, chatRead)
         // Global conversation reads do not widen administrative scope. Recheck
         // mutation targets even when returning a completed receipt.
@@ -167,9 +170,10 @@ export class AgentAppService {
             if (area === 'chat') {
                 const { chat, thread } = this.target(allowed, actor, params.target)
                 if (!['get', 'list', 'preview', 'apply'].includes(operation)) throw new Error('This Chat owner supports get, preview and apply.')
-                if (operation === 'apply' && !actor.approved) throw new Error('Chat execution configuration changes require actual user approval.')
+                const coveredByProjectGrant = actor.appScope !== 'installation' && isRoutineChatConfiguration(params, actor.permissionMode, actor.child)
+                if (operation === 'apply' && !actor.approved && !coveredByProjectGrant) throw new Error('Chat execution configuration changes require actual user approval.')
                 return this.deps.renderer({ ...request, params: { ...params, target: chat.id, input: { ...input,
-                    base: { model: thread.model, effort: thread.thinking || 'medium', runtimeMode: thread.runtimeMode }, currentTurn: thread.latestTurn } } })
+                    coveredByProjectGrant, configurationThreadId: thread.providerThreadId ? thread.id : null, base: { model: thread.model, effort: thread.thinking || 'medium', runtimeMode: thread.runtimeMode }, currentTurn: thread.latestTurn } } })
             }
             if (operation === 'list' || operation === 'get') {
                 const result = await this.settings.inspect(params)

@@ -1,4 +1,5 @@
 export const BROWSER_EXTENSIONS_IPC = {
+    openPopup: 'devscope:browserExtensions:openPopup',
     list: 'devscope:browserExtensions:list',
     install: 'devscope:browserExtensions:install',
     inspectWebStore: 'devscope:browserExtensions:inspectWebStore',
@@ -22,5 +23,6 @@ export type BrowserExtensionRecord = {
     source?: 'local' | 'chrome-web-store'
     storeUrl?: string
     sha256?: string
+    hasPopup?: boolean
     pending?: boolean
 }

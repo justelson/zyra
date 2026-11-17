@@ -1,6 +1,5 @@
 import { createPortal } from 'react-dom'
 import { NativeOverlayPortal, addOverlayEventListener } from '@/components/ui/native-overlay-portal'
-import { supportsNativeOverlay } from '@/components/ui/native-overlay-host'
 import { TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
 import { CircleAlert, Copy, ExternalLink, FolderOpen, Info, MousePointer2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
@@ -89,7 +88,7 @@ function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDi
     return <>
         {createPortal(<div ref={mirrorRef} aria-hidden="true" className="pointer-events-none invisible fixed bottom-3 right-3 w-max max-w-[calc(100vw-24px)]">{children}</div>, document.body)}
         {bounds ? <NativeOverlayPortal bounds={bounds} autoFocus={false}>
-            <div ref={contentRef} style={{ position: 'fixed', left: supportsNativeOverlay() ? 0 : bounds.x, top: supportsNativeOverlay() ? 0 : bounds.y, width: bounds.width, height: bounds.height }}>{children}</div>
+            <div ref={contentRef} style={{ position: 'fixed', left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}>{children}</div>
         </NativeOverlayPortal> : null}
     </>
 }

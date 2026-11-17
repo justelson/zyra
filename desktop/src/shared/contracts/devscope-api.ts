@@ -520,7 +520,7 @@ export type DevScopeBrowserCaptureDraft = {
     annotation?: DevScopeBrowserAnnotationPayload
 }
 
-export type DevScopeAppMenuCommand = 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture'
+export type DevScopeAppMenuCommand = 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture' | 'browser-settings'
 
 export type DevScopeWindowRuntimeInfo = {
     platform: ZyraClientPlatform
@@ -997,6 +997,7 @@ export interface DevScopeApi {
     discardBrowserExtensionFromWebStore: (id: string) => Promise<DevScopeResult<{ discarded: boolean }>>
     setBrowserExtensionEnabled: (input: { id: string; enabled: boolean }) => Promise<DevScopeResult<{ extension: BrowserExtensionRecord }>>
     removeBrowserExtension: (id: string) => Promise<DevScopeResult<{ removed: boolean }>>
+    openBrowserExtensionPopup: (id: string) => Promise<DevScopeResult>
     reloadBrowserExtension: (id: string) => Promise<DevScopeResult<{ extension: BrowserExtensionRecord }>>
     getBrowserPageIcon: (pageUrl: string) => Promise<DevScopeResult<{ dataUrl: string | null }>>
     listBrowserDownloads: () => Promise<DevScopeResult<{ downloads: BrowserDownloadRecord[] }>>

@@ -1,14 +1,13 @@
 import { lazy, memo, Suspense, useLayoutEffect, useRef, type RefObject } from 'react'
-import { ArrowDown } from 'lucide-react'
 import type { AssistantActivity, AssistantMessage, AssistantPendingUserInput, AssistantProposedPlan, AssistantSessionTurnUsageEntry } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantChatDisplayMode, AssistantTextStreamingMode, AssistantToolOutputDefaultMode } from '@/lib/settings'
 import { LoadingSpinner } from '@/components/ui/LoadingState'
-import { cn } from '@/lib/utils'
 import type { AssistantDiffTarget } from './assistant-diff-types'
 import type { AssistantElementBounds } from './assistant-composer-types'
 import { resolveAssistantScrollButtonBottom } from './assistant-pane-layout'
 import { AssistantReadPreviewScope } from './AssistantReadPreviewScope'
+import { AssistantTimelineLatestButton } from './AssistantTimelineLatestButton'
 
 export const preloadAssistantTimeline = () => import('./AssistantTimeline')
 const AssistantTimeline = lazy(() => preloadAssistantTimeline().then(module => ({ default: module.AssistantTimeline })))
@@ -57,6 +56,8 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     onLoadOlder?: (turnLimit?: number) => Promise<boolean> | boolean | void
     onLoadNewer?: (turnLimit?: number) => Promise<boolean> | boolean | void
     showScrollToBottom: boolean
+    scrollToBottomLabel?: string
+    scrollToBottomPending?: boolean
     elevateScrollToBottom?: boolean
     onScrollButtonBoundsChange?: (bounds: AssistantElementBounds | null) => void
     onScrollTimeline: (element: HTMLDivElement) => void
@@ -183,19 +184,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
                             )}px`
                         }}
                     >
-                        <button
-                            ref={scrollButtonRef}
-                            type="button"
-                            onClick={props.onScrollToBottom}
-                            className={cn(
-                                'pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-sparkle-card/95 px-3 py-2 text-xs text-sparkle-text-secondary shadow-lg shadow-black/20 backdrop-blur-xl transition-all hover:border-white/20 hover:bg-white/[0.05] hover:text-sparkle-text',
-                                props.showScrollToBottom ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'
-                            )}
-                            title="Scroll to bottom"
-                        >
-                            <ArrowDown size={13} />
-                            Scroll to bottom
-                        </button>
+                        <AssistantTimelineLatestButton buttonRef={scrollButtonRef} visible={props.showScrollToBottom} label={props.scrollToBottomLabel || 'Scroll to bottom'} pending={props.scrollToBottomPending} onClick={props.onScrollToBottom} />
                     </div>
                 </>
             )}

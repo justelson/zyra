@@ -2,6 +2,7 @@ import { assistantStore } from '@/lib/assistant/assistant-store-core'
 import { waitForAssistantStopConfirmation } from './assistant-stop-confirmation'
 import { createPendingAssistantUserMessage, isPendingAssistantUserMessage, useAssistantPendingMessages } from './useAssistantPendingMessages'
 import { withExtensionTabContext } from '@/lib/browser-extension'
+import { useAssistantTimelineLatestNavigation } from './useAssistantTimelineLatestNavigation'
 import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessage, AssistantProject, AssistantProposedPlan, AssistantSession, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
@@ -506,6 +507,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         latestTurnState: controller.activeThread?.latestTurn?.state || null,
         threadState: controller.activeThread?.state || null
     })
+    const followTimelineEnd = useCallback((animated: boolean) => {
+        showScrollToBottomRef.current = false
+        setShowScrollToBottom(false)
+        onScrollToBottom(animated)
+    }, [onScrollToBottom])
+    const latestNavigation = useAssistantTimelineLatestNavigation({ threadId: activeThreadId || null, hasNewer: controller.history?.pageInfo.hasNewer === true, scrollRef: timelineScrollRef, loadLatestHistory: actions.loadLatestHistory, onFollowEnd: followTimelineEnd, loadError: controller.history?.loadNewerError })
     const isLoadingSelectedChat = Boolean(
         !newChatHandoffActive
         && !selectedSessionUsesNewChatSurface
@@ -577,15 +584,17 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
     const syncScrollButtonVisibility = useCallback((element: HTMLDivElement) => {
         const distanceFromBottom = getDistanceFromBottom(element)
-        const shouldShowButton = showScrollToBottomRef.current
+        const hasNewer = controller.history?.pageInfo.hasNewer === true
+        latestNavigation.measure(element)
+        const shouldShowButton = hasNewer || (showScrollToBottomRef.current
             ? distanceFromBottom > TIMELINE_HIDE_SCROLL_BUTTON_THRESHOLD_PX
-            : distanceFromBottom > TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX
+            : distanceFromBottom > TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX)
 
         if (showScrollToBottomRef.current !== shouldShowButton) {
             showScrollToBottomRef.current = shouldShowButton
             setShowScrollToBottom(shouldShowButton)
         }
-    }, [getDistanceFromBottom])
+    }, [getDistanceFromBottom, controller.history?.pageInfo.hasNewer, latestNavigation.measure])
 
     const handleTimelineScrollEvent = useCallback((element: HTMLDivElement) => {
         onScrollTimeline(element)
@@ -765,11 +774,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         return () => window.clearTimeout(timeoutId)
     }, [implementationToastVisible])
 
-    const handleScrollToBottomClick = useCallback(() => {
-        showScrollToBottomRef.current = false
-        setShowScrollToBottom(false)
-        onScrollToBottom()
-    }, [onScrollToBottom])
+    const handleScrollToBottomClick = latestNavigation.onNavigate
 
     const handleComposerOverflowWheel = useCallback((deltaY: number) => {
         if (deltaY === 0) return
@@ -1452,6 +1457,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onLoadOlder={handleLoadOlderHistory}
                             onLoadNewer={handleLoadNewerHistory}
                             showScrollToBottom={showScrollToBottom}
+                            scrollToBottomLabel={latestNavigation.label}
+                            scrollToBottomPending={latestNavigation.pending}
                             elevateScrollToBottom={bottomComposerOverlayActive}
                             onScrollTimeline={handleTimelineScrollEvent}
                             onScrollToBottom={handleScrollToBottomClick}

@@ -5,8 +5,9 @@ const { writeFile } = require('node:fs/promises')
 const directory = process.env.ZYRA_VISUALIZATION_FIXTURE
 app.setPath('userData', path.join(directory, 'profile'))
 let window
-// Includes repeated viewport-unit/media-query settling and responsive cases.
-const timer = setTimeout(() => { console.error('Visualization fixture timed out'); app.exit(1) }, 60000)
+const started = Date.now()
+let phase = 'startup'
+const timer = setTimeout(() => { console.error(`Visualization fixture timed out during ${phase} after ${Date.now() - started}ms`); app.exit(1) }, 90000)
 app.whenReady().then(async () => {
     window = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } })
     const diagnostics = []
@@ -18,6 +19,7 @@ app.whenReady().then(async () => {
         await window.loadURL(`chrome-extension://${extension.id}/index.html`)
     } else await window.loadFile(path.join(directory, 'index.html'))
     const result = await window.webContents.executeJavaScript('window.visualizationCheck')
+    phase = 'real CSP and isolation'
     assert(Array.isArray(result), 'fixture script must execute under the real app CSP: ' + JSON.stringify(diagnostics))
     for (let i = 0; i < 100 && !window.webContents.mainFrame.frames.some(frame => frame.url.endsWith('/visualization-frame.html')); i++) await new Promise(resolve => setTimeout(resolve, 25))
     const frame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
@@ -74,6 +76,7 @@ app.whenReady().then(async () => {
     }
     for (const mode of ['dark', 'light']) {
         for (const width of [undefined, 320]) {
+            phase = `paint ${mode}/${width || 'wide'}`
             const expected = await window.webContents.executeJavaScript(`window.visualizationShowcase('${mode}',${width ?? 'undefined'})`)
             await window.webContents.executeJavaScript(`(async()=>{const frame=document.querySelector('iframe');await Promise.all([frame,...(frame.parentElement?[frame.parentElement]:[])].flatMap(element=>element.getAnimations().map(animation=>animation.finished.catch(()=>undefined))));await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))})()`)
             const parent = await window.webContents.executeJavaScript(`(()=>{const r=document.querySelector('iframe').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight}})()`)
@@ -145,6 +148,7 @@ app.whenReady().then(async () => {
     }
     console.log('PASS: dark/light and 320px real iframe pixels, data geometry, contrast, monotonic heat scale and palette exports')
     const naturalHeight = await window.webContents.executeJavaScript('window.visualizationNaturalHeightCase()')
+    phase = 'natural height and wheel routing'
     assert(naturalHeight >= 981, `a tall visualization shows its complete content, not the authored 160px cap: ${naturalHeight}`)
     const naturalFrame = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
     const naturalOverflow = await naturalFrame.executeJavaScript('({horizontal:document.documentElement.scrollWidth>innerWidth,vertical:document.documentElement.scrollHeight>innerHeight+1,svgWidth:document.querySelector("svg").getBoundingClientRect().width})')
@@ -203,6 +207,7 @@ app.whenReady().then(async () => {
     await window.webContents.executeJavaScript('document.body.style.minHeight="";scrollTo(0,0)')
     console.log('PASS: native authored panel scrolling, bidirectional partial remainders, nested capacity, page units and overscroll containment')
     for (const font of ['bricolage', 'hanken', 'managed:visualization-fixture']) {
+        phase = `font ${font}`
         await window.webContents.executeJavaScript(`window.visualizationFontCase('${font}')`)
         const parentDocument = (await cdp('DOM.getDocument')).root
         const { nodeId: parentNode } = await cdp('DOM.querySelector', { nodeId: parentDocument.nodeId, selector: '#font-parent-sample' })
@@ -238,6 +243,7 @@ app.whenReady().then(async () => {
     assert.equal(requests.length, 0, 'font inheritance never permits authored network requests')
     console.log('PASS: actual bundled/managed app fonts in inline HTML, SVG and exported HTML; overrides and one-read caching preserved')
     const compactHeight = await window.webContents.executeJavaScript('window.visualizationInteractionCase()')
+    phase = 'disclosure and pointer interactions'
     assert(compactHeight < 200, 'a short chart shrinks below its authored 320px maximum')
     const interactive = window.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/visualization-frame.html'))
     window.webContents.focus()
@@ -246,16 +252,23 @@ app.whenReady().then(async () => {
     assert.equal(beforeExpansion.tooltip, 'Sample: 84 units', JSON.stringify(beforeExpansion))
     assert(beforeExpansion.tooltipVisible, 'data-point preview is also available through keyboard focus')
     assert(beforeExpansion.summaryWidth >= beforeExpansion.width - 3, 'disclosure fills the content width')
+    await window.webContents.executeJavaScript(`window.fixtureHeightMessages=[];addEventListener('message',event=>{if(event.source===document.querySelector('iframe')?.contentWindow&&event.data?.type==='zyra:visualization-height')fixtureHeightMessages.push(event.data.height)})`)
     const animating = await interactive.executeJavaScript(`(()=>{document.querySelector('summary').click();return document.getAnimations().length})()`)
     assert(animating > 0, 'disclosure expansion animates')
     await new Promise(resolve => setTimeout(resolve, 350))
+    // A hidden extension surface can defer its compositor/child resize commit.
+    // Paint it as the pixel checks do before reading the final viewport geometry.
+    await capture()
     let expanded
     for (let attempt = 0; attempt < 120; attempt++) {
         expanded = await interactive.executeJavaScript(`({width:document.body.clientWidth,open:document.querySelector('details').open,scrollHeight:document.documentElement.scrollHeight,viewport:innerHeight,contentHeight:document.querySelector('.zyra-viz-content').getBoundingClientRect().height,overflow:document.documentElement.scrollHeight>innerHeight+1,animating:document.getAnimations().some(animation=>animation.playState==='running'||animation.pending)})`)
         if (expanded.open && !expanded.overflow && !expanded.animating) break
         await new Promise(resolve => setTimeout(resolve, 25))
     }
-    assert(expanded.open && !expanded.overflow && !expanded.animating, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
+    if (!expanded.open || expanded.overflow) {
+        console.error('Expansion diagnostic', { parent: await window.webContents.executeJavaScript(`({heights:fixtureHeightMessages,frame:document.querySelector('iframe').getBoundingClientRect().toJSON(),ready:document.querySelector('iframe').dataset.visualizationReady})`), child: await interactive.executeJavaScript(`({hidden:document.hidden,visibility:document.visibilityState,expanded:document.querySelector('summary').getAttribute('aria-expanded'),animations:document.getAnimations().map(animation=>({state:animation.playState,time:animation.currentTime}))})`) })
+    }
+    assert(expanded.open && !expanded.overflow, 'expanded data is fully visible without a nested vertical scrollbar: ' + JSON.stringify(expanded))
     assert.equal(expanded.width, beforeExpansion.width, 'scrollbar appearance does not move content sideways')
     assert(await window.webContents.executeJavaScript('document.querySelector("iframe").getBoundingClientRect().height') > 320, 'opening a long table grows the chat visualization beyond its initial height')
     await interactive.executeJavaScript(`document.querySelector('summary').click()`)

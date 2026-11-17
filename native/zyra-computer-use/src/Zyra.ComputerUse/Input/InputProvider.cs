@@ -148,11 +148,12 @@ public sealed class InputProvider
 
     public void TypeText(WindowHandleEntry window, string text)
     {
-        Focus(window);
+        RequireForegroundInput(window);
         if (text.Length > 16_384) throw new InvalidOperationException("Typed text exceeds the sidecar limit.");
         foreach (var character in text)
         {
             ThrowIfStopped();
+            RequireForegroundInput(window);
             var inputs = new[]
             {
                 KeyInput(character, 0x0004),
@@ -165,7 +166,7 @@ public sealed class InputProvider
 
     public void Key(WindowHandleEntry window, string key, string[]? modifiers)
     {
-        Focus(window);
+        RequireForegroundInput(window);
         var virtualKey = ResolveVirtualKey(key);
         var modifierKeys = (modifiers ?? []).Select(ModifierVirtualKey).Distinct().Take(4).ToArray();
         if (virtualKey == 0x1B && modifierKeys.Length == 0)
@@ -204,7 +205,7 @@ public sealed class InputProvider
 
     public void Scroll(WindowHandleEntry window, double deltaY)
     {
-        Focus(window);
+        RequireForegroundInput(window);
         ThrowIfStopped();
         var amount = (int)Math.Clamp(-deltaY, -10_000, 10_000);
         NativeMethods.mouse_event(0x0800, 0, 0, unchecked((uint)amount), 0);
@@ -237,9 +238,16 @@ public sealed class InputProvider
             () => { ThrowIfStopped(); ValidatePoint(window, x, y); });
     }
 
-    private static (int X, int Y) ValidatePoint(WindowHandleEntry window, double xValue, double yValue)
+    private static void RequireForegroundInput(WindowHandleEntry window)
     {
         AssertSelectedProcess(window);
+        if (NativeMethods.GetForegroundWindow() != window.Handle)
+            throw new InvalidOperationException("Physical input requires the selected window to already be foreground. Use a semantic control or browser action for background work.");
+    }
+
+    private static (int X, int Y) ValidatePoint(WindowHandleEntry window, double xValue, double yValue)
+    {
+        RequireForegroundInput(window);
         if (!double.IsFinite(xValue) || !double.IsFinite(yValue)) throw new InvalidOperationException("Pointer coordinates must be finite.");
         var x = checked((int)Math.Round(xValue));
         var y = checked((int)Math.Round(yValue));

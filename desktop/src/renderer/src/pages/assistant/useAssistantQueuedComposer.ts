@@ -225,9 +225,10 @@ export function useAssistantQueuedComposer(args: {
             }, true)
         }
         if (isAssistantBusy || compacting || current.held[selectedSessionId] || current.entries[selectedSessionId]?.length) {
-            const dispatchMode = compacting ? 'queue' : mode
+            const dispatchMode = mode
+            const prefix = compacting && dispatchMode === 'steer' ? 'compaction-steer' : 'queued'
             return enqueue([{
-                id: answerId || `queued-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                id: answerId || `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 sessionId: selectedSessionId, prompt, contextFiles: files, options: { ...options, targetTurnId: dispatchMode === 'steer' ? options.targetTurnId || activeTurnId || undefined : undefined, dispatchMode }
             }], dispatchMode === 'steer')
         }
@@ -264,7 +265,7 @@ export function useAssistantQueuedComposer(args: {
         for (const [sessionId, messages] of Object.entries(snapshot.entries)) {
             const state = states.get(sessionId)
             // Unknown/missing chats are never dispatched from recovered local data.
-            if (!state || state.compacting || activeDispatchRef.current.has(sessionId) || snapshotRef.current.held[sessionId]) continue
+            if (!state || activeDispatchRef.current.has(sessionId) || snapshotRef.current.held[sessionId]) continue
             const busy = isAssistantQueuedComposerSessionBusy(state)
                 || (sessionId === selectedSessionId && (commandPending || isThreadWorking || isAssistantBusy))
             const awaited = awaitingTurnRef.current.get(sessionId)
@@ -276,7 +277,7 @@ export function useAssistantQueuedComposer(args: {
             const liveTurnId = state.latestTurnId || (sessionId === selectedSessionId ? activeTurnId : null)
             const steer = state.latestTurnState === 'running' ? messages.find(entry => !entry.previewOnly && entry.options.dispatchMode === 'steer'
                 && (!entry.options.targetTurnId || entry.options.targetTurnId === liveTurnId)) : undefined
-            if (!steer && (busy || awaitingTurnRef.current.has(sessionId))) continue
+            if (!steer && (state.compacting || busy || awaitingTurnRef.current.has(sessionId))) continue
             const next = steer || messages.find(entry => !entry.previewOnly)
             if (!next || (canDispatchPrompt && !canDispatchPrompt(sessionId))) continue
             // Set the lock before any Promise boundary. Persisted entry remains until acceptance.

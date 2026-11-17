@@ -12,7 +12,7 @@ const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'm
 const TTL_MS = 15 * 60_000;
 const REFRESH_TIMEOUT_MS = 25_000;
 // Protocol compatibility version for OpenAI's models manifest, not a model list.
-const CLIENT_VERSION = '0.159.0';
+const CLIENT_VERSION = '0.169.0';
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function tokenIdentity(token) {

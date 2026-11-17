@@ -66,7 +66,8 @@ export function signedExtension(files: Record<string, string>, algorithm: 'rsa' 
 }
 export function fixtureExtension() {
     return signedExtension({
-        'manifest.json': JSON.stringify({ manifest_version: 3, name: 'Zyra install check', version: '1.0.0', permissions: ['storage'], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'] }] }),
+        'manifest.json': JSON.stringify({ manifest_version: 3, name: 'Zyra install check', action: { default_popup: 'action.html' }, version: '1.0.0', permissions: ['storage'], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'] }] }),
+        'action.html': '<!doctype html><title>Extension action</title><button>Fixture action</button>',
         'content.js': 'document.documentElement.dataset.zyraInstalled=chrome.runtime.id;',
         'check.html': '<!doctype html><title>Extension identity check</title>'
     });

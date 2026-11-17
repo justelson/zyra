@@ -20,6 +20,7 @@ function validateConfiguration(patch: Record<string, unknown>, current: ChatComp
     if (patch.runtimeMode !== undefined && !isAssistantRuntimeMode(patch.runtimeMode)) throw new Error('Unsupported permission mode.')
     if (patch.fastModeEnabled !== undefined && typeof patch.fastModeEnabled !== 'boolean') throw new Error('Fast mode must be boolean.')
     const state = { ...current, ...patch } as ChatComposerPatch
+    if (patch.model === undefined && patch.effort === undefined) return state
     const models = assistantStore.getState().snapshot.knownModels
     const model = models.find(model => model.id === state.model)
     if (!model) throw new Error('The selected model is unavailable. Refresh models; no replacement was selected.')
@@ -74,8 +75,25 @@ export function AgentAppOperations() {
                 if (operation === 'get' || operation === 'list') return { ...before, currentTurn: input.currentTurn || null }
                 const next = validateConfiguration(patch, before.nextTurn)
                 if (operation === 'preview') return { ...before, after: next }
-                if (operation !== 'apply' || !actor.approved || actor.child) throw new Error('This next-turn change requires actual user approval.')
-                return stageAppComposer(sessionId, patch as ChatComposerPatch, Number(params.expectedRevision), record(input.base))
+                if (operation !== 'apply' || (!actor.approved && !input.coveredByProjectGrant) || actor.child) throw new Error('This next-turn change requires actual user approval.')
+                if (params.expectedRevision !== before.revision) throw new Error('The composer choices changed. Read them again before applying.')
+                if (input.configurationThreadId && record(input.currentTurn).state !== 'running'
+                    && [patch.runtimeMode, patch.effort, patch.model].some(value => value !== undefined)) {
+                    const result = await window.devscope.assistant.updateSessionConfiguration({
+                        sessionId, threadId: String(input.configurationThreadId),
+                        ...(patch.runtimeMode !== undefined ? { runtimeMode: next.runtimeMode } : {}),
+                        ...(patch.model !== undefined ? { model: next.model } : {}),
+                        ...(patch.effort !== undefined ? { effort: next.effort } : {})
+                    })
+                    if (!result.success) throw new Error(result.error)
+                    // A synchronous server echo can advance the revision before the local mirror is written.
+                    const current = inspectAppComposer(sessionId, record(input.base))
+                    if (current.revision !== before.revision && Object.entries(patch).some(([key, value]) =>
+                        current.nextTurn[key as keyof ChatComposerPatch] !== before.nextTurn[key as keyof ChatComposerPatch]
+                        && current.nextTurn[key as keyof ChatComposerPatch] !== value)) throw new Error('Chat choices changed during the update. Read the current configuration again.')
+                    return { ...stageAppComposer(sessionId, patch as ChatComposerPatch, current.revision, record(input.base)), effect: 'canonical-and-desktop' }
+                }
+                return stageAppComposer(sessionId, patch as ChatComposerPatch, before.revision, record(input.base))
             }
             if (domain === 'settings' && area === 'voice') {
                 const before = readInstructorVoicePreferences(), revision = appOwnerRevision('voice', before)

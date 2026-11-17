@@ -30,7 +30,8 @@ export default function PluginsSettings() {
         return [entry.name, release?.manifest.interface.displayName, release?.manifest.description].join(' ').toLowerCase().includes(search.trim().toLowerCase())
     }) || []
 
-    if (plugin && catalog) return <AssistantPluginDetail
+    const enabled = catalog?.pluginsEnabled ?? Boolean(catalog?.plugins.length)
+    if (enabled && plugin && catalog) return <AssistantPluginDetail
         inline catalog={catalog} plugin={plugin} projects={directory.projects} selectedSession={selectedSession}
         busy={busy} error={error} notice={notice} onClose={() => setParams({})}
         onUseInChat={() => useInChat(plugin.id)}
@@ -41,9 +42,10 @@ export default function PluginsSettings() {
         onRollback={(id) => void directory.rollbackPlugin(plugin.id, id)}
     />
 
-    return <SettingsPageContainer title="Plugins">
+    return <SettingsPageContainer title="Plugins (Beta)">
+        <SettingsSection title="Plugins"><SettingsRow title="Enable plugins" description="Use installed plugins in chats." control={<SettingsSwitch label="Enable plugins" checked={enabled} disabled={busy || !catalog} onCheckedChange={pluginsEnabled => void directory.updateAppViewSettings({ pluginsEnabled })} />} /></SettingsSection>
         {error || notice ? <div role={error ? 'alert' : 'status'}><SettingsNotice tone={error ? 'error' : 'neutral'}>{error || notice}</SettingsNotice></div> : null}
-        <SettingsSection title="Installed plugins" headerAction={<div className="flex items-center gap-2">
+        {(enabled || !catalog || !desktopHost) && <SettingsSection title="Installed plugins" headerAction={<div className="flex items-center gap-2">
             {desktopHost ? <SettingsButton variant="ghost" aria-label="Refresh plugins" title="Refresh plugins" disabled={busy || loading} onClick={() => void directory.loadCatalog()}><RefreshCw size={13} className={loading ? 'animate-spin' : ''} /></SettingsButton> : null}
             <SettingsButton onClick={() => navigate('/plugins')}><Store size={13} />Browse store</SettingsButton>
         </div>}>
@@ -56,8 +58,8 @@ export default function PluginsSettings() {
                     {matches.length ? <InstalledPluginSettingsList plugins={matches} catalog={catalog} busy={busy} onSelect={openPlugin} onToggle={(id, enabled) => void directory.updatePluginState(id, enabled)} /> : <p className="px-4 py-4 text-xs text-[var(--settings-text-secondary)]">No matching plugins.</p>}
                 </>
                 : <p className="px-4 py-4 text-xs leading-5 text-[var(--settings-text-secondary)]">No plugins installed.</p>}
-        </SettingsSection>
-        {catalog ? <SettingsSection title="App views">
+        </SettingsSection>}
+        {enabled && catalog ? <SettingsSection title="App views">
             <SettingsRow
                 title="Show app views in Chat"
                 description="Interactive views from enabled plugins."

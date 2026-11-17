@@ -60,3 +60,34 @@ export async function handleReloadBrowserExtension(_event: IpcMainInvokeEvent, i
         return { success: true as const, extension: await getBrowserExtensionManager().reload(id) }
     } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : 'Could not reload the Browser extension.' } }
 }
+
+export async function handleOpenBrowserExtensionPopup(event: IpcMainInvokeEvent, id: string) {
+    let popup: BrowserWindow | undefined
+    try {
+        const owner = ownerWindow(event)
+        const action = getBrowserExtensionManager().actionPopup(id)
+        if (!action) throw new Error('This extension has no available popup.')
+        const bounds = owner.getContentBounds()
+        const width = Math.min(380, bounds.width)
+        popup = new BrowserWindow({
+            parent: owner, width, height: Math.min(510, bounds.height),
+            x: bounds.x + bounds.width - width, y: bounds.y + 64,
+            show: false, frame: false, skipTaskbar: true, fullscreenable: false,
+            webPreferences: { session: action.session, sandbox: true, contextIsolation: true, nodeIntegration: false }
+        })
+        popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+        const restrictNavigation = (e: Electron.Event, target: string) => {
+            const url = new URL(target)
+            if (url.protocol !== action.url.protocol || url.host !== action.url.host) e.preventDefault()
+        }
+        popup.webContents.on('will-navigate', restrictNavigation)
+        popup.webContents.on('will-redirect', restrictNavigation)
+        await popup.loadURL(action.url.href)
+        popup.once('blur', () => popup?.close())
+        popup.show()
+        return { success: true as const }
+    } catch (error) {
+        popup?.destroy()
+        return { success: false as const, error: error instanceof Error ? error.message : 'Could not open the extension popup.' }
+    }
+}

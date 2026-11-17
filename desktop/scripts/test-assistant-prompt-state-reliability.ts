@@ -144,9 +144,12 @@ Object.assign(window.devscope.assistant, {
     getStatus: async () => status,
     getThreadDetailBootstrap: async () => {
         newestReads++
-        if (newestReads > 1) await new Promise<void>(resolve => { releaseNewest = resolve })
         return { success: true, detail: { ...detail(), history: { ...detail().history, messages: [],
             pageInfo: { oldestCursor: 'history', newestCursor: 'history', hasOlder: false, hasNewer: newestReads === 1, turnCount: 1 } } } }
+    },
+    getHistoryPage: async () => {
+        await new Promise<void>(resolve => { releaseNewest = resolve })
+        return { success: true, page: { ...detail().history, messages: [], pageInfo: { oldestCursor: 'latest', newestCursor: null, hasOlder: true, hasNewer: false, turnCount: 1 } } }
     },
     sendPrompt: async () => { stoppedIpcCalls++; return { success: true, sessionId: session.id, threadId: thread.id, turnId: user.turnId } }
 })

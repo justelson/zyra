@@ -41,7 +41,7 @@ const startVoice = async () => {
     check(document.activeElement === focused && !answer(), 'Async arrival cannot steal focus or mount an answer composer')
     check(frameCount() === 1 && editor()?.textContent === 'Immediate unsaved message', 'Arrival leaves one editable message dock and the exact draft')
     check(editor()?.getAttribute('aria-disabled') !== 'true', 'Answer-later does not block message composition')
-    check(document.body.textContent?.includes('Agent is continuing') && document.body.textContent?.includes('2 requests'), 'Continuing state and queued request count are visible')
+    check(document.body.textContent?.includes('Agent needs to know 2 things'), 'The collapsed shelf shows the waiting question count')
     check(fixture.responses.length === 0 && fixture.decisions.length === 0, 'Mounting never submits an answer or permission decision')
     const emptyQueue = document.querySelector('[aria-label="Queued messages"]')?.closest<HTMLElement>('[data-state="closed"]')
     check(!emptyQueue || getComputedStyle(emptyQueue).marginBottom === '0px', 'An empty queue cannot alter attachment-only shelf spacing')
@@ -94,9 +94,9 @@ const startVoice = async () => {
     check(fixture.responses.length === 1 && fixture.props.pendingUserInputs[0].requestId === 'async-two', 'Ordinary Send cannot answer or dismiss the pending question')
     await typeMessage('Continue my message')
     fixture.rejectDismiss(true)
-    await click('Dismiss')
+    await click('Skip')
     await wait(() => document.body.textContent?.includes('Fixture dismiss failed') === true, 'Dismissal errors are visible')
-    fixture.rejectDismiss(false); await click('Dismiss')
+    fixture.rejectDismiss(false); await click('Skip')
     check(fixture.dismissals[0] === 'async-two' && !document.querySelector('[data-assistant-async-question]'), 'Dismiss targets only the current request')
 
     // Switching the visible dock releases capture; a durable Chat transcript can

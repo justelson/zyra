@@ -8,6 +8,7 @@ import {
     useRendererVisibilitySnapshot
 } from '@/lib/renderer-visibility'
 import type { TimelineDisplayRow } from './assistant-timeline-helpers'
+import { getAssistantTimelineItemType } from './assistant-timeline-layout-policy'
 import { markMarkdownScrollActivity } from '@/components/ui/markdown/markdownScrollActivity'
 import {
     ASSISTANT_TIMELINE_DISCLOSURE_TOGGLE_EVENT,
@@ -40,7 +41,6 @@ import {
 } from './assistant-timeline-media-anchor'
 
 const keyExtractor = (row: TimelineDisplayRow) => row.id
-const getItemType = (row: TimelineDisplayRow) => row.kind
 const DEFAULT_DISCLOSURE_SETTLE_MS = 420
 const DISCLOSURE_SETTLE_PADDING_MS = 80
 const COMPLETION_LAYOUT_SETTLE_MS = 720
@@ -269,7 +269,13 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         clearCompletionEndFollow()
         cancelEndAlignment()
         cancelStartupAlignment()
-        stopInitialHistoryBackfill()
+        cancelInitialHistoryBackfillCheck()
+        initialHistoryBackfillActiveRef.current = true
+        setHistoryFillRevision(revision => revision + 1)
+        olderLoadRequestOwnerRef.current = null
+        newerLoadRequestOwnerRef.current = null
+        olderLoadRequestPendingRef.current = false
+        newerLoadRequestPendingRef.current = false
         cancelDisclosureAnchor()
         window.clearTimeout(disclosureTimerRef.current)
         disclosureTimerRef.current = 0
@@ -285,7 +291,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         settleInitialPresentation(props.windowKey, props.onInitialLayout)
         const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || document.body.classList.contains('zyra-reduce-motion')
         void props.listRef.current?.scrollToEnd({ animated: animated && !reduceMotion })
-    }, [cancelDisclosureAnchor, cancelEndAlignment, cancelStartupAlignment, clearCompletionEndFollow, props.listRef, props.onInitialLayout, props.windowKey, settleInitialPresentation, stopInitialHistoryBackfill, updateScrollMode])
+    }, [cancelDisclosureAnchor, cancelEndAlignment, cancelStartupAlignment, cancelInitialHistoryBackfillCheck, clearCompletionEndFollow, props.listRef, props.onInitialLayout, props.windowKey, settleInitialPresentation, updateScrollMode])
 
     const requestInitialHistoryBackfill = useCallback((targetWindowKey: string) => {
         if (
@@ -586,6 +592,20 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
         scheduleInitialHistoryBackfillCheck,
         startupSettled
     ])
+
+    useEffect(() => {
+        if (!startupSettled || !scrollElement) return
+        const target = props.windowKey
+        // A page can arrive after the last wheel input. Refill the lookahead
+        // after layout so reaching the edge doesn't require another wheel nudge.
+        const frame = window.requestAnimationFrame(() => {
+            if (activeWindowKeyRef.current !== target) return
+            const now = performance.now()
+            if (now - lastUpwardIntentAtRef.current < 1500) requestOlderPage()
+            else if (now - lastDownwardIntentAtRef.current < 1500) requestNewerPage()
+        })
+        return () => window.cancelAnimationFrame(frame)
+    }, [props.rows, props.loadingOlder, props.loadingNewer, props.windowKey, requestOlderPage, requestNewerPage, scrollElement, startupSettled])
 
     useEffect(() => {
         if (!scrollElement) return
@@ -931,7 +951,7 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
             extraData={rowDisclosureState}
             dataKey={props.windowKey}
             keyExtractor={keyExtractor}
-            getItemType={getItemType}
+            getItemType={getAssistantTimelineItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
             initialScrollAtEnd
@@ -956,6 +976,10 @@ export const AssistantVirtualTimeline = memo(function AssistantVirtualTimeline(p
                 markMarkdownScrollActivity()
                 const element = props.scrollContainerRef?.current || scrollElement
                 if (!element) return
+                // Media can resize again before the scroll event caused by the
+                // first compensation. Settle that old character before replacing
+                // its anchor, or a shrink/error can lose the inverse adjustment.
+                compensateIntraRowMedia()
                 if (!completionFollowActiveRef.current) {
                     const now = performance.now()
                     const resolvedMode = resolveAssistantTimelineScrollMode(element)

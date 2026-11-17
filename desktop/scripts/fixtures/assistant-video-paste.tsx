@@ -15,6 +15,10 @@ async function wait(test: () => unknown, message: string) { for (let n = 0; n < 
 let saves = 0, liveFiles: ComposerContextFile[] = [], imageInputs = 0
 ;(window as any).devscope = { assistant: {
     getPathForFile: () => '',
+    resolveClipboardAttachment: async ({ reference }: { reference: string }) => {
+        check(reference === 'clipboard://fixture-browser-capture.webm', 'resolve the staged recording identity')
+        return { success: true, path: new URL('browser-capture.webm', (window as any).fixtureVideoURL).href }
+    },
     persistClipboardImage: async ({ dataUrl }: { dataUrl: string }) => {
         const saved = Uint8Array.from(atob(dataUrl.split(',')[1]), value => value.charCodeAt(0))
         check(saved.length === bytes.length && saved.every((byte, index) => byte === bytes[index]), 'The real FileReader preserves every video byte')
@@ -43,6 +47,7 @@ function App() {
     } as any)
     const meta = preview ? getContextFileMeta(preview) : null
     return <main className="flex h-full flex-col gap-5 p-6">
+        <button data-open-recording onClick={() => setPreview({ id: 'capture', path: 'clipboard://fixture-browser-capture.webm', name: 'browser-capture.webm', kind: 'video', mimeType: 'video/webm' })}>Open recording</button>
         {sent ? <section data-video-history><TimelineMessage message={{ id: 'video-message', role: 'user', text: sent, turnId: 'turn', createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-01T12:00:00.000Z' }} /></section> : null}
         <section className="mt-auto rounded-xl border border-[var(--surface-divider)] p-3">
             <div className="mb-2 flex gap-2" data-video-draft>{files.map(file => <AssistantAttachmentPill key={file.id} name={getContextFileMeta(file).name} category={getContextFileMeta(file).category} onOpen={() => setPreview(file)} onRemove={() => handlers.removeAttachment(file.id)} removing={removing.includes(file.id)} />)}</div>
@@ -96,6 +101,11 @@ async function run() {
     await wait(() => video()?.readyState! >= 2, 'Reopened history decodes a real video frame')
     check(video()!.paused && !video()!.autoplay && video()!.videoWidth === 64, 'History preview still has the original playable file without autoplay')
     settleMotion()
-    return ['actual clipboard File event, binary persistence, video pill/preview, real H.264 playback/seek, text-model send and playable sent-history reopening without autoplay']
+    await close()
+    await click(document.querySelector('[data-open-recording]')!)
+    await wait(() => Boolean(video()?.videoWidth && video()!.readyState >= 2), 'A staged browser WebM recording resolves and decodes in the attachment viewer')
+    await video()!.play()
+    await wait(() => video()!.currentTime > 0, 'The resolved recording plays')
+    return ['staged WebM recording playback', 'actual clipboard File event, binary persistence, video pill/preview, real H.264 playback/seek, text-model send and playable sent-history reopening without autoplay']
 }
 ;(window as any).sidebarContinuityCheck = run()

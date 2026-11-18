@@ -104,7 +104,7 @@ export type PrivateVoiceTaskInput = {
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     profile?: string
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
     signal: AbortSignal
 }
 
@@ -1235,7 +1235,10 @@ function normalizeModelInfo(value: unknown): AssistantModelInfo | null {
     const pricingFetchedAt = asString(record?.['pricingFetchedAt']) || undefined
     const pricingSource = asString(record?.['pricingSource']) || undefined
     const reasoningStatus = record?.['reasoningStatus'] === 'unknown' || !Array.isArray(record?.['supportedEfforts']) ? 'unknown' as const : 'known' as const
-    const model = { id, label, description, supportedEfforts, reasoningStatus, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
+    const serviceTiers = Array.isArray(record?.serviceTiers)
+        ? record.serviceTiers.filter((tier): tier is 'fast' | 'ultrafast' => tier === 'fast' || tier === 'ultrafast')
+        : undefined
+    const model = { id, label, description, serviceTiers, supportedEfforts, reasoningStatus, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
     installModelCatalogPricing([model])
     return model
 }
@@ -2213,7 +2216,7 @@ export class ZyraRuntime extends EventEmitter {
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast'
+            serviceTier?: 'fast' | 'ultrafast'
             profile?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
@@ -2548,7 +2551,7 @@ export class ZyraRuntime extends EventEmitter {
                 profile,
                 runtimeMode,
                 interactionMode,
-                serviceTier: input.serviceTier,
+                codexServiceTier: input.serviceTier ?? 'default',
                 reasoningSummary: 'auto',
                 skipTitleGeneration: true
             })
@@ -3032,7 +3035,7 @@ export class ZyraRuntime extends EventEmitter {
         prompt: string,
         options?: {
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast'
+            serviceTier?: 'fast' | 'ultrafast'
             initialManualTitle?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
@@ -3050,6 +3053,7 @@ export class ZyraRuntime extends EventEmitter {
             await context.worker.request('prompt', {
                 prompt,
                 turnId,
+                codexServiceTier: options?.serviceTier ?? 'default',
                 memoryEnabled,
                 model: context.model,
                 thinking: context.thinking,

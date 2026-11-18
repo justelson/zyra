@@ -525,6 +525,7 @@ browserPopupManager.registerIpc()
 
 const accessoryWindowManager = new AccessoryWindowManager({
     rootPath: app.getPath('home'),
+    preferences: setupServices.preferences,
     openBrowserSettings: () => sendAppMenuCommand('browser-settings'),
     createWindow: createAccessoryShellWindow,
     canOpen: () => setupServices.onboarding.isAccessAllowed(),

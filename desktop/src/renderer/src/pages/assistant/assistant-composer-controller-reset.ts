@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { RefObject } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
@@ -11,7 +12,7 @@ export function resetAssistantComposerDirtyState(input: {
     baseRuntimeMode: AssistantRuntimeMode
     baseInteractionMode: AssistantInteractionMode
     defaultEffort: AssistantComposerPreferenceEffort
-    defaultFastModeEnabled: boolean
+    defaultFastModeEnabled: AssistantSpeedPreference
     textareaRef: RefObject<HTMLTextAreaElement | null>
     setText: (value: string) => void
     setInlineMentionTags: (value: []) => void
@@ -26,7 +27,7 @@ export function resetAssistantComposerDirtyState(input: {
     setSelectedRuntimeMode: (value: AssistantRuntimeMode) => void
     setSelectedInteractionMode: (value: AssistantInteractionMode) => void
     setSelectedEffort: (value: AssistantComposerPreferenceEffort) => void
-    setFastModeEnabled: (value: boolean) => void
+    setFastModeEnabled: (value: AssistantSpeedPreference) => void
     setComposerCursor: (value: number) => void
 }) {
     const {

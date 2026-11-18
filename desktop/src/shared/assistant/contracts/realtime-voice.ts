@@ -28,7 +28,7 @@ export interface AssistantVoiceExecutionConfiguration {
     runtimeMode: import('./runtime').AssistantRuntimeMode
     interactionMode: import('./runtime').AssistantInteractionMode
     profile: string
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
 }
 
 export interface AssistantStartRealtimeVoiceInput {

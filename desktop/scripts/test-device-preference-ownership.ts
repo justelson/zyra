@@ -198,6 +198,12 @@ try {
         service.update({ surface: 'desktop', expectedRevision: desktop.revision, patch: { compactMode: true } }),
         /expected revision/
     )
+    for (const vertical of [true, false]) {
+        const snapshot = await service.get({ surface: 'desktop' })
+        const updated = await service.update({ surface: 'desktop', expectedRevision: snapshot.revision, patch: { assistantBrowserVerticalTabs: vertical } })
+        assert.equal(updated.settings.assistantBrowserVerticalTabs, vertical)
+        assert.equal((await new DevicePreferencesService(path, now).get({ surface: 'desktop' })).settings.assistantBrowserVerticalTabs, vertical)
+    }
     const stats = await service.updateSurfaceFromMain('desktop', { assistantShowActionStats: true })
     assert.equal(stats.settings.assistantShowActionStats, true)
     assert.equal((await new DevicePreferencesService(path, now).get({ surface: 'desktop' })).settings.assistantShowActionStats, true, 'action statistics survive a restart')

@@ -4330,7 +4330,7 @@ function requireCanonicalVoiceExecutionConfiguration(value: unknown): AssistantV
         throw new Error('Voice start is missing the selected Chat interaction mode.')
     }
     if (!/^[a-z0-9_-]{1,64}$/.test(profile)) throw new Error('Voice start is missing the selected Chat profile.')
-    if (record?.serviceTier !== undefined && record.serviceTier !== 'fast') {
+    if (record?.serviceTier !== undefined && record.serviceTier !== 'fast' && record.serviceTier !== 'ultrafast') {
         throw new Error('Voice start carries an unsupported Chat service tier.')
     }
     return {
@@ -4339,7 +4339,7 @@ function requireCanonicalVoiceExecutionConfiguration(value: unknown): AssistantV
         runtimeMode: record.runtimeMode,
         interactionMode: 'default',
         profile,
-        ...(record.serviceTier === 'fast' ? { serviceTier: 'fast' as const } : {})
+        ...(record.serviceTier === 'fast' || record.serviceTier === 'ultrafast' ? { serviceTier: record.serviceTier } : {})
     }
 }
 

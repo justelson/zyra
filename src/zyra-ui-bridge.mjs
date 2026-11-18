@@ -845,6 +845,13 @@ async function handlePrompt(payload) {
   }
   const sdk = await loadSdk();
   await applyChatConfig(sdk, payload);
+  if (currentChatConfig(sdk).codexServiceTier === 'ultrafast') {
+    const { model, modelRegistry } = runtime.session;
+    const { syncOpenAIModelCatalog } = await import('./openai-model-catalog.mjs');
+    const catalog = await syncOpenAIModelCatalog({ ...modelRegistry.zyraOpenAIModelCatalogOptions, authStorage: modelRegistry.authStorage, allowStale: true });
+    const available = model?.provider === 'openai-codex' && catalog.get(model.provider)?.find(entry => entry.id === model.id);
+    if (!available?.serviceTiers?.includes('ultrafast')) throw new Error('Ultra Fast is unavailable for this ChatGPT account and model. Choose another response speed.');
+  }
   if (typeof payload.memoryEnabled === "boolean") sdk.setZyraMemoryEnabled(runtime, payload.memoryEnabled);
   sdk.setZyraReasoningSummary(runtime, payload.reasoningSummary);
   const images = normalizePromptImages(payload.images);

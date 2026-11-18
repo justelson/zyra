@@ -30,7 +30,7 @@ import { useAssistantSpeechInput } from './useAssistantSpeechInput'
 import { createAssistantDictationJob, registerAssistantDictationOwner } from './assistant-dictation-jobs'
 import { reconcileInlineMentionTags, replaceInlineMentionTokensWithLabels } from './assistant-composer-inline-mentions'
 import { getContextFileMeta } from './assistant-composer-utils'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, resolveComposerSpeed } from './assistant-model-groups'
 import { useAssistantComposerControllerEffects } from './useAssistantComposerControllerEffects'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { readRememberedChoices, rememberComposerChoices, readRememberedModelEffort, rememberModelEffort } from './assistant-remembered-choices'
@@ -526,6 +526,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         projectPath, branchName, currentBranch, isSwitchingBranch, setIsSwitchingBranch, setBranchActionError,
         setBranches, setShowBranchDropdown, setBranchQuery, setActiveBranchIndex, setBranchRefreshToken
     })
+    const selectedModelMetadata = availableModelOptions.find(model => model.id === selectedModel) ?? null
+    const effectiveSpeed = resolveComposerSpeed(selectedModelMetadata, fastModeEnabled)
     const handlers = createAssistantComposerHandlers({
         startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree,
         disabled,
@@ -576,7 +578,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setSelectedRuntimeMode: chooseRuntimeMode,
         selectedInteractionMode,
         selectedEffort,
-        fastModeEnabled,
+        fastModeEnabled: effectiveSpeed,
         setComposerCursor,
         removingAttachmentIds,
         setRemovingAttachmentIds,
@@ -647,7 +649,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree || undefined,
                 model: selectedModel || undefined, runtimeMode: selectedRuntimeMode,
                 interactionMode: selectedInteractionMode, effort: selectedEffort,
-                serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' as const : undefined,
+                serviceTier: composerServiceTier(effectiveSpeed),
                 dispatchMode: isThinking ? settings.assistantBusyMessageMode : 'immediate' as const
             }
             return createAssistantDictationJob({ ownerKey: dictationOwnerKey, sessionId: normalizedSessionId,
@@ -825,7 +827,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         selectedModelLabel,
         selectedModelInputModes: typeof selectedModelOption === 'string' ? undefined : selectedModelOption.inputModes,
         selectedModelContextWindow: availableModelOptions.find((model) => model.id === selectedModel)?.contextWindow ?? null,
-        selectedModelMetadata: availableModelOptions.find((model) => model.id === selectedModel) ?? null,
+        selectedModelMetadata,
+        effectiveSpeed,
         latestModelId,
         filteredModelOptions,
         setActiveModelIndex,

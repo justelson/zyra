@@ -1,4 +1,4 @@
-import { normalizeCodexServiceTierPreference } from './codex-service-tier-preference.mjs';
+import { applyCodexServiceTier, normalizeCodexServiceTierPreference } from './codex-service-tier-preference.mjs';
 import { installSessionReasoningOptions, reasoningStateReader, applySessionReasoningPayload } from './session-reasoning-options.mjs';
 import { runtimeModelCost } from './model-pricing/index.mjs';
 import { assistantMessageCost } from './model-pricing/message-cost.mjs';
@@ -393,11 +393,7 @@ function createCodexServiceTierExtension(state) {
     sourceInfo: { source: "builtin", scope: "temporary", label: "Zyra Codex service tier" },
     handlers: new Map([
       ["before_provider_request", [
-        (event) => {
-          const tier = codexServiceTierForPayload(state?.value);
-          if (!tier || !isCodexResponsesPayload(event.payload)) return undefined;
-          return { ...event.payload, service_tier: tier };
-        },
+        (event) => applyCodexServiceTier(event.payload, state?.value),
       ]],
     ]),
     tools: new Map(),
@@ -446,18 +442,6 @@ function createReasoningSummaryExtension(state) {
     flags: new Map(),
     shortcuts: new Map(),
   };
-}
-
-function isCodexResponsesPayload(payload) {
-  return Boolean(
-    payload &&
-    typeof payload === "object" &&
-    !Array.isArray(payload) &&
-    typeof payload.model === "string" &&
-    Array.isArray(payload.include) &&
-    payload.include.includes("reasoning.encrypted_content") &&
-    Object.prototype.hasOwnProperty.call(payload, "prompt_cache_key")
-  );
 }
 
 function createFastResourceLoader(project, options = {}) {
@@ -1758,14 +1742,9 @@ function normalizeThinkingPreference(value) {
 }
 
 
-function codexServiceTierForPayload(value) {
-  const tier = normalizeCodexServiceTierPreference(value);
-  if (!tier || tier === "default") return undefined;
-  return tier;
-}
-
 function describeCodexServiceTier(value) {
   const tier = normalizeCodexServiceTierPreference(value) ?? "default";
+  if (tier === "ultrafast") return "Ultra Fast";
   if (tier === "priority") return "fast (priority)";
   if (tier === "flex") return "cheap (flex)";
   if (tier === "auto") return "auto";

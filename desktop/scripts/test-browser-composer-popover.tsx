@@ -37,7 +37,7 @@ function Fixture({placement}){
  const controller={...refs,placement,contextFiles:[],text:'',composerCursor:0,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],projectChoices:[],
   capabilities:{canSend:true,composerAvailable:true,canStop:false,showBusySendActions:false},voiceInput:{isStarting:false,isRecording:false,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
   submitLabel:'Send',isConnected:true,selectedModel,selectedModelLabel:selectedModel.endsWith('5.4')?'GPT-5.4':'GPT-5.3',selectedEffort,selectedInteractionMode:'default',selectedRuntimeMode,displayedProfile:'fixture',zyraProfile:'concise',EFFORT_OPTIONS:['low','medium','high'],EFFORT_LABELS:{low:'Low',medium:'Medium',high:'High'},
-  modelQuery,activeModelIndex,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'},{id:'opencode-harness/openai/gpt-5.4',label:'GPT-5.4',description:'OpenCode harness route'}].filter(model=>(model.label+' '+model.id).toLowerCase().includes(modelQuery.toLowerCase())),showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,
+  modelQuery,activeModelIndex,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'},{id:'opencode-harness/openai/gpt-5.4',label:'GPT-5.4',description:'OpenCode harness route'}].filter(model=>(model.label+' '+model.id).toLowerCase().includes(modelQuery.toLowerCase())),showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,effectiveSpeed:fastModeEnabled,selectedModelMetadata:{serviceTiers:selectedModel.endsWith('5.3')?['fast','ultrafast']:['fast']},
   setPreviewAttachment:noop,removeAttachment:noop,setText:noop,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:noop,attachFile:noop,setShowModelDropdown:noop,setModelQuery,setActiveModelIndex,onZyraProfileChange:noop}
  return <div className="assistant-conversation-pane" style={{width:'min(760px,calc(100% - 32px))',margin:'280px auto 100px'}}><div className="relative z-40 will-change-transform" data-composer-pane-fixture><AssistantComposerView controller={controller}/></div><output id="choices">{selectedEffort+'|'+selectedModel+'|'+selectedRuntimeMode}</output><button id="outside">Outside fixture action</button></div>
 }
@@ -112,6 +112,8 @@ window.fixtureCheck=()=>{
  return {viewport:innerWidth,model:model.toJSON(),anchor:anchor.toJSON(),panel:panel.toJSON()}
 }
 window.fixtureInteractions=async()=>{
+ const attach=document.querySelector('[aria-label="Attach files"]').getBoundingClientRect(),accessButton=document.querySelector('[aria-label="Supervised permission mode"]').getBoundingClientRect()
+ check(attach.right<=accessButton.left && accessButton.left-attach.right<24 && Math.abs((attach.top+attach.bottom-accessButton.top-accessButton.bottom)/2)<2,'Attach aligns beside the permission control')
  const slider=document.querySelector('[aria-label="Reasoning effort"]')
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'2');slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}))});await flush()
  check(document.getElementById('choices').textContent.startsWith('high|'),'reasoning selection updates synthetic state')
@@ -148,6 +150,10 @@ window.fixtureInteractions=async()=>{
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'gpt-5.3');search.dispatchEvent(new Event('input',{bubbles:true}))});await flush()
  const model=[...document.querySelectorAll('button[data-model-index]')].find(node=>node.textContent.includes('GPT-5.3'))
  unobscured(model,'searched model choice');await click(model)
+ const speeds=document.querySelector('select[aria-label="Response speed"]')
+ check(speeds&&[...speeds.options].map(option=>option.text).join('|')==='Standard|Fast|Ultra Fast','eligible model exposes its advertised speeds')
+ await act(async()=>{speeds.value='ultrafast';speeds.dispatchEvent(new Event('change',{bubbles:true}))});await flush()
+ check(speeds.value==='ultrafast','Ultra Fast selection persists in composer')
  check(document.getElementById('choices').textContent.includes('openai-codex/gpt-5.3'),'model selection updates synthetic state with its exact connection')
  check(document.querySelector('[data-model-chooser]').hidden&&!document.querySelector('[data-effort-card]').hidden,'selection returns to effort without extra panels')
  await click(document.querySelector('[aria-label="Choose model"]'))
@@ -222,7 +228,7 @@ app.whenReady().then(async()=>{
    }
    win.webContents.debugger.attach('1.3');
    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-   await run('fixtureReducedMotion()');win.webContents.debugger.detach();
+   await run('fixtureMount("bottom")');await run('fixtureReducedMotion()');win.webContents.debugger.detach();
    console.log('BROWSER_COMPOSER_POPOVER_PASS');app.exit(0);
   }catch(error){
    console.error('BROWSER_COMPOSER_POPOVER_FAIL '+error.stack);

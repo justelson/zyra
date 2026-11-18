@@ -673,20 +673,7 @@ function ComposerViewWithQueue({
                             )}
                         >
                             <div className="relative px-3 pb-1.5 pt-2.5 sm:px-3.5 sm:pt-3">
-
-
                             <div className="flex min-h-[50px] items-start gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => controller.filePickerRef.current?.click()}
-                                    disabled={capabilities.attachDisabled}
-                                    className="mt-0.5 rounded-md p-1 text-sparkle-text-muted transition-colors hover:bg-sparkle-card-hover hover:text-sparkle-text disabled:opacity-50"
-                                    title={capabilities.attachDisabled
-                                        ? capabilities.detailLabel || 'Attachments are unavailable right now'
-                                        : 'Attach files'}
-                                >
-                                    <Plus size={15} />
-                                </button>
                                 <div className="relative min-w-0 flex-1">
                                     <ComposerTextInput
                                         tags={controller.inlineMentionTags}
@@ -784,47 +771,60 @@ function ComposerViewWithQueue({
                                 </>
                             ) : (
                                 <>
-                        <ComposerFooterControls
-                            isCompactFooter={controller.isCompactFooter}
-                            placement={controller.placement}
-                            controlsLocked={capabilities.controlsLocked}
-                            modelDropdownRef={controller.modelDropdownRef}
-                            showModelDropdown={controller.showModelDropdown}
-                                setShowModelDropdown={controller.setShowModelDropdown}
-                                modelsLoading={controller.modelsLoading}
-                                modelsError={controller.modelsError}
-                                modelQuery={controller.modelQuery}
-                                setModelQuery={controller.setModelQuery}
-                                setActiveModelIndex={controller.setActiveModelIndex}
-                                modelListRef={controller.modelListRef}
-                                filteredModelOptions={controller.filteredModelOptions}
-                                activeModelIndex={controller.activeModelIndex}
-                                selectedModel={controller.selectedModel}
-                                selectedModelLabel={controller.selectedModelLabel}
-                                latestModelId={controller.latestModelId}
-                                setSelectedModel={controller.setSelectedModel}
-                                onRefreshModels={controller.onRefreshModels}
-                                traitsDropdownRef={controller.traitsDropdownRef}
-                                showTraitsDropdown={controller.showTraitsDropdown}
-                                setShowTraitsDropdown={controller.setShowTraitsDropdown}
-                                EFFORT_OPTIONS={controller.EFFORT_OPTIONS}
-                                selectedEffort={controller.selectedEffort}
-                                setSelectedEffort={controller.setSelectedEffort}
-                                EFFORT_LABELS={controller.EFFORT_LABELS}
-                                fastModeEnabled={controller.fastModeEnabled}
-                                setFastModeEnabled={controller.setFastModeEnabled}
-                                selectedInteractionMode={controller.selectedInteractionMode}
-                                setSelectedInteractionMode={controller.setSelectedInteractionMode}
-                                selectedRuntimeMode={controller.selectedRuntimeMode}
-                                setSelectedRuntimeMode={controller.setSelectedRuntimeMode}
-                                displayedProfile={controller.displayedProfile}
-                                zyraProfile={controller.zyraProfile}
-                                onZyraProfileChange={controller.onZyraProfileChange}
-                                isConnected={controller.isConnected}
-                                isConnecting={controller.isConnecting}
-                                reconnectPending={controller.reconnectPending}
-                                onReconnect={controller.onReconnect}
-                            />
+                                    <button
+                                        type="button"
+                                        onClick={() => controller.filePickerRef.current?.click()}
+                                        disabled={capabilities.attachDisabled}
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sparkle-text-muted transition-colors hover:bg-sparkle-card-hover hover:text-sparkle-text disabled:opacity-50"
+                                        aria-label="Attach files"
+                                        title={capabilities.attachDisabled
+                                            ? capabilities.detailLabel || 'Attachments are unavailable right now'
+                                            : 'Attach files'}
+                                    >
+                                        <Plus size={15} />
+                                    </button>
+                                    <ComposerFooterControls
+                                        isCompactFooter={controller.isCompactFooter}
+                                        placement={controller.placement}
+                                        controlsLocked={capabilities.controlsLocked}
+                                        modelDropdownRef={controller.modelDropdownRef}
+                                        showModelDropdown={controller.showModelDropdown}
+                                        setShowModelDropdown={controller.setShowModelDropdown}
+                                        modelsLoading={controller.modelsLoading}
+                                        modelsError={controller.modelsError}
+                                        modelQuery={controller.modelQuery}
+                                        setModelQuery={controller.setModelQuery}
+                                        setActiveModelIndex={controller.setActiveModelIndex}
+                                        modelListRef={controller.modelListRef}
+                                        filteredModelOptions={controller.filteredModelOptions}
+                                        activeModelIndex={controller.activeModelIndex}
+                                        selectedModel={controller.selectedModel}
+                                        selectedModelLabel={controller.selectedModelLabel}
+                                        latestModelId={controller.latestModelId}
+                                        setSelectedModel={controller.setSelectedModel}
+                                        onRefreshModels={controller.onRefreshModels}
+                                        traitsDropdownRef={controller.traitsDropdownRef}
+                                        showTraitsDropdown={controller.showTraitsDropdown}
+                                        setShowTraitsDropdown={controller.setShowTraitsDropdown}
+                                        EFFORT_OPTIONS={controller.EFFORT_OPTIONS}
+                                        selectedEffort={controller.selectedEffort}
+                                        setSelectedEffort={controller.setSelectedEffort}
+                                        EFFORT_LABELS={controller.EFFORT_LABELS}
+                                        serviceTiers={controller.selectedModelMetadata?.serviceTiers}
+                                        fastModeEnabled={controller.effectiveSpeed}
+                                        setFastModeEnabled={controller.setFastModeEnabled}
+                                        selectedInteractionMode={controller.selectedInteractionMode}
+                                        setSelectedInteractionMode={controller.setSelectedInteractionMode}
+                                        selectedRuntimeMode={controller.selectedRuntimeMode}
+                                        setSelectedRuntimeMode={controller.setSelectedRuntimeMode}
+                                        displayedProfile={controller.displayedProfile}
+                                        zyraProfile={controller.zyraProfile}
+                                        onZyraProfileChange={controller.onZyraProfileChange}
+                                        isConnected={controller.isConnected}
+                                        isConnecting={controller.isConnecting}
+                                        reconnectPending={controller.reconnectPending}
+                                        onReconnect={controller.onReconnect}
+                                    />
 
                             <div className="assistant-composer-footer-actions flex shrink-0 items-center gap-2 [--assistant-footer-action-gap:0.5rem]">
                                 <AssistantComposerContextIndicator
@@ -856,7 +856,7 @@ function ComposerViewWithQueue({
                                             effort: controller.selectedEffort,
                                             interactionMode: controller.selectedInteractionMode,
                                             profile: controller.zyraProfile,
-                                            fastModeEnabled: controller.fastModeEnabled
+                                            fastModeEnabled: controller.effectiveSpeed
                                         })
                                     )} />
                                 ) : (

@@ -7,6 +7,12 @@ assert.equal(resolveOpenAITransportCompat('openai-codex', { id: 'gpt-6.1-sol' })
 assert.equal(resolveOpenAITransportCompat('openai-codex', { id: 'gpt-unknown', compat: { supportsAdditionalTools: true } }).supportsAdditionalTools, true);
 assert.equal(resolveOpenAITransportCompat('openai-codex', { id: 'gpt-6.1-sol', compat: { supportsAdditionalTools: false } }).supportsAdditionalTools, false, 'explicit provider capability wins');
 assert.equal(resolveOpenAITransportCompat('openai', { id: 'custom' }, { compat: { supportsStrictMode: false } }).supportsStrictMode, false, 'preserve the SAME model capability');
+const advertised = normalizeOpenAIManifest({ models: [
+  { slug: 'eligible', service_tiers: [{ id: 'priority' }, { id: 'ultrafast' }] },
+  { slug: 'fast-only', additional_speed_tiers: ['fast'] },
+  { slug: 'standard', service_tiers: [], additional_speed_tiers: ['ultrafast'] },
+] }, 'openai-codex');
+assert.deepEqual(advertised.map(model => model.serviceTiers), [['fast', 'ultrafast'], ['fast'], []]);
 const discoveredMetadata = normalizeOpenAIManifest({ models: [{ slug: 'metadata-fixture', context_window: 400_000, max_context_window: 1_000_000, auto_compact_token_limit: 350_000, effective_context_window_percent: 95, unknown_capability_flag: true }] }, 'openai-codex')[0];
 assert.equal(discoveredMetadata.context_window, 400_000);
 assert.equal(discoveredMetadata.max_context_window, 1_000_000);

@@ -179,7 +179,8 @@ export function AssistantPendingUserInputFooter(props: {
                 selectedEffort={composerController.selectedEffort}
                 setSelectedEffort={composerController.setSelectedEffort}
                 EFFORT_LABELS={composerController.EFFORT_LABELS}
-                fastModeEnabled={composerController.fastModeEnabled}
+                serviceTiers={composerController.selectedModelMetadata?.serviceTiers}
+                fastModeEnabled={composerController.effectiveSpeed}
                 setFastModeEnabled={composerController.setFastModeEnabled}
                 selectedInteractionMode={composerController.selectedInteractionMode}
                 setSelectedInteractionMode={composerController.setSelectedInteractionMode}

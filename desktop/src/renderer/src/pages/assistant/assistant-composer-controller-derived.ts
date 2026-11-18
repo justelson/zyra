@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { useDeferredValue, useMemo } from 'react'
 import { readRememberedChoices } from './assistant-remembered-choices'
 import { getLatestModelId, sortModelsLatestFirst } from '../../../../../../src/model-order.mjs'
@@ -45,7 +46,7 @@ export function resolveAssistantComposerFallbackState(input: {
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     activeEffort?: AssistantComposerPreferenceEffort | null
-    activeFastModeEnabled?: boolean
+    activeFastModeEnabled?: AssistantSpeedPreference
 }): AssistantComposerSessionState {
     const activeModel = String(input.activeModel || '').trim()
     return {
@@ -54,7 +55,7 @@ export function resolveAssistantComposerFallbackState(input: {
         ...(input.runtimeMode ? { runtimeMode: input.runtimeMode } : {}),
         ...(input.interactionMode ? { interactionMode: 'default' as const } : {}),
         ...(input.activeEffort ? { effort: input.activeEffort } : {}),
-        ...(typeof input.activeFastModeEnabled === 'boolean'
+        ...(input.activeFastModeEnabled !== undefined
             ? { fastModeEnabled: input.activeFastModeEnabled }
             : {})
     }
@@ -67,7 +68,7 @@ export function useAssistantComposerSessionDefaults(input: {
     interactionMode?: AssistantInteractionMode
     activeModel?: string
     activeEffort?: AssistantComposerPreferenceEffort | null
-    activeFastModeEnabled?: boolean
+    activeFastModeEnabled?: AssistantSpeedPreference
     modelOptions?: ComposerModelOption[]
     sessionId?: string | null
     useSettingsDefaults: boolean
@@ -301,7 +302,7 @@ export function useAssistantComposerDirtyState(input: {
     selectedRuntimeMode: AssistantRuntimeMode
     selectedInteractionMode: AssistantInteractionMode
     selectedEffort: AssistantComposerPreferenceEffort
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
     contextFiles: ComposerContextFile[]
     persistedComposerState: AssistantComposerSessionState
 }) {

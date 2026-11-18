@@ -66,11 +66,8 @@ export function AccessoryBrowser({
     const suppressClickRef = useRef<string | null>(null)
     const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
     const preview = useFilePreview()
-    const { settings, updateSettings } = useSettings()
+    const { settings } = useSettings()
     const vertical = settings.assistantBrowserVerticalTabs
-    useEffect(() => window.devscope.accessories.onTabLayout?.(assistantBrowserVerticalTabs => {
-        void updateSettings({ assistantBrowserVerticalTabs })
-    }), [updateSettings])
     const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
     const handledRequest = useRef<string | null>(null)
     const [navigationRequest, setNavigationRequest] = useState<{ id: string; tabId: string; url: string; sessionMode: BrowserSessionMode } | null>(null)

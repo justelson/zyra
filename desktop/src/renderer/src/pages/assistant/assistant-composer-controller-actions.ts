@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { DevScopeGitBranchSummary } from '@shared/contracts/devscope-api'
@@ -18,7 +19,7 @@ export function buildAssistantComposerSessionState(input: {
     selectedRuntimeMode: AssistantRuntimeMode
     selectedInteractionMode: AssistantInteractionMode
     selectedEffort: AssistantComposerPreferenceEffort
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
 }): AssistantComposerSessionState {
     const {
         draft,

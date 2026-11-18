@@ -127,7 +127,7 @@ export interface AssistantLatestTurn {
     completedAt: string | null
     assistantMessageId: string | null
     effort?: AssistantReasoningEffort | null
-    serviceTier?: 'fast' | 'flex' | null
+    serviceTier?: 'fast' | 'ultrafast' | 'flex' | null
     usage?: AssistantTurnUsage | null
 }
 
@@ -439,6 +439,7 @@ export interface AssistantModelInfo {
     id: string
     label: string
     description?: string
+    serviceTiers?: ('fast' | 'ultrafast')[]
     supportedEfforts?: AssistantReasoningEffort[]
     reasoningStatus?: 'known' | 'unknown'
     inputModes?: string[]

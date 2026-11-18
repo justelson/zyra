@@ -1,5 +1,6 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, supportsAssistantFastMode } from './assistant-model-groups'
 
 export function buildAssistantVoiceExecutionConfiguration(input: {
     model: string
@@ -7,7 +8,7 @@ export function buildAssistantVoiceExecutionConfiguration(input: {
     effort: AssistantVoiceExecutionConfiguration['effort']
     interactionMode: AssistantVoiceExecutionConfiguration['interactionMode']
     profile?: string | null
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
 }): AssistantVoiceExecutionConfiguration {
     return {
         model: input.model,
@@ -15,6 +16,6 @@ export function buildAssistantVoiceExecutionConfiguration(input: {
         effort: input.effort,
         interactionMode: input.interactionMode,
         profile: input.profile || 'default',
-        serviceTier: input.fastModeEnabled && supportsAssistantFastMode(input.model) ? 'fast' : undefined
+        serviceTier: supportsAssistantFastMode(input.model) ? composerServiceTier(input.fastModeEnabled) : undefined
     }
 }

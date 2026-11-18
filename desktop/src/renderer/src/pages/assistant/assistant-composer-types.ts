@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { AssistantChatScopeRoot, AssistantInteractionMode, AssistantModelInfo, AssistantReasoningEffort, AssistantRuntimeMode, AssistantTurnUsage, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
 import type { PreviewOpenOptions } from '@/components/ui/file-preview/types'
 import type { AssistantBusyMessageMode } from '@/lib/settings'
@@ -45,7 +46,7 @@ export type AssistantComposerSendOptions = {
     runtimeMode: AssistantRuntimeMode
     interactionMode: AssistantInteractionMode
     effort: AssistantReasoningEffort
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
     dispatchMode?: 'immediate' | 'queue' | 'steer' | 'force'
 }
 
@@ -99,7 +100,7 @@ export type AssistantComposerProps = {
     isConnecting?: boolean
     activeModel?: string
     activeEffort?: AssistantReasoningEffort | null
-    activeFastModeEnabled?: boolean
+    activeFastModeEnabled?: AssistantSpeedPreference
     modelOptions?: AssistantModelInfo[]
     modelsLoading?: boolean
     modelsError?: string | null

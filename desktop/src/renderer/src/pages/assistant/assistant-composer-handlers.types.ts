@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { AssistantBusyMessageMode } from '@/lib/settings'
@@ -29,7 +30,7 @@ export type AssistantComposerHandlersArgs = {
         runtimeMode: AssistantRuntimeMode
         interactionMode: AssistantInteractionMode
         effort: AssistantComposerPreferenceEffort
-        serviceTier?: 'fast'
+        serviceTier?: 'fast' | 'ultrafast'
         dispatchMode?: 'immediate' | 'queue' | 'steer' | 'force'
     }) => Promise<boolean>
     text: string
@@ -68,7 +69,7 @@ export type AssistantComposerHandlersArgs = {
     setSelectedRuntimeMode: Dispatch<SetStateAction<AssistantRuntimeMode>>
     selectedInteractionMode: AssistantInteractionMode
     selectedEffort: AssistantComposerPreferenceEffort
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
     setComposerCursor: SetNumberState
     removingAttachmentIds: string[]
     setRemovingAttachmentIds: SetStringArrayState

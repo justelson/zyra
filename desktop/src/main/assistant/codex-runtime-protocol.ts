@@ -154,7 +154,7 @@ export function buildTurnParams(
     runtimeMode?: AssistantRuntimeMode,
     interactionMode?: AssistantInteractionMode,
     effort?: AssistantReasoningEffort,
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
 ) {
     const effectiveModel = model || thread.model
     void interactionMode

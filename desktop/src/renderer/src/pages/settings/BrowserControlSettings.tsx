@@ -1,7 +1,8 @@
+import { BrowserExtensionRow } from './BrowserExtensionRow'
 import type { DesktopLinkPreference } from '@shared/desktop-link-policy'
 import type { BrowserExtensionRecord } from '@shared/browser-extensions'
 import { useEffect, useState } from 'react'
-import { TriangleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { TriangleAlert, Plus, Trash2 } from 'lucide-react'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { useSettings } from '@/lib/settings'
 import { useDesktopLinkPreference, setDesktopLinkPreference } from '@/lib/desktop-links'
@@ -183,11 +184,18 @@ export default function BrowserControlSettings({ view = 'browsing' }: { view?: '
                         }>
                             <SettingsRow title="Chrome Web Store" description="Install an extension from its Chrome Web Store URL or ID." control={<div className="flex w-full gap-2 sm:w-auto"><SettingsInput value={webStoreInput} onChange={event => setWebStoreInput(event.target.value)} placeholder="Extension URL or ID" aria-label="Chrome Web Store extension URL or ID" /><SettingsButton variant="accent" disabled={extensionsBusy || !webStoreInput.trim()} onClick={() => void installFromWebStore()}>Install</SettingsButton></div>} />
                             {extensions.length === 0 ? <div className="px-4 py-6 text-xs text-[var(--settings-text-secondary)]">No extensions installed.</div> : extensions.map(extension => (
-                                <SettingsRow key={extension.id} title={extension.name} description={extension.description || undefined} status={`v${extension.version}`} statusTone="info" control={<div className="flex items-center gap-1"><SettingsSwitch checked={extension.enabled} disabled={extensionsBusy} onCheckedChange={enabled => void setExtensionEnabled(extension.id, enabled)} label={`${extension.enabled ? 'Disable' : 'Enable'} ${extension.name}`} /><SettingsButton variant="ghost" aria-label={`Reload ${extension.name}`} title="Reload extension" disabled={extensionsBusy} onClick={() => void window.devscope.reloadBrowserExtension(extension.id).then(refreshExtensions).catch(error => showStatus({ tone: 'error', message: error instanceof Error ? error.message : 'Could not reload the extension.' }))}><RefreshCw size={13} /></SettingsButton><SettingsButton variant="ghost" aria-label={`Remove ${extension.name}`} title="Remove extension" disabled={extensionsBusy} onClick={() => void removeExtension(extension.id, extension.name)}><Trash2 size={13} /></SettingsButton></div>}>
-                                    <details className="mt-1 text-xs text-[var(--settings-text-secondary)]"><summary className="w-fit cursor-pointer">Permissions</summary>
-                                    {extension.warnings.length > 0 ? <p className="mt-2 text-[11px] leading-5 text-amber-200/80">{extension.warnings.join(' ')}</p> : null}
-                                    <p className="mt-1 break-all text-[10px] text-[var(--settings-text-faint)]">{[...extension.permissions, ...extension.hostPermissions].length > 0 ? `Permissions: ${[...extension.permissions, ...extension.hostPermissions].join(', ')}` : 'No declared permissions.'}</p></details>
-                                </SettingsRow>
+                                <BrowserExtensionRow key={extension.id} extension={extension} busy={extensionsBusy}
+                                    onToggle={enabled => setExtensionEnabled(extension.id, enabled)}
+                                    onRemove={() => removeExtension(extension.id, extension.name)}
+                                    onReload={async () => {
+                                        setExtensionsBusy(true)
+                                        try {
+                                            const result = await window.devscope.reloadBrowserExtension(extension.id)
+                                            if (!result.success) throw new Error(result.error)
+                                            await refreshExtensions()
+                                        } catch (error) { showStatus({ tone: 'error', message: error instanceof Error ? error.message : 'Could not reload the extension.' }) }
+                                        finally { setExtensionsBusy(false) }
+                                    }} />
                             ))}
                         </SettingsSection>
                     ) : view === 'browsing' ? (

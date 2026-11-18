@@ -17,6 +17,7 @@ import { isTrustedBrowserTabId } from './agent-control/trusted-guest-registry'
 import type { BrowserViewTransferHost } from './browser-view-manager'
 import type { BrowserSessionMode } from '../shared/browser-view'
 import { desktopWebLink } from '../shared/desktop-link-policy'
+import type { DevicePreferencesService } from './setup/device-preferences-service'
 import { ipcMain } from './ipc/trusted-ipc'
 
 const MAX_POINT = 100_000
@@ -41,6 +42,7 @@ type AccessoryBrowserTearOffSession = {
 
 type AccessoryWindowManagerOptions = {
     rootPath: string
+    preferences: Pick<DevicePreferencesService, 'get' | 'updateSurfaceFromMain'>
     openBrowserSettings?: () => void
     createWindow: (state: AccessoryWindowState) => BrowserWindow
     canOpen?: () => boolean
@@ -208,15 +210,28 @@ export class AccessoryWindowManager {
             arrivingBrowserTabIds: new Set(options.provisional && browserTab ? [browserTab.id] : [])
         }
         if (kind === 'browser') {
-            const showTabMenu = () => Menu.buildFromTemplate([
-                { label: 'Show tabs vertically', click: () => window.webContents.send(ACCESSORIES_IPC.tabLayout, true) },
-                { label: 'Show tabs horizontally', click: () => window.webContents.send(ACCESSORIES_IPC.tabLayout, false) },
-                { type: 'separator' },
-                { label: 'Zyra Browser settings', click: () => this.options.openBrowserSettings?.() }
-            ]).popup({ window })
-            window.on('system-context-menu', event => { event.preventDefault(); showTabMenu() })
+            const setVertical = (vertical: boolean) => {
+                void this.options.preferences.updateSurfaceFromMain('desktop', { assistantBrowserVerticalTabs: vertical })
+                    .catch(error => console.warn('Could not save the Browser tab layout.', error))
+            }
+            const showTabMenu = async () => {
+                const snapshot = await this.options.preferences.get({ surface: 'desktop' })
+                if (window.isDestroyed()) return
+                const vertical = snapshot.settings.assistantBrowserVerticalTabs === true
+                Menu.buildFromTemplate([
+                    { label: 'Show tabs vertically', type: 'radio', checked: vertical, click: () => setVertical(true) },
+                    { label: 'Show tabs horizontally', type: 'radio', checked: !vertical, click: () => setVertical(false) },
+                    { type: 'separator' },
+                    { label: 'Zyra Browser settings', click: () => this.options.openBrowserSettings?.() }
+                ]).popup({ window })
+            }
+            const openTabMenu = (event: Electron.Event) => {
+                event.preventDefault()
+                void showTabMenu().catch(error => console.warn('Could not open Browser tab menu.', error))
+            }
+            window.on('system-context-menu', openTabMenu)
             window.webContents.on('context-menu', (event, params) => {
-                if (params.y < 40) { event.preventDefault(); showTabMenu() }
+                if (params.y < 40) openTabMenu(event)
             })
         }
         const webContentsId = window.webContents.id

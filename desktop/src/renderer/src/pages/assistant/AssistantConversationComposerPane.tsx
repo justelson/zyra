@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 // @refresh reset
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useNonPassiveWheel } from '@/lib/useNonPassiveWheel'
@@ -68,7 +69,7 @@ export const AssistantConversationComposerPane = memo(function AssistantConversa
     availableModels: Array<{ id: string; label: string; description?: string }>
     activeModel: string | undefined
     activeEffort?: AssistantReasoningEffort | null
-    activeFastModeEnabled: boolean
+    activeFastModeEnabled: AssistantSpeedPreference
     modelsLoading: boolean
     latestTurnUsage?: AssistantTurnUsage | null
     runtimeMode: AssistantRuntimeMode

@@ -23,6 +23,7 @@ export type BrowserExtensionRecord = {
     source?: 'local' | 'chrome-web-store'
     storeUrl?: string
     sha256?: string
+    iconDataUrl?: string
     hasPopup?: boolean
     pending?: boolean
 }

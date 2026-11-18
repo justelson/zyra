@@ -1,6 +1,6 @@
 import type { ClipboardEvent, KeyboardEvent } from 'react'
 import { getAssistantClipboardFiles, getAssistantVideoMimeType, MAX_CLIPBOARD_VIDEO_BYTES } from './assistant-clipboard-files'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, supportsAssistantFastMode } from './assistant-model-groups'
 import {
     InlineMentionTag,
     reconcileInlineMentionTags,
@@ -399,7 +399,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             runtimeMode: runtimeModeForSend,
             interactionMode: selectedInteractionMode,
             effort: selectedEffort,
-            serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' : undefined,
+            serviceTier: supportsAssistantFastMode(selectedModel) ? composerServiceTier(fastModeEnabled) : undefined,
             dispatchMode
         }) } catch (error) { onBlockedSend?.(error instanceof Error ? error.message : 'Could not send. Your draft is preserved.') }
         if (!success) {

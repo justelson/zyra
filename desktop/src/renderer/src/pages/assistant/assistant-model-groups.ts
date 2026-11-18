@@ -37,3 +37,16 @@ export function defaultExpandedAssistantModelGroup(groups: ReturnType<typeof gro
 export function supportsAssistantFastMode(modelId: string): boolean {
     return modelId.startsWith('openai-codex/')
 }
+
+// Existing drafts store Standard/Fast as booleans.
+export type AssistantSpeedPreference = boolean | 'ultrafast'
+
+export function resolveComposerSpeed(model: Pick<AssistantModelInfo, 'id' | 'serviceTiers'> | null | undefined, preference: AssistantSpeedPreference): AssistantSpeedPreference {
+    if (!model || !supportsAssistantFastMode(model.id) || !preference) return false
+    if (preference === 'ultrafast') return model.serviceTiers?.includes('ultrafast') ? preference : false
+    return model.serviceTiers?.includes('fast') === true
+}
+
+export function composerServiceTier(preference: AssistantSpeedPreference): 'fast' | 'ultrafast' | undefined {
+    return preference === 'ultrafast' ? preference : preference ? 'fast' : undefined
+}

@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener, addOverlayWindowBlurListener } from '@/components/ui/native-overlay-portal'
 import { useEffect, useLayoutEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
@@ -79,7 +80,7 @@ export function useAssistantComposerControllerEffects(input: {
     setSelectedRuntimeMode: Dispatch<SetStateAction<AssistantRuntimeMode>>
     setSelectedInteractionMode: Dispatch<SetStateAction<AssistantInteractionMode>>
     setSelectedEffort: Dispatch<SetStateAction<AssistantComposerPreferenceEffort>>
-    setFastModeEnabled: Dispatch<SetStateAction<boolean>>
+    setFastModeEnabled: Dispatch<SetStateAction<AssistantSpeedPreference>>
     setComposerCursor: Dispatch<SetStateAction<number>>
     setActiveMentionIndex: Dispatch<SetStateAction<number>>
     setModelQuery: Dispatch<SetStateAction<string>>

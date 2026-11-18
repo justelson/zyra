@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
 import { reasoningChoiceLabel } from '@shared/assistant/reasoning-efforts'
 import { AssistantQuestionTransition as ComposerControlsTransition } from './AssistantQuestionTransition'
@@ -398,6 +399,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     setSelectedEffort,
     EFFORT_LABELS,
     fastModeEnabled,
+    serviceTiers,
     setFastModeEnabled,
     selectedRuntimeMode,
     setSelectedRuntimeMode,
@@ -433,8 +435,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     selectedEffort: string
     setSelectedEffort: Dispatch<SetStateAction<any>>
     EFFORT_LABELS: Record<string, string>
-    fastModeEnabled: boolean
-    setFastModeEnabled: Dispatch<SetStateAction<boolean>>
+    fastModeEnabled: AssistantSpeedPreference
+    serviceTiers?: ('fast' | 'ultrafast')[]
+    setFastModeEnabled: Dispatch<SetStateAction<AssistantSpeedPreference>>
     selectedInteractionMode: string
     setSelectedInteractionMode: Dispatch<SetStateAction<any>>
     selectedRuntimeMode: AssistantRuntimeMode
@@ -464,7 +467,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         ? expandedModelGroup
         : modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || modelGroups[0]?.id || null
     const visibleModelGroups = modelQuery.trim() || !visibleModelGroup ? modelGroups : modelGroups.filter(group => group.id === visibleModelGroup)
-    const canChooseSpeed = supportsAssistantFastMode(selectedModel)
+    const canChooseSpeed = supportsAssistantFastMode(selectedModel) && Boolean(serviceTiers?.length)
     const effortUnavailable = !EFFORT_OPTIONS.includes(selectedEffort)
     const canChooseEffort = EFFORT_OPTIONS.length > 1 || effortUnavailable
     const selectedEffortText = EFFORT_LABELS[selectedEffort] || reasoningChoiceLabel(selectedEffort)
@@ -644,11 +647,19 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                             <div hidden={activeSubmenu === 'model'} data-effort-card className="w-full">
                                 <div className="px-1.5 pb-1 pt-1">
                                     <div className="flex items-start gap-1">
-                                        {canChooseSpeed ? <button
+                                        {canChooseSpeed && serviceTiers?.includes('ultrafast') ? (
+                                            <select aria-label="Response speed" className="h-6 max-w-24 rounded-md bg-[var(--surface-floating)] px-1 text-xs text-sparkle-text"
+                                                value={fastModeEnabled === 'ultrafast' ? 'ultrafast' : fastModeEnabled ? 'fast' : 'standard'}
+                                                onChange={event => setFastModeEnabled(event.target.value === 'ultrafast' ? 'ultrafast' : event.target.value === 'fast')}>
+                                                <option value="standard">Standard</option>
+                                                {serviceTiers.includes('fast') && <option value="fast">Fast</option>}
+                                                <option value="ultrafast">Ultra Fast</option>
+                                            </select>
+                                        ) : canChooseSpeed ? <button
                                             type="button"
                                             onClick={() => setFastModeEnabled(!fastModeEnabled)}
                                             aria-label="Fast mode"
-                                            aria-pressed={fastModeEnabled}
+                                            aria-pressed={Boolean(fastModeEnabled)}
                                             title={fastModeEnabled ? 'Switch to standard speed' : 'Switch to fast speed'}
                                             className={cn(
                                                 'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] motion-reduce:transition-none motion-reduce:transform-none',
@@ -902,7 +913,7 @@ export const ComposerStatusBar = memo(({
     modelsLoading: boolean
     branchesLoading: boolean
     thinkingLabel: string
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
     branchDropdownRef: RefObject<HTMLDivElement | null>
     showBranchDropdown: boolean
     setShowBranchDropdown: Dispatch<SetStateAction<boolean>>

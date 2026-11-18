@@ -34,7 +34,7 @@ import { ASSISTANT_USER_INPUT_CONTEXT_HEADING, formatAssistantUserInputContinuat
 import { clearAssistantComposerSessionState } from './assistant-composer-session-state'
 import { projectVoiceLiveTimelineMessages } from './assistant-voice-live-timeline'
 import { resolveAssistantComposerLaunchConfiguration } from './assistant-new-chat-composer-config'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, resolveComposerSpeed } from './assistant-model-groups'
 import { AssistantCanonicalVoiceDock } from './AssistantCanonicalVoiceDock'
 import { VoiceHandoffDialog } from './VoiceHandoffDialog'
 import { AssistantChatOnboardingOverlay } from './AssistantChatOnboardingOverlay'
@@ -1021,6 +1021,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
         setInteractionModeOverride('default')
         setImplementationToastVisible(true)
+        const lastTier = controller.activeThread?.latestTurn?.serviceTier
+        const modelInfo = controller.knownModels.find(model => model.id === controller.activeThread?.model)
         await actions.sendPromptResult(
             `Implement the approved plan below. Do not re-plan unless you hit a real blocking contradiction. Start executing now.\n\n<approved_plan>\n${planMarkdown}\n</approved_plan>`,
             {
@@ -1029,7 +1031,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                 runtimeMode: controller.activeThread?.runtimeMode || 'approval-required',
                 interactionMode: 'default',
                 effort: controller.activeThread?.latestTurn?.effort || undefined,
-                serviceTier: controller.activeThread?.latestTurn?.serviceTier === 'fast' && supportsAssistantFastMode(controller.activeThread?.model || '') ? 'fast' : undefined,
+                serviceTier: composerServiceTier(resolveComposerSpeed(modelInfo, lastTier === 'ultrafast' ? lastTier : lastTier === 'fast')),
                 profile: activeRuntimeZyraProfile
             }
         )
@@ -1037,6 +1039,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         actions,
         controller.activeThread?.latestTurn?.effort,
         controller.activeThread?.latestTurn?.serviceTier,
+        controller.knownModels,
         controller.activeThread?.model,
         controller.activeThread?.runtimeMode,
         activeRuntimeZyraProfile,

@@ -1,8 +1,8 @@
 import { app, dialog, type BrowserWindow, type Extension, type Session } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, realpath, stat, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import log from 'electron-log'
 import { getGlobalBrowserSession } from './ipc/handlers/browser-preview-handlers'
 import type { BrowserExtensionRecord } from '../shared/browser-extensions'
@@ -18,6 +18,7 @@ type ExtensionManifest = {
     permissions?: unknown
     host_permissions?: unknown
     optional_permissions?: unknown
+    icons?: Record<string, unknown>
     default_locale?: string
     key?: string
 }
@@ -75,6 +76,22 @@ async function writeStored(entries: StoredExtension[]): Promise<void> {
     await writeFile(extensionConfigPath(), `${JSON.stringify(entries, null, 2)}\n`, 'utf8')
 }
 
+async function readExtensionIcon(root: string, icons?: Record<string, unknown>): Promise<string | undefined> {
+    if (!icons || typeof icons !== 'object') return
+    const sizes = Object.keys(icons).filter(size => /^\d+$/.test(size)).sort((a, b) => Math.abs(Number(a) - 32) - Math.abs(Number(b) - 32))
+    const icon = sizes.map(size => icons[size]).find((value): value is string => typeof value === 'string' && /\.png$/i.test(value))
+    if (!icon || isAbsolute(icon)) return
+    const directory = await realpath(root)
+    const file = await realpath(resolve(directory, icon))
+    const inside = relative(directory, file)
+    if (!inside || inside.startsWith('..') || isAbsolute(inside)) return
+    const info = await stat(file)
+    if (!info.isFile() || info.size > 128 * 1024) return
+    const bytes = await readFile(file)
+    if (bytes.length < 24 || bytes.readUInt32BE(0) !== 0x89504e47 || bytes.readUInt32BE(4) !== 0x0d0a1a0a || bytes.readUInt32BE(16) > 1024 || bytes.readUInt32BE(20) > 1024) return
+    return `data:image/png;base64,${bytes.toString('base64')}`
+}
+
 function displayRecord(entry: StoredExtension): BrowserExtensionRecord {
     return { ...entry, warnings: Array.isArray(entry.warnings) ? entry.warnings : [] }
 }
@@ -116,11 +133,10 @@ export class BrowserExtensionManager {
     async list(): Promise<BrowserExtensionRecord[]> {
         return Promise.all((await readStored()).map(async entry => {
             const record = displayRecord(entry)
-            if (record.name?.startsWith('__MSG_') || record.description?.startsWith('__MSG_')) {
-                const manifest = await readManifest(entry.path).catch(() => null)
-                if (manifest) Object.assign(record, { name: manifest.name, description: manifest.description || '' })
-            }
-            return { ...record, hasPopup: Boolean(this.actionPopup(entry.id)) }
+            const manifest = await readManifest(entry.path).catch(() => null)
+            const iconDataUrl = manifest ? await readExtensionIcon(entry.path, manifest.icons).catch(() => undefined) : undefined
+            if (manifest) Object.assign(record, { name: manifest.name, description: manifest.description || '' })
+            return { ...record, iconDataUrl, hasPopup: Boolean(this.actionPopup(entry.id)) }
         }))
     }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { DevicePreferencesService } from '../../src/main/setup/device-preferences-service'
 import { createServer } from 'node:http'
 import { app, BrowserWindow } from 'electron'
 import { AccessoryWindowManager } from '../../src/main/accessory-window-manager'
@@ -65,7 +66,7 @@ app.whenReady().then(async () => {
         void window.loadFile(shellHtml)
         return window
     }
-    accessoryManager = new AccessoryWindowManager({ rootPath: profile, createWindow })
+    accessoryManager = new AccessoryWindowManager({ rootPath: profile, createWindow, preferences: new DevicePreferencesService(profile + '/preferences.json') })
     accessoryManager.registerIpc()
     const presentations = new Map<string, BrowserViewPresentation>()
     let failNextPopupOwnerTransfer = false

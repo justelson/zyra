@@ -208,6 +208,15 @@ async function run() {
     await mount(loopApi, loopId)
     await settle()
     assert.ok(loopApi.syncInputs.length <= 2, `fresh onChanged arrays caused ${loopApi.syncInputs.length} syncBrowserTabs calls`)
+    for (const vertical of [true, false]) {
+        await act(async () => { (window as any).fixtureSetTabOrientation(vertical); await tick() })
+        await emit(loopApi, loopApi.current)
+        const strip = document.querySelector('[role="tablist"]')!
+        assert.equal(strip.getAttribute('aria-orientation'), vertical ? 'vertical' : 'horizontal')
+        assert.equal(headerSlot!.contains(strip), !vertical)
+        assert.deepEqual(renderedTabs(), [`${loopId}:a`, `${loopId}:b`])
+        assert.equal(strip.querySelector('[aria-selected="true"]')?.closest('[data-accessory-browser-tab-id]')?.getAttribute('data-accessory-browser-tab-id'), `${loopId}:a`)
+    }
     const callsAfterSettle = loopApi.syncInputs.length
     await emit(loopApi, loopApi.current)
     await emit(loopApi, loopApi.current)

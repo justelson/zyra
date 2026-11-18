@@ -187,7 +187,7 @@ function sanitizeJson(value: unknown, depth = 0): unknown {
 import { UI_PARTS, validateUiPartConfig } from '../../shared/ui-parts'
 
 export function describeDevicePreferenceValue(key: string): Record<string, unknown> {
-    if (key === 'appearanceUiParts') return { type: 'object', version: 1, parts: UI_PARTS }
+    if (key === 'appearanceUiParts') return { type: 'object', version: 1, parts: UI_PARTS, editGuide: 'For targeted UI changes preview then apply patch.appearanceUiParts = {edits:[{part,property,value}]}. Use declared writable properties. Other overrides survive. The catalog default clears one property. Apply with the preview revision; undo with the operation receipt.' }
     if (key === 'assistantDefaultEffort') return { type: 'string', maxLength: 1536, description: 'Provider default, standard effort, or an advertised encoded native option ID.' }
     if (BOOLEAN_KEYS.has(key)) return { type: 'boolean' }
     if (ENUMS[key]) return { type: 'enum', values: [...ENUMS[key]!] }

@@ -2,11 +2,18 @@ import { validateUiPartConfig } from '@shared/ui-parts'
 
 // Only these owned selectors and validated literals can reach the stylesheet.
 export function rowStyle(input: unknown, reduceMotion: boolean): string {
-    let row
-    try { row = validateUiPartConfig(input).overrides['sidebar.chatRow'] } catch { return '' }
-    if (!row) return ''
-    const sel = '[data-zyra-part="sidebar.chatRow"]'
+    let overrides
+    try { overrides = validateUiPartConfig(input).overrides } catch { return '' }
     const rules: string[] = []
+    for (const [id, values] of Object.entries(overrides)) {
+        if (id === 'sidebar.chatRow') continue
+        const selector = `[data-zyra-part="${id}"]`
+        if (values.background) rules.push(`${selector} { background-color:${values.background} !important }`)
+        if (values.radius !== undefined) rules.push(`${selector} { border-radius:${values.radius}px !important }`)
+    }
+    const row = overrides['sidebar.chatRow']
+    if (!row) return rules.join('\n')
+    const sel = '[data-zyra-part="sidebar.chatRow"]'
     if (row.radius !== undefined) rules.push(`${sel} { border-radius:${row.radius}px }`)
     if (row.background) rules.push(`${sel}:not(:hover):not([data-zyra-state~="selected"]) { background-color:${row.background} }`)
     if (row.motion !== undefined && !reduceMotion) rules.push(`@media (prefers-reduced-motion:no-preference) { ${sel} { transition:background-color ${row.motion}ms, border-radius ${row.motion}ms } }`)

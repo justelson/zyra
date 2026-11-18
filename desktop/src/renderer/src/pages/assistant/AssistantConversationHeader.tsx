@@ -130,7 +130,7 @@ export const AssistantConversationHeader = memo(function AssistantConversationHe
     return (
         <div
             className={cn('drag-region flex h-full min-w-0 items-center', minimal ? 'group/chat-header px-4' : 'px-3')}
-            data-assistant-conversation-header={displayMode}
+            data-zyra-part="chat.header" data-assistant-conversation-header={displayMode}
         >
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                 {selectedProjectPath ? (

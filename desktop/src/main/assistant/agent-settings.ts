@@ -1,3 +1,4 @@
+import { applyUiPartEdits } from '../../shared/ui-parts'
 import { DEFAULT_DEVICE_SETTINGS } from '../../shared/preferences/default-settings'
 import { SHARED_DEVICE_PREFERENCE_KEYS, SURFACE_DEVICE_PREFERENCE_KEYS, OS_DEVICE_PREFERENCE_KEYS, SECRET_DEVICE_PREFERENCE_KEYS, DERIVED_DEVICE_PREFERENCE_KEYS, getDevicePreferenceOwnership, type DevicePreferenceSurface } from '../../shared/preferences/contracts'
 import { describeDevicePreferenceValue, sanitizeDevicePreferenceValue, type DevicePreferencesService } from '../setup/device-preferences-service'
@@ -66,7 +67,9 @@ export class AgentSettings {
         const patch = record(params.patch)
         const current = await this.inspect({ ...params, keys, area: undefined, query: undefined })
         const changes = current.settings.map(setting => {
-            const proposed = reset ? setting.defaultValue : patch[setting.id]
+            const raw = patch[setting.id]
+            const proposed = reset ? setting.defaultValue : setting.id === 'appearanceUiParts' && Object.hasOwn(record(raw), 'edits')
+                ? applyUiPartEdits(setting.effectiveValue, raw) : raw
             const sanitized = sanitizeDevicePreferenceValue(setting.id, proposed)
             if (sanitized === undefined || JSON.stringify(sanitized) !== JSON.stringify(proposed)) throw new Error(`Invalid value for ${setting.id}. Read the setting constraints; no silent coercion was applied.`)
             return { id: setting.id, before: setting.effectiveValue, savedBefore: setting.savedValue, sourceBefore: setting.source, after: sanitized, effect: setting.effect, requiresApproval: setting.requiresApproval }

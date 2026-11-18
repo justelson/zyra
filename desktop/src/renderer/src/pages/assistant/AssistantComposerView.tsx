@@ -636,7 +636,7 @@ function ComposerViewWithQueue({
                                 ? 'border-white/[0.09] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_18px_54px_rgba(0,0,0,0.30),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.045),inset_0_-1px_0_rgba(0,0,0,0.18)] backdrop-blur-md'
                                 : 'border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--surface-floating)_94%,transparent)] shadow-[0_22px_68px_color-mix(in_srgb,var(--color-bg)_54%,transparent),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_4%,transparent)] backdrop-blur-[18px]'
                         )}
-                        data-assistant-composer-frame="true"
+                        data-zyra-part="chat.composer" data-assistant-composer-frame="true"
                     >
                         {controller.placement === 'bottom' ? (
                             <>

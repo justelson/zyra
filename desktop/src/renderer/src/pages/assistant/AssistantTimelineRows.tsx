@@ -679,7 +679,7 @@ export const TimelineMessage = memo(({
         return (
             <div
                 className={cn('group group/assistant-message max-w-4xl', compactLiveNarration || inlineWorkNarration ? 'py-0.5' : minimal ? 'py-0.5' : 'py-1')}
-                data-assistant-message-surface={displayMode}
+                data-zyra-part="chat.assistantMessage" data-assistant-message-surface={displayMode}
                 data-assistant-inline-work-narration={inlineWorkNarration ? 'true' : undefined}
             >
                 <AssistantCitationSelection messageId={message.id}>
@@ -782,7 +782,7 @@ export const TimelineMessage = memo(({
     return (
         <div className={cn('group/user-message ml-auto flex flex-col items-end', minimal ? 'max-w-[80%] py-0.5' : 'py-1')} data-assistant-message-surface={displayMode}>
             <div className={cn('group relative', questionResponse ? 'w-[26rem] max-w-full' : minimal ? 'max-w-full' : 'max-w-[36rem]')}>
-                <div className={cn(
+                <div data-zyra-part="chat.userMessage" className={cn(
                     questionResponse ? 'min-w-0' : minimal
                         ? 'rounded-2xl bg-[var(--surface-hover)] px-3.5 py-2.5'
                         : 'rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-2.5',

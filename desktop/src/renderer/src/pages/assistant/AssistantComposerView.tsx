@@ -426,7 +426,7 @@ function ComposerViewWithQueue({
             controller.setInlineMentionTags((current) => [...reconcileInlineMentionTags(controller.text, next.text, current), { id: `${item.id}:${slashToken.start}`, path: item.value, relativePath: item.value, label: item.label.replace(/^\/skill:/, '').replace(/^\//, ''), kind: item.kind, start: slashToken.start, end: slashToken.start + item.value.length }])
             controller.setText(next.text)
             controller.setComposerCursor(next.cursor)
-            if (controller.historyCursor != null) controller.setHistoryCursor(null)
+            controller.promptRecall?.cancel()
             window.requestAnimationFrame(() => {
                 const textarea = controller.textareaRef.current
                 textarea?.focus()
@@ -454,7 +454,7 @@ function ComposerViewWithQueue({
         controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
         controller.setText(next.text)
         controller.setComposerCursor(next.cursor)
-        if (controller.historyCursor != null) controller.setHistoryCursor(null)
+        controller.promptRecall?.cancel()
         window.requestAnimationFrame(() => {
             const textarea = controller.textareaRef.current
             textarea?.focus()
@@ -468,7 +468,9 @@ function ComposerViewWithQueue({
     }, [])
 
     const handleComposerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-        if (!showSlashMenu) {
+        const historyArrow = (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+            && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+        if (!showSlashMenu || (historyArrow && controller.promptRecall?.active)) {
             controller.handleKeyDown(event)
             return
         }
@@ -695,9 +697,12 @@ function ComposerViewWithQueue({
                                             controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, nextText, current))
                                             controller.setText(nextText)
                                             controller.setComposerCursor(event.target.selectionStart ?? nextText.length)
-                                            if (controller.historyCursor != null) controller.setHistoryCursor(null)
+                                            controller.promptRecall?.cancel()
                                         }}
-                                        onPointerDown={() => controller.voiceInput.stopBrowserOnInput()}
+                                        onPointerDown={() => {
+                                            controller.promptRecall?.cancel()
+                                            controller.voiceInput.stopBrowserOnInput()
+                                        }}
                                         onFocus={() => controller.voiceInput.stopBrowserOnInput()}
                                         onClick={(event) => {
                                             controller.voiceInput.stopBrowserOnInput()

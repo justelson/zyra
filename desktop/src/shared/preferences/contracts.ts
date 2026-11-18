@@ -7,6 +7,7 @@ export const SHARED_DEVICE_PREFERENCE_KEYS = [
     'appearanceThemeMode',
     'appearanceLightTheme',
     'appearanceDarkTheme',
+    'appearanceUiParts',
     'appearanceCustomTheme',
     'appearanceCustomThemeActive',
     'appearanceUiFont',

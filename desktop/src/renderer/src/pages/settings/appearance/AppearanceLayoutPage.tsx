@@ -58,6 +58,7 @@ export function AppearanceLayoutPage({ controller }: { controller: AppearanceSet
             </SettingsSection>
 
             <SettingsSection title="Interface">
+                <SettingsRow title="Interface inspector" description="Find a named part or select it on screen." control={<button type="button" onClick={() => window.dispatchEvent(new Event('zyra:inspect-ui'))}>Inspect parts</button>} />
                 <SettingsRow
                     title="Chat rail"
                     description="Keep the conversation sidebar collapsed across restarts on this surface."

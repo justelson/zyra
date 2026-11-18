@@ -40,7 +40,9 @@ async function resolveImagePath(
     if (!reference) throw new Error(`${label} has no readable file reference. Attach it again.`)
 
     if (isClipboardReference(reference)) {
-        const resolved = await options.resolveClipboardAttachment?.(reference)
+        const resolveAttachment = options.resolveClipboardAttachment
+            ?? (await import('./clipboard-attachments')).resolveAssistantClipboardAttachment
+        const resolved = await resolveAttachment(reference)
         if (!resolved) throw new Error(`${label} is no longer available. Paste it again.`)
         return resolved
     }

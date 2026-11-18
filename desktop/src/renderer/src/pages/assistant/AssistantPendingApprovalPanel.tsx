@@ -23,7 +23,7 @@ export const AssistantPendingApprovalPanel = memo(function AssistantPendingAppro
 
     return (
         <AssistantComposerAttentionShelf title="Permissions">
-            <section key={approval.requestId} aria-label="Action approval" aria-labelledby={headingId} aria-busy={props.responding}
+            <section data-zyra-part="permission.approval" data-zyra-state={props.responding ? 'responding' : 'pending'} key={approval.requestId} aria-label="Action approval" aria-labelledby={headingId} aria-busy={props.responding}
                 className="text-sparkle-text" data-permission-tray="true">
                 <header className="flex items-start gap-2.5 px-3 pb-2 pt-2">
                     <ShieldAlert size={17} className="mt-0.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />

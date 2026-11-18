@@ -138,6 +138,10 @@ function ProjectMark({ group, dimmed = false }: { group: SessionProjectGroup; di
     )
 }
 
+function rowStates(item: SidebarItem) {
+    return [item.status, item.active && 'selected', item.pinned && 'pinned', item.settled && 'settled'].filter(Boolean).join(' ')
+}
+
 function topStatus(item: SidebarItem): ReactNode {
     if (item.status === 'working') return <span className="assistant-agent-inbox-working-text inline-flex items-center gap-1 font-medium text-sky-400"><CircleDashed size={16} /><span>Working</span><WorkingDuration thread={item.thread} /></span>
     if (item.status === 'approval') return <span className="font-medium text-amber-300">Approval</span>
@@ -174,7 +178,7 @@ function InboxRowActions({ item, action, onAction, props, showLabel = false }: {
             'absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 transition-[opacity,transform] group-hover/agent-inbox-row:translate-x-0 group-focus-visible/agent-inbox-row:translate-x-0 group-has-[:focus-visible]/agent-inbox-row:translate-x-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:translate-x-0 has-[:focus-visible]:translate-x-0',
             showLabel ? 'w-[max(4.75rem,76px)]' : 'w-[max(3.25rem,52px)]'
         )}>
-            <div className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
+            <div data-zyra-part="sidebar.chatRow.actions" className="relative flex min-w-0 items-center gap-0.5 overflow-hidden">
                 <button
                     type="button"
                     aria-label={item.pinned ? 'Unpin chat to settle' : isWorkingItem(item) ? 'Working chat cannot be settled' : action === 'settle' ? 'Settle chat' : 'Un-settle chat'}
@@ -217,21 +221,21 @@ function AgentInboxCard({ item, onSettle, props }: { item: SidebarItem; onSettle
     const menuItems = getAgentInboxMenuItems(item, onSettle, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none py-0.5">
-            <div {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
+            <div data-zyra-part="sidebar.chatRow" data-row-layout="card" data-zyra-state={rowStates(item)} {...props.getSidebarDragProps?.(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none data-[sidebar-dragging=true]:opacity-40 data-[sidebar-drop=before]:shadow-[inset_0_2px_0_var(--accent-primary)] data-[sidebar-drop=after]:shadow-[inset_0_-2px_0_var(--accent-primary)]', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : receded ? 'text-sparkle-text-muted/75 hover:bg-[var(--surface-hover)] hover:text-sparkle-text' : 'bg-transparent text-sparkle-text hover:bg-[var(--surface-hover)]', (item.status === 'working' || item.status === 'approval' || item.status === 'input') && !item.active && 'opacity-70 transition-opacity hover:opacity-100')}>
                 <div className="relative z-10 grid min-h-20 grid-cols-1 content-start gap-y-1 px-2.5 py-2">
                     <div className="col-start-1 row-start-1 flex h-5 min-w-0 items-center gap-1.5" data-agent-inbox-heading>
                         {work ? <AssistantWorkContextIcon work={work} /> : <ProjectMark group={item.project} />}
-                        <span data-work-label={work ? true : undefined} title={[work?.folderPath, model.modelName ? `Model: ${item.thread?.model}` : null].filter(Boolean).join('\n') || undefined} className="min-w-0 flex-1 truncate text-xs font-normal text-sparkle-text-muted/85">{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
+                        <span data-zyra-part="sidebar.chatRow.context" data-work-label={work ? true : undefined} title={[work?.folderPath, model.modelName ? `Model: ${item.thread?.model}` : null].filter(Boolean).join('\n') || undefined} className="min-w-0 flex-1 truncate text-xs font-normal text-sparkle-text-muted/85">{work?.label || (item.project.path ? item.project.label : 'Chat')}</span>
                         <div className="relative ml-auto flex h-5 min-w-[max(3.25rem,52px)] shrink-0 items-center justify-end text-xs">
                             <span data-agent-inbox-status className={cn('shrink-0', !hasStatus && 'group-hover/agent-inbox-row:invisible group-focus-visible/agent-inbox-row:invisible group-has-[:focus-visible]/agent-inbox-row:invisible group-has-[[aria-haspopup=menu][aria-expanded=true]]/agent-inbox-row:invisible')}>
-                                <span className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
+                                <span data-zyra-part="sidebar.chatRow.activityIndicator" className="whitespace-nowrap tabular-nums text-sparkle-text-muted/65">{topStatus(item)}</span>
                             </span>
                         </div>
                     </div>
                     <div className="col-start-1 row-start-2 flex min-w-0" data-agent-inbox-title>
-                        <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className="min-w-0 flex-1 text-sm font-normal text-sparkle-text" />
+                        <AssistantSessionTitleText sidebar title={title} generating={item.session.titleGenerating === true} className="min-w-0 flex-1 text-sm font-normal text-sparkle-text" />
                     </div>
-                    <div className={cn('col-start-1 row-start-3 flex h-4 min-w-0 items-center gap-1.5 text-[11px] leading-4 text-sparkle-text-muted/75', hasStatus && 'pr-[max(3.25rem,52px)]')} data-agent-inbox-metadata data-agent-inbox-model={model.modelName || undefined}>
+                    <div className={cn('col-start-1 row-start-3 flex h-4 min-w-0 items-center gap-1.5 text-[11px] leading-4 text-sparkle-text-muted/75', hasStatus && 'pr-[max(3.25rem,52px)]')} data-agent-inbox-metadata data-zyra-part="sidebar.chatRow.model" data-agent-inbox-model={model.modelName || undefined}>
                         {model.provider ? <span role="img" aria-label={`${model.provider} model provider`} className="inline-flex shrink-0"><SettingsProviderIcon provider={model.provider === 'anthropic' ? 'claude' : model.provider === 'google' ? 'gemini' : model.provider} size={13} /></span> : null}
                         <span className="min-w-0 flex-1 truncate">{model.modelName || 'No model selected'}</span>
                         {item.pinned ? <span aria-label="Pinned chat" title="Pinned chat" className="inline-flex shrink-0"><Pin size={12} /></span> : null}
@@ -257,11 +261,11 @@ function AgentInboxSlimRow({ item, action, onAction, props }: { item: SidebarIte
     const menuItems = getAgentInboxMenuItems(item, onAction, props)
     return (
         <li data-agent-inbox-layout-id={item.session.id} data-shortcut-command={props.getSidebarShortcutCommand(item)} className="list-none">
-            <div role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-muted/70 hover:bg-[var(--surface-hover)] hover:text-sparkle-text')} title={title}>
+            <div data-zyra-part="sidebar.chatRow" data-row-layout="slim" data-zyra-state={rowStates(item)} role="button" aria-current={item.active ? 'page' : undefined} tabIndex={0} onClick={activate} onDoubleClick={() => void props.onRename(item.session)} onContextMenu={(event) => props.onOpenContextMenu(event, item.session, menuItems)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() } }} className={cn('group/agent-inbox-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none', item.active ? 'bg-[var(--surface-active)] text-sparkle-text' : 'text-sparkle-text-muted/70 hover:bg-[var(--surface-hover)] hover:text-sparkle-text')} title={title}>
                 {work ? <AssistantWorkContextIcon work={work} dimmed={!item.active} /> : <ProjectMark group={item.project} dimmed={!item.active} />}
-                <AssistantSessionTitleText title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
+                <AssistantSessionTitleText sidebar title={title} generating={item.session.titleGenerating === true} className={cn('min-w-0 flex-1 text-sm group-hover/agent-inbox-row:text-sparkle-text', item.active ? 'text-sparkle-text' : 'text-sparkle-text-muted/70')} />
                 <div className="relative ml-auto flex h-6 min-w-0 shrink-0 items-center justify-end">
-                    {item.status !== 'ready' ? <span className="mr-1 inline-flex shrink-0 text-sparkle-text-muted" title={item.status === 'done' ? 'New response' : item.status}>
+                    {item.status !== 'ready' ? <span data-zyra-part="sidebar.chatRow.activityIndicator" className="mr-1 inline-flex shrink-0 text-sparkle-text-muted" title={item.status === 'done' ? 'New response' : item.status}>
                         {item.status === 'working' ? <CircleDashed size={13} /> : item.status === 'done' ? <CheckCircle2 size={13} /> : <span className="text-[10px]">{item.status}</span>}
                     </span> : null}
                     {item.thread?.agentNickname || item.thread?.source === 'subagent' || item.tuiOpen || item.mobileDevices.length > 0 ? (

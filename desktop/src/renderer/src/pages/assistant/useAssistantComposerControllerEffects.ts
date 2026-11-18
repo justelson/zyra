@@ -71,8 +71,6 @@ export function useAssistantComposerControllerEffects(input: {
     setInlineMentionTags: Dispatch<SetStateAction<InlineMentionTag[]>>
     setContextFiles: Dispatch<SetStateAction<ComposerContextFile[]>>
     setSentPromptHistory: Dispatch<SetStateAction<string[]>>
-    setHistoryCursor: Dispatch<SetStateAction<number | null>>
-    setDraftBeforeHistory: Dispatch<SetStateAction<string>>
     setShowMentionMenu: Dispatch<SetStateAction<boolean>>
     setPreviewAttachment: Dispatch<SetStateAction<ComposerContextFile | null>>
     setRemovingAttachmentIds: Dispatch<SetStateAction<string[]>>
@@ -134,8 +132,6 @@ export function useAssistantComposerControllerEffects(input: {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -174,8 +170,6 @@ export function useAssistantComposerControllerEffects(input: {
         setInlineMentionTags([])
         setContextFiles(nextState.contextFiles || [])
         setSentPromptHistory([])
-        setHistoryCursor(null)
-        setDraftBeforeHistory('')
         setShowMentionMenu(false)
         setPreviewAttachment(null)
         setRemovingAttachmentIds([])
@@ -197,9 +191,7 @@ export function useAssistantComposerControllerEffects(input: {
         sessionId,
         setComposerCursor,
         setContextFiles,
-        setDraftBeforeHistory,
         setFastModeEnabled,
-        setHistoryCursor,
         setInlineMentionTags,
         setLoadedSessionId,
         setPreviewAttachment,

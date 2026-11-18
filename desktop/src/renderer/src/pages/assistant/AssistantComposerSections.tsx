@@ -174,7 +174,7 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                 const isPastedText = isPastedTextAttachment(file)
                 const cardWidthClass = isPastedText ? 'w-[92px]' : 'w-[116px]'
                 const handleOpenImagePreview = () => {
-                    if (presentation === 'cards') {
+                    if (presentation === 'cards' || file.path?.startsWith('clipboard://')) {
                         onPreview(file)
                         return
                     }
@@ -371,6 +371,21 @@ export const ComposerVoiceButton = memo(({
     )
 })
 
+function SpeedBolt({ speed, size = 14 }: { speed: AssistantSpeedPreference; size?: number }) {
+    return <span aria-hidden="true" className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+        {speed === 'ultrafast' && <Zap size={size} strokeWidth={2.2} fill="currentColor" className="absolute -top-0.5 -right-0.5 opacity-50" />}
+        <Zap size={size} strokeWidth={2.2} fill={speed ? 'currentColor' : 'transparent'} className={cn(
+            'relative transition-[fill,transform] duration-200 ease-out motion-reduce:transition-none',
+            speed === 'ultrafast' && '-translate-x-0.5 translate-y-0.5',
+            !speed && 'scale-90 -rotate-[8deg]'
+        )} />
+    </span>
+}
+
+function speedLabel(speed: AssistantSpeedPreference) {
+    return speed === 'ultrafast' ? 'Ultra Fast' : speed ? 'Fast' : 'Standard'
+}
+
 export const ComposerFooterControls = memo(function ComposerFooterControls({
     isCompactFooter,
     forceSingleRow = false,
@@ -468,6 +483,11 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         : modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || modelGroups[0]?.id || null
     const visibleModelGroups = modelQuery.trim() || !visibleModelGroup ? modelGroups : modelGroups.filter(group => group.id === visibleModelGroup)
     const canChooseSpeed = supportsAssistantFastMode(selectedModel) && Boolean(serviceTiers?.length)
+    const speeds: AssistantSpeedPreference[] = [false]
+    if (serviceTiers?.includes('fast')) speeds.push(true)
+    if (serviceTiers?.includes('ultrafast')) speeds.push('ultrafast')
+    const nextSpeed = speeds[(speeds.indexOf(fastModeEnabled) + 1) % speeds.length]
+    const speedAction = `Response speed: ${speedLabel(fastModeEnabled)}. Switch to ${speedLabel(nextSpeed)}.`
     const effortUnavailable = !EFFORT_OPTIONS.includes(selectedEffort)
     const canChooseEffort = EFFORT_OPTIONS.length > 1 || effortUnavailable
     const selectedEffortText = EFFORT_LABELS[selectedEffort] || reasoningChoiceLabel(selectedEffort)
@@ -647,20 +667,11 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                             <div hidden={activeSubmenu === 'model'} data-effort-card className="w-full">
                                 <div className="px-1.5 pb-1 pt-1">
                                     <div className="flex items-start gap-1">
-                                        {canChooseSpeed && serviceTiers?.includes('ultrafast') ? (
-                                            <select aria-label="Response speed" className="h-6 max-w-24 rounded-md bg-[var(--surface-floating)] px-1 text-xs text-sparkle-text"
-                                                value={fastModeEnabled === 'ultrafast' ? 'ultrafast' : fastModeEnabled ? 'fast' : 'standard'}
-                                                onChange={event => setFastModeEnabled(event.target.value === 'ultrafast' ? 'ultrafast' : event.target.value === 'fast')}>
-                                                <option value="standard">Standard</option>
-                                                {serviceTiers.includes('fast') && <option value="fast">Fast</option>}
-                                                <option value="ultrafast">Ultra Fast</option>
-                                            </select>
-                                        ) : canChooseSpeed ? <button
+                                        {canChooseSpeed ? <button
                                             type="button"
-                                            onClick={() => setFastModeEnabled(!fastModeEnabled)}
-                                            aria-label="Fast mode"
-                                            aria-pressed={Boolean(fastModeEnabled)}
-                                            title={fastModeEnabled ? 'Switch to standard speed' : 'Switch to fast speed'}
+                                            onClick={() => setFastModeEnabled(nextSpeed)}
+                                            aria-label={speedAction}
+                                            title={speedAction}
                                             className={cn(
                                                 'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] motion-reduce:transition-none motion-reduce:transform-none',
                                                 fastModeEnabled
@@ -668,15 +679,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                     : 'text-sparkle-text-muted hover:bg-[var(--surface-hover)]'
                                             )}
                                         >
-                                            <Zap
-                                                size={14}
-                                                strokeWidth={2.2}
-                                                fill={fastModeEnabled ? 'currentColor' : 'transparent'}
-                                                className={cn(
-                                                    'transition-[fill,transform] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none',
-                                                    fastModeEnabled ? 'scale-100 rotate-0' : 'scale-90 -rotate-[8deg]'
-                                                )}
-                                            />
+                                            <SpeedBolt speed={fastModeEnabled} />
                                         </button> : <span className="w-6 shrink-0" />}
                                         <div className="min-w-0 flex-1 text-center">
                                             {canChooseEffort ? <div className="text-[14px] font-semibold leading-6 text-[var(--accent-primary)]" aria-live="polite">{selectedEffortText}</div> : null}
@@ -856,7 +859,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                         )}
                         aria-hidden="true"
                     >
-                        <Zap size={13} strokeWidth={2.6} fill="currentColor" />
+                        <SpeedBolt speed={fastModeEnabled} size={13} />
                     </span>
                     <span
                         className={cn(

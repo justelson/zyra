@@ -18,8 +18,6 @@ export function resetAssistantComposerDirtyState(input: {
     setInlineMentionTags: (value: []) => void
     setContextFiles: (value: ComposerContextFile[]) => void
     setSentPromptHistory: (value: []) => void
-    setHistoryCursor: (value: number | null) => void
-    setDraftBeforeHistory: (value: string) => void
     setShowMentionMenu: (value: boolean) => void
     setPreviewAttachment: (value: null) => void
     setRemovingAttachmentIds: (value: []) => void
@@ -43,8 +41,6 @@ export function resetAssistantComposerDirtyState(input: {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -61,8 +57,6 @@ export function resetAssistantComposerDirtyState(input: {
     setInlineMentionTags([])
     setContextFiles(nextState.contextFiles || [])
     setSentPromptHistory([])
-    setHistoryCursor(null)
-    setDraftBeforeHistory('')
     setShowMentionMenu(false)
     setPreviewAttachment(null)
     setRemovingAttachmentIds([])

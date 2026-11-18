@@ -41,10 +41,7 @@ export type AssistantComposerHandlersArgs = {
     setContextFiles: SetContextFilesState
     sentPromptHistory: string[]
     setSentPromptHistory: SetStringArrayState
-    historyCursor: number | null
-    setHistoryCursor: Dispatch<SetStateAction<number | null>>
-    draftBeforeHistory: string
-    setDraftBeforeHistory: SetStringState
+    promptRecall?: ReturnType<typeof import('./assistant-composer-prompt-recall').createComposerPromptRecall>
     showMentionMenu: boolean
     setShowMentionMenu: SetBooleanState
     mentionCandidates: MentionCandidate[]

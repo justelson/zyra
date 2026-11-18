@@ -823,7 +823,7 @@ export const AssistantChatSessionsRail = memo(function AssistantChatSessionsRail
                 style={layoutShellStyle}
                 aria-hidden={loadingScreenActive || (collapsed && !previewOpen)}
             >
-                <aside
+                <aside data-zyra-part="sidebar" data-zyra-state={sessions.length ? 'populated' : 'empty'}
                     ref={sidebarSurfaceRef}
                     onMouseEnter={() => {
                         previewPointerInsideRef.current = true
@@ -1159,6 +1159,7 @@ function ChatRow(props: {
             <div
                 role="button"
                 tabIndex={0}
+                data-zyra-part="sidebar.chatRow" data-row-layout="standard" data-zyra-state={[isActiveSession && 'selected', hasPendingControlApproval && 'approval'].filter(Boolean).join(' ')}
                 onClick={() => void onSelectSession(session.id)}
                 onDoubleClick={() => void onRename(session)}
                 onContextMenu={(event) => onOpenContextMenu(event, session)}
@@ -1177,12 +1178,12 @@ function ChatRow(props: {
                 )}
                 title={getSessionDisplayTitle(session)}
             >
-                <AssistantSessionTitleText
+                <AssistantSessionTitleText sidebar
                     title={getSessionDisplayTitle(session)}
                     generating={session.titleGenerating === true}
                     className="min-w-0 flex-1 text-[13px] leading-none"
                 />
-                <span className="inline-flex shrink-0 items-center gap-1.5">
+                <span data-zyra-part="sidebar.chatRow.activityIndicator" className="inline-flex shrink-0 items-center gap-1.5">
                     {hasPendingControlApproval ? (
                         <span className="inline-flex h-4 shrink-0 items-center gap-1 rounded-full bg-amber-400/10 px-1.5 text-[9px] font-medium leading-none text-amber-200 ring-1 ring-inset ring-amber-300/15" title="Review permission in chat">
                             <span className="h-1 w-1 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />

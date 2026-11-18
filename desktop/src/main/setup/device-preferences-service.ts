@@ -184,7 +184,10 @@ function sanitizeJson(value: unknown, depth = 0): unknown {
         }))
 }
 
+import { UI_PARTS, validateUiPartConfig } from '../../shared/ui-parts'
+
 export function describeDevicePreferenceValue(key: string): Record<string, unknown> {
+    if (key === 'appearanceUiParts') return { type: 'object', version: 1, parts: UI_PARTS }
     if (key === 'assistantDefaultEffort') return { type: 'string', maxLength: 1536, description: 'Provider default, standard effort, or an advertised encoded native option ID.' }
     if (BOOLEAN_KEYS.has(key)) return { type: 'boolean' }
     if (ENUMS[key]) return { type: 'enum', values: [...ENUMS[key]!] }
@@ -198,6 +201,9 @@ export function describeDevicePreferenceValue(key: string): Record<string, unkno
 }
 
 export function sanitizeDevicePreferenceValue(key: string, value: unknown): unknown {
+    if (key === 'appearanceUiParts') {
+        try { return validateUiPartConfig(value) } catch { return undefined }
+    }
     if (key === 'assistantDefaultEffort') return isAssistantReasoningEffort(value) ? value : undefined
     if (key === 'assistantBusyMessageMode' && value === 'force') return 'queue'
     if (key === 'keyboardShortcuts') return sanitizeShortcutOverrides(value)

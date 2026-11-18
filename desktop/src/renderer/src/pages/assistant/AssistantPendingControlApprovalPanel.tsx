@@ -79,7 +79,7 @@ export function AssistantPendingControlApprovalPanel(props: {
 
     return (
         <div className="pointer-events-auto mx-auto w-full max-w-[760px]" data-assistant-composer-hitbox="true">
-            <section className="overflow-hidden rounded-[20px] border border-amber-400/20 bg-sparkle-card shadow-[0_22px_70px_rgba(0,0,0,0.34)]" aria-label="Computer-use approval">
+            <section data-zyra-part="permission.approval" className="overflow-hidden rounded-[20px] border border-amber-400/20 bg-sparkle-card shadow-[0_22px_70px_rgba(0,0,0,0.34)]" aria-label="Computer-use approval">
                 <div className="flex items-start gap-3 border-b border-white/[0.07] px-4 py-4 sm:px-5">
                     <div className="mt-0.5 rounded-xl border border-amber-400/20 bg-amber-500/10 p-2 text-amber-200"><ShieldAlert size={17} /></div>
                     <div className="min-w-0 flex-1">

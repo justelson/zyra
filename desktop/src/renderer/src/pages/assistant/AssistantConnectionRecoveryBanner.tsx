@@ -18,7 +18,7 @@ export function AssistantConnectionRecoveryBanner(props: {
             : 'Connection issue'
 
     return (
-        <div className="px-4 py-1.5">
+        <div data-zyra-part="connection.recovery" className="px-4 py-1.5">
             <div
                 className="mx-auto flex min-h-8 w-full max-w-3xl items-center gap-2 border-l-2 border-amber-300/45 bg-amber-500/[0.045] px-2.5 text-[11px] text-amber-100/85"
                 role="status"

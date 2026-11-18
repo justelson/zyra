@@ -8,6 +8,7 @@ import { ACCENT_COLORS, type AccentColor } from '@shared/preferences/accent-pres
  * Main-owned device settings facade with one-time renderer v4 migration.
  */
 
+import { loadUiPartConfig } from '@shared/ui-parts'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { dispatchZyraThemeChanged } from './theme-events'
 import { clearProjectViewCaches } from './projectViewCache'
@@ -229,6 +230,7 @@ export interface Settings {
     appearanceLightTheme: LightTheme
     appearanceDarkTheme: DarkTheme
     appearanceResolvedMode: ThemeAppearance
+    appearanceUiParts: import('@shared/ui-parts').UiPartConfig
     appearanceCustomTheme: AppearanceCustomTheme | null
     appearanceCustomThemeActive: boolean
     appearanceUiFont: AppearanceUiFont
@@ -580,6 +582,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 appearanceLightTheme,
                 appearanceDarkTheme,
                 appearanceResolvedMode,
+                appearanceUiParts: loadUiPartConfig(parsed.appearanceUiParts),
                 appearanceCustomTheme,
                 appearanceCustomThemeActive,
                 appearanceUiFont,

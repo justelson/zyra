@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode, AssistantUpdateSessionConfigurationInput } from '@shared/assistant/contracts'
 import type { DevScopeGitBranchSummary } from '@shared/contracts/devscope-api'
 import { useSettings } from '@/lib/settings'
 import type { MentionCandidate } from './assistant-composer-mentions'
+import { createComposerPromptRecall } from './assistant-composer-prompt-recall'
 import { createAssistantComposerHandlers } from './assistant-composer-handlers'
 import {
     buildAssistantComposerSessionState,
@@ -158,8 +159,12 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     const [inlineMentionTags, setInlineMentionTags] = useState<InlineMentionTag[]>([])
     const [contextFiles, setContextFiles] = useState<ComposerContextFile[]>([])
     const [sentPromptHistory, setSentPromptHistory] = useState<string[]>([])
-    const [historyCursor, setHistoryCursor] = useState<number | null>(null)
-    const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
+    const promptRecall = useMemo(() => createComposerPromptRecall(!useSettingsDefaults && normalizedSessionId && configurationThreadId ? async before => {
+        const result = await window.devscope.assistant.getHistoryPage({ threadId: configurationThreadId, before, turnLimit: 8 })
+        if (!result.success) throw new Error(result.error || 'Could not read prompt history.')
+        return result.page
+    } : undefined), [normalizedSessionId, configurationThreadId, resetStateToken, useSettingsDefaults])
+    useLayoutEffect(() => promptRecall.cancel, [promptRecall])
     const [showModelDropdown, setShowModelDropdown] = useState(false)
     const [showTraitsDropdown, setShowTraitsDropdown] = useState(false)
     const [showBranchDropdown, setShowBranchDropdown] = useState(false)
@@ -480,8 +485,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -547,10 +550,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setContextFiles,
         sentPromptHistory,
         setSentPromptHistory,
-        historyCursor,
-        setHistoryCursor,
-        draftBeforeHistory,
-        setDraftBeforeHistory,
+        promptRecall,
         showMentionMenu,
         setShowMentionMenu,
         mentionCandidates,
@@ -681,8 +681,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
             setInlineMentionTags,
             setContextFiles,
             setSentPromptHistory,
-            setHistoryCursor,
-            setDraftBeforeHistory,
             setShowMentionMenu,
             setPreviewAttachment,
             setRemovingAttachmentIds,
@@ -706,8 +704,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setPreviewAttachment(null)
         setRemovingAttachmentIds([])
         setShowMentionMenu(false)
-        setHistoryCursor(null)
-        setDraftBeforeHistory('')
+        promptRecall.cancel()
         setComposerCursor(cursorPosition)
 
         if (typeof window !== 'undefined') {
@@ -718,7 +715,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 element.setSelectionRange(cursorPosition, cursorPosition)
             })
         }
-    }, [textareaRef])
+    }, [promptRecall, textareaRef])
 
     return buildAssistantComposerControllerResult({
         loadedSessionId,
@@ -778,8 +775,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setInlineMentionTags,
         contextFiles,
         updateAttachment: (file: ComposerContextFile) => setContextFiles(current => current.map(existing => existing.id === file.id ? file : existing)),
-        historyCursor,
-        setHistoryCursor,
+        promptRecall,
         showModelDropdown,
         setShowModelDropdown,
         showTraitsDropdown,

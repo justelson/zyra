@@ -24,7 +24,10 @@ const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
 const results: string[] = []
 const sleep = (ms = 30) => new Promise(resolve => setTimeout(resolve, ms))
-function check(value: unknown, label: string) { if (!value) throw new Error(label) }
+function check(value: unknown, label: string) {
+    if (!value) throw new Error(label)
+    document.documentElement.dataset.sidebarCheckpoint = label.slice(0, 160)
+}
 async function waitForCheck(condition: () => boolean, label: string) {
     const deadline = performance.now() + 2000
     while (!condition() && performance.now() < deadline) await sleep(30)
@@ -585,7 +588,10 @@ async function run() {
         const target = child.getBoundingClientRect()
         const inspectAnimation = async () => {
             for (let frame = 0; frame < 12; frame++) {
-                await new Promise(requestAnimationFrame)
+                await new Promise<void>((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error(`Sidebar repaint stalled at ${width}px, frame ${frame + 1}/12`)), 2000)
+                    requestAnimationFrame(() => { clearTimeout(timeout); resolve() })
+                })
                 const a = actions.getBoundingClientRect()
                 const b = settle.getBoundingClientRect()
                 check(b.left >= a.left - .5, `Settle control cannot extend left of its allocated slot: ${JSON.stringify({width, frame, action: a.toJSON(), button: b.toJSON()})}`)

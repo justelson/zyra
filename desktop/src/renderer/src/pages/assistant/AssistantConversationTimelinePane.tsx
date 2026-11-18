@@ -7,6 +7,8 @@ import type { AssistantDiffTarget } from './assistant-diff-types'
 import type { AssistantElementBounds } from './assistant-composer-types'
 import { resolveAssistantScrollButtonBottom } from './assistant-pane-layout'
 import { AssistantReadPreviewScope } from './AssistantReadPreviewScope'
+import { useSettings } from '@/lib/settings'
+import { useChatWallpaper } from '@/lib/use-chat-wallpaper'
 import { AssistantTimelineLatestButton } from './AssistantTimelineLatestButton'
 
 export const preloadAssistantTimeline = () => import('./AssistantTimeline')
@@ -75,6 +77,7 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     onOpenEditedFile?: (filePath: string) => Promise<void> | void
     onViewDiff?: (target: AssistantDiffTarget) => void
 }) {
+    const wallpaper = useChatWallpaper(useSettings().settings.appearanceChatWallpaper)
     const projectRootPath = props.projectTitle
     const floatingPlanOverlayRef = useRef<HTMLDivElement | null>(null)
     const scrollButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -111,7 +114,8 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     }, [props.elevateScrollToBottom, props.onScrollButtonBoundsChange, props.showScrollToBottom])
 
     return (
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden bg-sparkle-bg" data-assistant-conversation-timeline-pane="true">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden bg-sparkle-bg" data-assistant-conversation-timeline-pane="true" data-zyra-part="chat.timeline" style={wallpaper} data-chat-wallpaper={wallpaper ? '' : undefined}>
+            {wallpaper && <style>{'[data-chat-wallpaper] [data-zyra-part="chat.assistantMessage"], [data-chat-wallpaper] [data-zyra-part="chat.userMessage"] { background-color:var(--surface-floating); border-radius:.5rem; }'}</style>}
             {props.loading ? (
                 <LoadingSpinner
                     message="Loading assistant snapshot..."

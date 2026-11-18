@@ -36,7 +36,7 @@ export class UserInputResponses {
     if (this.states.size >= 128) fail('AGENT_SERVER_USER_INPUT_BUSY', 'Too many question responses are in progress.');
     const state = { ownerClientId, hash, mode: payload.mode === 'async' ? 'async' : 'blocking', settled: false, promise: null };
     state.promise = Promise.resolve().then(dispatch).then(async result => {
-      if (!continues || payload.cancelled === true || result?.cancelled === true) return result;
+      if (result?.permissionDecision || !continues || payload.cancelled === true || result?.cancelled === true) return result;
       const prompt = typeof result?.continuationPrompt === 'string' ? result.continuationPrompt.trim() : '';
       if (!prompt) fail('AGENT_SERVER_USER_INPUT_CONTINUATION_UNAVAILABLE', 'The answer was received, but no continuation was returned. Open the conversation to continue.');
       const continuation = await resume(prompt, requestContext, result.mode === 'async' ? 'async' : 'blocking');

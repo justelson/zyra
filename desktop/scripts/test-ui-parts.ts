@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { UI_PARTS, validateUiPartConfig } from '../src/shared/ui-parts'
+import { UI_PARTS, loadUiPartConfig, validateUiPartConfig } from '../src/shared/ui-parts'
 import { describeDevicePreferenceValue, sanitizeDevicePreferenceValue } from '../src/main/setup/device-preferences-service'
 import { getDevicePreferenceOwnership } from '../src/shared/preferences/contracts'
 import { AgentSettings } from '../src/main/assistant/agent-settings'
@@ -17,6 +17,9 @@ assert.deepEqual(describeDevicePreferenceValue('appearanceUiParts').parts,UI_PAR
 assert.deepEqual(sanitizeDevicePreferenceValue('appearanceUiParts',config),config)
 for (const input of [{...config,version:77},{version:1,overrides:{unknown:{}}},{version:1,overrides:{'permission.approval':{radius:1}}},{version:1,overrides:{'sidebar.chatRow':{background:'url(foo)'}}},{version:1,overrides:{'sidebar.chatRow':{radius:-1}}}]) assert.equal(sanitizeDevicePreferenceValue('appearanceUiParts',input),undefined)
 assert.deepEqual(validateUiPartConfig({version:1,overrides:{'sidebar.chatRow':{density:'default'}}}),{version:1,overrides:{}})
+const legacy = {version:1,overrides:{retiredPart:{background:'#000000'},'chat.composer':{radius:3,retiredProperty:true},'chat.timeline':{background:'#112233'}}}
+assert.deepEqual(loadUiPartConfig(legacy),{version:1,overrides:{'chat.composer':{radius:3},'chat.timeline':{background:'#112233'}}})
+assert.throws(() => validateUiPartConfig(legacy), 'new writes must remain strict')
 const saved: Record<string,unknown> = {}; let revision = 1
 const preferences = {get:async()=>({revision,settings:saved}),getAssistantMemoryEnabled:async()=>false,getAssistantMemoryResetValue:async()=>false,update:async(input:{patch:Record<string,unknown>})=>{Object.assign(saved,input.patch);return {revision:++revision}}}
 const agent = new AgentSettings(preferences as never,{getHostedAiStatus:async()=>({})} as never)

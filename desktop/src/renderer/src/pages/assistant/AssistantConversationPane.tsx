@@ -798,7 +798,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         setRespondingUserInputRequestId(requestId)
         try {
             const question = controller.pendingUserInputs.find(input => input.requestId === requestId)
-            if (question?.mode === 'async') {
+            if (question?.mode === 'async' && !requestId.startsWith('permission:')) {
                 const queue = asyncAnswerQueueRef.current
                 if (!queue) throw new Error('The answer queue is not ready. Your answer stays here.')
                 const wasHeld = queue.held
@@ -1475,7 +1475,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onViewDiff={props.onViewDiff}
                         />
                     ) : null}
-                    {voiceVisible && !hasPendingControlApproval ? (
+                    {voiceVisible && !hasPendingControlApproval && !effectivePendingUserInputs.length ? (
                         <AssistantCanonicalVoiceDock
                             voice={voice}
                             preferences={voicePreferences}

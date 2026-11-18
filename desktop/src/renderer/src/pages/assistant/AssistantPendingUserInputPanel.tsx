@@ -621,7 +621,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         allowEmptySubmit: false,
         hasContent: canAdvance,
         controlsLocked: true,
-        attachmentsLocked: false,
+        attachmentsLocked: Boolean(activePrompt?.requestId.startsWith('permission:')),
         isResponding: responding,
         isReviewStep,
     })

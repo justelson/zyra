@@ -8,6 +8,7 @@ import { ACCENT_COLORS, type AccentColor } from '@shared/preferences/accent-pres
  * Main-owned device settings facade with one-time renderer v4 migration.
  */
 
+import { NO_CHAT_WALLPAPER, isChatWallpaper } from '@shared/chat-wallpaper'
 import { loadUiPartConfig } from '@shared/ui-parts'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { dispatchZyraThemeChanged } from './theme-events'
@@ -230,6 +231,7 @@ export interface Settings {
     appearanceLightTheme: LightTheme
     appearanceDarkTheme: DarkTheme
     appearanceResolvedMode: ThemeAppearance
+    appearanceChatWallpaper: import('@shared/chat-wallpaper').ChatWallpaper
     appearanceUiParts: import('@shared/ui-parts').UiPartConfig
     appearanceCustomTheme: AppearanceCustomTheme | null
     appearanceCustomThemeActive: boolean
@@ -582,6 +584,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 appearanceLightTheme,
                 appearanceDarkTheme,
                 appearanceResolvedMode,
+                appearanceChatWallpaper: isChatWallpaper(parsed.appearanceChatWallpaper) ? parsed.appearanceChatWallpaper : NO_CHAT_WALLPAPER,
                 appearanceUiParts: loadUiPartConfig(parsed.appearanceUiParts),
                 appearanceCustomTheme,
                 appearanceCustomThemeActive,

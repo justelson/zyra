@@ -1,3 +1,4 @@
+import { NO_CHAT_WALLPAPER } from '../chat-wallpaper'
 import { ACCENT_COLORS } from './accent-presets'
 import { DEFAULT_ASSISTANT_AUTO_TITLE_TURNS, DEFAULT_ASSISTANT_TITLE_MODEL } from '../assistant/title-generation'
 import { DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS, DEFAULT_ASSISTANT_REASONING_SUMMARY } from '../assistant/runtime-policy'
@@ -6,7 +7,7 @@ import { DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS, DEFAULT_ASSISTAN
 export const DEFAULT_DEVICE_SETTINGS = {
     settingsSchemaVersion: 5, keyboardShortcuts: {}, theme: 'vercel',
     appearanceThemeMode: 'system', appearanceLightTheme: 'paper-light', appearanceDarkTheme: 'vercel', appearanceResolvedMode: 'dark',
-    appearanceUiParts: { version: 1, overrides: {} },
+    appearanceUiParts: { version: 1, overrides: {} }, appearanceChatWallpaper: NO_CHAT_WALLPAPER,
     appearanceCustomTheme: null, appearanceCustomThemeActive: false, appearanceUiFont: 'bricolage', appearanceCodeFont: 'jetbrains',
     appearanceInterfaceScale: 100, appearanceCodeScale: 100, appearanceContrastScale: 100, appearanceAnimationSpeed: 'normal', appearanceAnimationScale: 100,
     accentColor: ACCENT_COLORS.find(accent => accent.name === 'Sky') || ACCENT_COLORS[0], compactMode: false,

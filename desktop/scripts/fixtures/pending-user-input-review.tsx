@@ -711,5 +711,19 @@ const paste = () => {
     await wait(() => dismissed.length === 1, 'Dismiss reaches the async request without sending an answer')
     check(responses.length === answerCount && dismissed[0] === 'async-card', 'Dismiss sends no invented answer')
     results.push('Async questions preserve normal drafts/focus, open explicitly, never hijack Enter and dismiss without an answer')
+    const permission = { ...asyncRequest, requestId: 'permission:reset-fixture', questions: [{
+        id: 'decision', header: 'Permission', question: 'Use one banked reset credit for account Work?', type: 'confirm', required: true, allowOther: false,
+        options: [{ label: 'Deny', description: 'Keep the credit.' }, { label: 'Allow once', description: 'Spend credit 1 on Work.' }]
+    }] }
+    pane([permission])
+    document.querySelector<HTMLButtonElement>('[aria-label="Answer agent question"]')!.click()
+    await wait(() => Boolean(document.querySelector('[data-question-tray] [role="radio"]')), 'permission uses the question tool form')
+    const permissionOptions = [...document.querySelectorAll<HTMLElement>('[data-question-tray] [role="radio"]')]
+    check(permissionOptions.length === 2 && permissionOptions.every(option => option.getAttribute('aria-checked') === 'false'), 'no permission choice is preselected')
+    permissionOptions.find(option => option.textContent?.includes('Allow once'))!.click()
+    await wait(() => !!document.querySelector<HTMLButtonElement>('button[aria-label="Submit answer"]:not(:disabled)'), 'explicit choice unlocks submit')
+    document.querySelector<HTMLButtonElement>('button[aria-label="Submit answer"]')!.click()
+    await wait(() => responses.length === answerCount + 1, 'submit returns a permission answer to the exact request')
+    results.push('Reset permission uses the ordinary question tool with explicit consent')
     return results
 })()

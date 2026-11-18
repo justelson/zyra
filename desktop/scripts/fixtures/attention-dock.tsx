@@ -123,21 +123,27 @@ const startVoice = async () => {
     check(!answer(), 'Returning to a chat does not automatically steal focus into its question')
 
     fixture.render({ pendingApprovals: [approval] }); await sleep(); await sleep()
-    check(document.querySelector('[data-permission-tray] [role="status"]') && document.querySelector('[data-permission-tray]')?.closest('[data-composer-drawer]'), 'Permission uses the shared attached question-drawer surface')
+    const tray = document.querySelector<HTMLElement>('[data-zyra-part="permission.approval"][data-question-tray]')
+    check(tray?.closest('[data-composer-drawer]') && tray.querySelector('[role="radio"]'), 'Permission uses the shared attached question-drawer surface')
     check(!document.querySelector('[data-assistant-async-question]') && frameCount() === 1 && editor(), 'Permission priority keeps one message composer and suppresses duplicate async trays')
     check(fixture.decisions.length === 0, 'Permission presentation has no implicit decision')
-    const permissionDetails = document.querySelector<HTMLElement>('[data-permission-tray]')!
+    const permissionDetails = tray!
     const attachedItems = [...document.querySelectorAll<HTMLElement>('[data-composer-attachment-item="true"]')]
     check(attachedItems.every(item => permissionDetails.getBoundingClientRect().bottom <= item.getBoundingClientRect().top + 1), 'Permission details stay clear of the attachment shelf')
-    await click('Allow once'); check(fixture.decisions.at(-1)?.decision === 'acceptOnce' && fixture.decisions.at(-1)?.id === approval.requestId, 'Allow once preserves exact backend semantics')
-    await click('Deny'); check(fixture.decisions.at(-1)?.decision === 'decline', 'Deny preserves decline')
-    await click('Other approval options')
-    const scope = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
-    check(scope?.getAttribute('aria-label') === approval.grantLabel, 'Broader scope exposes the complete backend grant label')
-    scope.click(); await sleep()
-    check(fixture.decisions.at(-1)?.decision === 'acceptForSession', 'Broader allowance stays a separate explicit decision')
+    check(button('Submit answer')?.disabled, 'No default permission answer is submittable')
+    for (const [label, decision] of [['Allow once','acceptOnce'], ['Deny','decline'], ['Allow for this chat','acceptForSession']]) {
+        const count = fixture.decisions.length
+        const option = [...permissionDetails.querySelectorAll<HTMLElement>('[role="radio"]')].find(node => node.textContent?.includes(label))
+        check(option, `Available permission choice: ${label}`)
+        if (decision === 'acceptForSession') check(option!.textContent?.includes(approval.grantLabel!), 'Broader scope discloses the backend grant label')
+        option!.click(); await sleep()
+        check(fixture.decisions.length === count, 'Selecting an option alone grants nothing')
+        await click('Submit answer')
+        check(fixture.decisions.length === count + 1 && fixture.decisions.at(-1)?.decision === decision && fixture.decisions.at(-1)?.id === approval.requestId, 'Explicit submission preserves the exact decision and request ID')
+    }
     fixture.render({ commandPending: true }); await sleep()
-    check([...document.querySelectorAll<HTMLButtonElement>('[data-permission-tray] button')].every(node => node.disabled), 'Permission response controls lock while saving')
+    const busyControls = [...permissionDetails.querySelectorAll<HTMLButtonElement>('button')]
+    check(busyControls.length > 0 && busyControls.every(node => node.disabled), 'Permission response controls lock while saving')
     fixture.render({ commandPending: false, pendingApprovals: [], pendingUserInputs: [request('blocking-question', 'blocking')] }); await sleep(); await sleep()
     check(document.querySelector('[data-question-tray]') && !document.querySelector('[data-assistant-async-question]') && !button('Back to message') && frameCount() === 1, 'Blocking questions retain their original tray and footer, without async decoration')
     fixture.render({ pendingUserInputs: [] }); await sleep(); await sleep()

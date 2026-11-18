@@ -73,6 +73,7 @@ export const SHARED_DEVICE_PREFERENCE_KEYS = [
 ] as const
 
 export const SURFACE_DEVICE_PREFERENCE_KEYS = [
+    'appearanceChatWallpaper',
     'keyboardShortcuts',
     'sidebarCollapsed',
     'sidebarHoverPreviewEnabled',

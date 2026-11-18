@@ -154,6 +154,11 @@ export class AgentAppService {
         const { service, allowed, origin } = context
         const area = text(params.area, 80), input = asRecord(params.input)
         if (domain === 'settings') {
+            if (operation === 'preview' && input.undoOperationId) {
+                const receipt = await this.settings.undoReceipt({ input: { operationId: input.undoOperationId } }, actor.canonicalChatId, this.receipts)
+                return { undoOperationId: receipt.operationId, keys: receipt.keys, requiresApproval: receipt.requiresApproval, surface: receipt.result.surface }
+            }
+            if (operation === 'undo') return this.settings.undo(params, actor.canonicalChatId, actor.approved, this.receipts)
             if (operation === 'get' && (!area || area === 'all') && !Array.isArray(params.keys)) throw new Error('Discover with settings list, then get one area or exact setting IDs. Private effective values are not dumped by default.')
             if (operation === 'get' || operation === 'list') {
                 const readOwner = ({ delegation: 'delegation.get', runtime: 'runtime.inspect', startup: 'startup.get', extensions: 'browser.extensions' } as Record<string, string>)[area]
@@ -183,7 +188,6 @@ export class AgentAppService {
             if (operation === 'preview') return this.settings.preview(params, input.reset === true)
             if (operation === 'apply' || operation === 'reset') return this.settings.apply(params, actor.approved, operation === 'reset')
             if (operation === 'history') return { receipts: await this.receipts.history(actor.canonicalChatId), source: 'agent operations in this Chat', detailedReceiptRetention: 500, durableIdentityClaims: 'retained independently; expired results never re-execute' }
-            if (operation === 'undo') return this.settings.undo(params, actor.canonicalChatId, actor.approved, this.receipts)
             if (operation === 'open') {
                 const result = await this.settings.inspect(params)
                 const route = result.settings[0]?.settingsRoute || '/settings'

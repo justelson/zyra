@@ -603,7 +603,7 @@ export async function createZyraTuiClientRuntime(options = {}) {
           const code = asString(error?.code);
           if (code === "AGENT_SERVER_USER_INPUT_UNKNOWN" && locallyResolvedUserInputRequestIds.has(requestId)) {
             pendingUserInputResponses.delete(requestId);
-            if (payload.cancelled !== true) {
+            if (payload.cancelled !== true && !requestId.startsWith('permission:')) {
               await enqueueUserInputContinuation(formatRequestUserInputContinuationPrompt(payload.questions, payload.answers));
             }
             continue;

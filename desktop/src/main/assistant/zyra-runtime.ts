@@ -2526,8 +2526,8 @@ export class ZyraRuntime extends EventEmitter {
             }
             const type = asString(event?.['type'])
             const requestId = asString(event?.['requestId'])
-            if (type === 'approval_requested' && requestId) this.privateApprovalWorkers.set(requestId, worker)
-            if (type === 'approval_resolved' && requestId) this.privateApprovalWorkers.delete(requestId)
+            if (requestId && (type === 'approval_requested' || type === 'user_input_requested' && requestId.startsWith('permission:'))) this.privateApprovalWorkers.set(requestId, worker)
+            if (requestId && (type === 'approval_resolved' || type === 'user_input_resolved')) this.privateApprovalWorkers.delete(requestId)
             this.handleZyraEvent(context, eventValue)
         })
         const abort = () => {
@@ -2766,6 +2766,11 @@ export class ZyraRuntime extends EventEmitter {
         questions: AssistantUserInputQuestion[] = [],
         options?: { mode?: 'blocking' | 'async'; cancelled?: boolean }
     ): Promise<{ continuationPrompt: string | null }> {
+        const privateWorker = this.privateApprovalWorkers.get(requestId)
+        if (privateWorker && requestId.startsWith('permission:')) {
+            await privateWorker.request('user_input.respond', { requestId, answers, cancelled: options?.cancelled === true })
+            return { continuationPrompt: null }
+        }
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
         const result = await context.worker.request('user_input.respond', { requestId, questions, answers, cancelled: options?.cancelled === true, mode: options?.mode, ...(options?.mode === 'async' ? { deferContinuation: true } : {}) })

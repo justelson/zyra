@@ -1,3 +1,4 @@
+import { createPermissionQuestion, readPermissionDecision } from './permission-question.mjs';
 import { normalizeCodexServiceTierPreference } from './codex-service-tier-preference.mjs';
 import { normalizePromptImages } from './prompt-images.mjs';
 import { normalizeReasoningChoice } from './reasoning-choices.mjs';
@@ -70,26 +71,13 @@ function sendResponse(id, ok, payload = {}) {
 }
 
 function requestToolPermission(request = {}) {
-  const requestId = randomUUID();
-  send({
-    type: "event",
-    event: {
-      type: "approval_requested",
-      requestId,
-      requestType: request.requestType || "command",
-      title: request.title,
-      detail: request.detail,
-      command: request.command,
-      paths: request.paths,
-      toolName: request.toolName,
-      toolCallId: request.toolCallId,
-      grantLabel: request.grantLabel,
-    },
-  });
+  const requestId = `permission:${randomUUID()}`;
+  const question = createPermissionQuestion(request);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolvePermissionRequest(requestId, "decline", "Approval timed out."), 10 * 60 * 1000);
+    const timer = setTimeout(() => finishPermissionQuestion(requestId, {}, true, 'Approval timed out.'), 10 * 60 * 1000);
     timer.unref?.();
-    pendingPermissionRequests.set(requestId, { resolve, timer });
+    pendingPermissionRequests.set(requestId, { resolve, timer, question });
+    publishUserInputRequest({ questions: [question], mode: 'async' }, requestId);
   });
 }
 
@@ -134,25 +122,28 @@ function syncPermissionReviewer() {
   });
 }
 
-function resolvePermissionRequest(requestId, decision, reason) {
-  const pending = pendingPermissionRequests.get(String(requestId || ""));
-  if (!pending) return false;
-  pendingPermissionRequests.delete(String(requestId));
+function finishPermissionQuestion(requestId, answers, cancelled, reason) {
+  const pending = pendingPermissionRequests.get(requestId);
+  if (!pending) throw new Error('This permission question is no longer pending.');
+  const decision = readPermissionDecision(pending.question, answers, cancelled);
+  pendingPermissionRequests.delete(requestId);
+  pendingUserInputRequests.delete(requestId);
   clearTimeout(pending.timer);
-  const normalizedDecision = ["acceptOnce", "acceptForSession", "decline"].includes(decision) ? decision : "decline";
-  send({ type: "event", event: { type: "approval_resolved", requestId: String(requestId), decision: normalizedDecision, reason } });
-  pending.resolve(normalizedDecision);
-  return true;
+  const result = { answers, cancelled, permissionDecision: decision, continuationPrompt: null, mode: 'async' };
+  send({ type: 'event', event: { type: 'user_input_resolved', requestId, answers, cancelled, reason } });
+  pending.resolve(decision);
+  return result;
 }
 
-function declinePendingPermissions(reason = "Zyra bridge disconnected.") {
-  for (const requestId of [...pendingPermissionRequests.keys()]) {
-    resolvePermissionRequest(requestId, "decline", reason);
-  }
+function declinePendingPermissions(reason = 'Zyra bridge disconnected.') {
+  for (const id of pendingPermissionRequests.keys()) finishPermissionQuestion(id, {}, true, reason);
 }
 
 function requestUserInput(request = {}) {
-  const requestId = randomUUID();
+  return publishUserInputRequest(request, randomUUID());
+}
+
+function publishUserInputRequest(request, requestId) {
   const questions = Array.isArray(request.questions) ? request.questions : [];
   const mode = request.mode === 'async' ? 'async' : 'blocking';
   pendingUserInputRequests.set(requestId, { questions, mode });
@@ -162,6 +153,7 @@ function requestUserInput(request = {}) {
 
 function resolveUserInputRequest(requestId, result = {}) {
   const id = String(requestId || "");
+  if (id.startsWith('permission:')) return finishPermissionQuestion(id, result.answers || {}, result.cancelled === true, result.reason);
   const pending = pendingUserInputRequests.get(id) || {
     questions: normalizeRequestUserInputQuestions(result.questions),
     mode: result.mode === 'async' ? 'async' : 'blocking',
@@ -1258,14 +1250,6 @@ async function handleMessage(message) {
     if (message?.type === "managed_bash.stop") {
       if (!runtime?.managedBash) throw new Error("Managed command runtime is not connected.");
       sendResponse(id, true, { result: await stopManagedBashJobs(runtime.managedBash, message.payload ?? {}) });
-      return;
-    }
-    if (message?.type === "approval.respond") {
-      const requestId = String(message.payload?.requestId || "");
-      if (!resolvePermissionRequest(requestId, message.payload?.decision)) {
-        throw new Error(`Unknown approval request: ${requestId || "missing"}`);
-      }
-      sendResponse(id, true, { result: {} });
       return;
     }
     if (message?.type === "user_input.respond") {

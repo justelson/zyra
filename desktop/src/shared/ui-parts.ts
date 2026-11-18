@@ -16,6 +16,7 @@ export const UI_PARTS: readonly UiPart[] = [
         background: { type: 'color', default: 'theme', writable: true }, motion: { type: 'number', min: 0, max: 400, default: 'theme', writable: true }
     } },
     ...Object.entries({ title:'Chat title', activityIndicator:'Chat activity', actions:'Chat actions', context:'Work context', model:'Model and presence' }).map(([id,label]) => part(`sidebar.chatRow.${id}`, label, 'sidebar.chatRow')),
+    surface('chat.timeline','Message timeline','screen.assistant',false),
     surface('chat.header','Conversation header','screen.assistant'),
     surface('chat.composer','Message composer','screen.assistant'),
     surface('chat.userMessage','User message bubble','screen.assistant'),
@@ -29,7 +30,18 @@ export const UI_PARTS: readonly UiPart[] = [
 ]
 // Hydration is tolerant of missing/invalid historical settings; new writes remain strict.
 export function loadUiPartConfig(input: unknown): UiPartConfig {
-    try { return validateUiPartConfig(input) } catch { return { version: 1, overrides: {} } }
+    const result: UiPartConfig = { version: 1, overrides: {} }
+    if (!object(input) || input.version !== 1 || !object(input.overrides)) return result
+    for (const [id, changes] of Object.entries(input.overrides)) {
+        if (!byId.has(id) || !object(changes)) continue
+        for (const [key, value] of Object.entries(changes)) {
+            try {
+                const valid = validateUiPartConfig({ version: 1, overrides: { [id]: { [key]: value } } }).overrides[id]
+                if (valid) Object.assign(result.overrides[id] ??= {}, valid)
+            } catch { /* Drop only the obsolete property, retaining its valid siblings. */ }
+        }
+    }
+    return result
 }
 // Apply only named edits; the stored format stays version 1. A property's catalog
 // default removes its override. Validate each change before combining the batch.

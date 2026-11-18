@@ -538,7 +538,7 @@ export class AssistantStore {
                     if (historyRead.overflow || (historyRead.events.length && !canReplayAssistantHistoryRead(historyRead, result.page))) {
                         throw new Error('History changed while loading the latest messages. Try again.')
                     }
-                    const page = replayAssistantHistoryRead(current.snapshot, result.page, historyRead)
+                    const page = replayAssistantHistoryRead(current.snapshot, result.page, historyRead, undefined, 'latest')
                     const applied = applyAssistantLatestHistoryPage(current.snapshot, resident, page)
                     return {
                         snapshot: dematerializeAssistantHistories(applied.snapshot, getAssistantMaterializedThreadIds(applied.snapshot)),

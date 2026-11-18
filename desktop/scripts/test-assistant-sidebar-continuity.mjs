@@ -75,14 +75,18 @@ try {
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `const {app,BrowserWindow}=require('electron');
         app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});
-        const timeout=setTimeout(()=>{console.error('Sidebar check timed out');app.exit(1)},30000);
+        const started=Date.now(); let checkpoint='Electron startup';
+        const timeout=setTimeout(()=>{console.error('Sidebar check timed out after '+(Date.now()-started)+'ms. Last checkpoint: '+checkpoint);app.exit(1)},30000);
         app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:${Number(process.env.ZYRA_QA_WIDTH) || 1000},height:800,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
         window.webContents.setZoomFactor(${Number(process.env.ZYRA_QA_ZOOM) || 1});
         window.webContents.on('console-message',(event,level,message)=>{if(level>=2)console.error(message)});
         await window.loadFile(${JSON.stringify(html)},${JSON.stringify(process.argv.includes('--settlement-navigation') ? { query: { settlementNavigation: '1' } } : process.argv.includes('--chat-order') ? { query: { chatOrder: '1' } } : process.argv.includes('--thread-messages') ? { query: { threadMessages: '1' } } : process.argv.includes('--unread-completion') ? { query: { unreadCompletion: '1' } } : process.argv.includes('--agent-colors') ? { query: { agentColors: '1' } } : process.argv.includes('--row-hover-actions') ? { query: { rowHoverActions: '1' } } : process.argv.includes('--voice-recorder-input') ? { query: { voiceRecorderInput: '1' } } : process.argv.includes('--conversation-markers') ? { query: { conversationMarkers: '1' } } : {})});
+        checkpoint='Fixture loaded at '+(Date.now()-started)+'ms';
         let debuggerDocument=null;
         let pointerDown=false;
         let pumping=true;const pointerPump=(async()=>{while(pumping){
+            const progress=await window.webContents.executeJavaScript('document.documentElement.dataset.sidebarCheckpoint');
+            if(progress)checkpoint=progress;
             const request=await window.webContents.executeJavaScript('window.sidebarPointerRequest && !window.sidebarPointerRequest.done ? {x:window.sidebarPointerRequest.x,y:window.sidebarPointerRequest.y,click:window.sidebarPointerRequest.click,eventType:window.sidebarPointerRequest.eventType,keyCode:window.sidebarPointerRequest.keyCode,focusSelector:window.sidebarPointerRequest.focusSelector,pseudoClass:window.sidebarPointerRequest.pseudoClass,enabled:window.sidebarPointerRequest.enabled} : null');
             if(request){
                 if(request.focusSelector){if(!window.webContents.debugger.isAttached()){window.webContents.debugger.attach('1.3');await window.webContents.debugger.sendCommand('DOM.enable');await window.webContents.debugger.sendCommand('CSS.enable')}

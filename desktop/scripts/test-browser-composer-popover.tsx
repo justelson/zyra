@@ -92,8 +92,12 @@ window.fixtureMotion=async()=>{
  check(exit,'closing animates opacity instead of unmounting abruptly')
  exit.currentTime=90
  check(Number(getComputedStyle(shell).opacity)>0&&Number(getComputedStyle(shell).opacity)<1,'closing paints an intermediate opacity')
- await click(trigger());await settle()
- check(document.querySelectorAll('[data-composer-controls-motion]').length===1&&Number(getComputedStyle(shell).opacity)===1,'rapid close/reopen reverses without duplicate or stale unmount')
+ await click(trigger())
+ // Let React commit frame-driven state before sampling the compositor. A single
+ // timed act batches those updates until its callback has already returned.
+ const deadline=performance.now()+1500
+ while(shell.isConnected&&performance.now()<deadline&&(shell.inert||Number(getComputedStyle(shell).opacity)!==1))await flush()
+ check(document.querySelectorAll('[data-composer-controls-motion]').length===1&&shell.isConnected&&!shell.inert&&Number(getComputedStyle(shell).opacity)===1,'rapid close/reopen reverses without duplicate or stale unmount: connected='+shell.isConnected+', inert='+shell.inert+', opacity='+getComputedStyle(shell).opacity)
  await click(trigger());await settle()
  check(!document.querySelector('[data-composer-controls-motion]'),'exit finally releases the popup and portal')
 }

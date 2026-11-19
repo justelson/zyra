@@ -14,5 +14,5 @@ export function useChatWallpaper(value: ChatWallpaper | undefined) {
         return () => { live = false; if (url) URL.revokeObjectURL(url); setLoaded(null) }
     }, [asset])
     if (!value || !loaded || loaded.id !== asset) return undefined
-    return { backgroundImage: `url("${loaded.url}")`, backgroundSize: value.fit, backgroundPosition: `${value.x}% ${value.y}%`, backgroundRepeat: 'no-repeat' } satisfies CSSProperties
+    return { opacity: (value.opacity ?? 100) / 100, backgroundImage: `url("${loaded.url}")`, backgroundSize: value.fit, backgroundPosition: `${value.x}% ${value.y}%`, backgroundRepeat: 'no-repeat' } satisfies CSSProperties
 }

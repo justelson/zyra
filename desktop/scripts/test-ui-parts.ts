@@ -26,6 +26,19 @@ const agent = new AgentSettings(preferences as never,{getHostedAiStatus:async()=
 const patch={appearanceUiParts:config}; const preview=await agent.preview({patch}); assert.deepEqual(preview.changes[0].after,config)
 await agent.apply({patch,expectedRevision:preview.revision},false);assert.deepEqual(saved.appearanceUiParts,config)
 await assert.rejects(agent.apply({patch,expectedRevision:preview.revision},false),/revision conflict/)
+const oldWallpaper = { asset: 'a'.repeat(64), fit: 'contain', x: 28, y: 76 }
+assert.deepEqual(sanitizeDevicePreferenceValue('appearanceChatWallpaper', oldWallpaper), oldWallpaper)
+for (const opacity of [-1, 101, 0.5, '50', null, NaN]) {
+    assert.equal(sanitizeDevicePreferenceValue('appearanceChatWallpaper', { ...oldWallpaper, opacity }), undefined)
+}
+for (const opacity of [100, 40, 0, 80]) {
+    const patch = { appearanceChatWallpaper: { ...oldWallpaper, opacity } }
+    const preview = await agent.preview({ patch })
+    assert.deepEqual(preview.changes[0].after, patch.appearanceChatWallpaper)
+    await agent.apply({ patch, expectedRevision: preview.revision }, false)
+    assert.deepEqual(saved.appearanceChatWallpaper, patch.appearanceChatWallpaper)
+    await assert.rejects(agent.apply({ patch, expectedRevision: preview.revision }, false), /revision conflict/)
+}
 const source = (file:string)=>readFileSync(new URL(`../src/renderer/src/pages/assistant/${file}.tsx`,import.meta.url),'utf8')
 for (const file of ['AssistantChatSessionsRail','AssistantAgentInboxSidebar']) assert(source(file).includes('data-zyra-part="sidebar.chatRow"'))
 console.log(`${ids.size} unique catalog parts; owner validation, agent preview/apply and stale revision checks passed`)

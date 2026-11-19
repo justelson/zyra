@@ -114,7 +114,8 @@ export const AssistantConversationTimelinePane = memo(function AssistantConversa
     }, [props.elevateScrollToBottom, props.onScrollButtonBoundsChange, props.showScrollToBottom])
 
     return (
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden bg-sparkle-bg" data-assistant-conversation-timeline-pane="true" data-zyra-part="chat.timeline" style={wallpaper} data-chat-wallpaper={wallpaper ? '' : undefined}>
+        <div className="relative isolate min-h-0 min-w-0 flex-1 overflow-x-hidden bg-sparkle-bg" data-assistant-conversation-timeline-pane="true" data-zyra-part="chat.timeline" data-chat-wallpaper={wallpaper ? '' : undefined}>
+            {wallpaper && <div aria-hidden="true" data-wallpaper-image className="pointer-events-none absolute inset-0 -z-10" style={wallpaper} />}
             {wallpaper && <style>{'[data-chat-wallpaper] [data-zyra-part="chat.assistantMessage"], [data-chat-wallpaper] [data-zyra-part="chat.userMessage"] { background-color:var(--surface-floating); border-radius:.5rem; }'}</style>}
             {props.loading ? (
                 <LoadingSpinner

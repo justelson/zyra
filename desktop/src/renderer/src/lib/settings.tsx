@@ -8,6 +8,8 @@ import { ACCENT_COLORS, type AccentColor } from '@shared/preferences/accent-pres
  * Main-owned device settings facade with one-time renderer v4 migration.
  */
 
+import { NO_CHAT_WALLPAPER, isChatWallpaper } from '@shared/chat-wallpaper'
+import { loadUiPartConfig } from '@shared/ui-parts'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { dispatchZyraThemeChanged } from './theme-events'
 import { clearProjectViewCaches } from './projectViewCache'
@@ -229,6 +231,8 @@ export interface Settings {
     appearanceLightTheme: LightTheme
     appearanceDarkTheme: DarkTheme
     appearanceResolvedMode: ThemeAppearance
+    appearanceChatWallpaper: import('@shared/chat-wallpaper').ChatWallpaper
+    appearanceUiParts: import('@shared/ui-parts').UiPartConfig
     appearanceCustomTheme: AppearanceCustomTheme | null
     appearanceCustomThemeActive: boolean
     appearanceUiFont: AppearanceUiFont
@@ -267,6 +271,7 @@ export interface Settings {
     terminalCursorBlink: boolean
     terminalScrollback: number
     assistantBrowserStandaloneAiTools: boolean
+    assistantBrowserVerticalTabs: boolean
     assistantBrowserRestoreTabs: boolean
     assistantBrowserGoogleSuggestions: boolean
     assistantBrowserAdBlockEnabled: boolean
@@ -579,6 +584,8 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                 appearanceLightTheme,
                 appearanceDarkTheme,
                 appearanceResolvedMode,
+                appearanceChatWallpaper: isChatWallpaper(parsed.appearanceChatWallpaper) ? parsed.appearanceChatWallpaper : NO_CHAT_WALLPAPER,
+                appearanceUiParts: loadUiPartConfig(parsed.appearanceUiParts),
                 appearanceCustomTheme,
                 appearanceCustomThemeActive,
                 appearanceUiFont,
@@ -638,6 +645,7 @@ export function loadSettings(source?: Record<string, unknown>): Settings {
                     ? Math.max(1_000, Math.min(50_000, Math.round(Number(candidate.terminalScrollback))))
                     : 5_000,
                 assistantBrowserStandaloneAiTools: candidate.assistantBrowserStandaloneAiTools !== false,
+                assistantBrowserVerticalTabs: candidate.assistantBrowserVerticalTabs === true,
                 assistantBrowserRestoreTabs: candidate.assistantBrowserRestoreTabs !== false,
                 assistantBrowserGoogleSuggestions: candidate.assistantBrowserGoogleSuggestions !== false,
                 assistantBrowserAdBlockEnabled: candidate.assistantBrowserAdBlockEnabled === true,

@@ -23,6 +23,7 @@ async function fixture(t) {
       if (type === 'user_input.respond') {
         if (this.responseGate) await this.responseGate;
         this.emit('event', { type: 'user_input_resolved', requestId: payload.requestId, answers: payload.answers, cancelled: payload.cancelled === true });
+        if (payload.requestId.startsWith('permission:')) return { permissionDecision: 'acceptOnce', continuationPrompt: null };
         return { answers: payload.answers, cancelled: payload.cancelled === true, continuationPrompt: payload.cancelled ? null : 'Continue with the selected answer.' };
       }
       if (type === 'prompt') return new Promise((resolve, reject) => this.prompts.push({ resolve, reject, payload }));
@@ -63,6 +64,18 @@ test('phone answer dispatches the returned continuation with authenticated canon
   assert.deepEqual(session.activeRequestContext, { turnId: 'mobile:answer-one', localThreadId: 'mobile-device:phone' });
   f.worker.prompts[0].resolve({});
   assert.equal((await result).continuation.state, 'completed');
+});
+
+test('answering a permission question releases the tool without sending another prompt', async t => {
+  const f = await fixture(t);
+  const id = 'permission:fixture';
+  f.worker.emit('event', { type: 'user_input_requested', requestId: id, mode: 'async', questions: [
+    { id: 'decision', type: 'confirm', question: 'Use this reset credit?', options: [{ label: 'Allow once' }, { label: 'Deny' }] }] });
+  const answer = f.answer(id);
+  answer.payload.answers = { decision: 'Allow once' };
+  const result = await f.router.dispatch('session.request', answer, 'permission-answer');
+  assert.equal(result.permissionDecision, 'acceptOnce');
+  assert.equal(f.worker.prompts.length, 0);
 });
 
 test('cancel resolves the question without starting a prompt', async t => {

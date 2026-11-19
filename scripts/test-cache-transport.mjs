@@ -1,3 +1,4 @@
+import { applyCodexServiceTier } from '../src/codex-service-tier-preference.mjs';
 // Source-only synthetic regression: bun scripts/test-cache-transport.mjs
 import assert from 'node:assert/strict';
 import { installSessionReasoningOptions } from '../src/session-reasoning-options.mjs';
@@ -94,6 +95,8 @@ try {
   await stream({ ...model, id: 'other-fixture-model' }, context, { ...routedOptions, serviceTier: 'priority' }).result();
   assert.equal(connects, routedConnects + 2, 'a model change establishes a matching handshake route');
   assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=other-fixture-model;tier=priority');
+  await stream(model, context, { ...options('ultrafast-session', privateAccountB), onPayload: body => applyCodexServiceTier(body, 'ultrafast') }).result();
+  assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=fixture-model;tier=ultrafast');
   await stream(model, context, { ...options('hook-routing-session', privateAccountB), onPayload: body => ({ ...body, model: 'hook-selected-model', service_tier: 'default' }) }).result();
   assert.equal(handshakes.at(-1).headers['x-codex-routing-hint'], 'model=hook-selected-model;tier=default', 'routing follows the post-hook payload');
   const key = 'synthetic-probe';

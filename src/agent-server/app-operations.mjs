@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { forkCanonicalChat, preflightCanonicalChatFork } from './chat-fork.mjs';
-import { isAppAreaOperation, isAppChatRead } from '../app-area-operations.mjs';
+import { isAppAreaOperation, isAppChatRead, isRoutineChatConfiguration } from '../app-area-operations.mjs';
 
 const READS = new Set(['list', 'get', 'inspect', 'search', 'read', 'preview', 'history', 'refresh']);
 const DOMAINS = new Set(['settings', 'settings_action', 'app', 'usage']);
@@ -10,6 +10,38 @@ const OPERATIONS = {
   settings_action: new Set(['list', 'preview', 'run']), usage: new Set(['get', 'refresh']),
   app: new Set(['list', 'inspect', 'search', 'read', 'preview', ...MUTATIONS].filter(value => !['apply', 'reset', 'run'].includes(value))),
 };
+function describeAppPermission({ domain, operation, params = {} }, undo, namedAction) {
+  const words = key => String(key).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[._-]+/g, ' ').toLowerCase();
+  const target = params.target && params.target !== 'current' ? String(params.target) : '';
+  const keys = undo?.keys || (Array.isArray(params.keys) ? params.keys : Object.keys(params.patch || {}));
+  const labels = { appearanceUiParts: 'interface appearance', assistantMemoryEnabled: 'assistant memory',
+    assistantDefaultRuntimeMode: 'default chat permissions', runtimeMode: 'chat permissions' };
+  const settings = keys.map(key => Object.hasOwn(labels, key) ? labels[key] : words(key)).join(', ');
+  const scope = target || (params.area === 'chat' ? 'this chat' : undo?.surface || params.surface || 'this device');
+  if (domain === 'settings' && settings) {
+    const title = operation === 'undo' ? `Restore the previous ${settings} ${keys.length === 1 ? 'setting' : 'settings'} on ${scope}?`
+      : operation === 'reset' ? `Reset ${settings} to ${keys.length === 1 ? 'its default' : 'their defaults'} on ${scope}?` : `Change ${settings} on ${scope}?`;
+    const detail = operation === 'reset' ? `Remove the saved override for ${keys.join(', ')} and use the default value.`
+      : operation === 'undo' ? `Restore the saved state from the original change to ${keys.join(', ')}.` : JSON.stringify(params.patch, null, 2);
+    return { title, detail: params.input?.appScope === 'installation' ? `${detail}\nThis request uses installation-wide scope.` : detail };
+  }
+  if (namedAction) {
+    const values = params.input || {};
+    if (params.area === 'accounts.redeem_reset') return {
+      title: `Use one banked reset credit for account ${values.accountId}?`,
+      detail: `This spends reset credit ${values.creditId} on that account. It can only be used once.`,
+    };
+    const args = Object.entries(values).map(([key, value]) => `${words(key)}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+    return { title: `${namedAction.label}${target ? ` for ${target}` : ''}?`, detail: [namedAction.effect, ...args].filter(Boolean).join('\n') };
+  }
+  const action = `${words(operation)} ${words(params.area || domain)}`;
+  const scopeSuffix = params.input?.appScope === 'installation' ? ' across this installation' : '';
+  return { title: `${action[0].toUpperCase()}${action.slice(1)}${target ? ` for ${target}` : ''}${scopeSuffix}?`,
+    detail: operation === 'fork' ? `Copy chat history using ${params.input?.worktree || 'shared'} working files at current HEAD. Historical files are never restored. Source: ${target || 'this chat'}. Entry: ${params.input?.entryId}.`
+      : Object.entries(params).map(([key, value]) => `${words(key)}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join('\n') };
+
+}
+
 export function appOperationPolicy(input, mode = 'approval-required', child = false) {
   if (!DOMAINS.has(input?.domain) || !OPERATIONS[input.domain].has(input?.operation)) throw new Error('Unknown Zyra app operation.');
   const params = input.params || {};
@@ -26,12 +58,16 @@ export function appOperationPolicy(input, mode = 'approval-required', child = fa
   const mutation = MUTATIONS.has(input.operation);
   if (mutation && mode === 'read-only') throw new Error('This agent cannot change app state in read-only mode.');
   if (mutation && child) throw new Error('Supporting agents cannot mutate installation-wide app state. Ask the parent to perform this user-directed change.');
-  const protectedChange = input.domain === 'settings' && input.operation === 'undo'
+  // Inspect setting names and selectors. Literal values (including chat titles)
+  // can contain words such as "permissions" without changing access.
+  const sensitiveFields = JSON.stringify([Object.keys(params.patch || {}), params.keys, params.key, params.area, Object.keys(params.input || {})]);
+  const protectedChange = input.domain === 'settings' && ['undo', 'reset'].includes(input.operation)
     || input.domain === 'settings_action' && input.operation === 'run'
-    || mutation && /(?:permission|runtimeMode|MemoryEnabled|WebSearch|WebFetch|GoogleSuggestions|startWithWindows|analytics|consent|additionalFolders|projectsFolder|explorerHomePath|Skill|endpoint|baseUrl)/i.test(encoded)
+    || mutation && /(?:permission|runtimeMode|MemoryEnabled|WebSearch|WebFetch|GoogleSuggestions|startWithWindows|analytics|consent|additionalFolders|projectsFolder|explorerHomePath|Skill|endpoint|baseUrl)/i.test(sensitiveFields)
     || mutation && ['plugins', 'connections', 'devices', 'skills', 'runtime', 'privacy', 'providers', 'memory', 'project_folders', 'projects', 'chat'].includes(String(params.area || ''))
     || ['remove', 'fork', 'stop', 'resume', 'rename', 'refresh_title'].includes(input.operation)
     || input.domain === 'app' && input.operation === 'update';
+  if (input.domain === 'settings' && input.operation === 'apply' && isRoutineChatConfiguration(params, mode, child)) return { mutation, needsApproval: false };
   return { mutation, needsApproval: scopeIntent === 'installation' && !chatRead || mutation && (mode !== 'full-access' || protectedChange) };
 }
 
@@ -44,28 +80,45 @@ export async function requestAgentAppOperation(server, source, message) {
   if (!String(input.dedupeKey || '').trim()) throw new Error('A stable app operation ID is required.');
   const turnId = source.activeRequestContext?.turnId || null;
   const stopEpoch = source.userInputContinuationEpoch;
-  if (policy.needsApproval) {
-    const authorization = await source.worker.request('app.authorize', {
-      toolCallId: input.dedupeKey,
-      title: `Allow ${input.domain} ${input.operation}?`,
-      detail: JSON.stringify({ area: input.params?.area, target: input.params?.target || 'current', operation: input.operation, parameters: input.params,
-        ...(input.operation === 'fork' ? { effect: 'History only. Shared uses current files; isolated creates a managed sibling Git worktree at current HEAD, without uncommitted changes. Historical files are never restored. No prompt is sent and current navigation is preserved.' } : {}),
-      }, null, 2),
-    });
-    if (authorization.allowed !== true) throw new Error('The user did not approve this app operation.');
-  }
-  if (source.disposed || source.revocationPromise || source.userInputContinuationEpoch !== stopEpoch
-      || turnId && source.activeRequestContext?.turnId !== turnId) throw new Error('The originating turn ended or was stopped before the app operation.');
   const desktop = [...server.clients.values()].find(client => client.authenticated && client.canOperateApp && client.socket.writable);
   if (!desktop) throw Object.assign(new Error('The owning Zyra Desktop is not connected. No app state was changed.'), { code: 'APP_OWNER_UNAVAILABLE' });
   const operationId = createHash('sha256').update(`${sender.senderCanonicalThreadId}\0${input.dedupeKey}`).digest('hex');
   const actor = { canonicalChatId: sender.senderCanonicalThreadId, parentChatId: source.sessionKey, project: sender.project,
     permissionMode: mode, child: Boolean(sender.agent), turnId, namespaceId: server.paths.namespaceId,
-    approved: policy.needsApproval, appScope: input.params?.input?.appScope === 'installation' ? 'installation' : 'project' };
+    approved: false, appScope: input.params?.input?.appScope === 'installation' ? 'installation' : 'project' };
   const request = { domain: input.domain, operation: input.operation, params: input.params || {}, operationId, actor };
   const assertCurrent = () => {
     if (source.disposed || source.revocationPromise || source.userInputContinuationEpoch !== stopEpoch || turnId && source.activeRequestContext?.turnId !== turnId) throw new Error('The originating turn ended or was stopped. Inspect completed receipts before retrying.');
   };
+  let needsApproval = policy.needsApproval;
+  let undoPreview;
+  if (input.domain === 'settings' && input.operation === 'undo') {
+    const undoOperationId = input.params?.input?.operationId;
+    if (!undoOperationId) throw new Error('Choose a completed settings change to undo.');
+    undoPreview = await deliverAppOperation(server, desktop, source, { ...request, operation: 'preview',
+      params: { input: { undoOperationId } }, actor: { ...actor, appScope: 'project' } });
+    assertCurrent();
+    if (undoPreview.undoOperationId !== undoOperationId || typeof undoPreview.requiresApproval !== 'boolean'
+        || !Array.isArray(undoPreview.keys) || !undoPreview.keys.length) throw new Error('The desktop could not verify the settings change to undo.');
+    // Only Desktop's verified same-chat receipt can classify a cosmetic reversal.
+    // The owner still checks both revisions and rejects stale or mixed changes.
+    const cosmeticOnly = undoPreview.keys.every(key => key === 'appearanceUiParts' || key === 'appearanceChatWallpaper');
+    needsApproval = undoPreview.requiresApproval || actor.appScope === 'installation' || (mode !== 'full-access' && !(mode === 'approval-required' && cosmeticOnly));
+  }
+  if (needsApproval) {
+    let namedAction;
+    if (input.domain === 'settings_action' && input.operation === 'run') {
+      const preview = await deliverAppOperation(server, desktop, source, { ...request, operation: 'preview' });
+      assertCurrent();
+      namedAction = preview.operation;
+      if (!namedAction?.label || !namedAction.effect || namedAction.id !== request.params.area) throw new Error('The desktop could not verify this settings action.');
+    }
+    const question = describeAppPermission(input, undoPreview, namedAction);
+    const authorization = await source.worker.request('app.authorize', { toolCallId: input.dedupeKey, ...question });
+    if (authorization.allowed !== true) throw new Error('The user did not approve this app operation.');
+    actor.approved = true;
+  }
+  assertCurrent();
   if (input.domain !== 'app' || input.operation !== 'fork') return deliverAppOperation(server, desktop, source, request);
   if (request.params.area !== 'chats') throw new Error('Choose the chats area for a history fork.');
   const rawForkInput = request.params.input || {};

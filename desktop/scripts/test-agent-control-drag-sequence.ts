@@ -66,7 +66,7 @@ try {
     assert.equal(driver.actions.length, 5, 'batching cannot widen the grant to pointer.drag')
     const focusedAccess = await broker.handleToolOperation(principal, { operation: 'use_app', application: 'Fixture', capabilities: ['observe.structure', 'pointer.drag', 'window.focus'], maxActions: 3, steps: [drag] }, undefined, { permissionMode: 'full-access' }) as any
     assert.equal(focusedAccess.sequence.completedSteps, 1)
-    assert.equal(driver.actions.at(-1)!.allowWindowFocus, true, 'the current grant carries explicit focus authority to the driver')
+    assert.equal(driver.actions.at(-1)!.allowWindowFocus, false, 'a focus capability never activates a window as a side effect of pointer input')
 } finally { await broker.dispose() }
 console.log('Computer drag sequences: embedded use_app, fresh revisions, bounded current viewport, critical/sensitive denial, capability and interruption: ok')
 

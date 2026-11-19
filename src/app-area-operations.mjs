@@ -21,3 +21,13 @@ export function isAppChatRead(input) {
 export function isAppAreaOperation(area, operation) {
   return !area ? operation === 'list' : Object.hasOwn(APP_AREA_OPERATIONS, area) && APP_AREA_OPERATIONS[area].includes(operation);
 }
+
+/** Which existing full-access project grants cover next-turn preferences without another prompt. */
+export function isRoutineChatConfiguration(params, mode, child) {
+  if (mode !== 'full-access' || child || params?.area !== 'chat' || params.input?.appScope === 'installation') return false;
+  const patch = params.patch;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
+  const keys = Object.keys(patch);
+  return keys.length > 0 && keys.every(key => ['model', 'effort', 'fastModeEnabled'].includes(key)
+    || key === 'runtimeMode' && patch.runtimeMode === 'read-only');
+}

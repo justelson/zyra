@@ -1,3 +1,5 @@
+import { playBrowserCaptureSound } from './assistant-capture-sound'
+import { AssistantBrowserExtensionButton } from './AssistantBrowserExtensionButton'
 import { COMMANDS, resolveShortcut, type CommandId } from '@shared/keybindings'
 import { isShortcutRecording, isProtectedShortcutTarget, isBrowserShortcutContext, useShortcutLabel, keyboardInput } from '@/lib/keybindings'
 import { AnchoredNativeOverlay } from '@/components/ui/AnchoredNativeOverlay'
@@ -1633,6 +1635,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
             const { target } = getActiveDeveloperTarget()
             const result = await window.devscope.captureBrowserPreviewScreenshot(target)
             if (!result.success) throw new Error(result.error || 'Could not capture the Browser tab.')
+            playBrowserCaptureSound()
             onDeveloperToast({ message: '', artifact: result.artifact, captureSessionId: captureChatId })
         } catch (error) {
             onDeveloperToast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not capture the Browser tab.' })
@@ -1978,7 +1981,8 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                                 aria-controls={omniboxOpen ? BROWSER_HISTORY_LISTBOX_ID : undefined}
                                 aria-activedescendant={resolveAssistantBrowserOmniboxActiveDescendant(BROWSER_HISTORY_LISTBOX_ID, historyActiveIndex, omniboxSuggestions)}
                             />
-                            {activeTab?.url && !isBrowserLocalFileUrl(activeTab.url) ? <button type="button" onClick={() => void openExternal()} className={BROWSER_CHROME_BUTTON_CLASS} title="Open in default browser" aria-label="Open in default browser"><ArrowUpRight size={14} /></button> : null}
+                            <button type="button" onClick={() => void toggleActiveBookmark()} disabled={!bookmarkableUrl} className={cn(BROWSER_CHROME_BUTTON_CLASS, activeBookmarked && 'text-[var(--accent-primary)]')} title={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-label={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-pressed={activeBookmarked}><Star size={13} fill={activeBookmarked ? 'currentColor' : 'none'} /></button>
+                            {activeTab?.url && !isBrowserLocalFileUrl(activeTab.url) ? <button type="button" onClick={() => void openExternal()} className={cn(BROWSER_CHROME_BUTTON_CLASS, "!rounded-full")} title="Open in default browser" aria-label="Open in default browser"><ArrowUpRight size={14} /></button> : null}
                         </div>
                         {omniboxOpen ? (
                             <AnchoredNativeOverlay anchorRef={addressContainerRef} autoFocus={false}><div ref={omniboxMenuRef} id={BROWSER_HISTORY_LISTBOX_ID} role="listbox" className="absolute inset-x-0 top-7 max-h-72 overflow-y-auto rounded-b-[13px] border border-[color-mix(in_srgb,var(--color-text)_12%,transparent)] bg-[color-mix(in_srgb,var(--color-card)_96%,var(--color-bg))] p-1 shadow-[0_18px_38px_rgba(0,0,0,0.34)]" aria-label="Address and search suggestions" aria-busy={omniboxLoading}>
@@ -2023,7 +2027,7 @@ export const AssistantBrowserWorkspace = memo(function AssistantBrowserWorkspace
                     scopeKey={browserOverlayScope}
                     onOpenHere={openDownloadHere}
                 />
-                <button type="button" onClick={() => void toggleActiveBookmark()} disabled={!bookmarkableUrl} className={cn(BROWSER_CHROME_BUTTON_CLASS, activeBookmarked && 'text-[var(--accent-primary)]')} title={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-label={activeBookmarked ? 'Remove bookmark' : 'Bookmark this page'} aria-pressed={activeBookmarked}><Star size={13} fill={activeBookmarked ? 'currentColor' : 'none'} /></button>
+                {activeTab?.sessionMode !== 'incognito' && <AssistantBrowserExtensionButton className={BROWSER_CHROME_BUTTON_CLASS} />}
                 <>
                     {browserToolsEnabled ? <button
                         type="button"

@@ -58,7 +58,7 @@ const BOOLEAN_KEYS = new Set<string>([
     'gitAutoCreateBranchWhenTargetMatches', 'assistantDefaultFastMode', 'assistantTitleAutoRegenerate', 'assistantDefaultWebSearch',
     'assistantDefaultWebFetch', 'sidebarCollapsed', 'sidebarHoverPreviewEnabled', 'assistantAgentInboxSidebarEnabled',
     'filePreviewFullscreenShowLeftPanel', 'filePreviewFullscreenShowRightPanel',
-    'assistantBrowserStandaloneAiTools', 'assistantBrowserRestoreTabs', 'assistantBrowserGoogleSuggestions', 'assistantBrowserAdBlockEnabled',
+    'assistantBrowserStandaloneAiTools', 'assistantBrowserVerticalTabs', 'assistantBrowserRestoreTabs', 'assistantBrowserGoogleSuggestions', 'assistantBrowserAdBlockEnabled',
     'assistantBrowserAdBlockPromptDismissed', 'assistantAutoReconnect', 'assistantHistoryPrefetch',
     'assistantAllowCollapseWhileWorking', 'assistantShowActionStats', 'assistantShowStatusDetails', 'assistantShowDiagnostics', 'assistantTranscriptionEnabled'
 ])
@@ -184,7 +184,12 @@ function sanitizeJson(value: unknown, depth = 0): unknown {
         }))
 }
 
+import { isChatWallpaper } from '../../shared/chat-wallpaper'
+import { UI_PARTS, loadUiPartConfig, validateUiPartConfig } from '../../shared/ui-parts'
+
 export function describeDevicePreferenceValue(key: string): Record<string, unknown> {
+    if (key === 'appearanceChatWallpaper') return { type: 'object', asset: 'The local image ID from the Appearance image picker, or empty for no wallpaper.', fit: ['cover', 'contain'], x: 'Horizontal focal point (0–100)', y: 'Vertical focal point (0–100)', opacity: 'Wallpaper image opacity: integer 0–100; default 100. Preserve the asset, fit and focal point when adjusting opacity.' }
+    if (key === 'appearanceUiParts') return { type: 'object', version: 1, parts: UI_PARTS, editGuide: 'For targeted UI changes preview then apply patch.appearanceUiParts = {edits:[{part,property,value}]}. Use declared writable properties. Other overrides survive. The catalog default clears one property. Apply with the preview revision; undo with the operation receipt.' }
     if (key === 'assistantDefaultEffort') return { type: 'string', maxLength: 1536, description: 'Provider default, standard effort, or an advertised encoded native option ID.' }
     if (BOOLEAN_KEYS.has(key)) return { type: 'boolean' }
     if (ENUMS[key]) return { type: 'enum', values: [...ENUMS[key]!] }
@@ -198,6 +203,10 @@ export function describeDevicePreferenceValue(key: string): Record<string, unkno
 }
 
 export function sanitizeDevicePreferenceValue(key: string, value: unknown): unknown {
+    if (key === 'appearanceChatWallpaper') return isChatWallpaper(value) ? value : undefined
+    if (key === 'appearanceUiParts') {
+        try { return validateUiPartConfig(value) } catch { return undefined }
+    }
     if (key === 'assistantDefaultEffort') return isAssistantReasoningEffort(value) ? value : undefined
     if (key === 'assistantBusyMessageMode' && value === 'force') return 'queue'
     if (key === 'keyboardShortcuts') return sanitizeShortcutOverrides(value)
@@ -247,7 +256,7 @@ function sanitizeBucket(value: unknown, keys: readonly string[]): PreferenceBuck
     const allowed = new Set(keys)
     return Object.fromEntries(Object.entries(value).flatMap(([key, entryValue]) => {
         if (!allowed.has(key)) return []
-        const sanitized = sanitizeDevicePreferenceValue(key, entryValue)
+        const sanitized = key === 'appearanceUiParts' ? loadUiPartConfig(entryValue) : sanitizeDevicePreferenceValue(key, entryValue)
         return sanitized === undefined ? [] : [[key, sanitized]]
     }))
 }

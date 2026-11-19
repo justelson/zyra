@@ -467,6 +467,7 @@ const desktopTasks = [
   { label: "desktop:test:remembered-composer", bunArgs: ["desktop/scripts/test-assistant-remembered-choices.ts"] },
   { label: "desktop:test:chat-create-choices", bunArgs: ["desktop/scripts/test-assistant-create-session-race.ts"] },
   { label: "desktop:test:prompt-stop-guard", bunArgs: ["desktop/scripts/test-assistant-prompt-state-reliability.ts"] },
+  { label: "desktop:test:assistant-history-navigation", bunArgs: ["run", "--cwd", "desktop", "test:assistant-history-navigation"] },
   { label: "desktop:test:stable-inbox-order", bunArgs: ["desktop/scripts/test-assistant-inbox-order.ts"] },
   { label: "desktop:test:usage-window-validity", bunArgs: ["desktop/scripts/test-usage-window-validity.ts"] },
   { label: "desktop:test:assistant-steering", bunArgs: ["desktop/scripts/test-assistant-steering.ts"] },

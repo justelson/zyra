@@ -43,7 +43,8 @@ export type AccessoryBrowserTabsInput = {
 export type AccessoryBrowserDropZoneInput = {
     workspaceId: string
     rect: { x: number; y: number; width: number; height: number }
-    tabSlots: Array<{ tabId: string; index: number; left: number; right: number }>
+    vertical?: boolean
+    tabSlots: Array<{ tabId: string; index: number; left: number; right: number; top?: number; bottom?: number }>
 }
 
 export type AccessoryBrowserTearOffBeginInput = {

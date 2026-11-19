@@ -1,9 +1,8 @@
 import { createPortal } from 'react-dom'
 import { NativeOverlayPortal, addOverlayEventListener } from '@/components/ui/native-overlay-portal'
-import { supportsNativeOverlay } from '@/components/ui/native-overlay-host'
 import { TRANSIENT_MENU_DISMISS_EVENT } from '@/lib/transient-menu'
 import { CircleAlert, Copy, ExternalLink, FolderOpen, Info, MousePointer2, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type CSSProperties } from 'react'
 import type {
     DevScopeBrowserAnnotationPayload,
     DevScopeBrowserCaptureArtifact
@@ -58,7 +57,7 @@ const ACTION_CLASS = 'inline-flex h-7 items-center gap-1.5 rounded-md border bor
 function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDismiss: () => void }) {
     const mirrorRef = useRef<HTMLDivElement | null>(null)
     const contentRef = useRef<HTMLDivElement | null>(null)
-    const [bounds, setBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+    const [bounds, setBounds] = useState<{ x: number; y: number; width: number; height: number; ownerWidth: number; ownerHeight: number } | null>(null)
 
     useLayoutEffect(() => {
         const mirror = mirrorRef.current
@@ -66,8 +65,8 @@ function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDi
         const measure = () => {
             const rect = mirror.getBoundingClientRect()
             if (!rect.width || !rect.height) return
-            const next = { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-            setBounds((current) => current && current.x === next.x && current.y === next.y && current.width === next.width && current.height === next.height ? current : next)
+            const next = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, ownerWidth: window.innerWidth, ownerHeight: window.innerHeight }
+            setBounds((current) => current && current.x === next.x && current.y === next.y && current.width === next.width && current.height === next.height && current.ownerWidth === next.ownerWidth && current.ownerHeight === next.ownerHeight ? current : next)
         }
         const observer = new ResizeObserver(measure)
         observer.observe(mirror)
@@ -89,7 +88,12 @@ function ToastNativeSurface({ children, onDismiss }: { children: ReactNode; onDi
     return <>
         {createPortal(<div ref={mirrorRef} aria-hidden="true" className="pointer-events-none invisible fixed bottom-3 right-3 w-max max-w-[calc(100vw-24px)]">{children}</div>, document.body)}
         {bounds ? <NativeOverlayPortal bounds={bounds} autoFocus={false}>
-            <div ref={contentRef} style={{ position: 'fixed', left: supportsNativeOverlay() ? 0 : bounds.x, top: supportsNativeOverlay() ? 0 : bounds.y, width: bounds.width, height: bounds.height }}>{children}</div>
+            <div ref={contentRef} style={{
+                position: 'fixed', left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height,
+                // The child viewport is only as large as this toast. Size the preview against its owner.
+                '--capture-owner-width': `${bounds.ownerWidth}px`,
+                '--capture-owner-height-limit': `${bounds.ownerHeight * 0.46}px`
+            } as CSSProperties}>{children}</div>
         </NativeOverlayPortal> : null}
     </>
 }
@@ -148,8 +152,8 @@ export function AssistantInspectorDeveloperToast({
     if (hasImage && artifact?.thumbnailDataUrl) {
         return (
             <ToastNativeSurface onDismiss={onDismiss}><div
-                className="w-[min(320px,calc(100vw-24px))]"
                 style={{
+                    width: 'min(320px, calc(var(--capture-owner-width, 100vw) - 24px))',
                     transform: toast.closing ? 'translate3d(calc(100% + 24px),0,0)' : `translate3d(${dragX}px,0,0)`,
                     opacity: toast.closing ? 0 : Math.max(0.22, 1 - Math.abs(dragX) / 260),
                     transition: dragging ? 'none' : 'transform 190ms cubic-bezier(.4,0,.2,1), opacity 160ms ease',
@@ -178,7 +182,8 @@ export function AssistantInspectorDeveloperToast({
                         alt={annotation ? 'Browser annotation preview' : 'Browser screenshot preview'}
                         width={artifact.width}
                         height={artifact.height}
-                        className="block h-auto max-h-[min(46vh,320px)] w-full rounded-lg border border-[var(--surface-divider)] bg-media-black object-contain shadow-[0_14px_36px_rgba(0,0,0,0.34)]"
+                        style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: 'min(var(--capture-owner-height-limit, 46vh), 320px)' }}
+                        className="ml-auto block rounded-lg border border-[var(--surface-divider)] shadow-[0_14px_36px_rgba(0,0,0,0.34)]"
                         draggable={false}
                     />
                     <button type="button" onClick={onDismiss} className={cn(ACTION_CLASS, 'absolute right-1 top-1 w-7 justify-center px-0')} aria-label="Close preview"><X size={11} /></button>

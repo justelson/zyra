@@ -1,3 +1,4 @@
+import { composerServiceTier } from './assistant-model-groups'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Bot, Check, Copy, FolderGit2, PanelRight, Pencil, RefreshCw, X } from 'lucide-react'
 import type { AssistantModelInfo, AssistantRuntimeMode, FleetSnapshot } from '@shared/assistant/contracts'
@@ -36,7 +37,7 @@ type ThreadDetailsSelection = {
     latestTurnId: string | null
     latestTurnState: string | null
     latestTurnEffort: string | null
-    latestTurnServiceTier: 'fast' | 'flex' | null
+    latestTurnServiceTier: 'ultrafast' | 'fast' | 'flex' | null
     latestTurnCompletedAt: string | null
     latestActivitySummary: string | null
     lastError: string | null
@@ -255,7 +256,8 @@ export function AssistantThreadDetailsWorkspace({
     const model = formatAssistantModelLabel(composerState.model || selection.threadModel || 'No model')
     const effortChoice = composerState.effort || selection.latestTurnEffort || selection.threadEffort || 'default'
     const effort = SIDEBAR_EFFORT_LABELS[effortChoice as keyof typeof SIDEBAR_EFFORT_LABELS] || reasoningChoiceLabel(effortChoice)
-    const speed = composerState.fastModeEnabled || selection.latestTurnServiceTier === 'fast' ? 'Fast' : selection.latestTurnServiceTier === 'flex' ? 'Flex' : 'Standard'
+    const tier = composerState.fastModeEnabled === undefined ? selection.latestTurnServiceTier : composerServiceTier(composerState.fastModeEnabled)
+    const speed = tier === 'ultrafast' ? 'Ultra Fast' : tier === 'fast' ? 'Fast' : tier === 'flex' ? 'Flex' : 'Standard'
     const titleActionDisabled = selection.commandPending || selection.titleGenerating
     return (
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-label="Thread Details" data-testid="assistant-thread-details-workspace">

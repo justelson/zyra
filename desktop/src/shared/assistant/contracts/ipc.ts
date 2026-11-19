@@ -324,7 +324,7 @@ export interface AssistantSendPromptOptions {
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     effort?: AssistantReasoningEffort
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
     profile?: string
     images?: AssistantPromptImageInput[]
     skipPlaygroundLabSetup?: boolean

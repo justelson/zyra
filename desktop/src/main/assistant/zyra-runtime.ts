@@ -104,7 +104,7 @@ export type PrivateVoiceTaskInput = {
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     profile?: string
-    serviceTier?: 'fast'
+    serviceTier?: 'fast' | 'ultrafast'
     signal: AbortSignal
 }
 
@@ -1235,7 +1235,10 @@ function normalizeModelInfo(value: unknown): AssistantModelInfo | null {
     const pricingFetchedAt = asString(record?.['pricingFetchedAt']) || undefined
     const pricingSource = asString(record?.['pricingSource']) || undefined
     const reasoningStatus = record?.['reasoningStatus'] === 'unknown' || !Array.isArray(record?.['supportedEfforts']) ? 'unknown' as const : 'known' as const
-    const model = { id, label, description, supportedEfforts, reasoningStatus, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
+    const serviceTiers = Array.isArray(record?.serviceTiers)
+        ? record.serviceTiers.filter((tier): tier is 'fast' | 'ultrafast' => tier === 'fast' || tier === 'ultrafast')
+        : undefined
+    const model = { id, label, description, serviceTiers, supportedEfforts, reasoningStatus, inputModes, contextWindow, pricing, pricingFetchedAt, pricingSource }
     installModelCatalogPricing([model])
     return model
 }
@@ -2213,7 +2216,7 @@ export class ZyraRuntime extends EventEmitter {
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast'
+            serviceTier?: 'fast' | 'ultrafast'
             profile?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
@@ -2523,8 +2526,8 @@ export class ZyraRuntime extends EventEmitter {
             }
             const type = asString(event?.['type'])
             const requestId = asString(event?.['requestId'])
-            if (type === 'approval_requested' && requestId) this.privateApprovalWorkers.set(requestId, worker)
-            if (type === 'approval_resolved' && requestId) this.privateApprovalWorkers.delete(requestId)
+            if (requestId && (type === 'approval_requested' || type === 'user_input_requested' && requestId.startsWith('permission:'))) this.privateApprovalWorkers.set(requestId, worker)
+            if (requestId && (type === 'approval_resolved' || type === 'user_input_resolved')) this.privateApprovalWorkers.delete(requestId)
             this.handleZyraEvent(context, eventValue)
         })
         const abort = () => {
@@ -2548,7 +2551,7 @@ export class ZyraRuntime extends EventEmitter {
                 profile,
                 runtimeMode,
                 interactionMode,
-                serviceTier: input.serviceTier,
+                codexServiceTier: input.serviceTier ?? 'default',
                 reasoningSummary: 'auto',
                 skipTitleGeneration: true
             })
@@ -2763,6 +2766,11 @@ export class ZyraRuntime extends EventEmitter {
         questions: AssistantUserInputQuestion[] = [],
         options?: { mode?: 'blocking' | 'async'; cancelled?: boolean }
     ): Promise<{ continuationPrompt: string | null }> {
+        const privateWorker = this.privateApprovalWorkers.get(requestId)
+        if (privateWorker && requestId.startsWith('permission:')) {
+            await privateWorker.request('user_input.respond', { requestId, answers, cancelled: options?.cancelled === true })
+            return { continuationPrompt: null }
+        }
         const context = this.requireSession(threadId)
         await this.ensureConnected(context)
         const result = await context.worker.request('user_input.respond', { requestId, questions, answers, cancelled: options?.cancelled === true, mode: options?.mode, ...(options?.mode === 'async' ? { deferContinuation: true } : {}) })
@@ -3032,7 +3040,7 @@ export class ZyraRuntime extends EventEmitter {
         prompt: string,
         options?: {
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast'
+            serviceTier?: 'fast' | 'ultrafast'
             initialManualTitle?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]
@@ -3050,6 +3058,7 @@ export class ZyraRuntime extends EventEmitter {
             await context.worker.request('prompt', {
                 prompt,
                 turnId,
+                codexServiceTier: options?.serviceTier ?? 'default',
                 memoryEnabled,
                 model: context.model,
                 thinking: context.thinking,

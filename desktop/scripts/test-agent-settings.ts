@@ -31,6 +31,7 @@ try {
     await assert.rejects(settings.preview({ patch: { groqApiKey: 'not-a-secret' } }), /not directly writable/)
     await assert.rejects(settings.preview({ patch: { assistantDefaultModel: 'other-model' } }), /not directly writable/)
     await assert.rejects(settings.apply({ expectedRevision: 0, patch: { assistantMemoryEnabled: true } }, false), /approval/)
+    await assert.rejects(settings.apply({ expectedRevision: 0, keys: ['accentColor'] }, false, true), /approval/)
     const receipts = new AppOperationReceipts(join(directory, 'receipts.json'))
     const request = { actor: 'chat', operationId: 'a'.repeat(64), domain: 'settings', operation: 'apply', params: { expectedRevision: 0, patch: { appearanceCodeScale: 115 } } }
     let applied = 0
@@ -44,6 +45,11 @@ try {
     await assert.rejects(receipts.run({ ...request, params: { patch: { appearanceCodeScale: 120 } } }, work), /reused/)
     const restarted = new AppOperationReceipts(join(directory, 'receipts.json'))
     assert.equal((await restarted.run(request, work)).replayed, true, 'receipts survive restart')
+    const receiptParams = { input: { operationId: request.operationId } }
+    const undoReceipt = await settings.undoReceipt(receiptParams, 'chat', receipts)
+    assert.deepEqual(undoReceipt.keys, ['appearanceCodeScale'])
+    assert.equal(undoReceipt.requiresApproval, false)
+    await assert.rejects(settings.undoReceipt(receiptParams, 'different-chat', receipts), /eligible completed/)
     const reverted = await settings.undo({ expectedRevision: 1, input: { operationId: request.operationId } }, 'chat', false, receipts)
     assert.equal(reverted.revision, 2)
     const afterUndo = await preferences.get({ surface: 'desktop' })

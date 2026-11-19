@@ -76,6 +76,7 @@ type BrowserViewRecord = {
     url: string
     error: string | null
     faviconUrl: string | null
+    enteredWindowFullscreen?: boolean
     fullscreen: boolean
     mainFrameFailed: boolean
     navigationGeneration: number
@@ -648,18 +649,20 @@ export class BrowserViewManager implements BrowserViewTransferHost {
         page.on('media-paused', () => this.publishState(record, 'audio'))
         page.on('enter-html-full-screen', () => {
             record.fullscreen = true
-            if (!record.ownerWindow.isDestroyed()) record.ownerWindow.setFullScreen(true)
+            record.enteredWindowFullscreen = !record.ownerWindow.isDestroyed() && !record.ownerWindow.isFullScreen()
+            if (record.enteredWindowFullscreen) record.ownerWindow.setFullScreen(true)
             this.publishState(record, 'fullscreen')
         })
         page.on('leave-html-full-screen', () => {
             record.fullscreen = false
-            if (!record.ownerWindow.isDestroyed() && record.ownerWindow.isFullScreen()) record.ownerWindow.setFullScreen(false)
+            if (record.enteredWindowFullscreen && !record.ownerWindow.isDestroyed()) record.ownerWindow.setFullScreen(false)
+            record.enteredWindowFullscreen = false
             this.publishState(record, 'fullscreen')
         })
         page.on('before-input-event', (event, input) => {
             if (isRecordingShortcut(record.ownerWindow.webContents)) return
             if (handleGuestAppShortcut(input, record.ownerWindow.webContents)) { event.preventDefault(); return }
-            if (input.type === 'keyDown' && input.key === 'Escape' && record.ownerWindow.isFullScreen()) {
+            if (input.type === 'keyDown' && input.key === 'Escape' && record.enteredWindowFullscreen && record.ownerWindow.isFullScreen()) {
                 event.preventDefault()
                 record.ownerWindow.setFullScreen(false)
                 return
@@ -1008,8 +1011,9 @@ export class BrowserViewManager implements BrowserViewTransferHost {
         }
 
         if (record.fullscreen) {
-            if (!sourceWindow.isDestroyed() && sourceWindow.isFullScreen()) sourceWindow.setFullScreen(false)
-            if (!destinationWindow.isDestroyed()) destinationWindow.setFullScreen(true)
+            if (record.enteredWindowFullscreen && !sourceWindow.isDestroyed()) sourceWindow.setFullScreen(false)
+            record.enteredWindowFullscreen = !destinationWindow.isDestroyed() && !destinationWindow.isFullScreen()
+            if (record.enteredWindowFullscreen) destinationWindow.setFullScreen(true)
         }
         this.applySlot(record, slot)
         this.publishState(record, 'ownership')

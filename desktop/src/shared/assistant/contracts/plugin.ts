@@ -161,6 +161,7 @@ export interface AssistantPluginCatalog {
     releases: AssistantPluginRelease[]
     pluginSets: AssistantPluginSet[]
     chatScopes: AssistantChatPluginScope[]
+    pluginsEnabled?: boolean
     appViews: {
         enabled: boolean
         displayMode: 'manual' | 'automatic'
@@ -169,6 +170,7 @@ export interface AssistantPluginCatalog {
 }
 
 export interface AssistantSetPluginAppViewSettingsInput {
+    pluginsEnabled?: boolean
     pluginId?: string
     enabled?: boolean
     displayMode?: 'manual' | 'automatic'

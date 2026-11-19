@@ -86,6 +86,20 @@ export default function AssistantAttachmentPreviewModal({
     const iconTheme = settings.appearanceResolvedMode
     const [copied, setCopied] = useState(false)
     const [videoError, setVideoError] = useState(false)
+    const [resolvedMedia, setResolvedMedia] = useState<{ reference: string; path: string } | null>(null)
+    const mediaPath = file?.path || ''
+    const stagedMedia = mediaPath.startsWith('clipboard://') && (meta?.category === 'video' || meta?.category === 'image')
+    const originalPath = stagedMedia ? (resolvedMedia?.reference === mediaPath ? resolvedMedia.path : undefined) : mediaPath
+    useEffect(() => {
+        if (!stagedMedia) return
+        let active = true
+        void window.devscope.assistant.resolveClipboardAttachment({ reference: mediaPath }).then(result => {
+            if (!active) return
+            if (result.success && result.path) setResolvedMedia({ reference: mediaPath, path: result.path })
+            else setVideoError(true)
+        }).catch(() => { if (active) setVideoError(true) })
+        return () => { active = false }
+    }, [stagedMedia, mediaPath])
     useEffect(() => setVideoError(false), [file?.id, file?.path])
 
     useEffect(() => {
@@ -188,7 +202,7 @@ export default function AssistantAttachmentPreviewModal({
                 >
                     {isImagePreview ? (
                         <ImagePreviewContent
-                            filePath={(!file.path || file.path.startsWith('clipboard://')) && file.previewDataUrl?.startsWith('data:image/') ? file.previewDataUrl : file.path}
+                            filePath={originalPath || file.previewDataUrl || ''}
                             fileName={meta.name}
                             isExpanded
                         />
@@ -196,7 +210,7 @@ export default function AssistantAttachmentPreviewModal({
                         <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-black/35">
                             {videoError ? <p role="alert" className="px-4 text-center text-sm text-sparkle-text-muted">Video unavailable or this format is not supported. The original file is still attached.</p> : <video
                                 key={file.path}
-                                src={getFileUrl(file.path)}
+                                src={originalPath ? getFileUrl(originalPath) : undefined}
                                 aria-label={meta.name}
                                 controls
                                 playsInline

@@ -1,3 +1,4 @@
+import { NO_CHAT_WALLPAPER } from '../chat-wallpaper'
 import { ACCENT_COLORS } from './accent-presets'
 import { DEFAULT_ASSISTANT_AUTO_TITLE_TURNS, DEFAULT_ASSISTANT_TITLE_MODEL } from '../assistant/title-generation'
 import { DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS, DEFAULT_ASSISTANT_REASONING_SUMMARY } from '../assistant/runtime-policy'
@@ -6,6 +7,7 @@ import { DEFAULT_ASSISTANT_CONTEXT_COMPACTION_THRESHOLD_TOKENS, DEFAULT_ASSISTAN
 export const DEFAULT_DEVICE_SETTINGS = {
     settingsSchemaVersion: 5, keyboardShortcuts: {}, theme: 'vercel',
     appearanceThemeMode: 'system', appearanceLightTheme: 'paper-light', appearanceDarkTheme: 'vercel', appearanceResolvedMode: 'dark',
+    appearanceUiParts: { version: 1, overrides: {} }, appearanceChatWallpaper: NO_CHAT_WALLPAPER,
     appearanceCustomTheme: null, appearanceCustomThemeActive: false, appearanceUiFont: 'bricolage', appearanceCodeFont: 'jetbrains',
     appearanceInterfaceScale: 100, appearanceCodeScale: 100, appearanceContrastScale: 100, appearanceAnimationSpeed: 'normal', appearanceAnimationScale: 100,
     accentColor: ACCENT_COLORS.find(accent => accent.name === 'Sky') || ACCENT_COLORS[0], compactMode: false,
@@ -15,7 +17,7 @@ export const DEFAULT_DEVICE_SETTINGS = {
     filePreviewDefaultMode: 'preview', filePreviewPythonRunMode: 'terminal', filePreviewExplorerNameLayout: 'wrap', fileEditorWordWrap: 'on',
     fileEditorMinimapEnabled: true, fileEditorFontSize: 13, fileCsvDistinctColorsEnabled: true, fileDiffRenderMode: 'stacked', packageRuntimePreference: 'auto',
     filePreviewTerminalPanelHeight: 220, terminalFontSize: 12, terminalCursorBlink: true, terminalScrollback: 5000,
-    assistantBrowserStandaloneAiTools: true, assistantBrowserRestoreTabs: true, assistantBrowserGoogleSuggestions: true, assistantBrowserAdBlockEnabled: false, assistantBrowserAdBlockPromptDismissed: false,
+    assistantBrowserStandaloneAiTools: true, assistantBrowserVerticalTabs: false, assistantBrowserRestoreTabs: true, assistantBrowserGoogleSuggestions: true, assistantBrowserAdBlockEnabled: false, assistantBrowserAdBlockPromptDismissed: false,
     assistantBrowserNewTabBackgroundMode: 'built-in', assistantBrowserNewTabBackgroundCategory: 'all', assistantBrowserNewTabBackgroundRotation: 'every-tab', assistantBrowserNewTabBackgroundId: '',
     projectsFolder: '', additionalFolders: [], gitAutoRefreshOnProjectOpen: true, gitInitDefaultBranch: 'main', gitInitCreateGitignore: true,
     gitInitCreateInitialCommit: false, gitWarnOnAuthorMismatch: true, gitBulkActionScope: 'repo',

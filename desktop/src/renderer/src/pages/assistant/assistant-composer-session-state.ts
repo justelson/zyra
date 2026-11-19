@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { isAssistantRuntimeMode, type AssistantInteractionMode, type AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { isAssistantReasoningEffort } from '@shared/assistant/reasoning-efforts'
@@ -11,7 +12,7 @@ export type AssistantComposerSessionState = {
     runtimeMode?: AssistantRuntimeMode
     interactionMode?: AssistantInteractionMode
     effort?: AssistantComposerPreferenceEffort
-    fastModeEnabled?: boolean
+    fastModeEnabled?: AssistantSpeedPreference
 }
 
 const COMPOSER_SESSION_STORAGE_KEY_PREFIX = 'devscope:assistant:composer-session:v1:'
@@ -49,7 +50,7 @@ function sanitizeAssistantComposerSessionState(value: unknown): AssistantCompose
         runtimeMode: isAssistantRuntimeMode(record.runtimeMode) ? record.runtimeMode : undefined,
         interactionMode: record.interactionMode === 'plan' || record.interactionMode === 'default' ? 'default' : undefined,
         effort: isAssistantReasoningEffort(record.effort) ? record.effort : undefined,
-        fastModeEnabled: typeof record.fastModeEnabled === 'boolean' ? record.fastModeEnabled : undefined
+        fastModeEnabled: record.fastModeEnabled === 'ultrafast' || typeof record.fastModeEnabled === 'boolean' ? record.fastModeEnabled : undefined
     }
 }
 

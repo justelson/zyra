@@ -503,8 +503,8 @@ function handleNotification(
         const effortValue = turn?.['reasoningEffort']
         const effort = isAssistantReasoningEffort(effortValue) ? effortValue : undefined
         const serviceTierValue = asString(turn?.['serviceTier'])
-        const serviceTier = serviceTierValue === 'fast' || serviceTierValue === 'flex'
-            ? serviceTierValue as 'fast' | 'flex'
+        const serviceTier = serviceTierValue === 'ultrafast' || serviceTierValue === 'fast' || serviceTierValue === 'flex'
+            ? serviceTierValue as 'fast' | 'ultrafast' | 'flex'
             : undefined
 
         deps.emitRuntime({
@@ -528,7 +528,7 @@ function handleNotification(
         const effortValue = asString(turn?.['reasoningEffort']) || asString(turn?.['reasoning_effort'])
         const effort = isAssistantReasoningEffort(effortValue) ? effortValue : undefined
         const serviceTierValue = asString(turn?.['serviceTier']) || asString(turn?.['service_tier']) || asString(payload['serviceTier'])
-        const serviceTier = serviceTierValue === 'fast' || serviceTierValue === 'flex' ? serviceTierValue : undefined
+        const serviceTier = serviceTierValue === 'ultrafast' || serviceTierValue === 'fast' || serviceTierValue === 'flex' ? serviceTierValue : undefined
         const usage = readTurnUsage(turn, payload)
         const outcome = status === 'failed' ? 'failed' : status === 'interrupted' ? 'interrupted' : status === 'cancelled' ? 'cancelled' : 'completed'
 

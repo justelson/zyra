@@ -16,6 +16,8 @@ import {createRoot} from 'react-dom/client'
 import {MemoryRouter} from 'react-router-dom'
 import {deriveAssistantComposerCapabilities} from ${source('pages/assistant/assistant-composer-capabilities.ts')}
 import {AssistantComposerView} from ${source('pages/assistant/AssistantComposerView.tsx')}
+import {createComposerPromptRecall} from ${source('pages/assistant/assistant-composer-prompt-recall.ts')}
+import {createAssistantComposerHandlers} from ${source('pages/assistant/assistant-composer-handlers.ts')}
 import {AssistantNewChatGreeting} from ${source('pages/assistant/AssistantNewChatGreeting.tsx')}
 import {AssistantComposerFileMenu} from ${source('pages/assistant/AssistantComposerFileMenu.tsx')}
 import {AssistantComposerCommandMenu} from ${source('pages/assistant/AssistantComposerCommandMenu.tsx')}
@@ -32,17 +34,25 @@ check(!matchMedia('(prefers-reduced-motion: reduce)').matches,'motion fixture mu
 const noop=()=>{}, removed=[], opened=[], submitted=[], stopped=[]
 const data='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="160"><rect width="300" height="160" fill="#243747"/><circle cx="150" cy="70" r="35" fill="#77b7db"/><text x="150" y="130" text-anchor="middle" fill="white" font-family="sans-serif" font-size="15">Image attachment</text></svg>')
 const image={id:'image',path:'clipboard://test.png',name:'Screenshot.png',kind:'image',mimeType:'image/png',previewDataUrl:data,source:'paste',sizeBytes:200}
-window.devscope={assistant:{listPromptResources:async()=>({success:true,commands:[],skills:[],diagnostics:[]})}}
+const original=new URL('./original.svg',location.href).href
+const resolved=[]
+window.devscope={assistant:{resolveClipboardAttachment:async({reference})=>{resolved.push(reference);return {success:true,path:original}},listPromptResources:async()=>({success:true,commands:[],skills:[],diagnostics:[]})}}
 const refs=Object.fromEntries(['composerRootRef','textareaRef','filePickerRef','mentionListRef','mentionMenuRef','modelDropdownRef','modelListRef','traitsDropdownRef'].map(key=>[key,{current:null}]))
 function Composer({placement='center'}){
  const [files,setFiles]=useState([image]),[preview,setPreview]=useState(null)
  const [text,setText]=useState(''),[working,setWorking]=useState(false),[dictating,setDictating]=useState(false),[stoppedTurn,setStoppedTurn]=useState(false)
+ const recall=React.useMemo(()=>createComposerPromptRecall(async before=>{
+  const user=(id,text)=>({id,role:'user',text})
+  if(before===null)return {messages:[user('middle','middle'),user('new','/newest'),{id:'reply',role:'assistant',text:'agent reply'}],pageInfo:{oldestCursor:'middle',hasOlder:true}}
+  return {messages:[user('first','first\\n\\nAttached files (1):\\n1. capture.png [IMAGE]'),user('middle','middle')],pageInfo:{oldestCursor:'first',hasOlder:false}}
+ }),[])
+ const {handleKeyDown}=createAssistantComposerHandlers({text,setText,promptRecall:recall,removingAttachmentIds:[],sentPromptHistory:[],inlineMentionTags:[],setInlineMentionTags:noop})
  window.fixtureDraft={setText,setFiles,setWorking,setDictating,setStoppedTurn}
  const controller={...refs,placement,contextFiles:files,previewAttachment:preview,text,composerCursor:text.length,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],filteredModelOptions:[],modelQuery:'',activeModelIndex:0,modelsLoading:false,modelsError:null,latestModelId:null,projectChoices:[],
  isThinking:working,canContinue:stoppedTurn,onStop:()=>stopped.push(true),handleContinue:()=>{submitted.push('Continue');setStoppedTurn(false)},capabilities:deriveAssistantComposerCapabilities({mode:'standard',disabled:false,isConnected:true,isSending:false,isThinking:working,allowEmptySubmit:false,hasContent:Boolean(text.trim()||files.length),hasStopHandler:true,voiceBusy:dictating}),voiceInput:{isStarting:false,isRecording:dictating,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
  submitLabel:'Send',isConnected:true,selectedModel:'gpt-5',selectedModelLabel:'GPT-5',selectedEffort:'medium',selectedInteractionMode:'default',selectedRuntimeMode:'default',displayedProfile:'safe-dev',zyraProfile:'concise',EFFORT_OPTIONS:['medium'],EFFORT_LABELS:{medium:'Medium'},
  setPreviewAttachment:setPreview,removeAttachment:id=>{removed.push(id);setFiles(current=>current.filter(file=>file.id!==id))},onOpenAttachmentPreview:()=>opened.push('disk'),
- setText,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:()=>{submitted.push(text);setText('')},attachFile:noop,setShowModelDropdown:noop,setShowTraitsDropdown:noop,onZyraProfileChange:noop}
+ setText,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown,promptRecall:recall,handleSend:()=>{submitted.push(text);setText('')},attachFile:noop,setShowModelDropdown:noop,setShowTraitsDropdown:noop,onZyraProfileChange:noop}
  return <div style={{width:'760px',margin:'220px auto 0'}}>{placement==='center'?<AssistantNewChatGreeting prompt="What are we building today?"/>:null}<AssistantComposerView controller={controller}/></div>
 }
 const root=createRoot(document.getElementById('root'))
@@ -66,8 +76,8 @@ try{
  remove.blur();await flush(200)
  await capture('cards')
  await act(async()=>card.querySelector('[aria-label="Open preview for Screenshot.png"]').click());await flush(150)
- check(document.querySelector('img[src^="data:image/"]')&&document.querySelectorAll('img[src^="data:image/"]').length>1,'click opens actual image viewer using captured image')
- check(!opened.length,'new chat image opens locally without resolving a clipboard pseudo path')
+ check([...document.images].some(img=>img.src===original&&img.naturalWidth===1600),'viewer loads the original 1600px capture')
+ check(!opened.length&&resolved.at(-1)===image.path,'new chat resolves its staged reference before opening')
  const close=document.querySelector('[title="Close preview"]') || document.querySelector('[aria-label="Close preview"]')
  check(close,'image viewer has close action');await act(async()=>close.click());await flush(100)
  check(document.querySelectorAll('img[src^="data:image/"]').length===1,'image viewer closes completely')
@@ -76,7 +86,34 @@ try{
  await act(async()=>root.render(<MemoryRouter><Composer key="bottom" placement="bottom"/></MemoryRouter>));await flush(300)
  check(!document.querySelector('[data-new-chat-attachments]'),'bottom composer retains floating shelf')
  await act(async()=>document.querySelector('[aria-label="Open preview for Screenshot.png"]').click())
- check(opened.length===1,'bottom composer retains existing file opener')
+ await flush(100)
+ check(!opened.length&&[...document.images].some(img=>img.src===original&&img.naturalWidth===1600),'bottom composer opens the original image')
+ await act(async()=>document.querySelector('[title="Close preview"]').click())
+ const recallInput=document.querySelector('[data-composer-text-input]')
+ recallInput.focus()
+ const arrow=key=>recallInput.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))
+ await act(async()=>{arrow('ArrowUp');arrow('ArrowUp')});await flush(50)
+ check(recallInput.textContent==='middle','rapid Up presses advance through sent messages')
+ for(const [key,value] of [['ArrowUp','first'],['ArrowUp','/newest'],['ArrowUp','middle'],['ArrowDown','/newest'],['ArrowDown','']]){
+  await act(async()=>arrow(key));await flush(40)
+  check(recallInput.textContent===value,'prompt history '+key+' should recall '+JSON.stringify(value))
+ }
+ await act(async()=>{window.fixtureDraft.setText('line one\\nline two')});await flush()
+ setComposerSelection(recallInput,12,12)
+ check(arrow('ArrowUp'),'Up inside multiline draft keeps native caret movement')
+ setComposerSelection(recallInput,0,0)
+ await act(async()=>arrow('ArrowUp'));await flush()
+ await act(async()=>arrow('ArrowDown'));await flush()
+ check(recallInput.value==='line one\\nline two','Down restores original multiline draft')
+ let finishRead
+ const stale=createComposerPromptRecall(()=>new Promise(resolve=>{finishRead=resolve}))
+ const late=[]
+ const pending=stale.move('older','',[],text=>late.push(text))
+ await Promise.resolve()
+ stale.cancel()
+ finishRead({messages:[{id:'stale',role:'user',text:'old chat'}],pageInfo:{hasOlder:false,oldestCursor:null}})
+ await pending
+ check(!late.length,'pending history read cannot overwrite a different chat or edited draft')
  // Exercise the mounted drawer and paint boundaries, rather than only static menus.
  for(const placement of ['center','bottom']){
   await act(async()=>root.render(<MemoryRouter><Composer key={placement} placement={placement}/><button id="outside" onClick={()=>window.outsideClicked=true}>Outside action</button></MemoryRouter>));await flush(100)
@@ -301,6 +338,7 @@ try {
         builder.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ contents: args.path === 'settings' ? 'export const useSettings=()=>({settings:{theme:"dark",appearanceResolvedMode:"dark",assistantTranscriptionEngine:"browser",assistantTranscriptionEnabled:false,accentColor:{primary:"#4385ff"}},updateSettings:()=>{}});export const getThemeAppearance=()=>"dark";' : args.path === 'syntax' ? 'export default ()=>null;' : 'export const captureProductEvent=()=>{};', loader: 'tsx' }))
     } }] })
     if (!build.success) throw new Error(build.logs.join('\n'))
+    await writeFile(join(directory, 'original.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="blue"/></svg>')
     await writeFile(join(directory, 'harness.js'), await build.outputs[0].text())
     const styles = await postcss([tailwindcss(config)]).process('@tailwind base; @tailwind components; @tailwind utilities;', { from: undefined })
     const tokens = await readFile(resolve(import.meta.dir, '../src/renderer/src/styles/theme-tokens.css'), 'utf8')

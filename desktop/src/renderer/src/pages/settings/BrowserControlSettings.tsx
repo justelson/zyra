@@ -1,7 +1,8 @@
+import { BrowserExtensionRow } from './BrowserExtensionRow'
 import type { DesktopLinkPreference } from '@shared/desktop-link-policy'
 import type { BrowserExtensionRecord } from '@shared/browser-extensions'
 import { useEffect, useState } from 'react'
-import { FolderPlus, RefreshCw, Trash2 } from 'lucide-react'
+import { TriangleAlert, Plus, Trash2 } from 'lucide-react'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { useSettings } from '@/lib/settings'
 import { useDesktopLinkPreference, setDesktopLinkPreference } from '@/lib/desktop-links'
@@ -176,24 +177,32 @@ export default function BrowserControlSettings({ view = 'browsing' }: { view?: '
             {integratedBrowserAvailable ? (
                 <>
                     {view === 'extensions' ? (
-                        <SettingsSection title="Extensions" searchSection="Browser extensions" headerAction={
-                            <SettingsButton variant="accent" className="w-8 px-0" aria-label="Install unpacked extension" title="Install unpacked extension" onClick={() => void installExtension()} disabled={extensionsBusy}>
-                                <FolderPlus size={15} aria-hidden="true" />
+                        <SettingsSection title="Extensions" searchSection="Browser extensions" titleAction={<button type="button" title="Review extension permissions. Some Chrome extensions need browser APIs Zyra does not support." aria-label="Review extension permissions. Some Chrome extensions need browser APIs Zyra does not support." className="rounded text-amber-500"><TriangleAlert size={14} /></button>} headerAction={
+                            <SettingsButton variant="ghost" className="w-8 px-0" aria-label="Install unpacked extension" title="Install unpacked extension" onClick={() => void installExtension()} disabled={extensionsBusy}>
+                                <Plus size={15} aria-hidden="true" />
                             </SettingsButton>
                         }>
-                            <SettingsNotice tone="warning">Review extension permissions. Some Chrome extensions need browser APIs Zyra does not support.</SettingsNotice>
                             <SettingsRow title="Chrome Web Store" description="Install an extension from its Chrome Web Store URL or ID." control={<div className="flex w-full gap-2 sm:w-auto"><SettingsInput value={webStoreInput} onChange={event => setWebStoreInput(event.target.value)} placeholder="Extension URL or ID" aria-label="Chrome Web Store extension URL or ID" /><SettingsButton variant="accent" disabled={extensionsBusy || !webStoreInput.trim()} onClick={() => void installFromWebStore()}>Install</SettingsButton></div>} />
                             {extensions.length === 0 ? <div className="px-4 py-6 text-xs text-[var(--settings-text-secondary)]">No extensions installed.</div> : extensions.map(extension => (
-                                <SettingsRow key={extension.id} title={extension.name} description={extension.description || 'No description provided.'} status={`v${extension.version}`} statusTone="info" control={<div className="flex items-center gap-1"><SettingsSwitch checked={extension.enabled} disabled={extensionsBusy} onCheckedChange={enabled => void setExtensionEnabled(extension.id, enabled)} label={`${extension.enabled ? 'Disable' : 'Enable'} ${extension.name}`} /><SettingsButton variant="ghost" aria-label={`Reload ${extension.name}`} title="Reload extension" disabled={extensionsBusy} onClick={() => void window.devscope.reloadBrowserExtension(extension.id).then(refreshExtensions).catch(error => showStatus({ tone: 'error', message: error instanceof Error ? error.message : 'Could not reload the extension.' }))}><RefreshCw size={13} /></SettingsButton><SettingsButton variant="ghost" aria-label={`Remove ${extension.name}`} title="Remove extension" disabled={extensionsBusy} onClick={() => void removeExtension(extension.id, extension.name)}><Trash2 size={13} /></SettingsButton></div>}>
-                                    {extension.warnings.length > 0 ? <p className="mt-2 text-[11px] leading-5 text-amber-200/80">{extension.warnings.join(' ')}</p> : null}
-                                    <p className="mt-1 break-all text-[10px] text-[var(--settings-text-faint)]">{[...extension.permissions, ...extension.hostPermissions].length > 0 ? `Permissions: ${[...extension.permissions, ...extension.hostPermissions].join(', ')}` : 'No declared permissions.'}</p>
-                                </SettingsRow>
+                                <BrowserExtensionRow key={extension.id} extension={extension} busy={extensionsBusy}
+                                    onToggle={enabled => setExtensionEnabled(extension.id, enabled)}
+                                    onRemove={() => removeExtension(extension.id, extension.name)}
+                                    onReload={async () => {
+                                        setExtensionsBusy(true)
+                                        try {
+                                            const result = await window.devscope.reloadBrowserExtension(extension.id)
+                                            if (!result.success) throw new Error(result.error)
+                                            await refreshExtensions()
+                                        } catch (error) { showStatus({ tone: 'error', message: error instanceof Error ? error.message : 'Could not reload the extension.' }) }
+                                        finally { setExtensionsBusy(false) }
+                                    }} />
                             ))}
                         </SettingsSection>
                     ) : view === 'browsing' ? (
                         <SettingsSection title="Browsing" searchSection="Browser workspace">
                             <SettingsRow title="Open links in" description="Choose where links from chats, files, and the Plugin store open." info="Remembered on this device. Sign-in flows and explicitly named browser actions keep their own destination." control={<SettingsSegmented<DesktopLinkPreference> value={linkPreference} options={[{ value: 'ask', label: 'Ask me' }, { value: 'zyra', label: 'Zyra Browser' }, { value: 'system', label: 'Default browser' }]} onChange={value => { try { setDesktopLinkPreference(value) } catch { showStatus({ tone: 'error', message: 'Could not save the link preference.' }) } }} label="Open links in" />} />
                             <SettingsRow title="Standalone AI tools" description="Show selection, screenshot and recording tools in standalone Browser windows." control={<SettingsSwitch checked={settings.assistantBrowserStandaloneAiTools} onCheckedChange={assistantBrowserStandaloneAiTools => updateSettings({ assistantBrowserStandaloneAiTools })} label="Standalone AI tools" />} />
+                            <SettingsRow title="Vertical tabs" description="Show tabs along the left edge of the Browser window." control={<SettingsSwitch label="Vertical tabs" checked={settings.assistantBrowserVerticalTabs} onCheckedChange={assistantBrowserVerticalTabs => updateSettings({ assistantBrowserVerticalTabs })} />} />
                             <SettingsRow title="Restore Browser tabs" description="Reopen saved tabs when you return to a chat workspace." control={<SettingsSwitch checked={settings.assistantBrowserRestoreTabs} onCheckedChange={(assistantBrowserRestoreTabs) => updateSettings({ assistantBrowserRestoreTabs })} label="Restore Browser tabs" />} />
                             <SettingsRow title="New Tab backgrounds" description="Choose a background source for new tabs." info="Built-in uses an attributed nature pack; configure your Unsplash key in the New Tab background picker." control={<SettingsSegmented value={settings.assistantBrowserNewTabBackgroundMode} options={[{ value: 'off', label: 'Off' }, { value: 'built-in', label: 'Built-in' }, { value: 'unsplash', label: 'Unsplash' }]} onChange={(assistantBrowserNewTabBackgroundMode) => updateSettings({ assistantBrowserNewTabBackgroundMode })} label="New Tab background source" />} />
                             {settings.assistantBrowserNewTabBackgroundMode !== 'off' ? (<SettingsRow title="Background behavior" description="Change the image per tab or keep your selected image." control={<SettingsSegmented value={settings.assistantBrowserNewTabBackgroundRotation} options={[{ value: 'every-tab', label: 'Every tab' }, { value: 'fixed', label: 'Locked' }]} onChange={(assistantBrowserNewTabBackgroundRotation) => updateSettings({ assistantBrowserNewTabBackgroundRotation })} label="New Tab background behavior" />} />) : null}

@@ -860,11 +860,13 @@ export async function respondAssistantUserInputAction(
         const pendingInput = target.thread.pendingUserInputs.find((entry) => entry.requestId === input.requestId)
         if (!pendingInput) throw new Error(`Unknown user-input request ${input.requestId}.`)
         if ((input.cancelled || input.deferContinuation) && pendingInput.mode !== 'async') throw new Error('Only answer-later questions can be dismissed or delivered separately.')
-        if (input.cancelled) {
+        // Permission answers release an already waiting tool call. They never start another model turn.
+        if (input.cancelled || input.requestId.startsWith('permission:')) {
             const runtimeId = getAssistantCanonicalThreadId(target.thread)
             if (!deps.runtime.hasSession(runtimeId)) await connectAssistantSessionRuntime(deps, target.session, target.thread)
-            await deps.runtime.respondUserInput(runtimeId, input.requestId, {}, pendingInput.questions, { mode: 'async', cancelled: true })
-            deps.appendEvent('thread.user-input.updated', nowIso(), { threadId: target.thread.id, userInput: { ...pendingInput, status: 'resolved', answers: {}, resolvedAt: nowIso() } }, target.session.id, target.thread.id)
+            const answers = input.cancelled ? {} : input.answers
+            await deps.runtime.respondUserInput(runtimeId, input.requestId, answers, pendingInput.questions, { mode: 'async', cancelled: input.cancelled === true })
+            deps.appendEvent('thread.user-input.updated', nowIso(), { threadId: target.thread.id, userInput: { ...pendingInput, status: 'resolved', answers, resolvedAt: nowIso() } }, target.session.id, target.thread.id)
             return { success: true as const }
         }
         const contextText = input.contextText ?? ''

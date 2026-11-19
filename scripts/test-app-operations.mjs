@@ -11,6 +11,11 @@ const request = (domain, operation, params = {}) => ({ domain, operation, params
 assert.deepEqual(appOperationPolicy(request('settings', 'get', { keys: ['accentColor'] }), 'read-only'), { mutation: false, needsApproval: false });
 assert.deepEqual(appOperationPolicy(request('usage', 'refresh'), 'read-only'), { mutation: false, needsApproval: false });
 assert.equal(appOperationPolicy(request('settings', 'apply', { patch: { accentColor: '#f00' } }), 'full-access').needsApproval, false);
+assert.equal(appOperationPolicy(request('app', 'pin', { area: 'chats', target: 'permission-discussion' }), 'full-access').needsApproval, false, 'a chat identifier is not a permission setting');
+for (const [patch, expected] of [[{runtimeMode:'read-only'}, false], [{model:'catalog-id'}, false], [{runtimeMode:'full-access'}, true], [{runtimeMode:'approval-required'}, true]]) {
+  assert.equal(appOperationPolicy(request('settings', 'apply', { area: 'chat', patch }), 'full-access').needsApproval, expected);
+  assert.equal(appOperationPolicy(request('settings', 'apply', { area: 'chat', patch, input: { appScope: 'installation' } }), 'full-access').needsApproval, true);
+}
 for (const value of [request('settings', 'apply', { patch: { assistantMemoryEnabled: true } }), request('settings', 'apply', { patch: { assistantCustomSkillDirectories: ['/x'] } }), request('settings_action', 'run', { area: 'runtime.activate' }), request('app', 'fork', { area: 'chats' }), request('app', 'rename', { area: 'chats' }), request('settings', 'undo')]) {
   assert.equal(appOperationPolicy(value, 'full-access').needsApproval, true);
 }
@@ -92,10 +97,37 @@ try {
   assert.equal(delivered.at(-1).message.request.actor.parentChatId, 'real-parent');
   assert.ok(!JSON.stringify(delivered.at(-1).message.request).includes('synthetic-private-proof'));
   sender = { ...sender, senderCanonicalThreadId: 'real-origin', agent: null };
+  const originalHandler = handler;
+  const receiptId = 'd'.repeat(64);
+  let protectedReceipt = false;
+  handler = async request => request.operation === 'preview'
+    ? { undoOperationId: receiptId, keys: [protectedReceipt ? 'assistantMemoryEnabled' : 'appearanceUiParts'], requiresApproval: protectedReceipt }
+    : { applied: true };
+  const undo = request('settings', 'undo', { expectedRevision: 1, input: { operationId: receiptId } });
+  const beforeUndo = authorizations.length;
+  await invoke(undo);
+  assert.equal(authorizations.length, beforeUndo, 'Full access restores appearance without a question');
+  assert.equal(delivered.at(-1).message.request.actor.approved, false);
+  source.connectedResult.config.runtimeMode = 'approval-required';
+  await invoke(undo);
+  assert.equal(authorizations.length, beforeUndo, 'Verified appearance-only Undo needs no second question');
+  assert.equal(delivered.at(-1).message.request.actor.approved, false);
+  protectedReceipt = true;
+  await invoke(undo);
+  source.connectedResult.config.runtimeMode = 'full-access';
+  assert.equal(authorizations.length, beforeUndo + 1);
+  assert.match(authorizations.at(-1).title, /restore the previous assistant memory setting/i);
+  await invoke(request('settings', 'reset', { keys: ['accentColor'], expectedRevision: 1 }));
+  assert.match(authorizations.at(-1).title, /reset accent color to its default/i);
+  handler = async request => request.domain === 'settings_action' && request.operation === 'preview'
+    ? { operation: { id: request.params.area, label: 'Activate runtime', effect: 'Restart the background runtime' } } : originalHandler(request);
+  await invoke(request('settings_action', 'run', { area: 'accounts.redeem_reset', input: { accountId: 'work-account', creditId: 'banked-1' } }));
+  assert.match(authorizations.at(-1).title, /one banked reset credit for account work-account/);
+  assert.match(authorizations.at(-1).detail, /spends reset credit banked-1/);
   let approvalResolve;
   source.worker.request = () => new Promise(resolve => { approvalResolve = resolve; });
   const stopped = invoke(request('settings_action', 'run', { area: 'runtime.activate' }));
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   const deliveredBeforeStop = delivered.length;
   source.userInputContinuationEpoch++;
   approvalResolve({ allowed: true });

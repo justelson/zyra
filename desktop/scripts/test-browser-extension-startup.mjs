@@ -46,8 +46,12 @@ try {
         await mkdir(join(directory, id))
         await writeFile(join(directory, id, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: id, version: '1' }))
     }
+    const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/xZkAAAAASUVORK5CYII=', 'base64')
+    await writeFile(join(directory, 'enabled', 'icon.png'), icon)
+    await writeFile(join(directory, 'enabled', 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'enabled', version: '1', icons: { 32: 'icon.png' } }))
     await save([record('enabled', true), record('another', true)])
     const manager = new BrowserExtensionManager()
+    assert.equal((await manager.list()).find(item => item.id === 'enabled').iconDataUrl, `data:image/png;base64,${icon.toString('base64')}`)
     await Promise.all([manager.loadEnabled(), manager.loadEnabled()])
     assert.equal(fixture.acquisitions, 1, 'One shared protected browser session is acquired when needed')
     assert.deepEqual(loaded.map(path => basename(path)), ['enabled', 'another'], 'Enabled extensions load once in persisted order')

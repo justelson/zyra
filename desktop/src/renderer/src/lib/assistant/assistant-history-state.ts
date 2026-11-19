@@ -21,6 +21,9 @@ const DETAIL_CACHE_LIMIT = 12
 export const DETAIL_CACHE_MAX_TIMELINE_CHARACTERS = 6_000_000
 export const ACTIVE_ASSISTANT_HISTORY_MAX_RECORDS = 2_400
 export const ACTIVE_ASSISTANT_HISTORY_MAX_CHARACTERS = 6_000_000
+// Whole-turn budgets are soft for the recent context: a large live tool result
+// must not leave a running conversation looking like a single isolated turn.
+export const ACTIVE_ASSISTANT_HISTORY_MIN_TURNS = 3
 
 export type AssistantRetainedHistory = AssistantThreadHistoryState & { lastUsedAt: number; shellRevision: string }
 export type AssistantHistoryByThreadId = Record<string, AssistantRetainedHistory>
@@ -273,7 +276,8 @@ export function applyAssistantThreadDetail(
             shellRevision: getAssistantThreadHydrationRevision(validatedPreview)
         }
     }
-    const preserveLoadedRange = shouldPreserveAssistantLoadedHistoryRange(existingHistory, detail.history)
+    const preserveDetachedRange = existingHistory?.pageInfo.hasNewer === true
+    const preserveLoadedRange = preserveDetachedRange || shouldPreserveAssistantLoadedHistoryRange(existingHistory, detail.history)
     const pageInfo = preserveLoadedRange ? existingHistory!.pageInfo : detail.history.pageInfo
     const fullyLoaded = preserveLoadedRange ? existingHistory!.fullyLoaded : detail.history.fullyLoaded
     let mergedHistory: AssistantRetainedHistory = {
@@ -285,19 +289,26 @@ export function applyAssistantThreadDetail(
     }
     const nextSnapshot = patchThread(snapshot, detail.threadId, (thread) => {
         const incomingOldest = getOldestAssistantHistoryKey(detail.history)
-        const retainedMessages = preserveLoadedRange
+        const retainedMessages = preserveDetachedRange ? existingHistory!.messages : preserveLoadedRange
             ? retainRecordsBefore('message', existingHistory!.messages, incomingOldest)
             : []
-        const retainedActivities = preserveLoadedRange
+        const retainedActivities = preserveDetachedRange ? existingHistory!.activities : preserveLoadedRange
             ? retainRecordsBefore('activity', existingHistory!.activities, incomingOldest)
             : []
-        const retainedPlans = preserveLoadedRange
+        const retainedPlans = preserveDetachedRange ? existingHistory!.proposedPlans : preserveLoadedRange
             ? retainRecordsBefore('plan', existingHistory!.proposedPlans, incomingOldest)
             : []
         const knownPhases = existingHistory ? [...existingHistory.messages, ...thread.messages] : thread.messages
-        const messages = mergeById('message', retainedMessages, preserveAssistantMessagePhases(knownPhases, detail.history.messages))
-        const activities = mergeById('activity', retainedActivities, detail.history.activities)
-        const proposedPlans = mergeById('plan', retainedPlans, detail.history.proposedPlans)
+        // A background newest-page refresh may update overlapping records, but
+        // cannot navigate a detached reader across an unloaded gap to the tail.
+        const residentOnly = <T extends { id: string }>(incoming: T[], resident: T[]): T[] => {
+            if (!preserveDetachedRange) return incoming
+            const ids = new Set(resident.map(record => record.id))
+            return incoming.filter(record => ids.has(record.id))
+        }
+        const messages = mergeById('message', retainedMessages, preserveAssistantMessagePhases(knownPhases, residentOnly(detail.history.messages, retainedMessages)))
+        const activities = mergeById('activity', retainedActivities, residentOnly(detail.history.activities, retainedActivities))
+        const proposedPlans = mergeById('plan', retainedPlans, residentOnly(detail.history.proposedPlans, retainedPlans))
         const pendingApprovals = detail.pendingApprovals
         const pendingUserInputs = detail.pendingUserInputs
         const nextThread = {
@@ -321,7 +332,7 @@ export function applyAssistantThreadDetail(
             fullyLoaded,
             lastUsedAt: now,
             shellRevision: getAssistantThreadHydrationRevision(nextThread)
-        }, 'newer')
+        }, preserveDetachedRange ? 'older' : 'newer')
         return {
             ...nextThread,
             messages: mergedHistory.messages,
@@ -422,12 +433,13 @@ export function boundAssistantActiveHistoryWindow(
     loadedDirection: 'older' | 'newer'
 ): AssistantRetainedHistory {
     let bounded = history
+    const minimumTurns = loadedDirection === 'newer' ? ACTIVE_ASSISTANT_HISTORY_MIN_TURNS : 1
     while (
         bounded.messages.length + bounded.activities.length + bounded.proposedPlans.length > ACTIVE_ASSISTANT_HISTORY_MAX_RECORDS
         || estimateAssistantTimelineCollectionsCharacters(bounded, ACTIVE_ASSISTANT_HISTORY_MAX_CHARACTERS + 1) > ACTIVE_ASSISTANT_HISTORY_MAX_CHARACTERS
     ) {
         const userMessages = bounded.messages.filter((message) => message.role === 'user')
-        if (userMessages.length <= 1) break
+        if (userMessages.length <= minimumTurns) break
         const boundaryMessage = loadedDirection === 'older'
             ? userMessages[userMessages.length - 1]!
             : userMessages[1]!
@@ -447,6 +459,7 @@ export function boundAssistantActiveHistoryWindow(
             messages,
             activities,
             proposedPlans,
+            fullyLoaded: false,
             pageInfo: loadedDirection === 'older'
                 ? { ...bounded.pageInfo, newestCursor: cursor, hasNewer: true }
                 : { ...bounded.pageInfo, oldestCursor: cursor, hasOlder: true }

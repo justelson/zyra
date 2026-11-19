@@ -24,7 +24,10 @@ const root = createRoot(document.getElementById('root')!)
 const now = new Date().toISOString()
 const results: string[] = []
 const sleep = (ms = 30) => new Promise(resolve => setTimeout(resolve, ms))
-function check(value: unknown, label: string) { if (!value) throw new Error(label) }
+function check(value: unknown, label: string) {
+    if (!value) throw new Error(label)
+    document.documentElement.dataset.sidebarCheckpoint = label.slice(0, 160)
+}
 async function waitForCheck(condition: () => boolean, label: string) {
     const deadline = performance.now() + 2000
     while (!condition() && performance.now() < deadline) await sleep(30)
@@ -184,7 +187,7 @@ async function checkExplicitOrderControls() {
             check(selected === selectedBefore, 'only the drag-generated click is suppressed')
             check(!document.documentElement.hasAttribute('data-assistant-sidebar-dragging'), 'release restores the normal cursor')
         }
-        return dropPoint
+        return { ...dropPoint, pointerId }
     }
     const expected = [dragged, ...original.filter(id => id !== dragged)].join(',')
     const storageBeforePointerMove = localStorage.getItem(key)
@@ -217,10 +220,8 @@ async function checkExplicitOrderControls() {
     await assertCancelled('window blur')
     cancelPoint = await move(dragged, target, 'before', false)
     const viewport = document.querySelector<HTMLElement>('[data-sidebar-scroll="chats"]')!
-    let realPointerId = -1
-    viewport.addEventListener('pointermove', event => { realPointerId = event.pointerId }, { once: true })
-    await movePointer(cancelPoint.x + 1, cancelPoint.y)
-    viewport.dispatchEvent(new PointerEvent('pointercancel', { pointerId: realPointerId, bubbles: true }))
+    check(viewport.hasPointerCapture(cancelPoint.pointerId), 'cancel the actual captured pointer')
+    viewport.dispatchEvent(new PointerEvent('pointercancel', { pointerId: cancelPoint.pointerId, bubbles: true }))
     await movePointer(cancelPoint.x, cancelPoint.y, false, 'mouseUp')
     await assertCancelled('pointercancel after real mouse gesture')
     await move(dragged, target, 'before', false)
@@ -435,7 +436,7 @@ async function checkRowHoverMotion(id: string) {
         reading.forEach((element, index) => {
             const bounds = element.getBoundingClientRect()
             const yieldsActionSpace = Boolean(movingPresence?.contains(element))
-            check(Math.abs(bounds.width - before[index].width) < .5 && (yieldsActionSpace || Math.abs(bounds.x - before[index].x) < .5), 'Hover preserves title, status-slot and artwork geometry; only presence yields the action slot')
+            check(Math.abs(bounds.width - before[index].width) < .5 && (yieldsActionSpace || Math.abs(bounds.x - before[index].x) < .5), `Hover preserves title, status-slot and artwork geometry: ${id} ${index} ${element.outerHTML.slice(0,90)}, before ${before[index].x}/${before[index].width}, after ${bounds.x}/${bounds.width}`)
             if (yieldsActionSpace) check(bounds.x >= before[index].x - hidden.width - .5 && bounds.x <= before[index].x + .5, 'Presence moves only within the existing action slot')
         })
         const button = target.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
@@ -587,7 +588,10 @@ async function run() {
         const target = child.getBoundingClientRect()
         const inspectAnimation = async () => {
             for (let frame = 0; frame < 12; frame++) {
-                await new Promise(requestAnimationFrame)
+                await new Promise<void>((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error(`Sidebar repaint stalled at ${width}px, frame ${frame + 1}/12`)), 2000)
+                    requestAnimationFrame(() => { clearTimeout(timeout); resolve() })
+                })
                 const a = actions.getBoundingClientRect()
                 const b = settle.getBoundingClientRect()
                 check(b.left >= a.left - .5, `Settle control cannot extend left of its allocated slot: ${JSON.stringify({width, frame, action: a.toJSON(), button: b.toJSON()})}`)

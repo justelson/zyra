@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, Menu, screen, type IpcMainInvokeEvent } from 'electron'
 import {
     ACCESSORIES_IPC,
     type AccessoryBrowserDropZoneInput,
@@ -17,6 +17,7 @@ import { isTrustedBrowserTabId } from './agent-control/trusted-guest-registry'
 import type { BrowserViewTransferHost } from './browser-view-manager'
 import type { BrowserSessionMode } from '../shared/browser-view'
 import { desktopWebLink } from '../shared/desktop-link-policy'
+import type { DevicePreferencesService } from './setup/device-preferences-service'
 import { ipcMain } from './ipc/trusted-ipc'
 
 const MAX_POINT = 100_000
@@ -41,6 +42,8 @@ type AccessoryBrowserTearOffSession = {
 
 type AccessoryWindowManagerOptions = {
     rootPath: string
+    preferences: Pick<DevicePreferencesService, 'get' | 'updateSurfaceFromMain'>
+    openBrowserSettings?: () => void
     createWindow: (state: AccessoryWindowState) => BrowserWindow
     canOpen?: () => boolean
     onTerminalWindowClosed?: (runtimeId: string) => void
@@ -206,6 +209,31 @@ export class AccessoryWindowManager {
             departedBrowserTabIds: new Set(),
             arrivingBrowserTabIds: new Set(options.provisional && browserTab ? [browserTab.id] : [])
         }
+        if (kind === 'browser') {
+            const setVertical = (vertical: boolean) => {
+                void this.options.preferences.updateSurfaceFromMain('desktop', { assistantBrowserVerticalTabs: vertical })
+                    .catch(error => console.warn('Could not save the Browser tab layout.', error))
+            }
+            const showTabMenu = async () => {
+                const snapshot = await this.options.preferences.get({ surface: 'desktop' })
+                if (window.isDestroyed()) return
+                const vertical = snapshot.settings.assistantBrowserVerticalTabs === true
+                Menu.buildFromTemplate([
+                    { label: 'Show tabs vertically', type: 'radio', checked: vertical, click: () => setVertical(true) },
+                    { label: 'Show tabs horizontally', type: 'radio', checked: !vertical, click: () => setVertical(false) },
+                    { type: 'separator' },
+                    { label: 'Zyra Browser settings', click: () => this.options.openBrowserSettings?.() }
+                ]).popup({ window })
+            }
+            const openTabMenu = (event: Electron.Event) => {
+                event.preventDefault()
+                void showTabMenu().catch(error => console.warn('Could not open Browser tab menu.', error))
+            }
+            window.on('system-context-menu', openTabMenu)
+            window.webContents.on('context-menu', (event, params) => {
+                if (params.y < 40) openTabMenu(event)
+            })
+        }
         const webContentsId = window.webContents.id
         this.recordsById.set(id, record)
         this.recordsByWebContentsId.set(webContentsId, record)
@@ -325,12 +353,13 @@ export class AccessoryWindowManager {
         const tabSlots = (Array.isArray(input.tabSlots) ? input.tabSlots : []).flatMap((slot) => {
             const tabId = String(slot?.tabId || '')
             if (!isTrustedBrowserTabId(tabId) || !Number.isInteger(slot?.index) || slot.index < 0 || !Number.isFinite(slot.left) || !Number.isFinite(slot.right) || slot.right < slot.left) return []
-            return [{ tabId, index: slot.index, left: slot.left, right: slot.right }]
+            if (input.vertical && (!Number.isFinite(slot.top) || !Number.isFinite(slot.bottom) || slot.bottom! < slot.top!)) return []
+            return [{ tabId, index: slot.index, left: slot.left, right: slot.right, top: slot.top, bottom: slot.bottom }]
         })
         this.browserDropZones.set(record.state.id, {
             workspaceId: record.state.id,
             rect: { ...rect },
-            tabSlots
+            vertical: input.vertical === true, tabSlots
         })
         return { registered: true }
     }
@@ -398,7 +427,7 @@ export class AccessoryWindowManager {
             return { committed: false, targetWorkspaceId: session.sourceWorkspaceId }
         }
         if (dropTarget) {
-            await this.mergeTearOff(session, dropTarget, input.screenPoint.x)
+            await this.mergeTearOff(session, dropTarget, input.screenPoint)
             return { committed: true, targetWorkspaceId: dropTarget.state.id }
         }
         this.commitStandalone(session)
@@ -442,13 +471,13 @@ export class AccessoryWindowManager {
         this.publish(source)
     }
 
-    private async mergeTearOff(session: AccessoryBrowserTearOffSession, destination: AccessoryWindowRecord, screenX: number): Promise<void> {
+    private async mergeTearOff(session: AccessoryBrowserTearOffSession, destination: AccessoryWindowRecord, point: { x: number; y: number }): Promise<void> {
         const source = this.recordsById.get(session.sourceWorkspaceId)
         const provisional = this.recordsById.get(session.targetWorkspaceId)
         if (!source || source.window.isDestroyed() || !provisional || provisional.window.isDestroyed()) throw new Error('The Browser transfer owner closed during the drop.')
         if (destination.state.sessionMode !== session.tab.sessionMode) throw new Error('Normal and incognito Browser tabs cannot share a window.')
         if (destination.state.browserTabs.some((tab) => tab.id === session.tab.id)) throw new Error('That Browser window already contains this tab.')
-        const index = this.browserDropIndex(destination.state.id, screenX)
+        const index = this.browserDropIndex(destination.state.id, point)
         destination.state.browserTabs.splice(index, 0, { ...session.tab })
         destination.state.activeBrowserTabId = session.tab.id
         destination.arrivingBrowserTabIds.add(session.tab.id)
@@ -526,10 +555,13 @@ export class AccessoryWindowManager {
         return null
     }
 
-    private browserDropIndex(workspaceId: string, screenX: number): number {
-        const slots = this.browserDropZones.get(workspaceId)?.tabSlots || []
+    private browserDropIndex(workspaceId: string, point: { x: number; y: number }): number {
+        const zone = this.browserDropZones.get(workspaceId)
+        const slots = zone?.tabSlots || []
         for (const slot of slots) {
-            if (screenX < slot.left + (slot.right - slot.left) / 2) return slot.index
+            if (zone?.vertical && slot.top !== undefined && slot.bottom !== undefined) {
+                if (point.y < (slot.top + slot.bottom) / 2) return slot.index
+            } else if (point.x < (slot.left + slot.right) / 2) return slot.index
         }
         return slots.length
     }

@@ -234,12 +234,16 @@ export class ZyraPluginRegistry {
   async getCatalog() {
     await this.initialize()
     await this.queue
-    return clone(this.state)
+    return { ...clone(this.state), pluginsEnabled: this.state.pluginsEnabled ?? this.state.plugins.length > 0 }
   }
 
   async setAppViewSettings(input = {}) {
     return this.#mutate((catalog) => {
       assertReviewedCatalog(catalog, input.expectedCatalogRevision)
+      if (input.pluginsEnabled !== undefined) {
+        if (typeof input.pluginsEnabled !== 'boolean') fail('PLUGIN_SETTING_INVALID', 'Choose whether Plugins are enabled.')
+        catalog.pluginsEnabled = input.pluginsEnabled
+      }
       const pluginId = bounded(input.pluginId, 128)
       if (pluginId && !catalog.plugins.some((plugin) => plugin.id === pluginId)) {
         fail('PLUGIN_NOT_FOUND', 'Plugin installation was not found.')
@@ -621,7 +625,7 @@ export class ZyraPluginRegistry {
     const sessionId = bounded(sessionIdValue, 192)
     const run = this.queue.then(async () => {
       const scope = this.state.chatScopes.find((entry) => entry.sessionId === sessionId)
-      if (!scope) return []
+      if (this.state.pluginsEnabled === false || !scope) return []
       const skillPluginCount = scope.plugins.filter((plugin) => plugin.skillsPath).length
       if (skillPluginCount > ZYRA_PLUGIN_LIMITS.maxActiveSkillPlugins) {
         fail('PLUGIN_SKILL_SOURCE_LIMIT', `Chat Plugin scope exceeds ${ZYRA_PLUGIN_LIMITS.maxActiveSkillPlugins} active Skill packages.`)
@@ -694,7 +698,7 @@ export class ZyraPluginRegistry {
     const sessionId = bounded(sessionIdValue, 192)
     const run = this.queue.then(async () => {
       const scope = this.state.chatScopes.find((entry) => entry.sessionId === sessionId)
-      if (!scope) return []
+      if (this.state.pluginsEnabled === false || !scope) return []
       const result = []
       for (const scopedPlugin of scope.plugins) {
         const release = this.state.releases.find((entry) => entry.id === scopedPlugin.releaseId && entry.pluginId === scopedPlugin.pluginId)
@@ -725,7 +729,7 @@ export class ZyraPluginRegistry {
       const release = plugin?.activeReleaseId
         ? this.state.releases.find((entry) => entry.id === plugin.activeReleaseId && entry.pluginId === pluginId)
         : null
-      if (!plugin || plugin.state !== 'active' || !release) fail('PLUGIN_NOT_ACTIVE', 'Plugin is not active.')
+      if (this.state.pluginsEnabled === false || !plugin || plugin.state !== 'active' || !release) fail('PLUGIN_NOT_ACTIVE', 'Plugin is not active.')
       const mcpPath = release.manifest.contributions.mcp
       if (!mcpPath) return null
       const servers = await this.#readMcpServers(release, plugin, releaseSnapshot(plugin, release))

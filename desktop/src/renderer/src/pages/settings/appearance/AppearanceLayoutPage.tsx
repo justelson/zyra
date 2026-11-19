@@ -1,4 +1,5 @@
 import { DEFAULT_APPEARANCE_ANIMATION_SCALE, type AppearanceAnimationSpeed } from '@/lib/settings'
+import { ChatWallpaperSettings } from './ChatWallpaperSettings'
 import type { AppearanceSettingsController } from './useAppearanceSettingsController'
 import { SettingResetButton, SettingsRow, SettingsSection, SettingsSegmented, SettingsSlider, SettingsSwitch } from '../settings-layout'
 
@@ -57,7 +58,9 @@ export function AppearanceLayoutPage({ controller }: { controller: AppearanceSet
                 ) : null}
             </SettingsSection>
 
+            <ChatWallpaperSettings />
             <SettingsSection title="Interface">
+                <SettingsRow title="Interface inspector" description="Find a named part or select it on screen." control={<button type="button" onClick={() => window.dispatchEvent(new Event('zyra:inspect-ui'))}>Inspect parts</button>} />
                 <SettingsRow
                     title="Chat rail"
                     description="Keep the conversation sidebar collapsed across restarts on this surface."

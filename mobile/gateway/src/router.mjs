@@ -291,7 +291,7 @@ export class HostRouter {
         catch (error) { if (result == null) throw error; }
       }
       if (liveFailure && result == null) throw liveFailure;
-      if (params.type === 'user_input.respond' && payload.cancelled !== true && result?.cancelled !== true && !['completed', 'steered', 'held'].includes(result?.continuation?.state)) {
+      if (params.type === 'user_input.respond' && payload.cancelled !== true && result?.cancelled !== true && !result?.permissionDecision && !['completed', 'steered', 'held'].includes(result?.continuation?.state)) {
         throw fault('HOST_UPDATE_REQUIRED', 'The answer was received, but this PC needs a Zyra runtime restart to continue it. Open the chat on the PC.');
       }
       for (const id of [...imageUploads, ...fileUploads]) await this.uploads.cancel(this.owner, params.sessionKey, id).catch(() => {});

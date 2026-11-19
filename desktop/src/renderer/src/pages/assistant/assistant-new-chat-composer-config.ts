@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type {
     AssistantInteractionMode,
     AssistantReasoningEffort,
@@ -18,7 +19,7 @@ type AssistantComposerConfigurationSettings = Pick<
 export type AssistantComposerLaunchConfiguration = {
     activeModel: string | undefined
     activeEffort: AssistantReasoningEffort | null
-    activeFastModeEnabled: boolean
+    activeFastModeEnabled: AssistantSpeedPreference
     runtimeMode: AssistantRuntimeMode
     interactionMode: AssistantInteractionMode
     activeProfile: 'safe-dev' | 'yolo-fast'
@@ -48,7 +49,7 @@ export function resolveAssistantComposerLaunchConfiguration(input: {
     return {
         activeModel: input.thread?.model || input.fallbackModel || undefined,
         activeEffort: input.thread?.thinking || input.thread?.latestTurn?.effort || null,
-        activeFastModeEnabled: input.thread?.latestTurn?.serviceTier === 'fast',
+        activeFastModeEnabled: input.thread?.latestTurn?.serviceTier === 'ultrafast' ? 'ultrafast' : input.thread?.latestTurn?.serviceTier === 'fast',
         runtimeMode,
         interactionMode: 'default',
         activeProfile: runtimeMode === 'full-access' ? 'yolo-fast' : 'safe-dev'

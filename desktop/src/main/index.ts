@@ -324,7 +324,7 @@ function getWindowChromeOptions(): Pick<Electron.BrowserWindowConstructorOptions
     }
 }
 
-function sendAppMenuCommand(command: 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture'): void {
+function sendAppMenuCommand(command: 'new-chat' | 'search' | 'settings' | 'reload' | 'about' | 'browser-capture' | 'browser-settings'): void {
     sendMainRendererCommand('window:app-menu-command', command)
 }
 
@@ -525,6 +525,8 @@ browserPopupManager.registerIpc()
 
 const accessoryWindowManager = new AccessoryWindowManager({
     rootPath: app.getPath('home'),
+    preferences: setupServices.preferences,
+    openBrowserSettings: () => sendAppMenuCommand('browser-settings'),
     createWindow: createAccessoryShellWindow,
     canOpen: () => setupServices.onboarding.isAccessAllowed(),
     onTerminalWindowClosed: disposePreviewTerminalRuntime

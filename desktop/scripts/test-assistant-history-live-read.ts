@@ -48,6 +48,13 @@ journal.record(delta(10, ' already persisted'))
 journal.record(delta(11, ' appended'))
 const replayed = replayAssistantHistoryRead(store.getState().snapshot, basePage, read)
 assert.equal(replayed.messages[0]!.text, 'Before appended', 'the watermark excludes events already present in the database read')
+const fresh = journal.begin(shell.id)
+const first = delta(12, 'Opening text')
+first.payload.messageId = 'new-during-read'
+journal.record(first)
+assert.equal(replayAssistantHistoryRead(store.getState().snapshot, basePage, fresh, undefined, 'latest').messages.find(m => m.id === first.payload.messageId)?.text, 'Opening text')
+assert.ok(!replayAssistantHistoryRead(store.getState().snapshot, basePage, fresh).messages.some(m => m.id === first.payload.messageId), 'older cursor pages never acquire later rows')
+journal.finish(fresh)
 const replacingRead = journal.begin(shell.id)
 journal.record(delta(11, ' A'))
 journal.record({ sequence: 12, eventId: 'replacement', type: 'thread.updated', occurredAt: live.updatedAt, threadId: shell.id,

@@ -426,7 +426,7 @@ function ComposerViewWithQueue({
             controller.setInlineMentionTags((current) => [...reconcileInlineMentionTags(controller.text, next.text, current), { id: `${item.id}:${slashToken.start}`, path: item.value, relativePath: item.value, label: item.label.replace(/^\/skill:/, '').replace(/^\//, ''), kind: item.kind, start: slashToken.start, end: slashToken.start + item.value.length }])
             controller.setText(next.text)
             controller.setComposerCursor(next.cursor)
-            if (controller.historyCursor != null) controller.setHistoryCursor(null)
+            controller.promptRecall?.cancel()
             window.requestAnimationFrame(() => {
                 const textarea = controller.textareaRef.current
                 textarea?.focus()
@@ -454,7 +454,7 @@ function ComposerViewWithQueue({
         controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, next.text, current))
         controller.setText(next.text)
         controller.setComposerCursor(next.cursor)
-        if (controller.historyCursor != null) controller.setHistoryCursor(null)
+        controller.promptRecall?.cancel()
         window.requestAnimationFrame(() => {
             const textarea = controller.textareaRef.current
             textarea?.focus()
@@ -468,7 +468,9 @@ function ComposerViewWithQueue({
     }, [])
 
     const handleComposerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-        if (!showSlashMenu) {
+        const historyArrow = (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+            && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+        if (!showSlashMenu || (historyArrow && controller.promptRecall?.active)) {
             controller.handleKeyDown(event)
             return
         }
@@ -634,7 +636,7 @@ function ComposerViewWithQueue({
                                 ? 'border-white/[0.09] bg-[color-mix(in_srgb,var(--color-card)_97%,transparent)] shadow-[0_18px_54px_rgba(0,0,0,0.30),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.045),inset_0_-1px_0_rgba(0,0,0,0.18)] backdrop-blur-md'
                                 : 'border-[var(--surface-divider)] bg-[color-mix(in_srgb,var(--surface-floating)_94%,transparent)] shadow-[0_22px_68px_color-mix(in_srgb,var(--color-bg)_54%,transparent),0_1px_0_rgba(255,255,255,0.045),inset_0_1px_0_color-mix(in_srgb,var(--color-text)_4%,transparent)] backdrop-blur-[18px]'
                         )}
-                        data-assistant-composer-frame="true"
+                        data-zyra-part="chat.composer" data-assistant-composer-frame="true"
                     >
                         {controller.placement === 'bottom' ? (
                             <>
@@ -673,20 +675,7 @@ function ComposerViewWithQueue({
                             )}
                         >
                             <div className="relative px-3 pb-1.5 pt-2.5 sm:px-3.5 sm:pt-3">
-
-
                             <div className="flex min-h-[50px] items-start gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => controller.filePickerRef.current?.click()}
-                                    disabled={capabilities.attachDisabled}
-                                    className="mt-0.5 rounded-md p-1 text-sparkle-text-muted transition-colors hover:bg-sparkle-card-hover hover:text-sparkle-text disabled:opacity-50"
-                                    title={capabilities.attachDisabled
-                                        ? capabilities.detailLabel || 'Attachments are unavailable right now'
-                                        : 'Attach files'}
-                                >
-                                    <Plus size={15} />
-                                </button>
                                 <div className="relative min-w-0 flex-1">
                                     <ComposerTextInput
                                         tags={controller.inlineMentionTags}
@@ -708,9 +697,12 @@ function ComposerViewWithQueue({
                                             controller.setInlineMentionTags((current) => reconcileInlineMentionTags(controller.text, nextText, current))
                                             controller.setText(nextText)
                                             controller.setComposerCursor(event.target.selectionStart ?? nextText.length)
-                                            if (controller.historyCursor != null) controller.setHistoryCursor(null)
+                                            controller.promptRecall?.cancel()
                                         }}
-                                        onPointerDown={() => controller.voiceInput.stopBrowserOnInput()}
+                                        onPointerDown={() => {
+                                            controller.promptRecall?.cancel()
+                                            controller.voiceInput.stopBrowserOnInput()
+                                        }}
                                         onFocus={() => controller.voiceInput.stopBrowserOnInput()}
                                         onClick={(event) => {
                                             controller.voiceInput.stopBrowserOnInput()
@@ -784,47 +776,60 @@ function ComposerViewWithQueue({
                                 </>
                             ) : (
                                 <>
-                        <ComposerFooterControls
-                            isCompactFooter={controller.isCompactFooter}
-                            placement={controller.placement}
-                            controlsLocked={capabilities.controlsLocked}
-                            modelDropdownRef={controller.modelDropdownRef}
-                            showModelDropdown={controller.showModelDropdown}
-                                setShowModelDropdown={controller.setShowModelDropdown}
-                                modelsLoading={controller.modelsLoading}
-                                modelsError={controller.modelsError}
-                                modelQuery={controller.modelQuery}
-                                setModelQuery={controller.setModelQuery}
-                                setActiveModelIndex={controller.setActiveModelIndex}
-                                modelListRef={controller.modelListRef}
-                                filteredModelOptions={controller.filteredModelOptions}
-                                activeModelIndex={controller.activeModelIndex}
-                                selectedModel={controller.selectedModel}
-                                selectedModelLabel={controller.selectedModelLabel}
-                                latestModelId={controller.latestModelId}
-                                setSelectedModel={controller.setSelectedModel}
-                                onRefreshModels={controller.onRefreshModels}
-                                traitsDropdownRef={controller.traitsDropdownRef}
-                                showTraitsDropdown={controller.showTraitsDropdown}
-                                setShowTraitsDropdown={controller.setShowTraitsDropdown}
-                                EFFORT_OPTIONS={controller.EFFORT_OPTIONS}
-                                selectedEffort={controller.selectedEffort}
-                                setSelectedEffort={controller.setSelectedEffort}
-                                EFFORT_LABELS={controller.EFFORT_LABELS}
-                                fastModeEnabled={controller.fastModeEnabled}
-                                setFastModeEnabled={controller.setFastModeEnabled}
-                                selectedInteractionMode={controller.selectedInteractionMode}
-                                setSelectedInteractionMode={controller.setSelectedInteractionMode}
-                                selectedRuntimeMode={controller.selectedRuntimeMode}
-                                setSelectedRuntimeMode={controller.setSelectedRuntimeMode}
-                                displayedProfile={controller.displayedProfile}
-                                zyraProfile={controller.zyraProfile}
-                                onZyraProfileChange={controller.onZyraProfileChange}
-                                isConnected={controller.isConnected}
-                                isConnecting={controller.isConnecting}
-                                reconnectPending={controller.reconnectPending}
-                                onReconnect={controller.onReconnect}
-                            />
+                                    <button
+                                        type="button"
+                                        onClick={() => controller.filePickerRef.current?.click()}
+                                        disabled={capabilities.attachDisabled}
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sparkle-text-muted transition-colors hover:bg-sparkle-card-hover hover:text-sparkle-text disabled:opacity-50"
+                                        aria-label="Attach files"
+                                        title={capabilities.attachDisabled
+                                            ? capabilities.detailLabel || 'Attachments are unavailable right now'
+                                            : 'Attach files'}
+                                    >
+                                        <Plus size={15} />
+                                    </button>
+                                    <ComposerFooterControls
+                                        isCompactFooter={controller.isCompactFooter}
+                                        placement={controller.placement}
+                                        controlsLocked={capabilities.controlsLocked}
+                                        modelDropdownRef={controller.modelDropdownRef}
+                                        showModelDropdown={controller.showModelDropdown}
+                                        setShowModelDropdown={controller.setShowModelDropdown}
+                                        modelsLoading={controller.modelsLoading}
+                                        modelsError={controller.modelsError}
+                                        modelQuery={controller.modelQuery}
+                                        setModelQuery={controller.setModelQuery}
+                                        setActiveModelIndex={controller.setActiveModelIndex}
+                                        modelListRef={controller.modelListRef}
+                                        filteredModelOptions={controller.filteredModelOptions}
+                                        activeModelIndex={controller.activeModelIndex}
+                                        selectedModel={controller.selectedModel}
+                                        selectedModelLabel={controller.selectedModelLabel}
+                                        latestModelId={controller.latestModelId}
+                                        setSelectedModel={controller.setSelectedModel}
+                                        onRefreshModels={controller.onRefreshModels}
+                                        traitsDropdownRef={controller.traitsDropdownRef}
+                                        showTraitsDropdown={controller.showTraitsDropdown}
+                                        setShowTraitsDropdown={controller.setShowTraitsDropdown}
+                                        EFFORT_OPTIONS={controller.EFFORT_OPTIONS}
+                                        selectedEffort={controller.selectedEffort}
+                                        setSelectedEffort={controller.setSelectedEffort}
+                                        EFFORT_LABELS={controller.EFFORT_LABELS}
+                                        serviceTiers={controller.selectedModelMetadata?.serviceTiers}
+                                        fastModeEnabled={controller.effectiveSpeed}
+                                        setFastModeEnabled={controller.setFastModeEnabled}
+                                        selectedInteractionMode={controller.selectedInteractionMode}
+                                        setSelectedInteractionMode={controller.setSelectedInteractionMode}
+                                        selectedRuntimeMode={controller.selectedRuntimeMode}
+                                        setSelectedRuntimeMode={controller.setSelectedRuntimeMode}
+                                        displayedProfile={controller.displayedProfile}
+                                        zyraProfile={controller.zyraProfile}
+                                        onZyraProfileChange={controller.onZyraProfileChange}
+                                        isConnected={controller.isConnected}
+                                        isConnecting={controller.isConnecting}
+                                        reconnectPending={controller.reconnectPending}
+                                        onReconnect={controller.onReconnect}
+                                    />
 
                             <div className="assistant-composer-footer-actions flex shrink-0 items-center gap-2 [--assistant-footer-action-gap:0.5rem]">
                                 <AssistantComposerContextIndicator
@@ -856,7 +861,7 @@ function ComposerViewWithQueue({
                                             effort: controller.selectedEffort,
                                             interactionMode: controller.selectedInteractionMode,
                                             profile: controller.zyraProfile,
-                                            fastModeEnabled: controller.fastModeEnabled
+                                            fastModeEnabled: controller.effectiveSpeed
                                         })
                                     )} />
                                 ) : (

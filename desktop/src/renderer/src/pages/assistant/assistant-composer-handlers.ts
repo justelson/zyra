@@ -1,6 +1,6 @@
 import type { ClipboardEvent, KeyboardEvent } from 'react'
 import { getAssistantClipboardFiles, getAssistantVideoMimeType, MAX_CLIPBOARD_VIDEO_BYTES } from './assistant-clipboard-files'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, supportsAssistantFastMode } from './assistant-model-groups'
 import {
     InlineMentionTag,
     reconcileInlineMentionTags,
@@ -46,10 +46,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         setContextFiles,
         sentPromptHistory,
         setSentPromptHistory,
-        historyCursor,
-        setHistoryCursor,
-        draftBeforeHistory,
-        setDraftBeforeHistory,
+        promptRecall,
         showMentionMenu,
         setShowMentionMenu,
         mentionCandidates,
@@ -347,8 +344,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             if (!prompt) {
                 setText('')
                 setInlineMentionTags([])
-                setHistoryCursor(null)
-                setDraftBeforeHistory('')
+                promptRecall?.cancel()
                 setComposerCursor(0)
                 restoreComposerFocus()
                 return
@@ -385,8 +381,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             setText('')
             setInlineMentionTags([])
             setContextFiles([])
-            setHistoryCursor(null)
-            setDraftBeforeHistory('')
+            promptRecall?.cancel()
             onOptimisticSendClear?.()
         }
         const awaitAcceptance = dispatchMode !== 'immediate'
@@ -399,7 +394,7 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             runtimeMode: runtimeModeForSend,
             interactionMode: selectedInteractionMode,
             effort: selectedEffort,
-            serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' : undefined,
+            serviceTier: supportsAssistantFastMode(selectedModel) ? composerServiceTier(fastModeEnabled) : undefined,
             dispatchMode
         }) } catch (error) { onBlockedSend?.(error instanceof Error ? error.message : 'Could not send. Your draft is preserved.') }
         if (!success) {
@@ -432,36 +427,10 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         await submitPrompt('steer')
     }
 
-    const handleRecallPrevious = () => {
-        if (!sentPromptHistory.length) return
-        if (historyCursor == null) {
-            setDraftBeforeHistory(text)
-            const nextIndex = sentPromptHistory.length - 1
-            setHistoryCursor(nextIndex)
-            setText(sentPromptHistory[nextIndex])
-            setInlineMentionTags([])
-            return
-        }
-        const nextIndex = Math.max(0, historyCursor - 1)
-        setHistoryCursor(nextIndex)
-        setText(sentPromptHistory[nextIndex])
+    const recallPrompt = (direction: 'older' | 'newer') => promptRecall?.move(direction, text, sentPromptHistory, prompt => {
+        setText(prompt)
         setInlineMentionTags([])
-    }
-
-    const handleRecallNext = () => {
-        if (historyCursor == null) return
-        if (historyCursor >= sentPromptHistory.length - 1) {
-            setHistoryCursor(null)
-            setText(draftBeforeHistory)
-            setInlineMentionTags([])
-            setDraftBeforeHistory('')
-            return
-        }
-        const nextIndex = historyCursor + 1
-        setHistoryCursor(nextIndex)
-        setText(sentPromptHistory[nextIndex])
-        setInlineMentionTags([])
-    }
+    }, onBlockedSend)
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (event.nativeEvent?.isComposing || event.key === 'Process') return
@@ -469,7 +438,16 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         const selectionStart = target.selectionStart ?? 0
         const selectionEnd = target.selectionEnd ?? 0
         const atStart = selectionStart === 0 && selectionEnd === 0
-        const atEnd = selectionStart === text.length && selectionEnd === text.length
+        const arrow = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+        const plainArrow = arrow && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+        if (promptRecall?.active) {
+            if (plainArrow && selectionStart === selectionEnd && !showModelDropdown && !showBranchDropdown) {
+                event.preventDefault()
+                void recallPrompt(event.key === 'ArrowUp' ? 'older' : 'newer')
+                return
+            }
+            if (arrow || ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) promptRecall.cancel()
+        }
 
         if (inlineMentionTags.length > 0 && (event.key === 'Backspace' || event.key === 'Delete')) {
             const isBackspace = event.key === 'Backspace'
@@ -563,14 +541,9 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
             }
         }
 
-        if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'ArrowUp' && atStart) {
+        if (promptRecall && plainArrow && event.key === 'ArrowUp' && atStart) {
             event.preventDefault()
-            handleRecallPrevious()
-            return
-        }
-        if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'ArrowDown' && atEnd) {
-            event.preventDefault()
-            handleRecallNext()
+            void recallPrompt('older')
             return
         }
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -607,8 +580,6 @@ export function createAssistantComposerHandlers(args: AssistantComposerHandlersA
         handleSendTranscript,
         handleQueueSend,
         handleForceSend,
-        handleRecallPrevious,
-        handleRecallNext,
         handleKeyDown,
         handlePaste,
         hasRemovingAttachment: removingAttachmentIds.length > 0

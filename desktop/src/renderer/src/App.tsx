@@ -14,6 +14,8 @@ import { isQuickPreviewRoute } from '@shared/file-preview-route'
 import QuickOpenWindow from './pages/QuickOpenWindow'
 import TitleBar from './components/layout/TitleBar'
 import { AppBootSkeleton, AppRouteSkeleton } from './components/ui/AppRouteSkeleton'
+import { getUiScreen } from '@shared/ui-screens'
+import { UiPartsInspector } from './components/ui-parts/UiPartsInspector'
 import { SettingsProvider, useSettings } from './lib/settings'
 import { ZYRA_THEME_CHANGED_EVENT } from './lib/theme-events'
 import { CommandPaletteProvider } from './lib/commandPalette'
@@ -139,6 +141,7 @@ function RetiredExplorerRedirect() {
 }
 
 function MainContent() {
+    const screen = getUiScreen(useLocation().pathname)
     useEffect(() => {
         const preload = () => {
             void loadAssistantRoute().catch(() => undefined)
@@ -152,7 +155,7 @@ function MainContent() {
     }, [])
 
     return (
-        <main
+        <main data-zyra-part={screen ?? 'workspace'} data-zyra-screen-boundary="true"
             className="flex-1 min-h-0 overflow-hidden overflow-x-hidden p-0 theme-adaptive focus:outline-none"
             tabIndex={0}
         >
@@ -348,6 +351,7 @@ function NormalDesktopApp() {
                             <ShortcutHints />
                             <AgentAppOperations />
                             <AppContent />
+                            <UiPartsInspector />
                             <CommandPalette />
                             <QuickOpenDialog />
                             <UpdatePromptCenter />

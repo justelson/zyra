@@ -92,6 +92,7 @@ function getStatusLineTheme(runtime) {
 
 function formatCodexMode(runtime) {
   const tier = String(runtime.codexServiceTierState?.value ?? runtime.codexServiceTier ?? "").toLowerCase();
+  if (tier === "ultrafast") return "Ultra Fast";
   if (tier === "priority" || tier === "fast") return "fast";
   if (tier === "flex" || tier === "cheap") return "cheap";
   if (tier === "auto") return "auto";

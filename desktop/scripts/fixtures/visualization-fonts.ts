@@ -9,6 +9,10 @@ export function installVisualizationFontChecks(render: (content: string, streami
     let exported = ''
     let bytes: Uint8Array | undefined
     ;(window as any).visualizationFontCase = async (font: AppearanceUiFont) => {
+        // The previous export case replaced the app-owned iframe document with
+        // scriptless srcdoc. Start a fresh inline case before testing late fonts.
+        render('', false)
+        exported = ''
         const family = getAppearanceUiFontStack(font)
         document.body.style.fontFamily = family
         const parentSample = document.getElementById('font-parent-sample') ?? document.body.appendChild(document.createElement('p'))

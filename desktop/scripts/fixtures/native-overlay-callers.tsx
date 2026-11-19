@@ -105,7 +105,7 @@ function ToastFixture() {
 }
 function ScreenshotToastFixture() {
     const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
-    useEffect(() => { showDeveloperToast({ message: '', captureSessionId: 'session:original', artifact: { artifactId: 'browser-screenshot:fixture', tabId: 'browser:1', kind: 'screenshot', mimeType: 'image/png', sizeBytes: 50, width: 200, height: 120, createdAt: new Date().toISOString(), thumbnailDataUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120"><rect width="200" height="120" fill="purple"/></svg>' } }) }, [showDeveloperToast])
+    useEffect(() => { showDeveloperToast({ message: '', captureSessionId: 'session:original', artifact: { artifactId: 'browser-screenshot:fixture', tabId: 'browser:1', kind: 'screenshot', mimeType: 'image/png', sizeBytes: 50, width: 1600, height: 900, createdAt: new Date().toISOString(), thumbnailDataUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="purple"/></svg>' } }) }, [showDeveloperToast])
     return <div style={{ transform: 'translateX(80px)', width: 190, height: 160, overflow: 'hidden' }}><AssistantInspectorDeveloperToast toast={developerToast} onDismiss={dismissDeveloperToast} /></div>
 }
 Object.assign(window, { nativeOverlayCallerCheck: (async () => {
@@ -239,7 +239,14 @@ Object.assign(window, { nativeOverlayCallerCheck: (async () => {
     let attached: any = null
     ;(window.devscope as any).attachBrowserCaptureToChat = async (input: any) => { attached = input; return { success: true } }
     await act(async () => root.render(<ScreenshotToastFixture />))
-    await settle(() => Boolean(childDocument.querySelector('img')) && Boolean(nativeBounds && nativeBounds.height > 120), 'screenshot preview mounts above the native page')
+    await settle(() => Boolean(childDocument.querySelector('img')) && Boolean(nativeBounds), 'screenshot preview mounts above the native page')
+    check(nativeBounds!.height > 120, 'screenshot height at owner size: '+JSON.stringify({ bounds: nativeBounds, mirror: document.querySelector('img')?.getBoundingClientRect(), natural: document.querySelector('img')?.naturalWidth, owner: [innerWidth,innerHeight] }))
+    iframe.style.width = nativeBounds!.width + 'px'
+    iframe.style.height = nativeBounds!.height + 'px'
+    const imageRect = childDocument.querySelector('img')!.getBoundingClientRect()
+    check(Math.abs(imageRect.width - 320) < 2 && Math.abs(imageRect.height - 180) < 2, 'native child preserves full 16:9 screenshot at the owner preview width')
+    iframe.style.width = '840px'
+    iframe.style.height = '640px'
     check(Math.abs(nativeBounds!.x + nativeBounds!.width - (innerWidth - 12)) < 2, 'transformed inspector cannot move screenshot away from viewport right edge')
     check(Math.abs(nativeBounds!.y + nativeBounds!.height - (innerHeight - 12)) < 2, 'screenshot preview stays anchored to viewport bottom')
     await click([...childDocument.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Attach to chat')!)

@@ -211,7 +211,7 @@ import {
     handleTrackBrowserRemoteBackground,
     handleValidateBrowserUnsplashAccessKey
 } from './handlers/browser-preview-handlers'
-import { handleApproveBrowserExtensionFromWebStore, handleDiscardBrowserExtensionFromWebStore, handleInstallBrowserExtension, handleInspectBrowserExtensionFromWebStore, handleListBrowserExtensions, handleRemoveBrowserExtension, handleReloadBrowserExtension, handleSetBrowserExtensionEnabled } from './handlers/browser-extension-handlers'
+import { handleOpenBrowserExtensionPopup, handleApproveBrowserExtensionFromWebStore, handleDiscardBrowserExtensionFromWebStore, handleInstallBrowserExtension, handleInspectBrowserExtensionFromWebStore, handleListBrowserExtensions, handleRemoveBrowserExtension, handleReloadBrowserExtension, handleSetBrowserExtensionEnabled } from './handlers/browser-extension-handlers'
 import { getBrowserExtensionManager } from '../browser-extension-manager'
 import {
     handleCancelBrowserPreviewAnnotation,
@@ -589,6 +589,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow, setupServices: De
     ipcMain.handle(BROWSER_EXTENSIONS_IPC.discardWebStore, handleDiscardBrowserExtensionFromWebStore)
     ipcMain.handle(BROWSER_EXTENSIONS_IPC.setEnabled, handleSetBrowserExtensionEnabled)
     ipcMain.handle(BROWSER_EXTENSIONS_IPC.remove, handleRemoveBrowserExtension)
+    ipcMain.handle(BROWSER_EXTENSIONS_IPC.openPopup, handleOpenBrowserExtensionPopup)
     ipcMain.handle(BROWSER_EXTENSIONS_IPC.reload, handleReloadBrowserExtension)
     void getBrowserExtensionManager().loadEnabled().catch(error => log.warn('[BrowserExtensions] Startup load failed', error))
     ipcMain.handle('devscope:browserPreview:checkThreatNavigation', handleCheckBrowserThreatNavigation)

@@ -54,6 +54,21 @@ export async function runZyraPrompt() {
   let remoteCancelled = false;
   worker.on('control', message => { if (message.type === 'control.cancel') remoteCancelled = true; });
   await worker.request('connect', { surface: 'memory-worker', cwd: fixture }, { timeoutMs: 15000 });
+  for (const [answer, allowed] of [['Deny', false], ['Allow once', true], [null, false]]) {
+    const event = once(worker, 'event');
+    const operation = worker.request('app.authorize', { title: 'Reset the accent color to its default on this device?', detail: 'Remove the saved accent color.' });
+    const [question] = await event;
+    assert.equal(question.type, 'user_input_requested');
+    assert.equal(question.mode, 'async');
+    assert.equal(question.questions[0].type, 'confirm');
+    assert.deepEqual(question.questions[0].options.map(option => option.label), ['Deny', 'Allow once']);
+    const { requestId } = question;
+    await assert.rejects(worker.request('user_input.respond', { requestId, answers: { decision: 'Allow for this chat' } }), /Select one/);
+    const result = await worker.request('user_input.respond', { requestId, answers: answer ? { decision: answer } : {}, cancelled: !answer });
+    assert.equal(result.continuationPrompt, null);
+    assert.equal((await operation).allowed, allowed);
+    await assert.rejects(worker.request('user_input.respond', { requestId, answers: { decision: 'Allow once' } }), /no longer pending/);
+  }
   const started = once(worker, 'event');
   const prompt = worker.request('prompt', { prompt: 'fixture', skipTitleGeneration: true });
   void prompt.catch(() => {});

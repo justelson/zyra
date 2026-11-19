@@ -41,7 +41,8 @@ export function replayAssistantHistoryRead<T extends AssistantHistoryPage>(
     snapshot: AssistantSnapshot,
     page: T,
     read: AssistantHistoryRead,
-    detail?: AssistantThreadDetail
+    detail?: AssistantThreadDetail,
+    windowKind: 'cursor' | 'latest' = 'cursor'
 ): T {
     if (!canReplayAssistantHistoryRead(read, page)) return page
     const pendingEvents = read.events.filter(event => event.sequence > page.snapshotSequence!)
@@ -65,6 +66,7 @@ export function replayAssistantHistoryRead<T extends AssistantHistoryPage>(
         detail.pendingUserInputs = replayed.pendingUserInputs
         return { ...page, messages: replayed.messages, activities: replayed.activities, proposedPlans: replayed.proposedPlans }
     }
+    if (windowKind === 'latest') return { ...page, messages: replayed.messages, activities: replayed.activities, proposedPlans: replayed.proposedPlans }
     // A cursor page owns only its original records. New live rows already live
     // in the store; creating them here from a suffix delta would truncate text.
     const messageIds = new Set(page.messages.map(message => message.id))

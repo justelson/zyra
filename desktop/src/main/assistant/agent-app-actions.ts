@@ -1,4 +1,6 @@
-import type { IpcMainInvokeEvent } from 'electron'
+import { app, type IpcMainInvokeEvent } from 'electron'
+import { randomBytes } from 'node:crypto'
+import { readDownloadsWallpaper } from './wallpaper-import'
 import { agentAppActionParameters } from './agent-app-action-inputs'
 import type { AgentAppDependencies, AppActor, AppOwnerAction } from './agent-app-service'
 import type { ChatGptRoutingPolicy } from '../../shared/onboarding/contracts'
@@ -36,6 +38,13 @@ export function createAgentAppActions(deps: Omit<AgentAppDependencies, 'actions'
     }
     const open = (label: string, route: string) => action(label, route, 'secure UI handoff; no credential or consent is supplied by the agent', async (_input, actor) => deps.open(route, actor))
     const actions: Record<string, AppOwnerAction> = {
+        'appearance.import_chat_wallpaper': action('Import one Downloads image as a conversation wallpaper', '/settings/app/appearance', 'copies the selected local raster image into the Desktop wallpaper library; does not apply it or return image bytes', async (input, actor) => {
+            if (!actor.approved || actor.child) throw Error('An approved Desktop import is required.')
+            const payload = await readDownloadsWallpaper(app.getPath('downloads'), input.filename)
+            const result = await deps.renderer({ domain:'settings_action', operation:'run', operationId:randomBytes(32).toString('hex'), actor, params:{area:'appearance.import_chat_wallpaper',input:payload} })
+            if (typeof result.asset !== 'string' || !/^[a-f0-9]{64}$/.test(result.asset)) throw Error('Wallpaper store did not confirm import.')
+            return {asset:result.asset, setting:'appearanceChatWallpaper', applied:false}
+        }),
         'providers.refresh': action('Refresh authenticated model catalog', '/settings/providers', 'read-only refresh', async () => assistant().listModels(true)),
         'providers.credentials': open('Enter or replace provider credentials securely', '/settings/providers'),
         'providers.git_credentials': open('Enter Git-writing service credentials securely', '/settings/providers/writing'),

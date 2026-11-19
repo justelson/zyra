@@ -174,7 +174,7 @@ export type AssistantRuntimeEvent =
             interactionMode: AssistantInteractionMode
             profile?: string
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast' | 'flex'
+            serviceTier?: 'fast' | 'ultrafast' | 'flex'
         }
     })
     | (AssistantRuntimeEventBase & {
@@ -184,7 +184,7 @@ export type AssistantRuntimeEvent =
             interruption?: AssistantInterruption
             errorMessage?: string
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast' | 'flex'
+            serviceTier?: 'fast' | 'ultrafast' | 'flex'
             usage?: AssistantTurnUsage | null
         }
     })

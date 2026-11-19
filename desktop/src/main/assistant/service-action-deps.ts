@@ -60,7 +60,7 @@ export interface AssistantRuntimeBridge {
             runtimeMode?: AssistantRuntimeMode
             interactionMode?: AssistantInteractionMode
             effort?: AssistantReasoningEffort
-            serviceTier?: 'fast'
+            serviceTier?: 'fast' | 'ultrafast'
             profile?: string
             startInNewWorktree?: boolean
             images?: PreparedAssistantPromptImage[]

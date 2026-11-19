@@ -291,6 +291,7 @@ export function normalizeZyraPluginState(value, options = {}) {
   }
   return {
     version: ZYRA_PLUGIN_STATE_VERSION,
+    ...(typeof input.pluginsEnabled === 'boolean' ? { pluginsEnabled: input.pluginsEnabled } : {}),
     revision: Math.max(1, Number(input.revision) || 1),
     sources,
     plugins,

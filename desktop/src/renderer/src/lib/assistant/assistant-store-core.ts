@@ -29,6 +29,7 @@ import { isAssistantToolLifecycleStartEvent } from '@shared/assistant/tool-lifec
 import { collapseAssistantDeltaEvents, isAssistantStreamingPresentationEvent } from './event-batching'
 import { assistantStreamPresentation } from './assistant-stream-presentation'
 import { AssistantHistoryReadJournal, canReplayAssistantHistoryRead, replayAssistantHistoryRead } from './assistant-history-live-read'
+import { applyAssistantLatestHistoryPage } from './assistant-latest-history'
 import { rendererVisibility } from '../renderer-visibility'
 import {
     cacheHydratedThreads,
@@ -127,6 +128,8 @@ export class AssistantStore {
     private readonly pendingHistoryLoads = new Map<string, Promise<boolean>>()
     private readonly pendingHistoryAnchors = new Map<string, Promise<boolean>>()
     private readonly historyReads = new AssistantHistoryReadJournal()
+    private readonly pendingLatestHistoryLoads = new Map<string, Promise<boolean>>()
+    private readonly historyNavigationRevisions = new Map<string, number>()
 
     subscribe = (listener: () => void) => {
         this.listeners.add(listener)
@@ -508,6 +511,58 @@ export class AssistantStore {
         return this.loadHistoryPage('newer', threadId, turnLimit)
     }
 
+    async loadLatestHistory(threadId: string): Promise<boolean> {
+        this.flushPendingAssistantEvents()
+        const pending = this.pendingLatestHistoryLoads.get(threadId)
+        if (pending) return pending
+        const history = this.state.historyByThreadId[threadId]
+        if (!history) return false
+        if (!history.pageInfo.hasNewer) return true
+        const navigation = (this.historyNavigationRevisions.get(threadId) || 0) + 1
+        this.historyNavigationRevisions.set(threadId, navigation)
+        this.pendingHistoryLoads.delete(threadId)
+        this.setState(current => ({ historyByThreadId: { ...current.historyByThreadId, [threadId]: { ...history, loadingOlder: false, loadingNewer: true, loadNewerError: null } } }))
+        const historyRead = this.historyReads.begin(threadId)
+        const promise = (async () => {
+            try {
+                // No forward cursor: one bounded read reaches the real tail,
+                // regardless of how many windows lie after the visible rows.
+                const result = await window.devscope.assistant.getHistoryPage({ threadId, turnLimit: 3 })
+                if (!result.success) throw new Error(result.error)
+                if (result.page.pageInfo.hasNewer) throw new Error('Latest messages are not available yet. Try again.')
+                this.flushPendingAssistantEvents()
+                if (this.historyNavigationRevisions.get(threadId) !== navigation) return false
+                this.setState(current => {
+                    const resident = current.historyByThreadId[threadId]
+                    if (!resident) return {}
+                    if (historyRead.overflow || (historyRead.events.length && !canReplayAssistantHistoryRead(historyRead, result.page))) {
+                        throw new Error('History changed while loading the latest messages. Try again.')
+                    }
+                    const page = replayAssistantHistoryRead(current.snapshot, result.page, historyRead, undefined, 'latest')
+                    const applied = applyAssistantLatestHistoryPage(current.snapshot, resident, page)
+                    return {
+                        snapshot: dematerializeAssistantHistories(applied.snapshot, getAssistantMaterializedThreadIds(applied.snapshot)),
+                        historyByThreadId: { ...current.historyByThreadId, [threadId]: applied.history }
+                    }
+                })
+                return true
+            } catch (error) {
+                if (this.historyNavigationRevisions.get(threadId) !== navigation) return false
+                const message = error instanceof Error ? error.message : 'Could not load latest messages.'
+                this.setState(current => {
+                    const resident = current.historyByThreadId[threadId]
+                    return resident ? { historyByThreadId: { ...current.historyByThreadId, [threadId]: { ...resident, loadingNewer: false, loadNewerError: message } } } : {}
+                })
+                return false
+            }
+        })().finally(() => {
+            this.historyReads.finish(historyRead)
+            if (this.pendingLatestHistoryLoads.get(threadId) === promise) this.pendingLatestHistoryLoads.delete(threadId)
+        })
+        this.pendingLatestHistoryLoads.set(threadId, promise)
+        return promise
+    }
+
     async loadHistoryAroundMessage(threadId: string, messageId: string): Promise<boolean> {
         const normalizedThreadId = String(threadId || '').trim()
         const normalizedMessageId = String(messageId || '').trim()
@@ -515,6 +570,9 @@ export class AssistantStore {
         const requestKey = `${normalizedThreadId}:${normalizedMessageId}`
         const existing = this.pendingHistoryAnchors.get(requestKey)
         if (existing) return existing
+        const navigation = (this.historyNavigationRevisions.get(normalizedThreadId) || 0) + 1
+        this.historyNavigationRevisions.set(normalizedThreadId, navigation)
+        this.pendingLatestHistoryLoads.delete(normalizedThreadId)
         const promise = (async () => {
             const targetSessionId = this.state.snapshot.sessions
                 .find((session) => session.threads.some((thread) => thread.id === normalizedThreadId))?.id || null
@@ -532,6 +590,7 @@ export class AssistantStore {
                         turnLimit: 4
                     })
                     if (!result.success) throw new Error(result.error)
+                    if (this.historyNavigationRevisions.get(normalizedThreadId) !== navigation) return false
                     let applied = false
                     this.setState((current) => {
                         const latest = current.historyByThreadId[normalizedThreadId]
@@ -553,11 +612,13 @@ export class AssistantStore {
                 // A route-triggered connection can begin one final detail hydration immediately
                 // after selection. Verify that it did not replace the anchor, and repair once if it did.
                 await new Promise((resolve) => window.setTimeout(resolve, 180))
+                if (this.historyNavigationRevisions.get(normalizedThreadId) !== navigation) return false
                 const anchoredHistory = this.state.historyByThreadId[normalizedThreadId]
                 const stillAnchored = Boolean(anchoredHistory?.messages.some((message) => message.id === normalizedMessageId)
                     || anchoredHistory?.activities.some((activity) => activity.kind === 'thread-message' && activity.id === normalizedMessageId))
                 return stillAnchored || await applyAnchor()
             } catch (error) {
+                if (this.historyNavigationRevisions.get(normalizedThreadId) !== navigation) return false
                 const message = formatAssistantHistoryLoadError(error)
                 this.setState((current) => {
                     const latest = current.historyByThreadId[normalizedThreadId]
@@ -576,7 +637,7 @@ export class AssistantStore {
                 return false
             }
         })().finally(() => {
-            this.pendingHistoryAnchors.delete(requestKey)
+            if (this.pendingHistoryAnchors.get(requestKey) === promise) this.pendingHistoryAnchors.delete(requestKey)
         })
         this.pendingHistoryAnchors.set(requestKey, promise)
         return promise
@@ -615,6 +676,7 @@ export class AssistantStore {
 
         const historyRead = this.historyReads.begin(targetThreadId)
         const requestedRevision = currentHistory.shellRevision
+        const requestedNavigation = this.historyNavigationRevisions.get(targetThreadId) || 0
         const requestedTurnLimit = Math.max(1, Math.min(3, Math.floor(turnLimit || 1)))
         this.setState((current) => ({
             historyByThreadId: {
@@ -628,9 +690,14 @@ export class AssistantStore {
                 }
             }
         }))
-        const promise = (async () => {
+        let promise!: Promise<boolean>
+        promise = (async () => {
+            // Install the request owner before invoking a preload method that
+            // can throw synchronously; otherwise its finally runs too early.
+            await Promise.resolve()
             let revisionChanged = false
             try {
+                if ((this.historyNavigationRevisions.get(targetThreadId) || 0) !== requestedNavigation) return false
                 const result = await window.devscope.assistant.getHistoryPage({
                     threadId: targetThreadId,
                     ...(direction === 'older' ? { before: requestedCursor } : { after: requestedCursor }),
@@ -638,6 +705,7 @@ export class AssistantStore {
                 })
                 if (!result.success) throw new Error(result.error)
                 this.flushPendingAssistantEvents()
+                if ((this.historyNavigationRevisions.get(targetThreadId) || 0) !== requestedNavigation) return false
                 this.setState((current) => {
                     const latest = current.historyByThreadId[targetThreadId]
                     const latestCursor = direction === 'older'
@@ -673,6 +741,7 @@ export class AssistantStore {
                     }
                 })
             } catch (error) {
+                if ((this.historyNavigationRevisions.get(targetThreadId) || 0) !== requestedNavigation) return false
                 const message = formatAssistantHistoryLoadError(error)
                 this.setState((current) => {
                     const latest = current.historyByThreadId[targetThreadId]
@@ -692,7 +761,7 @@ export class AssistantStore {
                 })
             } finally {
                 this.historyReads.finish(historyRead)
-                this.pendingHistoryLoads.delete(targetThreadId)
+                if (this.pendingHistoryLoads.get(targetThreadId) === promise) this.pendingHistoryLoads.delete(targetThreadId)
             }
             if (revisionChanged) {
                 const latestSelectedThreadId = this.state.snapshot.sessions
@@ -976,7 +1045,8 @@ export class AssistantStore {
             .find((session) => session.id === this.state.snapshot.selectedSessionId) || null
         const threadId = selectedSession?.activeThreadId || null
         if (selectedSession && threadId && this.state.historyByThreadId[threadId]?.pageInfo.hasNewer) {
-            await this.requestSessionHydration(selectedSession.id, threadId, 0, true, true)
+            if (!await this.loadLatestHistory(threadId)) return { success: false as const, error: 'Could not load latest messages. Your message is preserved.' }
+            if (this.state.snapshot.selectedSessionId !== selectedSession.id) return { success: false as const, error: 'Chat changed before submission. Your message is preserved.' }
         }
         const result = await this.runAction(() => canSubmit()
             ? window.devscope.assistant.sendPrompt(prompt, options)
@@ -1393,12 +1463,14 @@ export class AssistantStore {
         const requestedRevision = currentThread ? getAssistantThreadHydrationRevision(currentThread) : null
         this.flushPendingAssistantEvents()
         const historyRead = this.historyReads.begin(threadId)
+        const requestedNavigation = this.historyNavigationRevisions.get(threadId) || 0
         let request!: Promise<void>
         request = (async () => {
             let revisionChanged = false
             this.setState({ selectionHydrationKey: hydrationKey })
             try {
                 const result = await window.devscope.assistant.getThreadDetailBootstrap(threadId)
+                if ((this.historyNavigationRevisions.get(threadId) || 0) !== requestedNavigation) return
                 if (!result.success) {
                     const latestThread = this.state.snapshot.sessions
                         .flatMap((session) => session.threads)
@@ -1454,6 +1526,7 @@ export class AssistantStore {
                     }
                 })
             } catch (error) {
+                if ((this.historyNavigationRevisions.get(threadId) || 0) !== requestedNavigation) return
                 const latestThread = this.state.snapshot.sessions
                     .flatMap((session) => session.threads)
                     .find((thread) => thread.id === threadId) || null

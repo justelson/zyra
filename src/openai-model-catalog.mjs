@@ -12,7 +12,7 @@ const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'm
 const TTL_MS = 15 * 60_000;
 const REFRESH_TIMEOUT_MS = 25_000;
 // Protocol compatibility version for OpenAI's models manifest, not a model list.
-const CLIENT_VERSION = '0.159.0';
+const CLIENT_VERSION = '0.169.0';
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function tokenIdentity(token) {
@@ -51,6 +51,13 @@ export function resolveOpenAITransportCompat(provider, model, existing) {
   return Object.keys(compat).length ? compat : undefined;
 }
 
+function advertisedServiceTiers(model) {
+  const entries = Array.isArray(model.service_tiers) ? model.service_tiers : model.additional_speed_tiers;
+  if (!Array.isArray(entries)) return [];
+  const ids = entries.map(entry => typeof entry === 'string' ? entry : entry?.id);
+  return [...new Set(ids.map(id => id === 'priority' ? 'fast' : id).filter(id => id === 'fast' || id === 'ultrafast'))];
+}
+
 const hasRetired = (date, now) => typeof date === 'string' && Number.isFinite(Date.parse(date)) && Date.parse(date) <= now;
 
 export function normalizeOpenAIManifest(body, provider, now = Date.now()) {
@@ -74,6 +81,7 @@ export function normalizeOpenAIManifest(body, provider, now = Date.now()) {
       effective_context_window_percent: tokens(model.effective_context_window_percent),
       description: typeof model.description === 'string' ? model.description : provider,
       supportedEfforts: efforts,
+      ...(provider === 'openai-codex' ? { serviceTiers: advertisedServiceTiers(model) } : {}),
       inputModes: Array.isArray(model.input_modalities) ? model.input_modalities.filter(mode => ['text', 'image'].includes(mode)) : ['text', 'image'],
       contextWindow: Number(model.context_window) > 0 ? Number(model.context_window) : null,
       maxTokens: Number(model.max_output_tokens) > 0 ? Number(model.max_output_tokens) : 4096,
@@ -159,8 +167,9 @@ async function readOrRefreshCatalog(options, cacheFailure) {
     try { cached = JSON.parse(await readFile(file, 'utf8')); } catch { /* Missing/corrupt cache is rediscovered. */ }
     const valid = cached?.version === 1 && cached.fingerprint === identity.fingerprint && Array.isArray(cached.models)
       && cached.models.every(model => typeof model?.id === 'string' && Array.isArray(model.supportedEfforts) && Array.isArray(model.inputModes));
+    const currentCapabilities = valid && (provider !== 'openai-codex' || cached.models.every(model => Array.isArray(model.serviceTiers)));
     if (cacheFailure && !valid) throw cacheFailure;
-    if (options.cacheOnly || offline || (valid && !options.forceRefresh && Date.now() - cached.updatedAt < TTL_MS)) {
+    if (options.cacheOnly || offline || (currentCapabilities && !options.forceRefresh && Date.now() - cached.updatedAt < TTL_MS)) {
       catalog.set(provider, valid ? cached.models : []);
       return;
     }

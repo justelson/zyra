@@ -1,6 +1,7 @@
+import { AssistantPermissionQuestion } from './AssistantPermissionQuestion'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppBridge } from '@modelcontextprotocol/ext-apps/app-bridge'
-import { ArrowUpRight, LoaderCircle, PanelTopClose, PanelTopOpen } from 'lucide-react'
+import { LoaderCircle, PanelTopClose, PanelTopOpen } from 'lucide-react'
 import { isElectronRendererRuntime } from '@/lib/browser-file-url'
 import { pluginAppViewIdentity, type PluginAppViewDescriptor } from './plugin-app-view-state'
 
@@ -9,11 +10,10 @@ type LoadedView = { html: string; csp: { connectDomains: string[]; resourceDomai
 /** Shared with the isolated permission review; decisions still belong to the view bridge. */
 export function PluginAppActionApproval({ server, tool, args, onChoose }: { server: string; tool: string; args: Record<string, unknown>; onChoose: (approved: boolean) => void }) {
     return <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-bg)_88%,transparent)] p-3">
-        <div className="max-w-md rounded-md border border-[var(--surface-divider)] bg-[var(--color-card)] p-3 text-xs shadow-lg" role="dialog" aria-modal="true" aria-label="Approve app view action">
-            <p className="font-medium">Allow {server} to run {tool}?</p>
-            <p className="mt-1 text-sparkle-text-muted">This action comes from the Plugin view.</p>
-            <pre className="mt-2 max-h-24 overflow-auto break-all text-[10px] text-sparkle-text-secondary">{JSON.stringify(args).slice(0, 800)}</pre>
-            <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-md border border-[var(--surface-divider)] px-3 py-1.5" onClick={() => onChoose(false)}>Cancel</button><button type="button" className="inline-flex items-center gap-1 rounded-md bg-[var(--color-text)] px-3 py-1.5 text-[var(--color-bg)]" onClick={() => onChoose(true)}><ArrowUpRight size={13} />Allow once</button></div>
+        <div role="dialog" aria-modal="true" aria-label="Approve app view action" className="w-full max-w-md">
+            <AssistantPermissionQuestion title={`Allow ${server} to run ${tool}?`} details={JSON.stringify(args, null, 2)}
+                choices={[{ label: 'Deny', description: 'Cancel this plugin action.' }, { label: 'Allow once', description: `Run ${tool} with these arguments.` }]}
+                onAnswer={label => onChoose(label === 'Allow once')} />
         </div>
     </div>
 }

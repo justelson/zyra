@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve, basename } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import electronPath from 'electron'
+import { mediaScrollVideos } from './fixtures/media-scroll-videos.mjs'
 import { SYNTHETIC_VIDEO_BASE64 } from './fixtures/assistant-video-paste-data.mjs'
 
 const startupReadiness = process.argv.includes('--startup-readiness')
@@ -60,7 +61,10 @@ try {
     const source = (await readFile(join(desktop, 'src/renderer/src/index.css'), 'utf8')).replace(/^@import[^\n]+\n/gm, '')
     const css = await postcss([tailwind({ ...tailwindConfig, content: process.argv.includes('--tool-disclosure') ? [join(desktop, 'src/renderer/src/pages/assistant/assistant-action-row-layout.ts'), join(desktop, 'src/renderer/src/pages/assistant/PluginToolCallCard.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantTimeline*.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantVirtualTimeline.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantActionBatchScroll.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantInlineDiffStats.tsx'), join(desktop, 'src/renderer/src/components/ui/AnimatedHeight.tsx')] : settledWindow ? [join(desktop, 'src/renderer/src/pages/assistant/AssistantAgentInboxSidebar.tsx'), join(desktop, 'scripts/fixtures/sidebar-settled-window.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantSessionTitleText.tsx')] : workContext || rowHoverActions ? [join(desktop, 'src/renderer/src/pages/assistant/AssistantAgentInboxSidebar.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantWorkContextIcon.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantProjectIcon.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantSessionTitleText.tsx'), join(desktop, 'src/renderer/src/pages/assistant/Assistant*PresenceIndicator.tsx'), join(desktop, 'src/renderer/src/components/ui/ProjectIcon.tsx'), join(desktop, 'src/renderer/src/components/ui/FileActionsMenu.tsx'), join(desktop, 'src/renderer/src/pages/settings/SettingsProviderIcon.tsx')] : toolMedia || videoPaste ? [join(desktop, 'src/renderer/src/pages/assistant/AssistantAttachment*.tsx'), join(desktop, 'scripts/fixtures/assistant-video-paste.tsx'), join(desktop, 'src/renderer/src/components/ui/file-preview/**/*.{ts,tsx}'), join(desktop, 'src/renderer/src/components/ui/FilePreviewModal.tsx'), join(desktop, 'src/renderer/src/components/ui/FileEntryIcon.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantTimeline*.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantReadFilePreview.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantActionBatchScroll.tsx'), join(desktop, 'src/renderer/src/pages/assistant/assistant-action-row-layout.ts'), join(desktop, 'scripts/fixtures/assistant-read-media.tsx')] : userInputForm ? [join(desktop, 'src/renderer/src/pages/assistant/AssistantPendingUserInput*.tsx'), join(desktop, 'src/renderer/src/pages/assistant/*Composer*.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantAsyncQuestionCard.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantQuestionPicker.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantQuestionDatePicker.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantQuestionTransition.tsx'), join(desktop, 'src/renderer/src/components/ui/AnchoredMenuPopover.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantVoiceRecorderBar.tsx'), join(desktop, 'src/renderer/src/pages/assistant/ComposerSendButton.tsx'), join(desktop, 'src/renderer/src/pages/assistant/AssistantAttachmentCards.tsx')] : voiceRecorderInput ? [join(desktop, 'src/renderer/src/pages/assistant/AssistantVoiceRecorderBar.tsx'), join(desktop, 'src/renderer/src/pages/assistant/assistant-composer-focus.ts'), join(desktop, 'scripts/fixtures/voice-recorder-input.tsx')] : [join(desktop, 'src/renderer/**/*.{ts,tsx}'), join(desktop, 'scripts/fixtures/*.tsx')] })]).process(source, { from: undefined })
     const html = join(directory, 'index.html')
-    if (videoPaste) await writeFile(join(directory, 'synthetic-video.mp4'), Buffer.from(SYNTHETIC_VIDEO_BASE64, 'base64'))
+    if (videoPaste) {
+        await writeFile(join(directory, 'synthetic-video.mp4'), Buffer.from(SYNTHETIC_VIDEO_BASE64, 'base64'))
+        await writeFile(join(directory, 'browser-capture.webm'), Buffer.from(mediaScrollVideos.short, 'base64'))
+    }
     if (toolMedia) await writeFile(join(directory, 'canonical-capture.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="288"><rect width="512" height="288" fill="#245ba0"/><text x="30" y="150" font-size="40" fill="white">Canonical captured image</text></svg>')
     await writeFile(join(directory, 'fixture.js'), bundle.outputFiles[0].text)
     await writeFile(html, `<!doctype html><html><head><meta charset="utf-8"><style>${css.css}
@@ -71,14 +75,18 @@ try {
     const harness = join(directory, 'run.cjs')
     await writeFile(harness, `const {app,BrowserWindow}=require('electron');
         app.setPath('userData',${JSON.stringify(join(directory, 'profile'))});
-        const timeout=setTimeout(()=>{console.error('Sidebar check timed out');app.exit(1)},30000);
+        const started=Date.now(); let checkpoint='Electron startup';
+        const timeout=setTimeout(()=>{console.error('Sidebar check timed out after '+(Date.now()-started)+'ms. Last checkpoint: '+checkpoint);app.exit(1)},30000);
         app.whenReady().then(async()=>{const window=new BrowserWindow({show:false,width:${Number(process.env.ZYRA_QA_WIDTH) || 1000},height:800,webPreferences:{backgroundThrottling:false,offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false}});
         window.webContents.setZoomFactor(${Number(process.env.ZYRA_QA_ZOOM) || 1});
         window.webContents.on('console-message',(event,level,message)=>{if(level>=2)console.error(message)});
         await window.loadFile(${JSON.stringify(html)},${JSON.stringify(process.argv.includes('--settlement-navigation') ? { query: { settlementNavigation: '1' } } : process.argv.includes('--chat-order') ? { query: { chatOrder: '1' } } : process.argv.includes('--thread-messages') ? { query: { threadMessages: '1' } } : process.argv.includes('--unread-completion') ? { query: { unreadCompletion: '1' } } : process.argv.includes('--agent-colors') ? { query: { agentColors: '1' } } : process.argv.includes('--row-hover-actions') ? { query: { rowHoverActions: '1' } } : process.argv.includes('--voice-recorder-input') ? { query: { voiceRecorderInput: '1' } } : process.argv.includes('--conversation-markers') ? { query: { conversationMarkers: '1' } } : {})});
+        checkpoint='Fixture loaded at '+(Date.now()-started)+'ms';
         let debuggerDocument=null;
         let pointerDown=false;
         let pumping=true;const pointerPump=(async()=>{while(pumping){
+            const progress=await window.webContents.executeJavaScript('document.documentElement.dataset.sidebarCheckpoint');
+            if(progress)checkpoint=progress;
             const request=await window.webContents.executeJavaScript('window.sidebarPointerRequest && !window.sidebarPointerRequest.done ? {x:window.sidebarPointerRequest.x,y:window.sidebarPointerRequest.y,click:window.sidebarPointerRequest.click,eventType:window.sidebarPointerRequest.eventType,keyCode:window.sidebarPointerRequest.keyCode,focusSelector:window.sidebarPointerRequest.focusSelector,pseudoClass:window.sidebarPointerRequest.pseudoClass,enabled:window.sidebarPointerRequest.enabled} : null');
             if(request){
                 if(request.focusSelector){if(!window.webContents.debugger.isAttached()){window.webContents.debugger.attach('1.3');await window.webContents.debugger.sendCommand('DOM.enable');await window.webContents.debugger.sendCommand('CSS.enable')}

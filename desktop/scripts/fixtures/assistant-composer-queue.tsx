@@ -148,11 +148,15 @@ Object.assign(window, { runComposerQueueChecks: async () => {
 
     reset(); mount(true)
     updateState({ compacting: true }); await sleep()
-    await actions.handleSendPrompt('wait for compaction', [], { ...options, dispatchMode: 'steer' })
+    await actions.handleSendPrompt('wait for compaction', [], options)
     await until(() => actions.queuedComposerMessageCount === 1, 'compaction queued')
     check(sent.length === 0 && saved().entries.chat[0].options.dispatchMode === 'queue', 'compaction forces durable ordinary queue')
+    await actions.handleSendPrompt('steer during compaction', [], { ...options, dispatchMode: 'steer' })
+    await until(() => sent.length === 1 && actions.queuedComposerMessageCount === 1, 'steer admitted while compacting')
+    check(sent[0].options.dispatchMode === 'steer' && sent[0].options.queueEntryId?.startsWith('compaction-steer-'), 'compaction steer retains its delivery identity')
     updateState({ compacting: false }); ready()
-    await until(() => sent.length === 1, 'compaction completion dispatch')
+    await until(() => sent.length === 2, 'compaction completion dispatch')
+    check(sent[1].prompt === 'wait for compaction', 'ordinary queue drains exactly once')
     results.push('compaction retains queued prompt without abort or premature steer')
 
     reset(); mount(true)

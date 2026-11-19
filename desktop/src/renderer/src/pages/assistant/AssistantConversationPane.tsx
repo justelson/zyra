@@ -2,6 +2,7 @@ import { assistantStore } from '@/lib/assistant/assistant-store-core'
 import { waitForAssistantStopConfirmation } from './assistant-stop-confirmation'
 import { createPendingAssistantUserMessage, isPendingAssistantUserMessage, useAssistantPendingMessages } from './useAssistantPendingMessages'
 import { withExtensionTabContext } from '@/lib/browser-extension'
+import { useAssistantTimelineLatestNavigation } from './useAssistantTimelineLatestNavigation'
 import { normalizeSpeakingStyle } from '@shared/assistant/speaking-style'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AssistantApprovalDecision, AssistantChatScopeRoot, AssistantMessage, AssistantProject, AssistantProposedPlan, AssistantSession, AssistantVoiceExecutionConfiguration } from '@shared/assistant/contracts'
@@ -33,7 +34,7 @@ import { ASSISTANT_USER_INPUT_CONTEXT_HEADING, formatAssistantUserInputContinuat
 import { clearAssistantComposerSessionState } from './assistant-composer-session-state'
 import { projectVoiceLiveTimelineMessages } from './assistant-voice-live-timeline'
 import { resolveAssistantComposerLaunchConfiguration } from './assistant-new-chat-composer-config'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, resolveComposerSpeed } from './assistant-model-groups'
 import { AssistantCanonicalVoiceDock } from './AssistantCanonicalVoiceDock'
 import { VoiceHandoffDialog } from './VoiceHandoffDialog'
 import { AssistantChatOnboardingOverlay } from './AssistantChatOnboardingOverlay'
@@ -506,6 +507,12 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         latestTurnState: controller.activeThread?.latestTurn?.state || null,
         threadState: controller.activeThread?.state || null
     })
+    const followTimelineEnd = useCallback((animated: boolean) => {
+        showScrollToBottomRef.current = false
+        setShowScrollToBottom(false)
+        onScrollToBottom(animated)
+    }, [onScrollToBottom])
+    const latestNavigation = useAssistantTimelineLatestNavigation({ threadId: activeThreadId || null, hasNewer: controller.history?.pageInfo.hasNewer === true, scrollRef: timelineScrollRef, loadLatestHistory: actions.loadLatestHistory, onFollowEnd: followTimelineEnd, loadError: controller.history?.loadNewerError })
     const isLoadingSelectedChat = Boolean(
         !newChatHandoffActive
         && !selectedSessionUsesNewChatSurface
@@ -577,15 +584,17 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
     const syncScrollButtonVisibility = useCallback((element: HTMLDivElement) => {
         const distanceFromBottom = getDistanceFromBottom(element)
-        const shouldShowButton = showScrollToBottomRef.current
+        const hasNewer = controller.history?.pageInfo.hasNewer === true
+        latestNavigation.measure(element)
+        const shouldShowButton = hasNewer || (showScrollToBottomRef.current
             ? distanceFromBottom > TIMELINE_HIDE_SCROLL_BUTTON_THRESHOLD_PX
-            : distanceFromBottom > TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX
+            : distanceFromBottom > TIMELINE_SHOW_SCROLL_BUTTON_THRESHOLD_PX)
 
         if (showScrollToBottomRef.current !== shouldShowButton) {
             showScrollToBottomRef.current = shouldShowButton
             setShowScrollToBottom(shouldShowButton)
         }
-    }, [getDistanceFromBottom])
+    }, [getDistanceFromBottom, controller.history?.pageInfo.hasNewer, latestNavigation.measure])
 
     const handleTimelineScrollEvent = useCallback((element: HTMLDivElement) => {
         onScrollTimeline(element)
@@ -765,11 +774,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         return () => window.clearTimeout(timeoutId)
     }, [implementationToastVisible])
 
-    const handleScrollToBottomClick = useCallback(() => {
-        showScrollToBottomRef.current = false
-        setShowScrollToBottom(false)
-        onScrollToBottom()
-    }, [onScrollToBottom])
+    const handleScrollToBottomClick = latestNavigation.onNavigate
 
     const handleComposerOverflowWheel = useCallback((deltaY: number) => {
         if (deltaY === 0) return
@@ -793,7 +798,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         setRespondingUserInputRequestId(requestId)
         try {
             const question = controller.pendingUserInputs.find(input => input.requestId === requestId)
-            if (question?.mode === 'async') {
+            if (question?.mode === 'async' && !requestId.startsWith('permission:')) {
                 const queue = asyncAnswerQueueRef.current
                 if (!queue) throw new Error('The answer queue is not ready. Your answer stays here.')
                 const wasHeld = queue.held
@@ -1016,6 +1021,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
 
         setInteractionModeOverride('default')
         setImplementationToastVisible(true)
+        const lastTier = controller.activeThread?.latestTurn?.serviceTier
+        const modelInfo = controller.knownModels.find(model => model.id === controller.activeThread?.model)
         await actions.sendPromptResult(
             `Implement the approved plan below. Do not re-plan unless you hit a real blocking contradiction. Start executing now.\n\n<approved_plan>\n${planMarkdown}\n</approved_plan>`,
             {
@@ -1024,7 +1031,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                 runtimeMode: controller.activeThread?.runtimeMode || 'approval-required',
                 interactionMode: 'default',
                 effort: controller.activeThread?.latestTurn?.effort || undefined,
-                serviceTier: controller.activeThread?.latestTurn?.serviceTier === 'fast' && supportsAssistantFastMode(controller.activeThread?.model || '') ? 'fast' : undefined,
+                serviceTier: composerServiceTier(resolveComposerSpeed(modelInfo, lastTier === 'ultrafast' ? lastTier : lastTier === 'fast')),
                 profile: activeRuntimeZyraProfile
             }
         )
@@ -1032,6 +1039,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
         actions,
         controller.activeThread?.latestTurn?.effort,
         controller.activeThread?.latestTurn?.serviceTier,
+        controller.knownModels,
         controller.activeThread?.model,
         controller.activeThread?.runtimeMode,
         activeRuntimeZyraProfile,
@@ -1452,6 +1460,8 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onLoadOlder={handleLoadOlderHistory}
                             onLoadNewer={handleLoadNewerHistory}
                             showScrollToBottom={showScrollToBottom}
+                            scrollToBottomLabel={latestNavigation.label}
+                            scrollToBottomPending={latestNavigation.pending}
                             elevateScrollToBottom={bottomComposerOverlayActive}
                             onScrollTimeline={handleTimelineScrollEvent}
                             onScrollToBottom={handleScrollToBottomClick}
@@ -1465,7 +1475,7 @@ export function AssistantConversationPane(props: AssistantConversationPaneProps)
                             onViewDiff={props.onViewDiff}
                         />
                     ) : null}
-                    {voiceVisible && !hasPendingControlApproval ? (
+                    {voiceVisible && !hasPendingControlApproval && !effectivePendingUserInputs.length ? (
                         <AssistantCanonicalVoiceDock
                             voice={voice}
                             preferences={voicePreferences}

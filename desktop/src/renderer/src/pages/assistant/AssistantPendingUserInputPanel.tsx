@@ -56,6 +56,7 @@ import {
 } from './assistant-pending-user-input-drafts'
 
 export const AssistantPendingUserInputPanel = memo(function AssistantPendingUserInputPanel(props: {
+    titleActions?: React.ReactNode
     pendingUserInputs: AssistantPendingUserInput[]
     responding: boolean
     onRespond: (
@@ -620,7 +621,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
         allowEmptySubmit: false,
         hasContent: canAdvance,
         controlsLocked: true,
-        attachmentsLocked: false,
+        attachmentsLocked: Boolean(activePrompt?.requestId.startsWith('permission:')),
         isResponding: responding,
         isReviewStep,
     })
@@ -755,6 +756,7 @@ export const AssistantPendingUserInputPanel = memo(function AssistantPendingUser
             >
                 <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 -mb-[17px]" data-question-shelf>
                     <AssistantPendingUserInputStage
+                        titleActions={props.titleActions}
                         questionShellOpen={questionShellOpen}
                         questionShellMinimized={questionShellMinimized}
                         motionKey={animatedStageKey}

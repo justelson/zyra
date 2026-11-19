@@ -29,6 +29,7 @@ const fixturePlugin = {
         context.onResolve({ filter: /FilePreviewModal$/ }, () => ({ path: 'file-preview-modal', namespace: 'sync-fixture' }))
         context.onResolve({ filter: /file-preview\/useFilePreview$/ }, () => ({ path: 'use-file-preview', namespace: 'sync-fixture' }))
         context.onResolve({ filter: /AssistantInspectorDeveloperToast$/ }, () => ({ path: 'developer-toast', namespace: 'sync-fixture' }))
+        context.onResolve({ filter: /^@\/lib\/settings$/ }, () => ({ path: 'tab-settings', namespace: 'sync-fixture' }))
         context.onResolve({ filter: /AccessoryHeaderContext$/ }, () => ({ path: 'header-context', namespace: 'sync-fixture' }))
         context.onResolve({ filter: /IncognitoIcon$/ }, () => ({ path: 'incognito-icon', namespace: 'sync-fixture' }))
         context.onResolve({ filter: /AssistantBrowserPageIcon$/ }, () => ({ path: 'page-icon', namespace: 'sync-fixture' }))
@@ -43,6 +44,7 @@ const fixturePlugin = {
             if (args.path === 'file-preview-modal') return { loader: 'tsx', contents: 'export default function FilePreviewModal(){ return null }' }
             if (args.path === 'use-file-preview') return { loader: 'tsx', contents: `export function useFilePreview(){ const noop=()=>undefined; return { previewFile:null, previewTabs:[], activePreviewTabId:null, previewContent:'', loadingPreview:false, previewTruncated:false, previewSize:0, previewBytes:0, previewModifiedAt:null, previewMediaItems:[], openPreview:async()=>undefined, openPreviewInNewTab:async()=>undefined, setActivePreviewTab:noop, closePreviewTab:noop, reorderPreviewTabs:noop, closePreview:noop } }` }
             if (args.path === 'developer-toast') return { loader: 'tsx', contents: `export function useAssistantInspectorDeveloperToast(){ return { developerToast:null, showDeveloperToast:()=>undefined, dismissDeveloperToast:()=>undefined } } export function AssistantInspectorDeveloperToast(){ return null }` }
+            if (args.path === 'tab-settings') return { loader: 'tsx', resolveDir: desktop, contents: `import { useState } from 'react'; export function useSettings(){ const [vertical, setVertical] = useState(false); window.fixtureSetTabOrientation = setVertical; return { settings: { assistantBrowserVerticalTabs: vertical } } }` }
             if (args.path === 'header-context') return { loader: 'tsx', resolveDir: desktop, contents: `import { createPortal } from 'react-dom'; export function AccessoryHeaderPortal({children}){ return createPortal(children, document.getElementById('fixture-header-slot')) }` }
             return { loader: 'tsx', contents: 'export function IncognitoIcon(){ return null } export function AssistantBrowserPageIcon(){ return null }' }
         })

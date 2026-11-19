@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createChatSettlementMenuItem } from '../src/renderer/src/pages/assistant/assistant-chat-actions-menu'
 import {
     deriveAssistantRuntimeStatus,
     type AssistantStoreState

@@ -67,6 +67,7 @@ export function AccessoryBrowser({
     const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
     const preview = useFilePreview()
     const { settings } = useSettings()
+    const vertical = settings.assistantBrowserVerticalTabs
     const { developerToast, showDeveloperToast, dismissDeveloperToast } = useAssistantInspectorDeveloperToast()
     const handledRequest = useRef<string | null>(null)
     const [navigationRequest, setNavigationRequest] = useState<{ id: string; tabId: string; url: string; sessionMode: BrowserSessionMode } | null>(null)
@@ -87,7 +88,9 @@ export function AccessoryBrowser({
                 tabId: element.dataset.accessoryBrowserTabId || '',
                 index,
                 left: window.screenX + tabRect.left,
-                right: window.screenX + tabRect.right
+                right: window.screenX + tabRect.right,
+                top: window.screenY + tabRect.top,
+                bottom: window.screenY + tabRect.bottom
             }
         }).filter((slot) => slot.tabId)
         void window.devscope.accessories.registerBrowserDropZone({
@@ -98,9 +101,9 @@ export function AccessoryBrowser({
                 width: rect.width,
                 height: rect.height
             },
-            tabSlots
+            vertical, tabSlots
         })
-    }, [initialized, workspaceId])
+    }, [initialized, workspaceId, vertical])
 
     useLayoutEffect(() => {
         if (!initialized) return
@@ -133,7 +136,7 @@ export function AccessoryBrowser({
             window.removeEventListener('resize', measure)
             void window.devscope.accessories.registerBrowserDropZone(null)
         }
-    }, [initialized, publishDropZone, workspaceState.tabs])
+    }, [initialized, publishDropZone, workspaceState.tabs, vertical])
 
     const clearDragPresentation = useCallback(() => {
         setDraggingTabId(null)
@@ -303,33 +306,33 @@ export function AccessoryBrowser({
             const activeTab = [...strip.querySelectorAll<HTMLElement>('[data-accessory-browser-tab-id]')]
                 .find((element) => element.dataset.accessoryBrowserTabId === workspaceState.activeTabId)
             if (!activeTab) return
+            if (vertical) { activeTab.scrollIntoView({ block: 'nearest' }); return }
             const left = activeTab.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft
             const right = left + activeTab.offsetWidth
             if (left < strip.scrollLeft) strip.scrollLeft = left
             else if (right > strip.scrollLeft + strip.clientWidth - 32) strip.scrollLeft = right - strip.clientWidth + 32
         })
         return () => window.cancelAnimationFrame(frame)
-    }, [workspaceState.activeTabId, workspaceState.tabs.length, tabWidth])
+    }, [workspaceState.activeTabId, workspaceState.tabs.length, tabWidth, vertical])
 
     if (!rootPath || !initialized) {
         return <div className="flex min-h-0 flex-1 items-center justify-center bg-sparkle-bg"><LoaderCircle size={18} className="animate-spin text-[var(--accent-primary)]/75" /></div>
     }
 
     const tabStrip = (
-        <AccessoryHeaderPortal>
-            <div ref={tabStripRef} role="tablist" aria-label="Browser tabs" style={{ WebkitAppRegion: 'drag' } as CSSProperties} onWheel={(event) => {
+            <div ref={tabStripRef} aria-orientation={vertical ? "vertical" : "horizontal"} role="tablist" aria-label="Browser tabs" style={{ WebkitAppRegion: vertical ? 'no-drag' : 'drag' } as CSSProperties} onWheel={(event) => {
                 const strip = event.currentTarget
                 if (strip.scrollWidth <= strip.clientWidth) return
                 const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
                 if (!delta) return
                 event.preventDefault()
                 strip.scrollLeft += delta
-            }} className="no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain px-1">
+            }} className={vertical ? "custom-scrollbar flex w-[clamp(112px,18vw,200px)] shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--surface-divider)] bg-[var(--surface-topbar)] p-1.5" : "no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain px-1"}>
                 {workspaceState.tabs.map((tab) => {
                     const selected = tab.id === displayedActiveTabId
                     const moving = tab.id === draggingTabId
                     return (
-                        <div key={tab.id} data-accessory-browser-tab-id={tab.id} style={{ WebkitAppRegion: 'no-drag', width: tabWidth } as CSSProperties} onPointerDown={(event) => startTabDrag(event, tab.id)} onClick={() => {
+                        <div key={tab.id} data-accessory-browser-tab-id={tab.id} style={{ WebkitAppRegion: 'no-drag', width: vertical ? "100%" : tabWidth } as CSSProperties} onPointerDown={(event) => startTabDrag(event, tab.id)} onClick={() => {
                             if (suppressClickRef.current === tab.id) { suppressClickRef.current = null; return }
                             setSelectedTabId(tab.id)
                             controller?.activateTab(tab.id)
@@ -358,12 +361,11 @@ export function AccessoryBrowser({
                     if (tabId) setSelectedTabId(tabId)
                 }} className={cn('sticky right-0 z-20 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-topbar)] text-sparkle-text-muted hover:bg-[var(--surface-hover)] hover:text-sparkle-text', tabRailOverflow && 'before:pointer-events-none before:absolute before:inset-y-0 before:-left-5 before:w-5 before:bg-gradient-to-r before:from-transparent before:to-[var(--surface-topbar)]')}><Plus size={13} /></button>
             </div>
-        </AccessoryHeaderPortal>
     )
 
     return (
-        <div className="accessory-browser-workspace flex min-h-0 flex-1 flex-col overflow-hidden bg-sparkle-bg">
-            {tabStrip}
+        <div className={cn("accessory-browser-workspace flex min-h-0 flex-1 overflow-hidden bg-sparkle-bg", vertical ? "flex-row" : "flex-col")}>
+            {vertical ? tabStrip : <AccessoryHeaderPortal>{tabStrip}</AccessoryHeaderPortal>}
             <AssistantBrowserWorkspace
                 workspaceKey={`accessory:${workspaceId}`}
                 threadId={`accessory:${workspaceId}`}

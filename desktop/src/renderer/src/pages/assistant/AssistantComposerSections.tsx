@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { useComposerDrawerMotion } from './useComposerDrawerMotion'
 import { reasoningChoiceLabel } from '@shared/assistant/reasoning-efforts'
 import { AssistantQuestionTransition as ComposerControlsTransition } from './AssistantQuestionTransition'
@@ -60,7 +61,7 @@ const ASSISTANT_ACCESS_OPTIONS: Array<{
     { mode: 'approval-required', label: 'Supervised', shortLabel: 'Supervised', pillWidth: '104px', description: 'Ask before commands, edits, and control.', pillClass: 'border-emerald-400/35 bg-emerald-500/[0.13] text-emerald-100 hover:bg-emerald-500/[0.18]', accentClass: 'text-emerald-300', selectedMenuClass: 'bg-emerald-500/[0.09]', icon: Lock },
     { mode: 'auto-review', label: 'Auto review', shortLabel: 'Auto', pillWidth: '68px', description: 'Review automatically; ask when risk is unclear.', pillClass: 'border-sky-400/35 bg-sky-500/[0.13] text-sky-100 hover:bg-sky-500/[0.18]', accentClass: 'text-sky-300', selectedMenuClass: 'bg-sky-500/[0.09]', icon: ShieldCheck },
     { mode: 'edits-only', label: 'Edits only', shortLabel: 'Edits', pillWidth: '72px', description: 'Allow project edits; ask for commands and control.', pillClass: 'border-amber-400/35 bg-amber-500/[0.13] text-amber-100 hover:bg-amber-500/[0.18]', accentClass: 'text-amber-300', selectedMenuClass: 'bg-amber-500/[0.09]', icon: FilePenLine },
-    { mode: 'full-access', label: 'Full access', shortLabel: 'Full', pillWidth: '64px', description: 'Run tools without permission checks or approval prompts.', pillClass: 'border-rose-400/35 bg-rose-500/[0.13] text-rose-100 hover:bg-rose-500/[0.18]', accentClass: 'text-rose-300', selectedMenuClass: 'bg-rose-500/[0.09]', icon: LockOpen }
+    { mode: 'full-access', label: 'Full access', shortLabel: 'Full', pillWidth: '64px', description: 'Run routine tools directly. Protected changes ask a question before they run.', pillClass: 'border-rose-400/35 bg-rose-500/[0.13] text-rose-100 hover:bg-rose-500/[0.18]', accentClass: 'text-rose-300', selectedMenuClass: 'bg-rose-500/[0.09]', icon: LockOpen }
 ]
 
 export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
@@ -173,7 +174,7 @@ export const ComposerAttachmentsShelf = memo(function ComposerAttachmentsShelf({
                 const isPastedText = isPastedTextAttachment(file)
                 const cardWidthClass = isPastedText ? 'w-[92px]' : 'w-[116px]'
                 const handleOpenImagePreview = () => {
-                    if (presentation === 'cards') {
+                    if (presentation === 'cards' || file.path?.startsWith('clipboard://')) {
                         onPreview(file)
                         return
                     }
@@ -370,6 +371,21 @@ export const ComposerVoiceButton = memo(({
     )
 })
 
+function SpeedBolt({ speed, size = 14 }: { speed: AssistantSpeedPreference; size?: number }) {
+    return <span aria-hidden="true" className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+        {speed === 'ultrafast' && <Zap size={size} strokeWidth={2.2} fill="currentColor" className="absolute -top-0.5 -right-0.5 opacity-50" />}
+        <Zap size={size} strokeWidth={2.2} fill={speed ? 'currentColor' : 'transparent'} className={cn(
+            'relative transition-[fill,transform] duration-200 ease-out motion-reduce:transition-none',
+            speed === 'ultrafast' && '-translate-x-0.5 translate-y-0.5',
+            !speed && 'scale-90 -rotate-[8deg]'
+        )} />
+    </span>
+}
+
+function speedLabel(speed: AssistantSpeedPreference) {
+    return speed === 'ultrafast' ? 'Ultra Fast' : speed ? 'Fast' : 'Standard'
+}
+
 export const ComposerFooterControls = memo(function ComposerFooterControls({
     isCompactFooter,
     forceSingleRow = false,
@@ -398,6 +414,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     setSelectedEffort,
     EFFORT_LABELS,
     fastModeEnabled,
+    serviceTiers,
     setFastModeEnabled,
     selectedRuntimeMode,
     setSelectedRuntimeMode,
@@ -433,8 +450,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
     selectedEffort: string
     setSelectedEffort: Dispatch<SetStateAction<any>>
     EFFORT_LABELS: Record<string, string>
-    fastModeEnabled: boolean
-    setFastModeEnabled: Dispatch<SetStateAction<boolean>>
+    fastModeEnabled: AssistantSpeedPreference
+    serviceTiers?: ('fast' | 'ultrafast')[]
+    setFastModeEnabled: Dispatch<SetStateAction<AssistantSpeedPreference>>
     selectedInteractionMode: string
     setSelectedInteractionMode: Dispatch<SetStateAction<any>>
     selectedRuntimeMode: AssistantRuntimeMode
@@ -464,7 +482,12 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
         ? expandedModelGroup
         : modelGroups.find(group => group.models.some(({ model }) => model.id === selectedModel))?.id || modelGroups[0]?.id || null
     const visibleModelGroups = modelQuery.trim() || !visibleModelGroup ? modelGroups : modelGroups.filter(group => group.id === visibleModelGroup)
-    const canChooseSpeed = supportsAssistantFastMode(selectedModel)
+    const canChooseSpeed = supportsAssistantFastMode(selectedModel) && Boolean(serviceTiers?.length)
+    const speeds: AssistantSpeedPreference[] = [false]
+    if (serviceTiers?.includes('fast')) speeds.push(true)
+    if (serviceTiers?.includes('ultrafast')) speeds.push('ultrafast')
+    const nextSpeed = speeds[(speeds.indexOf(fastModeEnabled) + 1) % speeds.length]
+    const speedAction = `Response speed: ${speedLabel(fastModeEnabled)}. Switch to ${speedLabel(nextSpeed)}.`
     const effortUnavailable = !EFFORT_OPTIONS.includes(selectedEffort)
     const canChooseEffort = EFFORT_OPTIONS.length > 1 || effortUnavailable
     const selectedEffortText = EFFORT_LABELS[selectedEffort] || reasoningChoiceLabel(selectedEffort)
@@ -563,13 +586,71 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
 
     return (
         <div className={cn('flex min-w-0 flex-1 flex-nowrap items-center justify-start text-[14px]', forceSingleRow ? 'gap-1' : 'gap-1.5 max-[520px]:gap-1', isCompactFooter ? 'overflow-visible' : 'overflow-visible')}>
-            <div className="relative min-w-0 flex-[1_1_0%] max-w-full" ref={traitsDropdownRef}>
+            <div ref={accessMenuRef} className="relative shrink-0">
+                {showAccessMenu ? (
+                    <AnchoredNativeOverlay enabled={true} browserZIndex={180}><div
+                        role="menu"
+                        aria-label="Permission mode"
+                        className={cn(
+                            'absolute left-0 z-[180] w-[226px] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[12px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-xl animate-in fade-in duration-150',
+                            traitsMenuOpensDown ? 'top-[36px] slide-in-from-top-1' : 'bottom-[36px] slide-in-from-bottom-1'
+                        )}
+                    >
+                        {ASSISTANT_ACCESS_OPTIONS.map((option) => {
+                            const Icon = option.icon
+                            const selected = option.mode === selectedRuntimeMode
+                            return (
+                                <button
+                                    key={option.mode}
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked={selected}
+                                    onClick={() => {
+                                        setShowAccessMenu(false)
+                                        setSelectedRuntimeMode(option.mode)
+                                    }}
+                                    className={cn(
+                                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]',
+                                        selected && option.selectedMenuClass
+                                    )}
+                                >
+                                    <Icon size={14} className={cn('shrink-0', option.accentClass)} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block font-medium text-sparkle-text">{option.label}</span>
+                                        <span className="block truncate text-[10px] text-sparkle-text-dark">{option.description}</span>
+                                    </span>
+                                    {selected ? <Check size={14} className={cn('shrink-0', option.accentClass)} /> : null}
+                                </button>
+                            )
+                        })}
+                    </div></AnchoredNativeOverlay>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={controlsLocked}
+                    aria-haspopup="menu"
+                    aria-expanded={showAccessMenu}
+                    onClick={() => setShowAccessMenu((open) => !open)}
+                    aria-label={`${selectedAccess.label} permission mode`}
+                    style={{ '--assistant-access-expanded-width': selectedAccess.pillWidth } as CSSProperties}
+                    className={cn(
+                        'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
+                        selectedAccess.pillClass,
+                        controlsLocked && 'cursor-not-allowed opacity-45'
+                    )}
+                    title={selectedAccess.label}
+                >
+                    <SelectedAccessIcon className="assistant-composer-footer-access-icon" />
+                    <span className="assistant-composer-footer-access-label">{selectedAccess.shortLabel}</span>
+                </button>
+            </div>
+            <div className="relative ml-auto flex min-w-0 max-w-full justify-end" ref={traitsDropdownRef}>
                 {controlsMotion.present ? <AnchoredNativeOverlay browserZIndex={170} autoFocus={showTraitsDropdown} onReady={handleControlsReady}><div
                     data-composer-controls-motion
                     aria-hidden={!showTraitsDropdown}
                     inert={!showTraitsDropdown}
                     className={cn(
-                        traitsMenuOpensDown ? 'absolute left-0 top-[36px] z-[170]' : 'absolute bottom-[36px] left-0 z-[170]',
+                        traitsMenuOpensDown ? 'absolute right-0 top-[36px] z-[170]' : 'absolute bottom-[36px] right-0 z-[170]',
                         'transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none motion-reduce:transform-none',
                         controlsVisible ? 'pointer-events-auto translate-y-0 opacity-100' : cn('pointer-events-none opacity-0', traitsMenuOpensDown ? '-translate-y-1' : 'translate-y-1')
                     )}
@@ -588,10 +669,9 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                     <div className="flex items-start gap-1">
                                         {canChooseSpeed ? <button
                                             type="button"
-                                            onClick={() => setFastModeEnabled(!fastModeEnabled)}
-                                            aria-label="Fast mode"
-                                            aria-pressed={fastModeEnabled}
-                                            title={fastModeEnabled ? 'Switch to standard speed' : 'Switch to fast speed'}
+                                            onClick={() => setFastModeEnabled(nextSpeed)}
+                                            aria-label={speedAction}
+                                            title={speedAction}
                                             className={cn(
                                                 'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] motion-reduce:transition-none motion-reduce:transform-none',
                                                 fastModeEnabled
@@ -599,15 +679,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                                                     : 'text-sparkle-text-muted hover:bg-[var(--surface-hover)]'
                                             )}
                                         >
-                                            <Zap
-                                                size={14}
-                                                strokeWidth={2.2}
-                                                fill={fastModeEnabled ? 'currentColor' : 'transparent'}
-                                                className={cn(
-                                                    'transition-[fill,transform] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none',
-                                                    fastModeEnabled ? 'scale-100 rotate-0' : 'scale-90 -rotate-[8deg]'
-                                                )}
-                                            />
+                                            <SpeedBolt speed={fastModeEnabled} />
                                         </button> : <span className="w-6 shrink-0" />}
                                         <div className="min-w-0 flex-1 text-center">
                                             {canChooseEffort ? <div className="text-[14px] font-semibold leading-6 text-[var(--accent-primary)]" aria-live="polite">{selectedEffortText}</div> : null}
@@ -787,7 +859,7 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                         )}
                         aria-hidden="true"
                     >
-                        <Zap size={13} strokeWidth={2.6} fill="currentColor" />
+                        <SpeedBolt speed={fastModeEnabled} size={13} />
                     </span>
                     <span
                         className={cn(
@@ -799,64 +871,6 @@ export const ComposerFooterControls = memo(function ComposerFooterControls({
                         {canChooseEffort ? <span className={cn('shrink-0', selectedEffortTone.textClass)}>{selectedEffortText}</span> : null}
                         <ChevronDown size={12} className="-mr-0.5 ml-0.5 shrink-0 text-sparkle-text-muted" />
                     </span>
-                </button>
-            </div>
-            <div ref={accessMenuRef} className="relative shrink-0">
-                {showAccessMenu ? (
-                    <AnchoredNativeOverlay enabled={true} browserZIndex={180}><div
-                        role="menu"
-                        aria-label="Permission mode"
-                        className={cn(
-                            'absolute right-0 z-[180] w-[226px] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--color-text)_16%,transparent)] bg-[var(--surface-floating)] p-1.5 text-[12px] text-sparkle-text shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-xl animate-in fade-in duration-150',
-                            traitsMenuOpensDown ? 'top-[36px] slide-in-from-top-1' : 'bottom-[36px] slide-in-from-bottom-1'
-                        )}
-                    >
-                        {ASSISTANT_ACCESS_OPTIONS.map((option) => {
-                            const Icon = option.icon
-                            const selected = option.mode === selectedRuntimeMode
-                            return (
-                                <button
-                                    key={option.mode}
-                                    type="button"
-                                    role="menuitemradio"
-                                    aria-checked={selected}
-                                    onClick={() => {
-                                        setShowAccessMenu(false)
-                                        setSelectedRuntimeMode(option.mode)
-                                    }}
-                                    className={cn(
-                                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]',
-                                        selected && option.selectedMenuClass
-                                    )}
-                                >
-                                    <Icon size={14} className={cn('shrink-0', option.accentClass)} />
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block font-medium text-sparkle-text">{option.label}</span>
-                                        <span className="block truncate text-[10px] text-sparkle-text-dark">{option.description}</span>
-                                    </span>
-                                    {selected ? <Check size={14} className={cn('shrink-0', option.accentClass)} /> : null}
-                                </button>
-                            )
-                        })}
-                    </div></AnchoredNativeOverlay>
-                ) : null}
-                <button
-                    type="button"
-                    disabled={controlsLocked}
-                    aria-haspopup="menu"
-                    aria-expanded={showAccessMenu}
-                    onClick={() => setShowAccessMenu((open) => !open)}
-                    aria-label={`${selectedAccess.label} permission mode`}
-                    style={{ '--assistant-access-expanded-width': selectedAccess.pillWidth } as CSSProperties}
-                    className={cn(
-                        'assistant-composer-footer-access-control inline-flex h-7 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px] font-medium transition-[width,height,padding,gap,color,background-color,border-color]',
-                        selectedAccess.pillClass,
-                        controlsLocked && 'cursor-not-allowed opacity-45'
-                    )}
-                    title={selectedAccess.label}
-                >
-                    <SelectedAccessIcon className="assistant-composer-footer-access-icon" />
-                    <span className="assistant-composer-footer-access-label">{selectedAccess.shortLabel}</span>
                 </button>
             </div>
             {connectionPillState ? (
@@ -902,7 +916,7 @@ export const ComposerStatusBar = memo(({
     modelsLoading: boolean
     branchesLoading: boolean
     thinkingLabel: string
-    fastModeEnabled: boolean
+    fastModeEnabled: AssistantSpeedPreference
     branchDropdownRef: RefObject<HTMLDivElement | null>
     showBranchDropdown: boolean
     setShowBranchDropdown: Dispatch<SetStateAction<boolean>>

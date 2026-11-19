@@ -67,7 +67,7 @@ export function SettingsSection({ title, displayTitle, searchSection, icon, titl
                 </div>
             ) : null}
             <SettingsSearchSectionContext.Provider value={searchSection || title}>
-                <div className={cn('zyra-settings-section-body relative overflow-visible rounded-xl border border-[var(--settings-border)] bg-[var(--settings-section)] text-[var(--settings-text)] shadow-[inset_0_1px_0_var(--settings-section-highlight)]', bodyClassName)}>{children}</div>
+                <div data-zyra-part="settings.section" className={cn('zyra-settings-section-body relative overflow-visible rounded-xl border border-[var(--settings-border)] bg-[var(--settings-section)] text-[var(--settings-text)] shadow-[inset_0_1px_0_var(--settings-section-highlight)]', bodyClassName)}>{children}</div>
             </SettingsSearchSectionContext.Provider>
         </section>
     )
@@ -117,6 +117,7 @@ export function SettingsRow({ title, description, icon, info, status, statusTone
     return (
         <div
             {...props}
+            data-zyra-part="settings.row"
             data-settings-search-target={searchTargetId || undefined}
             tabIndex={searchTargetId ? -1 : props.tabIndex}
             className={cn('zyra-settings-row px-4 transition-colors duration-100 hover:bg-[var(--settings-row-hover)] [content-visibility:auto] [contain-intrinsic-size:auto_68px]', connection ? 'py-2.5 min-h-16 flex flex-col justify-center' : children ? 'pb-2.5 pt-3.5' : 'py-3.5', className)}

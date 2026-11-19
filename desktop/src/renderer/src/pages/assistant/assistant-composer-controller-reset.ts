@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import type { RefObject } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode } from '@shared/assistant/contracts'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
@@ -11,14 +12,12 @@ export function resetAssistantComposerDirtyState(input: {
     baseRuntimeMode: AssistantRuntimeMode
     baseInteractionMode: AssistantInteractionMode
     defaultEffort: AssistantComposerPreferenceEffort
-    defaultFastModeEnabled: boolean
+    defaultFastModeEnabled: AssistantSpeedPreference
     textareaRef: RefObject<HTMLTextAreaElement | null>
     setText: (value: string) => void
     setInlineMentionTags: (value: []) => void
     setContextFiles: (value: ComposerContextFile[]) => void
     setSentPromptHistory: (value: []) => void
-    setHistoryCursor: (value: number | null) => void
-    setDraftBeforeHistory: (value: string) => void
     setShowMentionMenu: (value: boolean) => void
     setPreviewAttachment: (value: null) => void
     setRemovingAttachmentIds: (value: []) => void
@@ -26,7 +25,7 @@ export function resetAssistantComposerDirtyState(input: {
     setSelectedRuntimeMode: (value: AssistantRuntimeMode) => void
     setSelectedInteractionMode: (value: AssistantInteractionMode) => void
     setSelectedEffort: (value: AssistantComposerPreferenceEffort) => void
-    setFastModeEnabled: (value: boolean) => void
+    setFastModeEnabled: (value: AssistantSpeedPreference) => void
     setComposerCursor: (value: number) => void
 }) {
     const {
@@ -42,8 +41,6 @@ export function resetAssistantComposerDirtyState(input: {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -60,8 +57,6 @@ export function resetAssistantComposerDirtyState(input: {
     setInlineMentionTags([])
     setContextFiles(nextState.contextFiles || [])
     setSentPromptHistory([])
-    setHistoryCursor(null)
-    setDraftBeforeHistory('')
     setShowMentionMenu(false)
     setPreviewAttachment(null)
     setRemovingAttachmentIds([])

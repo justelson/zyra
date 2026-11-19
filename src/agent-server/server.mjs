@@ -1,3 +1,4 @@
+import { readPermissionDecision } from '../permission-question.mjs';
 import { prepareAgentUpdate, cancelAgentUpdate, releaseAgentUpdate } from './update-maintenance.mjs';
 import { assertRuntimeStartAllowed, recordInstallHandoff } from './install-guard.mjs';
 import { normalizePromptImages } from '../prompt-images.mjs';
@@ -1246,6 +1247,7 @@ class ServerOwnedSession {
       this.journal.append(entry);
     }
     this.rebuildLatestTurnSummary();
+    const liveQuestionIds = new Set(this.pendingUserInputRequestIds);
     for (const id of this.pendingUserInputRequestIds) this.pendingAttentionEvents.delete(id);
     this.pendingUserInputRequestIds.clear();
     this.pendingUserInputModes.clear();
@@ -1255,6 +1257,12 @@ class ServerOwnedSession {
       if (['user_input_response_claimed', 'user_input_response_completed'].includes(entry.event?.type)) this.userInputResponses.restore(entry.event);
       const fleet = entry?.event?.fleet || entry?.event?.fleetSnapshot;
       this.latestFleetSnapshot = selectCurrentFleetSnapshot(this.latestFleetSnapshot, fleet);
+    }
+    // An ordinary async answer can resume after restart. A permission answer belongs to one live tool call.
+    for (const id of this.pendingUserInputRequestIds) {
+      if (id.startsWith('permission:') && !liveQuestionIds.has(id)) {
+        this.publish({ type: 'user_input_resolved', requestId: id, answers: {}, cancelled: true, reason: 'The requesting tool is no longer running.' });
+      }
     }
     if (this.latestFleetSnapshot) {
       this.updateBackgroundWork({ fleet: this.latestFleetSnapshot });
@@ -1349,6 +1357,9 @@ class ServerOwnedSession {
     const questionMode = this.pendingUserInputModes.get(questionId) || this.userInputResponseStates.get(questionId)?.mode || 'blocking';
     const questionEvent = this.pendingAttentionEvents.get(questionId);
     if (type === 'user_input.respond') {
+      if (questionId.startsWith('permission:') && questionEvent?.questions?.length) {
+        readPermissionDecision(questionEvent.questions[0], payload.answers, payload.cancelled === true);
+      }
       payload = { ...payload,
         ...(questionMode === 'async' || payload?.mode ? { mode: questionMode } : {}),
         ...(questionMode === 'async' ? {

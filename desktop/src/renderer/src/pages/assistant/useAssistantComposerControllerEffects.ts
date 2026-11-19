@@ -1,3 +1,4 @@
+import type { AssistantSpeedPreference } from './assistant-model-groups'
 import { isOverlayEventInside } from '@/components/ui/native-overlay-portal'
 import { addOverlayEventListener, addOverlayWindowBlurListener } from '@/components/ui/native-overlay-portal'
 import { useEffect, useLayoutEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
@@ -70,8 +71,6 @@ export function useAssistantComposerControllerEffects(input: {
     setInlineMentionTags: Dispatch<SetStateAction<InlineMentionTag[]>>
     setContextFiles: Dispatch<SetStateAction<ComposerContextFile[]>>
     setSentPromptHistory: Dispatch<SetStateAction<string[]>>
-    setHistoryCursor: Dispatch<SetStateAction<number | null>>
-    setDraftBeforeHistory: Dispatch<SetStateAction<string>>
     setShowMentionMenu: Dispatch<SetStateAction<boolean>>
     setPreviewAttachment: Dispatch<SetStateAction<ComposerContextFile | null>>
     setRemovingAttachmentIds: Dispatch<SetStateAction<string[]>>
@@ -79,7 +78,7 @@ export function useAssistantComposerControllerEffects(input: {
     setSelectedRuntimeMode: Dispatch<SetStateAction<AssistantRuntimeMode>>
     setSelectedInteractionMode: Dispatch<SetStateAction<AssistantInteractionMode>>
     setSelectedEffort: Dispatch<SetStateAction<AssistantComposerPreferenceEffort>>
-    setFastModeEnabled: Dispatch<SetStateAction<boolean>>
+    setFastModeEnabled: Dispatch<SetStateAction<AssistantSpeedPreference>>
     setComposerCursor: Dispatch<SetStateAction<number>>
     setActiveMentionIndex: Dispatch<SetStateAction<number>>
     setModelQuery: Dispatch<SetStateAction<string>>
@@ -133,8 +132,6 @@ export function useAssistantComposerControllerEffects(input: {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -173,8 +170,6 @@ export function useAssistantComposerControllerEffects(input: {
         setInlineMentionTags([])
         setContextFiles(nextState.contextFiles || [])
         setSentPromptHistory([])
-        setHistoryCursor(null)
-        setDraftBeforeHistory('')
         setShowMentionMenu(false)
         setPreviewAttachment(null)
         setRemovingAttachmentIds([])
@@ -196,9 +191,7 @@ export function useAssistantComposerControllerEffects(input: {
         sessionId,
         setComposerCursor,
         setContextFiles,
-        setDraftBeforeHistory,
         setFastModeEnabled,
-        setHistoryCursor,
         setInlineMentionTags,
         setLoadedSessionId,
         setPreviewAttachment,

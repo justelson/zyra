@@ -4,6 +4,7 @@ import React, { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import BrowserCapturesSettings from '../../src/renderer/src/pages/settings/BrowserCapturesSettings'
+import { BrowserExtensionRow } from '../../src/renderer/src/pages/settings/BrowserExtensionRow'
 import BrowserControlSettings from '../../src/renderer/src/pages/settings/BrowserControlSettings'
 import { AssistantBrowserWorkspace } from '../../src/renderer/src/pages/assistant/AssistantBrowserWorkspace'
 import { AssistantInspectorDeveloperToast, useAssistantInspectorDeveloperToast } from '../../src/renderer/src/pages/assistant/AssistantInspectorDeveloperToast'
@@ -67,6 +68,23 @@ const textButton = (label: string) => [...document.querySelectorAll<HTMLButtonEl
         else { await mount(<BrowserCapturesSettings />); if (view === 'delete') await click(button('Delete capture')) }
     },
     run: async () => {
+        const name = 'Extension with a deliberately long display name'
+        const description = 'A long description that should fit on a single line. '.repeat(5)
+        const actions: string[] = []
+        await mount(<div style={{width: 330}}><BrowserExtensionRow extension={{ id: 'fixture', name, description, version: '1', enabled: true, path: '', permissions: ['tabs'], hostPermissions: [], warnings: [], iconDataUrl: screenshot.thumbnailDataUrl }}
+            busy={false} onToggle={async () => { actions.push('toggle') }} onRemove={async () => { actions.push('remove') }} onReload={async () => { actions.push('reload') }} /></div>)
+        const options = button('Options for ' + name)!
+        const title = document.querySelector<HTMLElement>('[title="' + name + '"]')!
+        const subtitle = document.querySelector<HTMLElement>('p[title]')!
+        check([title,subtitle].every(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).whiteSpace === 'nowrap'), 'extension title and description truncate on separate lines')
+        check(Math.abs(options.getBoundingClientRect().y - button('Disable ' + name)!.getBoundingClientRect().y) < 10, 'extension controls align at narrow width')
+        check(!textButton('Remove') && !textButton('Reload'), 'row actions are tucked into the options menu')
+        await click(options); await click(textButton('Permissions'))
+        check(document.querySelector('section[aria-label="Permissions for ' + name + '"]')?.textContent?.includes('tabs'), 'permissions open on demand')
+        await click(button('Close permissions'))
+        await click(options); await click(textButton('Reload'))
+        await click(options); await click(textButton('Remove'))
+        check(actions.join(',') === 'reload,remove', 'overflow actions reach their handlers')
         await mount(<BrowserCapturesSettings />)
         check(document.querySelectorAll('li').length === 3, 'actual library lists saved captures')
         await click(button('Copy image')); check(calls.at(-1)?.[1].mode === 'image', 'screenshot copies actual image')

@@ -1,7 +1,7 @@
 import type { DevScopeAppMenuCommand } from './contracts/devscope-api'
 
 export function isAppMenuCommand(value: unknown): value is DevScopeAppMenuCommand {
-    return value === 'new-chat' || value === 'search' || value === 'settings' || value === 'reload' || value === 'about' || value === 'browser-capture'
+    return value === 'new-chat' || value === 'search' || value === 'settings' || value === 'reload' || value === 'about' || value === 'browser-capture' || value === 'browser-settings'
 }
 
 /** Capture commands arriving before React mounts or while its listener remounts. */

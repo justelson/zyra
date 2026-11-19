@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 import type { AssistantInteractionMode, AssistantRuntimeMode, AssistantUpdateSessionConfigurationInput } from '@shared/assistant/contracts'
 import type { DevScopeGitBranchSummary } from '@shared/contracts/devscope-api'
 import { useSettings } from '@/lib/settings'
 import type { MentionCandidate } from './assistant-composer-mentions'
+import { createComposerPromptRecall } from './assistant-composer-prompt-recall'
 import { createAssistantComposerHandlers } from './assistant-composer-handlers'
 import {
     buildAssistantComposerSessionState,
@@ -30,7 +31,7 @@ import { useAssistantSpeechInput } from './useAssistantSpeechInput'
 import { createAssistantDictationJob, registerAssistantDictationOwner } from './assistant-dictation-jobs'
 import { reconcileInlineMentionTags, replaceInlineMentionTokensWithLabels } from './assistant-composer-inline-mentions'
 import { getContextFileMeta } from './assistant-composer-utils'
-import { supportsAssistantFastMode } from './assistant-model-groups'
+import { composerServiceTier, resolveComposerSpeed } from './assistant-model-groups'
 import { useAssistantComposerControllerEffects } from './useAssistantComposerControllerEffects'
 import type { AssistantComposerPreferenceEffort } from './assistant-composer-preferences'
 import { readRememberedChoices, rememberComposerChoices, readRememberedModelEffort, rememberModelEffort } from './assistant-remembered-choices'
@@ -158,8 +159,12 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     const [inlineMentionTags, setInlineMentionTags] = useState<InlineMentionTag[]>([])
     const [contextFiles, setContextFiles] = useState<ComposerContextFile[]>([])
     const [sentPromptHistory, setSentPromptHistory] = useState<string[]>([])
-    const [historyCursor, setHistoryCursor] = useState<number | null>(null)
-    const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
+    const promptRecall = useMemo(() => createComposerPromptRecall(!useSettingsDefaults && normalizedSessionId && configurationThreadId ? async before => {
+        const result = await window.devscope.assistant.getHistoryPage({ threadId: configurationThreadId, before, turnLimit: 8 })
+        if (!result.success) throw new Error(result.error || 'Could not read prompt history.')
+        return result.page
+    } : undefined), [normalizedSessionId, configurationThreadId, resetStateToken, useSettingsDefaults])
+    useLayoutEffect(() => promptRecall.cancel, [promptRecall])
     const [showModelDropdown, setShowModelDropdown] = useState(false)
     const [showTraitsDropdown, setShowTraitsDropdown] = useState(false)
     const [showBranchDropdown, setShowBranchDropdown] = useState(false)
@@ -216,7 +221,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
     ), [])
     const publishConfiguration = useCallback((patch: Pick<AssistantUpdateSessionConfigurationInput, 'model' | 'runtimeMode' | 'effort'>) => {
         // New/unconnected chats retain their local launch choices until Send.
-        if (isThinking || useSettingsDefaults || !normalizedSessionId || !configurationThreadId || !isConnected) return
+        if (isThinking || useSettingsDefaults || !normalizedSessionId || !configurationThreadId) return
         void configurationPublisher({ sessionId: normalizedSessionId, threadId: configurationThreadId, ...patch })
             .catch(error => {
                 const canonical = canonicalConfigurationRef.current
@@ -480,8 +485,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setInlineMentionTags,
         setContextFiles,
         setSentPromptHistory,
-        setHistoryCursor,
-        setDraftBeforeHistory,
         setShowMentionMenu,
         setPreviewAttachment,
         setRemovingAttachmentIds,
@@ -526,6 +529,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         projectPath, branchName, currentBranch, isSwitchingBranch, setIsSwitchingBranch, setBranchActionError,
         setBranches, setShowBranchDropdown, setBranchQuery, setActiveBranchIndex, setBranchRefreshToken
     })
+    const selectedModelMetadata = availableModelOptions.find(model => model.id === selectedModel) ?? null
+    const effectiveSpeed = resolveComposerSpeed(selectedModelMetadata, fastModeEnabled)
     const handlers = createAssistantComposerHandlers({
         startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree,
         disabled,
@@ -545,10 +550,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setContextFiles,
         sentPromptHistory,
         setSentPromptHistory,
-        historyCursor,
-        setHistoryCursor,
-        draftBeforeHistory,
-        setDraftBeforeHistory,
+        promptRecall,
         showMentionMenu,
         setShowMentionMenu,
         mentionCandidates,
@@ -576,7 +578,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setSelectedRuntimeMode: chooseRuntimeMode,
         selectedInteractionMode,
         selectedEffort,
-        fastModeEnabled,
+        fastModeEnabled: effectiveSpeed,
         setComposerCursor,
         removingAttachmentIds,
         setRemovingAttachmentIds,
@@ -647,7 +649,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 startInNewWorktree: placement === 'center' && isGitRepo && startInNewWorktree || undefined,
                 model: selectedModel || undefined, runtimeMode: selectedRuntimeMode,
                 interactionMode: selectedInteractionMode, effort: selectedEffort,
-                serviceTier: fastModeEnabled && supportsAssistantFastMode(selectedModel) ? 'fast' as const : undefined,
+                serviceTier: composerServiceTier(effectiveSpeed),
                 dispatchMode: isThinking ? settings.assistantBusyMessageMode : 'immediate' as const
             }
             return createAssistantDictationJob({ ownerKey: dictationOwnerKey, sessionId: normalizedSessionId,
@@ -679,8 +681,6 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
             setInlineMentionTags,
             setContextFiles,
             setSentPromptHistory,
-            setHistoryCursor,
-            setDraftBeforeHistory,
             setShowMentionMenu,
             setPreviewAttachment,
             setRemovingAttachmentIds,
@@ -704,8 +704,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setPreviewAttachment(null)
         setRemovingAttachmentIds([])
         setShowMentionMenu(false)
-        setHistoryCursor(null)
-        setDraftBeforeHistory('')
+        promptRecall.cancel()
         setComposerCursor(cursorPosition)
 
         if (typeof window !== 'undefined') {
@@ -716,7 +715,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
                 element.setSelectionRange(cursorPosition, cursorPosition)
             })
         }
-    }, [textareaRef])
+    }, [promptRecall, textareaRef])
 
     return buildAssistantComposerControllerResult({
         loadedSessionId,
@@ -776,8 +775,7 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         setInlineMentionTags,
         contextFiles,
         updateAttachment: (file: ComposerContextFile) => setContextFiles(current => current.map(existing => existing.id === file.id ? file : existing)),
-        historyCursor,
-        setHistoryCursor,
+        promptRecall,
         showModelDropdown,
         setShowModelDropdown,
         showTraitsDropdown,
@@ -825,7 +823,8 @@ export function useAssistantComposerController(props: AssistantComposerProps) {
         selectedModelLabel,
         selectedModelInputModes: typeof selectedModelOption === 'string' ? undefined : selectedModelOption.inputModes,
         selectedModelContextWindow: availableModelOptions.find((model) => model.id === selectedModel)?.contextWindow ?? null,
-        selectedModelMetadata: availableModelOptions.find((model) => model.id === selectedModel) ?? null,
+        selectedModelMetadata,
+        effectiveSpeed,
         latestModelId,
         filteredModelOptions,
         setActiveModelIndex,

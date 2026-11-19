@@ -37,7 +37,7 @@ function Fixture({placement}){
  const controller={...refs,placement,contextFiles:[],text:'',composerCursor:0,projectRoots:[],queuedMessages:[],removingAttachmentIds:[],inlineMentionTags:[],mentionCandidates:[],projectChoices:[],
   capabilities:{canSend:true,composerAvailable:true,canStop:false,showBusySendActions:false},voiceInput:{isStarting:false,isRecording:false,isTranscribing:false,isSupported:false,stopBrowserOnInput:noop},
   submitLabel:'Send',isConnected:true,selectedModel,selectedModelLabel:selectedModel.endsWith('5.4')?'GPT-5.4':'GPT-5.3',selectedEffort,selectedInteractionMode:'default',selectedRuntimeMode,displayedProfile:'fixture',zyraProfile:'concise',EFFORT_OPTIONS:['low','medium','high'],EFFORT_LABELS:{low:'Low',medium:'Medium',high:'High'},
-  modelQuery,activeModelIndex,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'},{id:'opencode-harness/openai/gpt-5.4',label:'GPT-5.4',description:'OpenCode harness route'}].filter(model=>(model.label+' '+model.id).toLowerCase().includes(modelQuery.toLowerCase())),showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,
+  modelQuery,activeModelIndex,modelsLoading:false,modelsError:null,latestModelId:null,filteredModelOptions:[{id:'openai-codex/gpt-5.4',label:'GPT-5.4'},{id:'openai-codex/gpt-5.3',label:'GPT-5.3'},{id:'opencode-harness/openai/gpt-5.4',label:'GPT-5.4',description:'OpenCode harness route'}].filter(model=>(model.label+' '+model.id).toLowerCase().includes(modelQuery.toLowerCase())),showTraitsDropdown,setShowTraitsDropdown,setSelectedEffort,setSelectedModel,setSelectedRuntimeMode,fastModeEnabled,setFastModeEnabled,effectiveSpeed:fastModeEnabled,selectedModelMetadata:{serviceTiers:selectedModel.endsWith('5.3')?['fast','ultrafast']:['fast']},
   setPreviewAttachment:noop,removeAttachment:noop,setText:noop,setShowMentionMenu:noop,setComposerCursor:noop,setInlineMentionTags:noop,syncScrollAffordance:noop,handlePaste:noop,handleKeyDown:noop,handleSend:noop,attachFile:noop,setShowModelDropdown:noop,setModelQuery,setActiveModelIndex,onZyraProfileChange:noop}
  return <div className="assistant-conversation-pane" style={{width:'min(760px,calc(100% - 32px))',margin:'280px auto 100px'}}><div className="relative z-40 will-change-transform" data-composer-pane-fixture><AssistantComposerView controller={controller}/></div><output id="choices">{selectedEffort+'|'+selectedModel+'|'+selectedRuntimeMode}</output><button id="outside">Outside fixture action</button></div>
 }
@@ -92,8 +92,12 @@ window.fixtureMotion=async()=>{
  check(exit,'closing animates opacity instead of unmounting abruptly')
  exit.currentTime=90
  check(Number(getComputedStyle(shell).opacity)>0&&Number(getComputedStyle(shell).opacity)<1,'closing paints an intermediate opacity')
- await click(trigger());await settle()
- check(document.querySelectorAll('[data-composer-controls-motion]').length===1&&Number(getComputedStyle(shell).opacity)===1,'rapid close/reopen reverses without duplicate or stale unmount')
+ await click(trigger())
+ // Let React commit frame-driven state before sampling the compositor. A single
+ // timed act batches those updates until its callback has already returned.
+ const deadline=performance.now()+1500
+ while(shell.isConnected&&performance.now()<deadline&&(shell.inert||Number(getComputedStyle(shell).opacity)!==1))await flush()
+ check(document.querySelectorAll('[data-composer-controls-motion]').length===1&&shell.isConnected&&!shell.inert&&Number(getComputedStyle(shell).opacity)===1,'rapid close/reopen reverses without duplicate or stale unmount: connected='+shell.isConnected+', inert='+shell.inert+', opacity='+getComputedStyle(shell).opacity)
  await click(trigger());await settle()
  check(!document.querySelector('[data-composer-controls-motion]'),'exit finally releases the popup and portal')
 }
@@ -112,14 +116,16 @@ window.fixtureCheck=()=>{
  return {viewport:innerWidth,model:model.toJSON(),anchor:anchor.toJSON(),panel:panel.toJSON()}
 }
 window.fixtureInteractions=async()=>{
+ const attach=document.querySelector('[aria-label="Attach files"]').getBoundingClientRect(),accessButton=document.querySelector('[aria-label="Supervised permission mode"]').getBoundingClientRect()
+ check(attach.right<=accessButton.left && accessButton.left-attach.right<24 && Math.abs((attach.top+attach.bottom-accessButton.top-accessButton.bottom)/2)<2,'Attach aligns beside the permission control')
  const slider=document.querySelector('[aria-label="Reasoning effort"]')
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'2');slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}))});await flush()
  check(document.getElementById('choices').textContent.startsWith('high|'),'reasoning selection updates synthetic state')
- const fast=document.querySelector('[aria-label="Fast mode"]'),fastIcon=fast.querySelector('svg')
+ const fast=document.querySelector('button[aria-label^="Response speed"]'),fastIcon=fast.querySelector('svg')
  check(fastIcon.getAttribute('fill')==='transparent','Fast is an outline when off')
  getComputedStyle(fastIcon).fill
  await click(fast)
- check(fast.getAttribute('aria-pressed')==='true'&&fastIcon.getAttribute('fill')==='currentColor','Fast is filled when on')
+ check(fast.getAttribute('aria-label').startsWith('Response speed: Fast.')&&fastIcon.getAttribute('fill')==='currentColor','Fast is filled when on')
  const fillTransition=fastIcon.getAnimations().find(animation=>animation.transitionProperty==='fill')
  check(fillTransition&&fillTransition.effect.getComputedTiming().duration===200,'Fast starts a bounded fill transition')
  fillTransition.currentTime=100
@@ -128,7 +134,7 @@ window.fixtureInteractions=async()=>{
  fillTransition.finish()
  check(getComputedStyle(fastIcon).fill===getComputedStyle(fastIcon).color,'Fast settles to a solid filled icon')
  await click(fast)
- check(fast.getAttribute('aria-pressed')==='false'&&fastIcon.getAttribute('fill')==='transparent','Fast returns to an outline when off')
+ check(fast.getAttribute('aria-label').startsWith('Response speed: Standard.')&&fastIcon.getAttribute('fill')==='transparent','Fast returns to an outline when off')
  check(fastIcon.getAnimations().some(animation=>animation.transitionProperty==='fill'),'Fast animates back as well as on')
  const effortBounds=document.querySelector('[data-model-controls-panel]').getBoundingClientRect()
  await click(document.querySelector('[aria-label="Choose model"]'))
@@ -140,7 +146,7 @@ window.fixtureInteractions=async()=>{
  await click([...chooser.querySelectorAll('button[aria-expanded]')].find(node=>node.textContent.includes('OpenCode')))
  await click(chooser.querySelector('button[data-model-index]'))
  check(document.getElementById('choices').textContent.includes('opencode-harness/'),'choosing an identical model preserves its OpenCode route')
- check(!document.querySelector('[aria-label="Fast mode"]'),'fast mode is absent for unsupported routes')
+ check(!document.querySelector('button[aria-label^="Response speed"]'),'fast mode is absent for unsupported routes')
  await click(document.querySelector('[aria-label="Choose model"]'))
  await click(document.querySelector('[aria-label="Search models"]'))
  const search=document.querySelector('input[aria-label="Search models"]')
@@ -148,6 +154,19 @@ window.fixtureInteractions=async()=>{
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'gpt-5.3');search.dispatchEvent(new Event('input',{bubbles:true}))});await flush()
  const model=[...document.querySelectorAll('button[data-model-index]')].find(node=>node.textContent.includes('GPT-5.3'))
  unobscured(model,'searched model choice');await click(model)
+ const speedButton=document.querySelector('button[aria-label^="Response speed"]')
+ check(speedButton&&!document.querySelector('select[aria-label="Response speed"]'),'eligible speed control is a single button')
+ for(const [index,[current,next,bolts]] of [['Standard','Fast',1],['Fast','Ultra Fast',1],['Ultra Fast','Standard',2],['Standard','Fast',1]].entries()){
+   check(speedButton.getAttribute('aria-label')==='Response speed: '+current+'. Switch to '+next+'.','announces current and next speeds')
+   const icons=speedButton.querySelectorAll('svg')
+   check(icons.length===bolts&&!speedButton.textContent.trim(),'speed is represented by bolts alone')
+   if(bolts===2){
+     const [rear,front]=[...icons].map(icon=>icon.getBoundingClientRect())
+     check(rear.top<front.top&&rear.bottom>front.top&&rear.left>front.left&&rear.left<front.right,'Ultra Fast bolts are offset and overlap')
+   }
+   if(current==='Standard')check(icons[0].getAttribute('fill')==='transparent','standard returns to an outline')
+   if(index<3)await click(speedButton)
+ }
  check(document.getElementById('choices').textContent.includes('openai-codex/gpt-5.3'),'model selection updates synthetic state with its exact connection')
  check(document.querySelector('[data-model-chooser]').hidden&&!document.querySelector('[data-effort-card]').hidden,'selection returns to effort without extra panels')
  await click(document.querySelector('[aria-label="Choose model"]'))
@@ -166,7 +185,7 @@ window.fixtureInteractions=async()=>{
 }
 window.fixtureReducedMotion=async()=>{
  await click(trigger())
- const fast=document.querySelector('[aria-label="Fast mode"]'),icon=fast.querySelector('svg')
+ const fast=document.querySelector('button[aria-label^="Response speed"]'),icon=fast.querySelector('svg')
  check(getComputedStyle(document.querySelector('[data-composer-controls-motion]')).transitionProperty==='none','reduced motion disables popup movement')
  check(getComputedStyle(document.querySelector('[data-question-transition]')).transitionProperty==='none','reduced motion disables panel size animation')
  check(getComputedStyle(fast).transitionProperty==='none'&&getComputedStyle(icon).transitionProperty==='none','reduced motion disables Fast transitions')
@@ -220,15 +239,16 @@ app.whenReady().then(async()=>{
     fs.writeFileSync(${JSON.stringify(evidence)}+'/'+placement+'-narrow.png',(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
     await run('fixtureInteractions()');win.setContentSize(1100,900);await run('scrollTo(0,0);new Promise(r=>setTimeout(r,120))');
    }
-   win.webContents.debugger.attach('1.3');
    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-   await run('fixtureReducedMotion()');win.webContents.debugger.detach();
+   await run('fixtureMount("bottom")');await run('fixtureReducedMotion()');win.webContents.debugger.detach();
    console.log('BROWSER_COMPOSER_POPOVER_PASS');app.exit(0);
   }catch(error){
    console.error('BROWSER_COMPOSER_POPOVER_FAIL '+error.stack);
    try{fs.writeFileSync(${JSON.stringify(evidence)}+'/failure.png',(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG())}catch(captureError){console.error('Failure capture unavailable: '+captureError.message)}finally{app.exit(1)}
   }
- });await win.loadFile(${JSON.stringify(join(directory, 'test.html'))});
+ });await win.loadURL('about:blank');win.webContents.debugger.attach('1.3');
+ await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+ await win.loadFile(${JSON.stringify(join(directory, 'test.html'))});
 });setTimeout(()=>{console.error('Browser composer fixture timed out');app.exit(1)},45000);
 `)
     console.log('Browser composer fixture: launching isolated renderer')

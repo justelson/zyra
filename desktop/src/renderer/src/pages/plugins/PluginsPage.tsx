@@ -82,6 +82,9 @@ export default function PluginsPage() {
         <PluginDownloadPanel state={directory.download} displayName={storeCatalog.entries.find(entry => entry.name === directory.download.name)?.displayName} onCancel={() => void directory.cancelDownload()} onRetry={() => { if (directory.download.name) void directory.beginCatalogInstall(directory.download.name) }} />
     </>
 
+    if (tab === 'plugins' && catalog?.pluginsEnabled === false) return <section className="plugin-directory">
+        <div className="plugin-directory-column"><Link to="/settings/assistant/plugins" className="plugin-text-button">Enable Plugins (Beta) in Settings</Link></div>
+    </section>
     return <section ref={scrollContainer} className="plugin-directory custom-scrollbar" data-testid="plugins-page">
         <div className="plugin-directory-column">
             {!productOpen ? <Link to="/assistant" className="plugin-text-button plugin-back-link"><ArrowLeft size={15} />Back to Chat</Link> : null}

@@ -9,6 +9,7 @@ const choice = (...values: string[]) => ({ type: 'string', enum: values })
 const account = { accountId: text() }
 const plugin = { pluginId: text() }
 const schemas: Record<string, Record<string, unknown>> = {
+    'appearance.import_chat_wallpaper': object({filename:text(245)}),
     'providers.disconnect': object({ provider: text(128) }),
     'accounts.routing': object({ policy: object({ strategy: choice('balanced', 'round-robin', 'fill-first'), accountMode: choice('all', 'selected'), accountIds: list(text()), preferredAccountId: { anyOf: [text(), { type: 'null' }] } }) }),
     'accounts.alias': object({ ...account, alias: text(80) }),

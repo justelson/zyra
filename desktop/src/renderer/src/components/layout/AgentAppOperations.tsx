@@ -46,6 +46,12 @@ export function AgentAppOperations() {
             if (!actor?.canonicalChatId || !actor.namespaceId) throw new Error('Authenticated app principal is missing.')
             const input = record(params.input), patch = record(params.patch), area = String(params.area || ''), sessionId = String(params.target || '')
             if (params.surface === 'browser') throw new Error('This operation belongs to the Desktop profile, not a browser profile.')
+            if (domain === 'settings_action' && operation === 'run' && area === 'appearance.import_chat_wallpaper') {
+                if (!actor.approved || actor.child || !['image/png','image/jpeg','image/webp'].includes(String(input.mime)) || typeof input.bytes !== 'string' || input.bytes.length > 16*1024*1024) throw Error('Invalid local wallpaper import.')
+                const bytes = Uint8Array.from(atob(input.bytes), c => c.charCodeAt(0))
+                const {importChatWallpaper} = await import('@/lib/chat-wallpaper-assets')
+                return { asset: await importChatWallpaper(new File([bytes], 'wallpaper', {type:String(input.mime)})) }
+            }
             if (domain === 'app' && area === 'destination' && operation === 'open') {
                 const route = String(input.route || '')
                 if (!/^\/(?:settings(?:\/|$)|assistant\/chat\/|plugins(?:\/|$))/.test(route)) throw new Error('Unregistered in-app destination.')

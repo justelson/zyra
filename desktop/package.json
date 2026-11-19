@@ -16,7 +16,7 @@
         "test:developer-workflow": "bun scripts/test-project-content-search.ts && bun scripts/test-project-content-search-race.ts && bun scripts/test-developer-workflow.ts && bun scripts/test-assistant-worktree-cleanup.ts && bun scripts/test-developer-ipc.ts && bun scripts/test-developer-shutdown.ts && bun scripts/test-developer-workflow-renderer.tsx && bun scripts/test-command-palette-account-usage.tsx && bun scripts/test-chatgpt-account-identity.tsx && bun scripts/test-composer-presentation.tsx",
         "test:chatgpt-account-identity": "bun scripts/test-command-palette-account-usage.tsx && bun scripts/test-chatgpt-account-identity.tsx",
         "test:reasoning-options": "node scripts/test-reasoning-options.mjs",
-        "test:agent-ui-edits": "bun scripts/test-ui-parts.ts && node scripts/test-ui-parts-renderer.mjs",
+        "test:agent-ui-edits": "bun scripts/test-wallpaper-import.ts && bun scripts/test-ui-parts.ts && node scripts/test-ui-parts-renderer.mjs",
         "test:composer-presentation": "bun scripts/test-composer-presentation.tsx",
         "test:project-content-search": "bun scripts/test-project-content-search.ts && bun scripts/test-project-content-search-race.ts",
         "test:chatgpt-accounts": "bun scripts/test-chatgpt-account-controls.ts && bun scripts/test-chatgpt-limits-renderer.tsx",
